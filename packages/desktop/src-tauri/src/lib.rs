@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, RunEvent, State};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -550,7 +550,9 @@ fn get_status(state: State<AppState>) -> Status { state.0.lock().unwrap().status
 #[tauri::command]
 fn save_config(app: AppHandle, state: State<AppState>, config: Config) -> Result<(), String> {
     save_config_file(&app, &config);
+    let mode = config.mode.clone();
     state.0.lock().unwrap().config = config;
+    sync_mode_menu(&app, &mode);
     connect(app.clone(), state.inner().clone(), false);
     Ok(())
 }
@@ -558,12 +560,25 @@ fn save_config(app: AppHandle, state: State<AppState>, config: Config) -> Result
 #[tauri::command]
 fn retry(app: AppHandle, state: State<AppState>) { connect(app.clone(), state.inner().clone(), false); }
 
+/// Keep the three `mode_*` radio checkmarks in the Connection menu matching `mode`.
+fn sync_mode_menu(app: &AppHandle, mode: &str) {
+    let Some(menu) = app.menu() else { return };
+    for (id, m) in [("mode_local", "local"), ("mode_remote", "remote"), ("mode_attach", "attach")] {
+        if let Some(item) = menu.get(id) {
+            if let Some(check) = item.as_check_menuitem() {
+                let _ = check.set_checked(m == mode);
+            }
+        }
+    }
+}
+
 fn set_mode(app: &AppHandle, state: &AppState, mode: &str) {
     {
         let mut inner = state.0.lock().unwrap();
         inner.config.mode = mode.into();
         save_config_file(app, &inner.config);
     }
+    sync_mode_menu(app, mode);
     connect(app.clone(), state.clone(), true);
 }
 
@@ -581,11 +596,12 @@ pub fn run() {
             let handle = app.handle().clone();
             migrate_legacy_data(&handle);
             let cfg = load_config(&handle);
+            let initial_mode = cfg.mode.clone();
             state.0.lock().unwrap().config = cfg;
 
-            let m_local = MenuItem::with_id(app, "mode_local", "Local: this PC (own database)", true, None::<&str>)?;
-            let m_remote = MenuItem::with_id(app, "mode_remote", "VPS: over SSH tunnel", true, None::<&str>)?;
-            let m_attach = MenuItem::with_id(app, "mode_attach", "Attach to a running local hub", true, None::<&str>)?;
+            let m_local = CheckMenuItem::with_id(app, "mode_local", "Local: this PC (own database)", true, initial_mode == "local", None::<&str>)?;
+            let m_remote = CheckMenuItem::with_id(app, "mode_remote", "VPS: over SSH tunnel", true, initial_mode == "remote", None::<&str>)?;
+            let m_attach = CheckMenuItem::with_id(app, "mode_attach", "Attach to a running local hub", true, initial_mode == "attach", None::<&str>)?;
             let m_reload = MenuItem::with_id(app, "reload", "Reload", true, Some("F5"))?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;
