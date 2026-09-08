@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, PROVIDER_IDS, type Settings } from '@pocketrocket/shared';
 import { createProviders } from './registry.js';
+import { StubProvider } from './stub.js';
 import { EMPTY_USAGE, type TurnContext, type TurnSink } from './types.js';
 
 function withProvider(provider: Settings['provider']) {
@@ -31,17 +32,22 @@ describe('provider registry', () => {
     expect(await reg.get('codex').models()).toEqual(reg.modelsSync('codex'));
   });
 
-  it('unimplemented providers check as not-ok with a hint and fail a turn', async () => {
-    const reg = withProvider('codex');
-    const check = await reg.check('codex');
+  it('a not-yet-implemented provider checks as not-ok with a hint and fails a turn', async () => {
+    // Tests StubProvider itself rather than a registry slot, so it keeps passing as each P2x adapter lands.
+    const stub = new StubProvider(
+      { id: 'codex', label: 'Placeholder', blurb: '', authModes: ['apiKey'], secretKeys: [], permissions: 'best-effort' },
+      [],
+      'install the CLI first',
+    );
+    const check = await stub.check();
     expect(check).toMatchObject({ ok: false, auth: 'unknown', error: 'Not implemented yet' });
-    expect(check.hint).toContain('P2A');
+    expect(check.hint).toContain('install the CLI first');
 
-    const outcome = await reg.active().runTurn({} as TurnContext, sink);
+    const outcome = await stub.runTurn({} as TurnContext, sink);
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toContain('not implemented yet');
     expect(outcome.usage).toEqual(EMPTY_USAGE);
-    expect(reg.active().interrupt('nope')).toBe(false);
+    expect(stub.interrupt()).toBe(false);
   });
 
   it('caches checks for 60s and re-runs them on force', async () => {

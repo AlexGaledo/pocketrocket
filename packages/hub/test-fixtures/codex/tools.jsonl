@@ -1,0 +1,15 @@
+{"type":"thread.started","thread_id":"thread-tools-1"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Looking around the workspace**"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"docs\nsrc\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_2","type":"command_execution","command":"bash -lc 'cat missing.txt'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"bash -lc 'cat missing.txt'","aggregated_output":"cat: missing.txt: No such file","exit_code":1,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"file_change","changes":[{"path":"notes/todo.md","kind":"add"},{"path":"src/index.ts","kind":"update"}],"status":"completed"}}
+{"type":"item.started","item":{"id":"item_4","type":"mcp_tool_call","server":"pocketrocket","tool":"send_message","arguments":{"to":"@alex","text":"on it"},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_4","type":"mcp_tool_call","server":"pocketrocket","tool":"send_message","arguments":{"to":"@alex","text":"on it"},"result":{"content":[{"type":"text","text":"delivered"}]},"error":null,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_5","type":"mcp_tool_call","server":"pocketrocket","tool":"request_approval","arguments":{"action":"delete build cache"},"result":null,"error":{"message":"the user declined this action"},"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_6","type":"todo_list","items":[{"text":"tidy up","completed":true}]}}
+{"type":"item.completed","item":{"id":"item_7","type":"some_future_item","payload":{"anything":true}}}
+{"type":"item.completed","item":{"id":"item_8","type":"agent_message","text":"Listed the repo and wrote the notes."}}
+{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":250,"reasoning_output_tokens":100}}

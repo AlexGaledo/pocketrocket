@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"thread-failed-1"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Thinking**"}}
+{"type":"turn.failed","error":{"message":"model response stream ended unexpectedly"}}
