@@ -11,6 +11,7 @@ import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import type { ProviderInit, TurnContext, TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
+import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import { createHubTools } from './botTools.js';
 
@@ -96,9 +97,15 @@ export class BotRunner {
       desktop: desktopOn,
       models: provider.modelsSync().map((m) => m.id),
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
+      // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
+      // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
+      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
     });
 
     const mcpToken = this.turns.registerTurn(tools);
+    // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
+    // everywhere until the turn ends (audit 2026-09-09, B22).
+    addSecret(mcpToken);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -172,7 +179,7 @@ export class BotRunner {
         if (!msgId) return;
         const cur = this.repos.getMessage(msgId);
         if (!cur || !cur.payload) return;
-        const payload: ToolPayload = { ...(cur.payload as ToolPayload), output: output.slice(0, 20000), isError, done: true };
+        const payload: ToolPayload = { ...(cur.payload as ToolPayload), output: redact(output.slice(0, 20000)), isError, done: true };
         this.repos.updateMessage(msgId, { payload });
         events.emitEvent({ type: 'message.update', id: msgId, roomId: room.id, patch: { payload } });
       },
@@ -194,14 +201,16 @@ export class BotRunner {
       const u = outcome.usage;
       if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, req.causeId, u);
     } catch (e) {
-      error = String((e as Error).message ?? e);
+      error = redact(String((e as Error).message ?? e));
     } finally {
       this.activeTurns.delete(turnId);
       this.aborts.delete(turnId);
       this.turns.unregister(mcpToken);
+      removeSecret(mcpToken);
     }
 
     if (!ok && !error) error = 'Turn ended without a result';
+    if (error) error = redact(error);
     if (error) {
       const msg = this.repos.insertMessage({
         roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: bot.name + ' turn ended: ' + error, payload: null,

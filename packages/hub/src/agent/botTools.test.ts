@@ -87,7 +87,10 @@ describe('createHubTools', () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ toolName: 'request_approval', reason: 'delete the build cache', danger: true });
-    expect(JSON.parse((out.content[0] as { text: string }).text)).toEqual({ allowed: true, message: 'Approved by the user.' });
+    // The approval now returns the id of the recorded grant (audit 2026-09-09, B10).
+    const parsed = JSON.parse((out.content[0] as { text: string }).text) as { allowed: boolean; message: string; approvalId: string };
+    expect(parsed).toMatchObject({ allowed: true, message: 'Approved by the user.' });
+    expect(parsed.approvalId).toBe(seen[0].approvalId);
     expect(setState).toHaveBeenCalledWith('blocked');
   });
 

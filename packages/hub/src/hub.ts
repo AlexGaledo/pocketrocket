@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
-  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, HUB_TOKEN, VERSION, DATA_DIR,
-  ensureDirs, migrateLegacyDb,
+  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR,
+  ensureDirs, ensureHubToken, migrateLegacyDb,
 } from './config.js';
 import { Db } from './db/db.js';
 import { Repos } from './db/repos.js';
@@ -21,7 +21,9 @@ import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
-import { checkRequestOrigin, checkToken } from './api/guard.js';
+import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, clientIp } from './api/guard.js';
+import { readBody } from './api/body.js';
+import { addSecret } from './providers/redact.js';
 
 export interface HubOptions {
   port?: number;
@@ -47,7 +49,8 @@ export interface Hub {
 }
 
 export function createHub(opts: HubOptions = {}): Hub {
-  const token = opts.token !== undefined ? opts.token : HUB_TOKEN;
+  const token = opts.token !== undefined ? opts.token : ensureHubToken();
+  addSecret(token);
   let port = opts.port ?? PORT;
   if (!opts.skipBootstrap) {
     ensureDirs();
@@ -92,6 +95,23 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
+  /**
+   * A GET that resolves to a real file under WEB_DIST is the app shell and its hashed assets: served without
+   * the token so the browser can load the page that then asks for one. Nothing else is public — in
+   * particular `/screen/*` resolves to no file here, so it falls through to the token check.
+   */
+  const isPublicAsset = (pathname: string): boolean => {
+    const file = path.join(WEB_DIST, pathname);
+    if (!file.startsWith(WEB_DIST + path.sep)) return false;
+    try {
+      return fs.statSync(file).isFile();
+    } catch {
+      return false;
+    }
+  };
+
+  const limiter = new AuthRateLimiter();
+
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -101,17 +121,35 @@ export function createHub(opts: HubOptions = {}): Hub {
         res.end(JSON.stringify({ error: guard.reason }));
         return;
       }
-      if (!checkToken(req, url, token)) {
+      const ip = clientIp(req);
+      if (limiter.blocked(ip)) {
+        res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '60' });
+        res.end(JSON.stringify({ error: 'Too many failed authentication attempts; try again in a minute' }));
+        return;
+      }
+      if (!checkToken(req, url, token, { isPublicAsset })) {
+        limiter.fail(ip);
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Missing or invalid hub token' }));
+        return;
+      }
+      limiter.succeed(ip);
+      const ct = checkContentType(req, url);
+      if (!ct.ok) {
+        res.writeHead(ct.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: ct.reason }));
         return;
       }
       if (url.pathname === '/mcp') {
         let body: unknown;
         if ((req.method ?? 'GET') === 'POST') {
-          const chunks: Buffer[] = [];
-          for await (const c of req) chunks.push(c as Buffer);
-          const raw = Buffer.concat(chunks).toString('utf8');
+          const buf = await readBody(req);
+          if (buf === null) {
+            res.writeHead(413, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Request body too large' }));
+            return;
+          }
+          const raw = buf.toString('utf8');
           try { body = raw ? JSON.parse(raw) : undefined; } catch { body = undefined; }
         }
         await handleMcp(req, res, body);
@@ -150,10 +188,18 @@ export function createHub(opts: HubOptions = {}): Hub {
   server.on('upgrade', (req, socket, head) => {
     const p = req.url ?? '';
     const url = new URL(p, 'http://localhost');
-    if (!checkRequestOrigin(req, port).ok || !checkToken(req, url, token)) {
+    const ip = clientIp(req);
+    if (limiter.blocked(ip) || !checkRequestOrigin(req, port).ok) {
       socket.destroy();
       return;
     }
+    // Applies to /screen/* too: the noVNC proxy used to be exempt (audit 2026-09-09, B2).
+    if (!checkToken(req, url, token, { isPublicAsset })) {
+      limiter.fail(ip);
+      socket.destroy();
+      return;
+    }
+    limiter.succeed(ip);
     if (url.pathname === '/ws') {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else if (url.pathname.startsWith('/screen/')) {
@@ -178,6 +224,9 @@ export function createHub(opts: HubOptions = {}): Hub {
             ' · http://' + HOST + ':' + port,
           );
           console.log('[pocketrocket] workspace: ' + WORKSPACE_DIR + (token ? '  (token required)' : ''));
+          // The token lives in the URL fragment, so it never reaches the server as a query string and the
+          // web client moves it straight into sessionStorage. This line is how a human opens the UI.
+          if (token) console.log('[pocketrocket] open: http://' + HOST + ':' + port + '/#token=' + token);
           resolve(port);
         });
       }),

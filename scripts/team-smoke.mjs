@@ -1,10 +1,40 @@
 // Team-building smoke: one coordinator bot in an otherwise empty group chat creates its own specialists.
+//
+// Usage: node scripts/team-smoke.mjs [--token <hex>] [--data <dir>] ["message text"]
+// The hub always requires a token: --token, then POCKETROCKET_TOKEN, then <data>/hub-token
+// (--data, POCKETROCKET_DATA, or <repo>/data).
+import fs from 'node:fs';
+import nodePath from 'node:path';
+import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+
+const argv = process.argv.slice(2);
+function flag(name) {
+  const i = argv.indexOf('--' + name);
+  if (i < 0) return undefined;
+  const v = argv[i + 1];
+  argv.splice(i, 2);
+  return v;
+}
+const dataFlag = flag('data');
+function tokenFromDataDir() {
+  const repoRoot = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), '..');
+  const dir = dataFlag ? nodePath.resolve(dataFlag) : process.env.POCKETROCKET_DATA ? nodePath.resolve(process.env.POCKETROCKET_DATA) : nodePath.join(repoRoot, 'data');
+  try {
+    return fs.readFileSync(nodePath.join(dir, 'hub-token'), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+const TOKEN = flag('token') ?? process.env.POCKETROCKET_TOKEN ?? tokenFromDataDir();
+if (!TOKEN) console.warn('[team-smoke] no token found (--token, POCKETROCKET_TOKEN or <data>/hub-token); expect 401s');
+const authHeaders = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};
+
 const BASE = process.env.HUB ?? 'http://127.0.0.1:7788';
-const text = process.argv[2] ?? 'We have no team yet. Create a @researcher (web tools only) and a @writer, then ask @researcher for 3 one-line facts about pnpm workspaces and have @writer turn them into a single tweet. Keep every message under 3 sentences.';
+const text = argv[0] ?? 'We have no team yet. Create a @researcher (web tools only) and a @writer, then ask @researcher for 3 one-line facts about pnpm workspaces and have @writer turn them into a single tweet. Keep every message under 3 sentences.';
 
 async function api(method, path, body) {
-  const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json', ...authHeaders }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json();
   if (!r.ok) throw new Error(method + ' ' + path + ' -> ' + r.status + ' ' + JSON.stringify(j));
   return j;
@@ -22,7 +52,7 @@ const refresh = async () => { for (const b of await api('GET', '/api/bots')) byI
 await refresh();
 const who = (id) => byId[id]?.handle ?? id;
 
-const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws');
+const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''));
 await new Promise((r) => ws.once('open', r));
 let idleTimer;
 const bump = () => { clearTimeout(idleTimer); idleTimer = setTimeout(done, 15000); };

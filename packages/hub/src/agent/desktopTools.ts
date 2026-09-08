@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { DESKTOP_HOME, SCREEN_DISPLAY, WORKSPACE_DIR } from '../config.js';
 import { hubTool } from './botTools.js';
+import { isInside } from '../permissions/pathRules.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
 
 const run = promisify(execFile);
@@ -115,13 +116,19 @@ export function desktopTools(): HubTool[] {
 
   const launch = hubTool(
     'desktop_launch',
-    'Start a desktop application by command, e.g. "xfce4-terminal", "thunar", "mousepad /path/file.txt". Returns a screenshot after it opens.',
+    'Start a desktop GUI application by command, e.g. "thunar", "mousepad notes.txt", "ristretto shot.png". File arguments must be inside the shared workspace. Returns a screenshot after it opens.',
     { command: z.string().min(1).describe('Program and arguments') },
     async (a) => {
-      const allowed = /^(xfce4-terminal|thunar|mousepad|ristretto|xfce4-appfinder|xdg-open)\b/;
-      if (!allowed.test(a.command.trim())) return err('Only desktop apps can be launched here: xfce4-terminal, thunar, mousepad, ristretto, xfce4-appfinder, xdg-open <file|url>. Use Bash for commands.');
+      // No terminals and no shells (audit 2026-09-09, B14): xfce4-terminal used to be launchable and
+      // desktop_type/desktop_key then drove it, which is arbitrary command execution that never touches
+      // bashRules or an approval card. GUI viewers and editors only.
+      const allowed = /^(thunar|mousepad|ristretto|xfce4-appfinder|xdg-open)(\s|$)/;
+      if (!allowed.test(a.command.trim())) return err('Only these desktop apps can be launched: thunar, mousepad, ristretto, xfce4-appfinder, xdg-open <file>. Terminals and shells are not launchable; use Bash for commands.');
+      const [cmd, ...args] = a.command.trim().split(/\s+/);
+      // Every argument is a file the app will open: keep them inside the workspace.
+      const outside = args.filter((x) => !x.startsWith('-') && !isInside(x, [WORKSPACE_DIR], WORKSPACE_DIR));
+      if (outside.length) return err('Only files inside the workspace can be opened: ' + outside.join(', '));
       try {
-        const [cmd, ...args] = a.command.trim().split(/\s+/);
         const { spawn } = await import('node:child_process');
         // Launch in the shared workspace (= desktop folder) with the desktop's HOME so app config persists.
         const child = spawn(cmd, args, { env: { ...env, HOME: DESKTOP_HOME }, cwd: WORKSPACE_DIR, detached: true, stdio: 'ignore' });

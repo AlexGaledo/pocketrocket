@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { DATA_DIR } from '../../config.js';
+import { DATA_DIR, restrictFile } from '../../config.js';
 
 const isWin = process.platform === 'win32';
 const EXE = isWin ? 'grok.exe' : 'grok';
@@ -54,6 +54,12 @@ export function grokConfigToml(): string {
 /**
  * Creates the private home and mirrors the user's cached credentials into it, so a `grok login` done in a
  * normal terminal also authenticates the hub. `XAI_API_KEY` needs none of this.
+ *
+ * The mirror is a real copy of `~/.grok/auth.json` — an OAuth refresh token — living at
+ * `<DATA_DIR>/grok-home/auth.json`. That is deliberate (grok has no way to point at a credentials file) and
+ * it is the reason for three rules (audit 2026-09-09, B18): it is written 0600 + owner-only ACL, it sits in
+ * the hub's private home rather than anywhere a bot's workspace can reach, and `removeAuthMirror` deletes it
+ * on shutdown so a stopped hub leaves no second copy of the user's credentials on disk.
  */
 export function ensureGrokHome(home: string = GROK_HOME): string {
   fs.mkdirSync(home, { recursive: true });
@@ -82,10 +88,65 @@ function mirrorAuth(home: string) {
     } catch {
       /* not mirrored yet */
     }
-    if (d && d.mtimeMs >= s.mtimeMs && d.size === s.size) return;
+    if (d && d.mtimeMs >= s.mtimeMs && d.size === s.size) {
+      restrictFile(dst);
+      return;
+    }
     fs.copyFileSync(src, dst);
+    restrictFile(dst);
   } catch {
     /* no cached login: XAI_API_KEY or `grok login` is the user's job */
+  }
+}
+
+/** Delete the mirrored credentials. Called from GrokProvider.shutdown(); safe when nothing was mirrored. */
+export function removeAuthMirror(home: string = GROK_HOME): void {
+  const dst = path.join(home, 'auth.json');
+  if (path.resolve(dst) === path.resolve(path.join(userGrokHome(), 'auth.json'))) return;
+  try {
+    fs.rmSync(dst, { force: true });
+  } catch {
+    /* already gone */
+  }
+}
+
+/** Directory holding the per-turn rules files. */
+export function rulesDir(home: string = GROK_HOME): string {
+  return path.join(home, 'rules');
+}
+
+/**
+ * Write this turn's system prompt to a file and return the short pointer that goes on the command line
+ * (audit 2026-09-09, B19).
+ *
+ * `grok --rules` takes TEXT, not a path (`docs/research/grok-cli.md`, from `26-config-reference.md`), so the
+ * full system prompt — including the bot's memory file — used to sit in argv, readable by any local process
+ * through `/proc/<pid>/cmdline` or WMI. The prompt now lives in a 0600 file inside the hub's private grok
+ * home and only the pointer is passed; `removeRulesFile` deletes it when the turn ends.
+ */
+export function writeRulesFile(turnId: string, systemPrompt: string, home: string = GROK_HOME): { path: string; rules: string } {
+  const dir = rulesDir(home);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, turnId.replace(/[^A-Za-z0-9_-]/g, '') + '.md');
+  fs.writeFileSync(file, systemPrompt, { mode: 0o600 });
+  restrictFile(file);
+  return {
+    path: file,
+    rules:
+      'Your complete operating instructions for this turn are in the file ' + file + '. ' +
+      'Read that file first, before anything else, and follow it exactly for the whole turn: it defines who ' +
+      'you are, the room you are in, your teammates, the tools you have and your memory. Do not mention the ' +
+      'file itself in your reply.',
+  };
+}
+
+/** Delete a turn's rules file. Never throws. */
+export function removeRulesFile(file: string | null): void {
+  if (!file) return;
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    /* already gone */
   }
 }
 
@@ -116,7 +177,8 @@ export function denyRules(allowedBuiltins: string[]): string[] {
 
 export interface ArgOptions {
   prompt: string;
-  systemPrompt: string;
+  /** Text for `--rules`: the pointer produced by `writeRulesFile`, not the system prompt itself. */
+  rules: string;
   model: string;
   cwd: string;
   maxTurns: number;
@@ -137,8 +199,9 @@ export function buildArgs(o: ArgOptions): string[] {
     // (BotRunner adds it for every best-effort provider), and the deny rules below are the hard floor.
     '--always-approve',
     // `--rules` appends to grok's system prompt; `--system-prompt-override` would replace it and drop the
-    // CLI's own tool instructions.
-    '--rules', o.systemPrompt,
+    // CLI's own tool instructions. The value is a short pointer at a 0600 rules file, never the prompt
+    // itself — see writeRulesFile (audit 2026-09-09, B19).
+    '--rules', o.rules,
     '--verbatim',
     '--no-auto-update',
   ];

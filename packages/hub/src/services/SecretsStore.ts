@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { SecretsStatus } from '@pocketrocket/shared';
-import { SECRETS_PATH } from '../config.js';
+import { SECRETS_PATH, restrictFile } from '../config.js';
 
 /** Keys the settings UI offers a field for. Provider adapters read them through SecretsStore.get(). */
 export const SECRET_KEYS = ['XAI_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'] as const;
@@ -29,6 +29,10 @@ export class SecretsStore {
   private write(all: Record<string, string>) {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     fs.writeFileSync(this.file, JSON.stringify(all, null, 2), { mode: 0o600 });
+    // `{ mode }` is ignored when the file already exists, and on Windows it only ever sets the read-only
+    // attribute, leaving secrets.json with DATA_DIR's inherited ACL. Re-apply after every write
+    // (audit 2026-09-09, B17); restrictFile also runs icacls on Windows.
+    restrictFile(this.file);
   }
 
   /** Environment variable if set, else the stored value, else null. */

@@ -2,6 +2,8 @@ import 'dotenv/config';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -64,8 +66,57 @@ export const CLAUDE_EXE =
 
 export const HOST = '127.0.0.1';
 export const PORT = Number(process.env.PORT ?? 7788);
-/** When set, every /api/* call (except GET /api/health) needs `Authorization: Bearer <token>` and /ws needs ?token=. */
-export const HUB_TOKEN = process.env.POCKETROCKET_TOKEN ?? null;
+/** Explicit token from the environment (the desktop app sets one), or null when the hub must mint its own. */
+// `|| null`, not `?? null`: an empty POCKETROCKET_TOKEN means "unset", never "no token required".
+export const HUB_TOKEN = process.env.POCKETROCKET_TOKEN || null;
+/** Where a self-minted token is written so local tooling (scripts/smoke.mjs) can find it. */
+export const HUB_TOKEN_PATH = path.join(DATA_DIR, 'hub-token');
+
+/**
+ * Tighten a file to owner-only (audit 2026-09-09, B17). `writeFileSync({mode})` is ignored when the file
+ * already exists, and on Windows the POSIX mode only ever sets the read-only attribute — the file still
+ * inherits DATA_DIR's ACL. So: chmod always, and on Windows additionally drop inheritance and grant the
+ * current user alone. Both are best-effort; a failure is never fatal.
+ */
+export function restrictFile(file: string): void {
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    /* different filesystem semantics; the Windows ACL pass below is the real control there */
+  }
+  if (process.platform !== 'win32') return;
+  let user = '';
+  try {
+    user = os.userInfo().username;
+  } catch {
+    return;
+  }
+  if (!user) return;
+  try {
+    execFile('icacls', [file, '/inheritance:r', '/grant:r', user + ':F'], { windowsHide: true }, () => undefined);
+  } catch {
+    /* icacls missing or refused: nothing else to try */
+  }
+}
+
+/**
+ * The hub is never unauthenticated (audit 2026-09-09, B3 / D3). `POCKETROCKET_TOKEN` wins when set;
+ * otherwise a fresh 128-bit token is minted on every start and written to `<DATA_DIR>/hub-token` (0600) so a
+ * human, `scripts/smoke.mjs` and the desktop shell can all pick it up. Rewritten each start, so a token that
+ * leaked out of a log dies with the process.
+ */
+export function ensureHubToken(): string {
+  if (HUB_TOKEN) return HUB_TOKEN;
+  const token = crypto.randomBytes(16).toString('hex');
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(HUB_TOKEN_PATH, token, { mode: 0o600 });
+    restrictFile(HUB_TOKEN_PATH);
+  } catch (e) {
+    console.error('[pocketrocket] could not write ' + HUB_TOKEN_PATH + ': ' + String((e as Error).message ?? e));
+  }
+  return token;
+}
 
 /** OS account name, the fallback for settings.userName (the human's display name). */
 export function osUserName(): string {

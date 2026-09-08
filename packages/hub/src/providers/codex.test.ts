@@ -63,7 +63,11 @@ function makeCtx(over: Partial<TurnContext> = {}): TurnContext {
 }
 
 function provider(secretKey: string | null = null) {
-  return createCodexProvider({ exe: FAKE_EXE, secrets: { get: () => secretKey } });
+  // The child env is an allowlist now (audit 2026-09-09, B7) and FAKE_CODEX_* is not on it, so the fake
+  // CLI's knobs are passed in explicitly rather than inherited.
+  const knobs: NodeJS.ProcessEnv = {};
+  for (const k of KNOBS) if (process.env[k]) knobs[k] = process.env[k];
+  return createCodexProvider({ exe: FAKE_EXE, secrets: { get: () => secretKey }, env: knobs });
 }
 
 function readRecord(): { argv: string[]; stdin: string; cwd: string; token: string | null; apiKey: string | null } {

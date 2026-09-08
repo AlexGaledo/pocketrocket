@@ -179,11 +179,28 @@ describe('MCP bridge', () => {
       ['ses_a', { token: 'A', startedAt: 1, pending: new Set() }],
       ['ses_b', { token: 'B', startedAt: 2, pending: new Set(['pocketrocket_send_message']) }],
     ]);
-    expect(routeToken(routes, 'tools/call', 'pocketrocket_send_message')).toBe('B');
+    expect(routeToken(routes, 'tools/call', 'pocketrocket_send_message')).toEqual({ ok: true, token: 'B' });
     // Handshake / listing traffic carries no session hint: any live turn serves the same tool schemas.
-    expect(routeToken(routes, 'tools/list')).toBe('B');
-    expect(routeToken(new Map(), 'tools/list')).toBeUndefined();
-    expect(routeToken(new Map([['ses_a', { token: 'A', startedAt: 1, pending: new Set<string>() }]]), 'tools/call', 'pocketrocket_x')).toBe('A');
+    expect(routeToken(routes, 'tools/list')).toEqual({ ok: true, token: 'B' });
+    expect(routeToken(new Map(), 'tools/list')).toEqual({ ok: false, reason: 'none' });
+    expect(routeToken(new Map([['ses_a', { token: 'A', startedAt: 1, pending: new Set<string>() }]]), 'tools/call', 'pocketrocket_x')).toEqual({ ok: true, token: 'A' });
+  });
+
+  it('refuses an ambiguous tools/call rather than guessing the newest turn (audit B12)', () => {
+    // Two live turns, both waiting on the same hub tool: attributing this to either one would let bot A
+    // act, spend budget and edit the fleet as bot B.
+    const both = new Map<string, BridgeRoute>([
+      ['ses_a', { token: 'A', startedAt: 1, pending: new Set(['pocketrocket_send_message']) }],
+      ['ses_b', { token: 'B', startedAt: 2, pending: new Set(['pocketrocket_send_message']) }],
+    ]);
+    expect(routeToken(both, 'tools/call', 'pocketrocket_send_message')).toEqual({ ok: false, reason: 'ambiguous' });
+    // Neither turn claims it: still ambiguous, never "the newest one".
+    const neither = new Map<string, BridgeRoute>([
+      ['ses_a', { token: 'A', startedAt: 1, pending: new Set<string>() }],
+      ['ses_b', { token: 'B', startedAt: 2, pending: new Set<string>() }],
+    ]);
+    expect(routeToken(neither, 'tools/call', 'pocketrocket_send_message')).toEqual({ ok: false, reason: 'ambiguous' });
+    expect(routeToken(neither, 'tools/call', undefined)).toEqual({ ok: false, reason: 'ambiguous' });
   });
 
   let hub: http.Server;

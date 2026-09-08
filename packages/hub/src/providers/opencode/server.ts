@@ -6,6 +6,8 @@ import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk';
 import { HOST, WORKSPACE_DIR } from '../../config.js';
 import { needsShell, resolveOpencodeExe, shellCommand } from './cli.js';
 import { McpBridge } from './bridge.js';
+import { childEnv } from '../env.js';
+import { addSecret, redact } from '../redact.js';
 import type { OcEvent } from './events.js';
 
 /**
@@ -154,13 +156,17 @@ export class OpenCodeServer {
     const port = await freePort();
     const exe = resolveOpencodeExe();
     this.password = randomBytes(18).toString('base64url');
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
+    // Allowlisted env only (audit 2026-09-09, B7): OPENCODE_*, the three vendor keys OpenCode itself reads,
+    // and nothing else — in particular never POCKETROCKET_TOKEN.
+    const env = childEnv('opencode', {
       OPENCODE_SERVER_PASSWORD: this.password,
       OPENCODE_CONFIG_CONTENT: buildConfigContent({ mcpUrl: bridgeUrl, mcpToken: bridge.token }),
       // Never let the child inherit a stale inline config path from the user's shell.
       OPENCODE_CONFIG: undefined,
-    };
+    });
+    // The inline config carries `Authorization: Bearer <bridge token>`; keep both out of any stderr tail.
+    addSecret(this.password);
+    addSecret(bridge.token);
     const args = ['serve', '--hostname', HOST, '--port', String(port)];
     // A missing cwd surfaces as a confusing ENOENT on the exe itself; the workspace may not exist yet on a fresh data dir.
     fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
@@ -198,7 +204,7 @@ export class OpenCodeServer {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       if (child.exitCode !== null) {
-        throw new Error('opencode serve exited with code ' + child.exitCode + (this.stderr.length ? ': ' + this.stderr.join('').slice(-400) : ''));
+        throw new Error('opencode serve exited with code ' + child.exitCode + (this.stderr.length ? ': ' + redact(this.stderr.join('').slice(-400)) : ''));
       }
       try {
         const r = await fetch(baseUrl + '/path', { headers: { Authorization: this.authHeader } });

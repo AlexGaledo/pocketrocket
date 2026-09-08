@@ -30,7 +30,13 @@ export interface ToolCtx {
    * Ask the user for approval through the PermissionBroker. Present only for providers whose permission
    * parity is 'best-effort' (everything but Claude); adds the `request_approval` tool.
    */
-  requestApproval?: (a: { action: string; command?: string; paths?: string[]; reason?: string }) => Promise<{ allowed: boolean; message: string }>;
+  requestApproval?: (a: { action: string; command?: string; paths?: string[]; reason?: string }) => Promise<{ allowed: boolean; message: string; approvalId?: string }>;
+  /**
+   * Approval card for a fleet change (create/update/delete a bot, add/remove one from a room). Wired by
+   * BotRunner for every provider; when absent (unit tests) the change goes through unguarded.
+   * See audit 2026-09-09, B6/B14.
+   */
+  confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown> }) => Promise<{ allowed: boolean; message: string }>;
 }
 
 export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
@@ -76,6 +82,15 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     });
     events.emitEvent({ type: 'message.new', message: msg });
     return msg;
+  };
+  /**
+   * Gate for anything that changes the fleet. Returns null when the user approved (or no gate is wired),
+   * or the ToolOutput to hand straight back to the bot when they declined. Called BEFORE any mutation.
+   */
+  const gate = async (tool: string, reason: string, input: Record<string, unknown>): Promise<ToolOutput | null> => {
+    if (!ctx.confirmFleetChange) return null;
+    const r = await ctx.confirmFleetChange({ tool, reason, input });
+    return r.allowed ? null : err(r.message);
   };
   const modelHint = ctx.models.length ? ' One of: ' + ctx.models.join(', ') + '.' : '';
   const checkModel = (m: string | undefined) =>
@@ -195,7 +210,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const createBot = hubTool(
     'create_bot',
-    'Create a new specialist bot (a persistent teammate with its own memory). In a group chat it joins this room and can be @mentioned right away. Use when the room lacks a needed role.',
+    'Create a new specialist bot (a persistent teammate with its own memory). In a group chat it joins this room and can be @mentioned right away. Use when the room lacks a needed role. Shows ' + userName + ' an approval card first; the bot is only created if they accept.',
     {
       name: z.string().min(1).max(40).describe('Display name, e.g. "Data Analyst"'),
       handle: z.string().regex(/^[a-z0-9_-]{2,24}$/).describe('Mention handle, lowercase, e.g. "analyst"'),
@@ -211,6 +226,14 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       if (ctx.repos.getBotByHandle(a.handle)) return err('Handle @' + a.handle + ' already exists. Use add_to_room to bring an existing bot in, or pick another handle.');
       const bad = checkModel(a.model);
       if (bad) return bad;
+      const denied = await gate(
+        'create_bot',
+        'Create bot @' + a.handle + ' (' + a.name + ')' + (a.title ? ' — ' + a.title : '') +
+          ', tools: ' + (a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch']).join('/') +
+          ', model: ' + (a.model ?? ctx.bot.model),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
       const bot = ctx.repos.createBot({ name: a.name, handle: a.handle, title: a.title, description: a.description, avatar: a.avatar ?? '🤖', model: a.model ?? ctx.bot.model, allowedTools: a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'], maxBudgetUsd: ctx.bot.maxBudgetUsd });
       ctx.memory.ensureHome(bot.id);
       ctx.memory.writeIdentity(bot.id, a.description);
@@ -233,7 +256,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const addToRoom = hubTool(
     'add_to_room',
-    'Add an existing bot (by @handle) to the current group chat so it can be mentioned here.',
+    'Add an existing bot (by @handle) to the current group chat so it can be mentioned here. Shows ' + userName + ' an approval card first.',
     { handle: z.string().describe('@handle of an existing bot') },
     async (a) => {
       if (ctx.room.kind !== 'group') return err('Only group chats have members to add.');
@@ -242,6 +265,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       const room = ctx.repos.getRoom(ctx.room.id)!;
       if (room.memberIds.includes(b.id)) return text('@' + b.handle + ' is already in this room.');
       if (room.memberIds.length >= 6) return err('Room is full (6 bots).');
+      const denied = await gate('add_to_room', 'Add @' + b.handle + ' (' + b.name + ') to "' + ctx.room.name + '"', a as unknown as Record<string, unknown>);
+      if (denied) return denied;
       ctx.repos.updateRoom(room.id, { memberIds: [...room.memberIds, b.id] });
       ctx.members.push(b);
       events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
@@ -265,7 +290,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const updateBot = hubTool(
     'update_bot',
-    'Change an existing bot (any bot, including yourself: use "me"). Only the fields you pass change. Description replaces the identity instructions.',
+    'Change an existing bot (any bot, including yourself: use "me"). Only the fields you pass change. Description replaces the identity instructions. Editing your OWN name/title/avatar/description is immediate; changing tools, model or budget, renaming a handle, or touching any other bot shows ' + userName + ' an approval card first.',
     {
       bot: z.string().describe('@handle, name, or "me"'),
       name: z.string().min(1).max(40).optional(),
@@ -293,6 +318,21 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       if (a.tools !== undefined) patch.allowedTools = a.tools;
       if (a.max_budget_usd !== undefined) patch.maxBudgetUsd = a.max_budget_usd;
       if (!Object.keys(patch).length) return err('Nothing to change: pass at least one field.');
+
+      // A bot may still tidy its own presentation. Anything that changes what a bot is *allowed to do* —
+      // tools, model, budget — or that touches another bot needs the human (audit 2026-09-09, B6).
+      const SELF_EDITABLE = new Set(['name', 'title', 'avatar', 'description']);
+      const security = Object.keys(patch).filter((k) => !SELF_EDITABLE.has(k));
+      const isSelf = target.id === ctx.bot.id;
+      if (!isSelf || security.length) {
+        const denied = await gate(
+          'update_bot',
+          (isSelf ? 'Change your own settings' : 'Change ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ')') +
+            ': ' + Object.entries(patch).map(([k, v]) => k + ' = ' + JSON.stringify(v).slice(0, 120)).join(', '),
+          a as unknown as Record<string, unknown>,
+        );
+        if (denied) return denied;
+      }
       const updated = ctx.repos.updateBot(target.id, patch)!;
       if (a.description !== undefined) ctx.memory.writeIdentity(updated.id, a.description);
       const i = ctx.members.findIndex((m) => m.id === updated.id);
@@ -305,7 +345,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const deleteBot = hubTool(
     'delete_bot',
-    'Permanently delete a bot (any bot, including yourself: use "me"). Removes it from all rooms and deletes its memory. Chat history stays. Requires confirm=true.',
+    'Permanently delete a bot (any bot, including yourself: use "me"). Removes it from all rooms and deletes its memory. Chat history stays. Requires confirm=true, and always shows ' + userName + ' an approval card — your confirm=true is not their consent.',
     {
       bot: z.string().describe('@handle, name, or "me"'),
       confirm: z.boolean().describe('Must be true. Deletion cannot be undone.'),
@@ -316,6 +356,13 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       const target = resolveAny(a.bot);
       if (!target) return err('No bot "' + a.bot + '".');
       const self = target.id === ctx.bot.id;
+      const denied = await gate(
+        'delete_bot',
+        'Permanently delete ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ')' + (self ? ' — itself' : '') +
+          ' and erase its memory' + (a.reason ? ': ' + a.reason : '.'),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
       ctx.repos.deleteBot(target.id);
       try { const fs = await import('node:fs'); const { botHome } = await import('../config.js'); fs.rmSync(botHome(target.id), { recursive: true, force: true }); } catch { /* ignore */ }
       const idx = ctx.members.findIndex((m) => m.id === target.id);
@@ -331,7 +378,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const removeFromRoom = hubTool(
     'remove_from_room',
-    'Remove a bot (or yourself: "me") from the current group chat. The bot keeps existing and can be added back.',
+    'Remove a bot (or yourself: "me") from the current group chat. The bot keeps existing and can be added back. Shows ' + userName + ' an approval card first.',
     { bot: z.string().describe('@handle, name, or "me"') },
     async (a) => {
       if (ctx.room.kind !== 'group') return err('Only group chats have members to remove.');
@@ -339,6 +386,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       if (!target) return err('No bot "' + a.bot + '".');
       const room = ctx.repos.getRoom(ctx.room.id)!;
       if (!room.memberIds.includes(target.id)) return text('@' + target.handle + ' is not in this room.');
+      const denied = await gate('remove_from_room', 'Remove @' + target.handle + ' (' + target.name + ') from "' + ctx.room.name + '"', a as unknown as Record<string, unknown>);
+      if (denied) return denied;
       ctx.repos.updateRoom(room.id, { memberIds: room.memberIds.filter((id) => id !== target.id), coordinatorBotId: room.coordinatorBotId === target.id ? null : undefined });
       const idx = ctx.members.findIndex((m) => m.id === target.id);
       if (idx >= 0) ctx.members.splice(idx, 1);
@@ -353,7 +402,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
   if (ctx.requestApproval) {
     tools.push(hubTool(
       'request_approval',
-      'Ask ' + userName + ' to approve an action before you take it. Required before writing outside the workspace, running a destructive or network-changing shell command, or anything irreversible. Returns whether it was approved.',
+      'Ask ' + userName + ' to approve an action before you take it. Required before writing outside the workspace, running a destructive or network-changing shell command, or anything irreversible. ' +
+        'Returns { allowed, message, approvalId }. The approval is recorded against exactly the action, command and paths you passed and expires in 10 minutes — it is ADVISORY: the hub cannot police what your CLI actually runs, so do only what you described. Doing something else after an approval is a violation, not a loophole.',
       {
         action: z.string().min(3).describe('What you want to do, in one line'),
         command: z.string().optional().describe('The exact shell command, when the action is a command'),

@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { ModelInfo, ProviderAuth, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
 import { SecretsStore } from '../services/SecretsStore.js';
+import { childEnv } from './env.js';
+import { addSecret, redact } from './redact.js';
 import { CodexEventParser } from './codex/parser.js';
 import { estimateCostUsd } from './codex/pricing.js';
 import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, type TurnSink } from './types.js';
@@ -221,6 +223,11 @@ export interface CodexProviderOptions {
   /** Absolute path to the CLI (or a `.mjs` script). Tests inject a fake; production auto-detects. */
   exe?: string;
   secrets?: Pick<SecretsStore, 'get'>;
+  /**
+   * Extra variables to add to the child's (allowlisted) environment. Only the test harness uses it, to
+   * hand the fake CLI its FAKE_CODEX_* knobs — the allowlist deliberately drops anything unrecognised.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 export class CodexProvider implements AgentProvider {
@@ -295,10 +302,16 @@ export class CodexProvider implements AgentProvider {
       readOnly: !ctx.allowedBuiltins.includes('Bash'),
     });
 
-    const env: NodeJS.ProcessEnv = { ...process.env, POCKETROCKET_MCP_TOKEN: ctx.mcp.token };
+    // Allowlisted env only (audit 2026-09-09, B7): OPENAI_API_KEY, CODEX_HOME and the per-turn MCP token,
+    // never the hub token and never another provider's key.
     const apiKey = this.secrets.get('OPENAI_API_KEY');
-    if (apiKey) env.OPENAI_API_KEY = apiKey;
+    const env = childEnv('codex', {
+      POCKETROCKET_MCP_TOKEN: ctx.mcp.token,
+      ...(apiKey ? { OPENAI_API_KEY: apiKey } : {}),
+      ...this.opts.env,
+    });
 
+    addSecret(ctx.mcp.token);
     const { command, argv } = spawnTarget(exe, args);
     let child: ChildProcess;
     try {
@@ -379,9 +392,9 @@ export class CodexProvider implements AgentProvider {
       } else if (spawnError) {
         error = 'codex failed to start: ' + spawnError;
       } else if (code !== 0) {
-        error = 'codex exited with code ' + String(code) + (stderr.trim() ? ': ' + stderr.trim().slice(-500) : '');
+        error = 'codex exited with code ' + String(code) + (stderr.trim() ? ': ' + redact(stderr.trim().slice(-500)) : '');
       } else if (!parser.completed) {
-        error = 'codex ended without a turn.completed event' + (stderr.trim() ? ': ' + stderr.trim().slice(-500) : '');
+        error = 'codex ended without a turn.completed event' + (stderr.trim() ? ': ' + redact(stderr.trim().slice(-500)) : '');
       }
 
       return { ok: !error, error, costUsd, usage, durationMs: usage.durationMs };

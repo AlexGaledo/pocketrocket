@@ -2,7 +2,9 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
 import { SecretsStore } from '../services/SecretsStore.js';
 import type { AgentProvider, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
-import { buildArgs, ensureGrokHome, GROK_HOME, parseModelsOutput, resolveGrokExe, treeKill, turnEnv } from './grok/cli.js';
+import { buildArgs, ensureGrokHome, GROK_HOME, parseModelsOutput, removeAuthMirror, removeRulesFile, resolveGrokExe, treeKill, turnEnv, writeRulesFile } from './grok/cli.js';
+import { childEnv } from './env.js';
+import { addSecret, redact } from './redact.js';
 import { estimateCostUsd } from './grok/pricing.js';
 import { NdjsonParser, renderToolOutput, tokensFrom, type GrokEvent, type GrokUsageBlock } from './grok/stream.js';
 
@@ -92,7 +94,8 @@ export class GrokProvider implements AgentProvider {
   private env(extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     const key = this.apiKey();
     const home = this.deps.home ?? GROK_HOME;
-    return { ...process.env, ...(key ? { XAI_API_KEY: key } : {}), GROK_HOME: home, GROK_DISABLE_AUTOUPDATER: '1', ...extra };
+    // Allowlisted env only (audit 2026-09-09, B7): XAI_API_KEY, GROK_*, POCKETROCKET_MCP_*.
+    return childEnv('grok', { ...(key ? { XAI_API_KEY: key } : {}), GROK_HOME: home, GROK_DISABLE_AUTOUPDATER: '1', ...extra });
   }
 
   modelsSync(): ModelInfo[] {
@@ -147,13 +150,24 @@ export class GrokProvider implements AgentProvider {
     return true;
   }
 
+  /**
+   * Delete the mirrored `auth.json` (audit 2026-09-09, B18): a stopped hub must not leave a second copy of
+   * the user's Grok refresh token lying in DATA_DIR. The next start mirrors it again from `~/.grok`.
+   */
+  async shutdown(): Promise<void> {
+    removeAuthMirror(this.deps.home ?? GROK_HOME);
+  }
+
   async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
     const started = Date.now();
     const exe = this.exe();
     const home = ensureGrokHome(this.deps.home ?? GROK_HOME);
+    // The system prompt (identity + the bot's whole memory file) goes to a 0600 file, not to argv
+    // (audit 2026-09-09, B19). Deleted in the `finally` below, whatever happens to the turn.
+    const rulesFile = writeRulesFile(ctx.turnId, ctx.systemPrompt, home);
     const args = buildArgs({
       prompt: ctx.input,
-      systemPrompt: ctx.systemPrompt,
+      rules: rulesFile.rules,
       model: ctx.model,
       cwd: ctx.workspaceDir,
       maxTurns: ctx.maxTurns,
@@ -161,6 +175,7 @@ export class GrokProvider implements AgentProvider {
       allowedBuiltins: ctx.allowedBuiltins,
     });
 
+    addSecret(ctx.mcp.token);
     const child = (this.deps.spawn ?? spawn)(exe, args, {
       cwd: ctx.workspaceDir,
       env: turnEnv(this.env(), home, ctx.mcp),
@@ -277,6 +292,7 @@ export class GrokProvider implements AgentProvider {
 
     ctx.signal.removeEventListener('abort', onAbort);
     this.active.delete(ctx.turnId);
+    removeRulesFile(rulesFile.path);
     for (const ev of parser.flush()) handle(ev);
     flushText();
 
@@ -290,7 +306,7 @@ export class GrokProvider implements AgentProvider {
 
     if (!state.error && code !== 0) {
       if (ctx.signal.aborted || code === 130 || code === 143) state.error = 'Interrupted';
-      else state.error = 'grok exited with code ' + String(code) + (state.stderr.trim() ? ': ' + state.stderr.trim().split('\n').slice(-3).join(' ') : '');
+      else state.error = 'grok exited with code ' + String(code) + (state.stderr.trim() ? ': ' + redact(state.stderr.trim().split('\n').slice(-3).join(' ')) : '');
     }
     const ok = !state.error && code === 0;
 

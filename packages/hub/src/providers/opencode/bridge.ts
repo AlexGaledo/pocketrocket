@@ -16,8 +16,9 @@ import { HOST } from '../../config.js';
  * of the `opencode serve` child. Every request is forwarded to the hub's `/mcp` with the bearer token of the
  * turn it belongs to. A turn registers itself under its OpenCode session id; a `tools/call` is attributed to
  * the session that currently has that MCP tool in flight (the tool part goes pending/running just before the
- * MCP request arrives), falling back to the only — or the most recently started — live turn. Handshake and
- * `tools/list` traffic can go to any live turn, since every turn exposes the same 12 hub tools.
+ * MCP request arrives), or to the single live turn when there is only one. When neither pins it down the call
+ * is refused rather than guessed — see `routeToken`. Handshake and `tools/list` traffic can go to any live
+ * turn, since every turn exposes the same hub tools.
  */
 
 export interface BridgeRoute {
@@ -27,16 +28,32 @@ export interface BridgeRoute {
   pending: Set<string>;
 }
 
-/** Pick the turn token a JSON-RPC message belongs to. Exported for tests. */
-export function routeToken(routes: Map<string, BridgeRoute>, method: string | undefined, toolName?: string): string | undefined {
+export type RouteResult =
+  | { ok: true; token: string }
+  | { ok: false; reason: 'none' | 'ambiguous' };
+
+/**
+ * Pick the turn token a JSON-RPC message belongs to. Exported for tests.
+ *
+ * A `tools/call` that cannot be pinned to exactly one live turn is **rejected**, not guessed
+ * (audit 2026-09-09, B12). The old fallback picked the most recently started turn, so with two concurrent
+ * turns waiting on the same tool name, bot A's call could execute as bot B: its budget, its room, its
+ * authority to edit bots. Rejecting costs one failed tool call; guessing crosses a trust boundary.
+ *
+ * Handshake and `tools/list` traffic still take any live turn — every turn exposes the same tool list, and
+ * those calls neither act nor spend.
+ */
+export function routeToken(routes: Map<string, BridgeRoute>, method: string | undefined, toolName?: string): RouteResult {
   const live = [...routes.values()];
-  if (!live.length) return undefined;
-  if (live.length === 1) return live[0].token;
-  if (method === 'tools/call' && toolName) {
+  if (!live.length) return { ok: false, reason: 'none' };
+  if (live.length === 1) return { ok: true, token: live[0].token };
+  if (method === 'tools/call') {
+    if (!toolName) return { ok: false, reason: 'ambiguous' };
     const owner = live.filter((r) => r.pending.has(toolName));
-    if (owner.length === 1) return owner[0].token;
+    if (owner.length === 1) return { ok: true, token: owner[0].token };
+    return { ok: false, reason: 'ambiguous' };
   }
-  return live.reduce((a, b) => (b.startedAt > a.startedAt ? b : a)).token;
+  return { ok: true, token: live.reduce((a, b) => (b.startedAt > a.startedAt ? b : a)).token };
 }
 
 const FORWARD_HEADERS = ['accept', 'content-type', 'mcp-protocol-version', 'mcp-session-id', 'last-event-id'];
@@ -116,13 +133,20 @@ export class McpBridge {
         /* forward it anyway and let the hub answer */
       }
     }
-    const token = routeToken(this.routes, method, toolName);
-    if (!token) {
-      res.writeHead(503, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32002, message: 'no active PocketRocket turn' }, id: null }));
+    const route = routeToken(this.routes, method, toolName);
+    if (!route.ok) {
+      const ambiguous = route.reason === 'ambiguous';
+      res.writeHead(ambiguous ? 409 : 503, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        jsonrpc: '2.0',
+        error: ambiguous
+          ? { code: -32004, message: 'PocketRocket could not tell which bot this tool call belongs to (several turns are running). Retry it on its own.' }
+          : { code: -32002, message: 'no active PocketRocket turn' },
+        id: null,
+      }));
       return;
     }
-    const headers: Record<string, string> = { authorization: 'Bearer ' + token };
+    const headers: Record<string, string> = { authorization: 'Bearer ' + route.token };
     for (const h of FORWARD_HEADERS) {
       const v = req.headers[h];
       if (typeof v === 'string') headers[h] = v;

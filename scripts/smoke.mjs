@@ -1,10 +1,13 @@
 // Smoke test against a running hub: creates a bot + DM, sends a message, prints WS events until turn.end.
 //
-// Usage: node scripts/smoke.mjs [--port 7788] [--token <hex>] ["message text"]
+// Usage: node scripts/smoke.mjs [--port 7788] [--token <hex>] [--data <dir>] ["message text"]
 //        HUB=http://127.0.0.1:7791 POCKETROCKET_TOKEN=<hex> node scripts/smoke.mjs "…"
 //
-// --port/--token override the HUB / POCKETROCKET_TOKEN env vars. A token is required against a
-// hub started with POCKETROCKET_TOKEN set (bearer on REST, ?token= on the WS).
+// The hub always requires a token now. Resolution order: --token, POCKETROCKET_TOKEN, then the
+// `hub-token` file the hub writes into its data dir (--data, POCKETROCKET_DATA, or <repo>/data).
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
 const argv = process.argv.slice(2);
@@ -16,7 +19,21 @@ function flag(name) {
   return v;
 }
 const port = flag('port');
-const TOKEN = flag('token') ?? process.env.POCKETROCKET_TOKEN ?? null;
+const dataFlag = flag('data');
+
+/** The token the running hub minted, from <data>/hub-token. */
+function tokenFromDataDir() {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const dir = dataFlag ? path.resolve(dataFlag) : process.env.POCKETROCKET_DATA ? path.resolve(process.env.POCKETROCKET_DATA) : path.join(repoRoot, 'data');
+  try {
+    const t = fs.readFileSync(path.join(dir, 'hub-token'), 'utf8').trim();
+    return t || null;
+  } catch {
+    return null;
+  }
+}
+const TOKEN = flag('token') ?? process.env.POCKETROCKET_TOKEN ?? tokenFromDataDir();
+if (!TOKEN) console.warn('[smoke] no token found (--token, POCKETROCKET_TOKEN or <data>/hub-token); expect 401s');
 const BASE = port ? 'http://127.0.0.1:' + port : (process.env.HUB ?? 'http://127.0.0.1:7788');
 const text = argv[0] ?? 'Create a file hello.txt in the workspace containing "hi from pocketrocket", then tell me its full path.';
 

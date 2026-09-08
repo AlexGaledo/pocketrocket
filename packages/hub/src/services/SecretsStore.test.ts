@@ -40,6 +40,23 @@ describe('SecretsStore', () => {
     expect(fs.existsSync(file)).toBe(false);
   });
 
+  // ---- audit 2026-09-09, B17 ----
+  it('re-applies owner-only permissions on every write, including over an existing file', () => {
+    // The bug: `writeFileSync({ mode })` is ignored when the file already exists, so a secrets.json
+    // created loosely (or inheriting DATA_DIR's ACL) stayed loose for the rest of its life.
+    fs.writeFileSync(file, '{}', { mode: 0o666 });
+    if (process.platform !== 'win32') fs.chmodSync(file, 0o666);
+    const s = new SecretsStore(file);
+    s.set({ XAI_API_KEY: 'xai-123' });
+    if (process.platform === 'win32') {
+      // POSIX bits are a fiction on Windows; the real control is the icacls pass, which is
+      // fire-and-forget. Assert the write itself still worked.
+      expect(JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, string>).toEqual({ XAI_API_KEY: 'xai-123' });
+    } else {
+      expect((fs.statSync(file).mode & 0o777).toString(8)).toBe('600');
+    }
+  });
+
   it('survives a missing or corrupt file', () => {
     fs.writeFileSync(file, 'not json');
     const s = new SecretsStore(file);

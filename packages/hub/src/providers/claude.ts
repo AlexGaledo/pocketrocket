@@ -6,6 +6,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
 import { CDP_URL, CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { childEnv } from './env.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
 
@@ -177,7 +178,9 @@ export class ClaudeProvider implements AgentProvider {
       includePartialMessages: true,
       maxTurns: ctx.maxTurns,
       maxBudgetUsd: ctx.maxBudgetUsd,
-      env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/' + VERSION },
+      // Allowlisted env only (audit 2026-09-09, B7): the child never sees POCKETROCKET_TOKEN or another
+      // provider's API key, so `env`/`node -e "process.env"` inside a prompt injection yields nothing useful.
+      env: childEnv('claude', { CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/' + VERSION }),
       stderr: (d) => { if (process.env.POCKETROCKET_DEBUG) process.stderr.write('[claude ' + bot.handle + '] ' + d); },
     };
 

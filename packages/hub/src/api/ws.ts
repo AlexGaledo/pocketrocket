@@ -1,6 +1,7 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ClientEventSchema, type ServerEvent } from '@pocketrocket/shared';
+import { MAX_WS_BYTES } from './body.js';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
@@ -9,7 +10,9 @@ import type { SettingsStore } from '../services/SettingsStore.js';
 
 /** Creates the app WebSocket server in noServer mode; the caller routes HTTP upgrades (see index.ts). */
 export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRouter; broker: PermissionBroker; settings: SettingsStore }) {
-  const wss = new WebSocketServer({ noServer: true });
+  // 256 KB per frame (audit 2026-09-09, B15): the largest legitimate client event is a chat message.
+  // `ws` closes the connection with 1009 on anything larger instead of buffering it.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_BYTES });
   const send = (ws: WebSocket, ev: ServerEvent) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(ev));
   };

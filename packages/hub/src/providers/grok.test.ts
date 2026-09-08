@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GrokProvider, GROK_INFO, GROK_MODELS, type Probe } from './grok.js';
 import type { TurnContext, TurnSink } from './types.js';
-import { buildArgs, denyRules, grokConfigToml, ensureGrokHome, parseModelsOutput } from './grok/cli.js';
+import { buildArgs, denyRules, grokConfigToml, ensureGrokHome, parseModelsOutput, removeAuthMirror, removeRulesFile, writeRulesFile } from './grok/cli.js';
 import { NdjsonParser, renderToolOutput, tokensFrom } from './grok/stream.js';
 import { estimateCostUsd, rateFor } from './grok/pricing.js';
 
@@ -155,7 +155,7 @@ describe('grok CLI wiring', () => {
 
   it('builds a headless argv with structured output, cwd, model, rules and resume', () => {
     const args = buildArgs({
-      prompt: 'hi', systemPrompt: 'SYS', model: 'grok-4.6', cwd: '/ws', maxTurns: 7,
+      prompt: 'hi', rules: 'SEE RULES FILE', model: 'grok-4.6', cwd: '/ws', maxTurns: 7,
       resumeToken: 'sess-1', allowedBuiltins: ['Read'], sandbox: null,
     });
     expect(args.slice(0, 4)).toEqual(['-p', 'hi', '--output-format', 'streaming-json']);
@@ -163,7 +163,7 @@ describe('grok CLI wiring', () => {
     expect(args[args.indexOf('--cwd') + 1]).toBe('/ws');
     expect(args[args.indexOf('-m') + 1]).toBe('grok-4.6');
     expect(args[args.indexOf('--max-turns') + 1]).toBe('7');
-    expect(args[args.indexOf('--rules') + 1]).toBe('SYS');
+    expect(args[args.indexOf('--rules') + 1]).toBe('SEE RULES FILE');
     expect(args[args.indexOf('--resume') + 1]).toBe('sess-1');
     expect(args).not.toContain('--sandbox');
     expect(args).toContain('--deny');
@@ -171,7 +171,7 @@ describe('grok CLI wiring', () => {
 
   it('omits --resume for a fresh session and honours an explicit sandbox profile', () => {
     const args = buildArgs({
-      prompt: 'hi', systemPrompt: 'SYS', model: 'grok-4.6', cwd: '/ws', maxTurns: 1,
+      prompt: 'hi', rules: 'SEE RULES FILE', model: 'grok-4.6', cwd: '/ws', maxTurns: 1,
       resumeToken: null, allowedBuiltins: [], sandbox: 'workspace',
     });
     expect(args).not.toContain('--resume');
@@ -185,6 +185,64 @@ describe('grok CLI wiring', () => {
     expect(toml).toContain('[mcp_servers.pocketrocket]');
     expect(toml).toContain('url = "${POCKETROCKET_MCP_URL}"');
     expect(toml).toContain('Bearer ${POCKETROCKET_MCP_TOKEN}');
+  });
+
+  // ---- audit 2026-09-09, B19 ----
+  it('keeps the system prompt and memory off the command line', () => {
+    const home = path.join(tmp, 'rules-home');
+    fs.mkdirSync(home, { recursive: true });
+    const prompt = ['# You are Nova', '', '## Memory', 'The API key for staging is hunter2.'].join('\n');
+    const { path: file, rules } = writeRulesFile('turn-abc', prompt, home);
+
+    expect(fs.readFileSync(file, 'utf8')).toBe(prompt);
+    expect(file).toBe(path.join(home, 'rules', 'turn-abc.md'));
+    // The value that lands in argv names the file; it never carries the prompt or the memory.
+    expect(rules).toContain(file);
+    expect(rules).not.toContain('hunter2');
+    expect(rules).not.toContain('You are Nova');
+    if (process.platform !== 'win32') expect((fs.statSync(file).mode & 0o777).toString(8)).toBe('600');
+
+    const args = buildArgs({ prompt: 'hi', rules, model: 'grok-4.6', cwd: '/ws', maxTurns: 1, resumeToken: null, allowedBuiltins: [], sandbox: null });
+    expect(args.join(' ')).not.toContain('hunter2');
+
+    removeRulesFile(file);
+    expect(fs.existsSync(file)).toBe(false);
+    removeRulesFile(null);
+  });
+
+  it('sanitizes the turn id used as the rules filename', () => {
+    const home = path.join(tmp, 'rules-home-2');
+    fs.mkdirSync(home, { recursive: true });
+    const { path: file } = writeRulesFile('../../evil', 'x', home);
+    expect(path.dirname(file)).toBe(path.join(home, 'rules'));
+    expect(path.basename(file)).toBe('evil.md');
+  });
+
+  // ---- audit 2026-09-09, B18 ----
+  it('mirrors auth.json 0600 into the private home and deletes it on shutdown', () => {
+    const userHome = path.join(tmp, 'user-grok');
+    fs.mkdirSync(userHome, { recursive: true });
+    fs.writeFileSync(path.join(userHome, 'auth.json'), '{"refresh_token":"secret"}');
+    const prev = process.env.GROK_HOME;
+    process.env.GROK_HOME = userHome;
+    try {
+      const home = ensureGrokHome(path.join(tmp, 'mirror-home'));
+      const mirror = path.join(home, 'auth.json');
+      expect(fs.existsSync(mirror)).toBe(true);
+      // It lives under the hub's private grok home, never next to the workspace.
+      expect(path.dirname(mirror)).toBe(home);
+      if (process.platform !== 'win32') expect((fs.statSync(mirror).mode & 0o777).toString(8)).toBe('600');
+      removeAuthMirror(home);
+      expect(fs.existsSync(mirror)).toBe(false);
+      // The user's own credentials are untouched.
+      expect(fs.existsSync(path.join(userHome, 'auth.json'))).toBe(true);
+      // Never deletes the user's file when the two paths coincide.
+      removeAuthMirror(userHome);
+      expect(fs.existsSync(path.join(userHome, 'auth.json'))).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.GROK_HOME;
+      else process.env.GROK_HOME = prev;
+    }
   });
 
   it('parses `grok models` output and its unauthenticated banner', () => {
@@ -277,7 +335,12 @@ describe('grok runTurn()', () => {
     expect(run.args[run.args.indexOf('--cwd') + 1]).toBe(ctx.workspaceDir);
     expect(run.args[run.args.indexOf('-m') + 1]).toBe('grok-build-0.1');
     expect(run.args[run.args.indexOf('--resume') + 1]).toBe('prev-session');
-    expect(run.args[run.args.indexOf('--rules') + 1]).toBe(ctx.systemPrompt);
+    // The system prompt is NOT on the command line any more (audit 2026-09-09, B19): --rules carries a
+    // pointer at a 0600 file inside the private grok home, and the file is deleted when the turn ends.
+    const rules = run.args[run.args.indexOf('--rules') + 1];
+    expect(rules).not.toContain(ctx.systemPrompt);
+    expect(rules).toContain(path.join(tmp, 'grok-home', 'rules'));
+    expect(fs.existsSync(path.join(tmp, 'grok-home', 'rules', ctx.turnId + '.md'))).toBe(false);
     const denied = run.args.filter((a, i) => run.args[i - 1] === '--deny');
     expect(denied).toEqual(['Bash', 'Edit', 'WebFetch', 'WebSearch', 'Write']);
     // The bearer token rides the environment so concurrent turns never race on config.toml.

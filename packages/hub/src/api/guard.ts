@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
@@ -22,6 +23,10 @@ function port(hostHeader: string | undefined): string | null {
  *   The port is not pinned so an SSH tunnel on a different local port still works.
  * - `Origin`, when present, must be a loopback origin on the hub's port or on the port the request came in on
  *   (i.e. same-origin as the page the hub itself served). Blocks CSRF from arbitrary web pages.
+ *
+ * `Origin: null` is treated as foreign (audit 2026-09-09, B1). It used to be whitelisted, but a sandboxed
+ * iframe (`<iframe sandbox="allow-scripts">`) on any site sends exactly that, with `text/plain` and therefore
+ * no preflight, which reached every mutating route.
  */
 export function checkRequestOrigin(req: IncomingMessage, hubPort: number): { ok: true } | { ok: false; status: number; reason: string } {
   const host = req.headers.host;
@@ -29,7 +34,8 @@ export function checkRequestOrigin(req: IncomingMessage, hubPort: number): { ok:
   if (!hn || !LOOPBACK.has(hn)) return { ok: false, status: 403, reason: 'Bad Host header: ' + (host ?? '(none)') };
 
   const origin = req.headers.origin;
-  if (origin && origin !== 'null') {
+  if (origin) {
+    if (origin === 'null') return { ok: false, status: 403, reason: 'Opaque origin rejected (Origin: null)' };
     let u: URL;
     try {
       u = new URL(origin);
@@ -43,6 +49,23 @@ export function checkRequestOrigin(req: IncomingMessage, hubPort: number): { ok:
   return { ok: true };
 }
 
+/** Methods that can change state and therefore carry a body. */
+const MUTATING = new Set(['POST', 'PUT', 'PATCH']);
+
+/**
+ * Belt and braces against the no-preflight form post (audit 2026-09-09, B1): a cross-site `<form>` can only
+ * send `application/x-www-form-urlencoded`, `multipart/form-data` or `text/plain`, never `application/json`,
+ * and asking for JSON forces a preflight that the Origin check then fails. Non-`/api/` paths are untouched
+ * (`/mcp` negotiates its own content types).
+ */
+export function checkContentType(req: IncomingMessage, url: URL): { ok: true } | { ok: false; status: number; reason: string } {
+  if (!url.pathname.startsWith('/api/')) return { ok: true };
+  if (!MUTATING.has(req.method ?? 'GET')) return { ok: true };
+  const ct = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  if (ct === 'application/json') return { ok: true };
+  return { ok: false, status: 415, reason: 'Content-Type must be application/json (got ' + (ct || '(none)') + ')' };
+}
+
 /** Bearer token in the Authorization header, or null. */
 export function bearerToken(req: IncomingMessage): string | null {
   const h = req.headers.authorization;
@@ -51,15 +74,87 @@ export function bearerToken(req: IncomingMessage): string | null {
   return m ? m[1] : null;
 }
 
+/** Constant-time string compare, length-guarded (audit 2026-09-09, B16). */
+export function tokenMatches(supplied: string | null, expected: string): boolean {
+  if (supplied === null) return false;
+  const a = Buffer.from(supplied, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) {
+    // Still burn a comparison so a wrong-length guess is not measurably faster than a wrong-value one.
+    timingSafeEqual(b, b);
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
+export interface TokenOptions {
+  /** True when a GET of this pathname maps to a file the hub serves publicly out of WEB_DIST. */
+  isPublicAsset?: (pathname: string) => boolean;
+}
+
 /**
- * With POCKETROCKET_TOKEN set, every /api/* call except `GET /api/health` needs the bearer token and /ws
- * needs `?token=`. /mcp carries its own per-turn token and is checked by the MCP handler.
+ * Allowlist, not deny-list (audit 2026-09-09, B2). With a token configured EVERYTHING needs it except:
+ * `GET /api/health` (the desktop app polls it before it has the token), `GET /` and the static web assets
+ * under WEB_DIST (the shell that then asks for the token), and `/mcp`, which carries its own per-turn bearer
+ * and is checked by the MCP handler. `/screen/*` — HTTP and the websocket upgrade — is no longer exempt: it
+ * proxies into a passwordless noVNC session that, in server mode, drives a root desktop.
  */
-export function checkToken(req: IncomingMessage, url: URL, token: string | null): boolean {
+export function checkToken(req: IncomingMessage, url: URL, token: string | null, opts: TokenOptions = {}): boolean {
   if (!token) return true;
-  if (url.pathname === '/api/health' && (req.method ?? 'GET') === 'GET') return true;
-  if (url.pathname.startsWith('/mcp')) return true;
-  if (!url.pathname.startsWith('/api/') && url.pathname !== '/ws') return true;
-  const supplied = bearerToken(req) ?? url.searchParams.get('token');
-  return supplied === token;
+  const method = req.method ?? 'GET';
+  if (url.pathname === '/api/health' && method === 'GET') return true;
+  if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return true;
+  if (method === 'GET' && (url.pathname === '/' || (opts.isPublicAsset?.(url.pathname) ?? false))) return true;
+  return tokenMatches(bearerToken(req) ?? url.searchParams.get('token'), token);
+}
+
+/**
+ * In-memory brute-force brake (audit 2026-09-09, B15): 10 failed auths from one IP inside a minute lock that
+ * IP out for a minute. Per hub process, deliberately tiny — the hub is loopback-only, so the population of
+ * "IPs" is 127.0.0.1 plus whatever a tunnel presents, and the point is to make walking a token byte by byte
+ * (see B16) impractical rather than to be a real WAF.
+ */
+export class AuthRateLimiter {
+  private hits = new Map<string, { count: number; first: number; blockedUntil: number }>();
+  constructor(
+    private max = 10,
+    private windowMs = 60_000,
+    private blockMs = 60_000,
+    private now: () => number = Date.now,
+  ) {}
+
+  /** True when this IP is currently locked out. */
+  blocked(ip: string): boolean {
+    const e = this.hits.get(ip);
+    if (!e) return false;
+    if (e.blockedUntil > this.now()) return true;
+    if (e.blockedUntil) this.hits.delete(ip);
+    return false;
+  }
+
+  /** Record a failed auth; returns true when this failure tripped the block. */
+  fail(ip: string): boolean {
+    const t = this.now();
+    const e = this.hits.get(ip);
+    if (!e || t - e.first > this.windowMs) {
+      this.hits.set(ip, { count: 1, first: t, blockedUntil: 0 });
+      return false;
+    }
+    e.count += 1;
+    if (e.count >= this.max) {
+      e.blockedUntil = t + this.blockMs;
+      return true;
+    }
+    return false;
+  }
+
+  /** Forget an IP after a successful auth. */
+  succeed(ip: string): void {
+    this.hits.delete(ip);
+  }
+}
+
+/** Remote address of a request, or '?' when the socket is already gone. */
+export function clientIp(req: IncomingMessage): string {
+  return req.socket?.remoteAddress ?? '?';
 }

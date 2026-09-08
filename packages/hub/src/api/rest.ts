@@ -5,6 +5,7 @@ import {
   PROVIDER_IDS, type HealthInfo, type ProviderId,
 } from '@pocketrocket/shared';
 import net from 'node:net';
+import { readBody } from './body.js';
 import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, VERSION } from '../config.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
@@ -245,9 +246,10 @@ export function createRest(deps: RestDeps) {
       r.keys.forEach((k, i) => (params[k] = decodeURIComponent(m[i + 1])));
       let body: unknown = undefined;
       if (method !== 'GET' && method !== 'DELETE') {
-        const chunks: Buffer[] = [];
-        for await (const c of req) chunks.push(c as Buffer);
-        const raw = Buffer.concat(chunks).toString('utf8');
+        // 1 MB cap (audit 2026-09-09, B15): an unbounded body was a free memory-exhaustion DoS.
+        const buf = await readBody(req);
+        if (buf === null) return send(res, 413, { error: 'Request body too large (max 1 MB)' });
+        const raw = buf.toString('utf8');
         try { body = raw ? JSON.parse(raw) : {}; } catch { return send(res, 400, { error: 'Invalid JSON' }); }
       }
       try {
