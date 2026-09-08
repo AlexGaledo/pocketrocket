@@ -1,0 +1,19 @@
+{
+  "name": "claude-claudebot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @claudebot/hub start",
+    "test": "pnpm -r test",
+    "desktop:dev": "pnpm --filter @claudebot/desktop dev",
+    "desktop:build": "pnpm --filter @claudebot/desktop build:app"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "ws": "^8.18.0"
+  },
+  "packageManager": "pnpm@10.0.0"
+}

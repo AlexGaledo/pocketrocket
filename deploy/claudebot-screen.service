@@ -1,0 +1,17 @@
+[Unit]
+Description=Claudebot screen (Xvfb + Chromium + noVNC)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=HOME=/root
+Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CLAUDEBOT_DATA=/root/claudebot/data
+ExecStart=/bin/bash /root/claudebot/deploy/screen.sh
+Restart=always
+RestartSec=3
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

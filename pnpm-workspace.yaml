@@ -1,0 +1,5 @@
+packages:
+  - packages/*
+onlyBuiltDependencies:
+  - esbuild
+  - "@anthropic-ai/claude-agent-sdk"

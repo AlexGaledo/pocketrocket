@@ -1,0 +1,12 @@
+{
+  "name": "@claudebot/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claudebot desktop app: native window + managed SSH tunnel to the hub",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "echo skip",
+    "build:app": "cargo tauri build",
+    "test": "echo skip"
+  }
+}

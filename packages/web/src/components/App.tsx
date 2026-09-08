@@ -1,0 +1,50 @@
+import { useEffect } from 'react';
+import { useStore } from '../store';
+import { Sidebar } from './Sidebar';
+import { ChatPane } from './ChatPane';
+import { RightPanel } from './RightPanel';
+import { BotDialog } from './dialogs/BotDialog';
+import { RoomDialog } from './dialogs/RoomDialog';
+import { cn } from './ui';
+
+export function App() {
+  const connected = useStore((s) => s.connected);
+  const panelOpen = useStore((s) => s.panelOpen);
+  const dialog = useStore((s) => s.dialog);
+  const toasts = useStore((s) => s.toasts);
+  const openDialog = useStore((s) => s.openDialog);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && dialog) openDialog(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialog, openDialog]);
+
+  return (
+    <div className="flex h-full w-full gap-3 overflow-hidden p-3">
+      <Sidebar />
+      <main className="panel flex min-w-0 flex-1 flex-col overflow-hidden">
+        <ChatPane />
+      </main>
+      {panelOpen && <RightPanel />}
+
+      {!connected && (
+        <div className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-ink px-3.5 py-1.5 text-[12.5px] text-ink-fg shadow-[var(--shadow-lg)]">
+          Connecting to the hub
+        </div>
+      )}
+      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2">
+        {toasts.map((t) => (
+          <div key={t.id} className={cn('rounded-full px-3.5 py-2 text-[12.5px] shadow-[var(--shadow-lg)]', t.bad ? 'bg-bad text-white' : 'bg-ink text-ink-fg')}>
+            {t.text}
+          </div>
+        ))}
+      </div>
+
+      {dialog?.kind === 'bot' && <BotDialog bot={dialog.bot} onClose={() => openDialog(null)} />}
+      {dialog?.kind === 'room' && <RoomDialog room={dialog.room} onClose={() => openDialog(null)} />}
+    </div>
+  );
+}

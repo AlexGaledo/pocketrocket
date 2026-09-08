@@ -1,0 +1,13 @@
+node_modules
+dist
+data/
+.env
+*.log
+packages/desktop/src-tauri/target
+packages/desktop/src-tauri/gen
+packages/desktop/icon-src.png
+
+# desktop build artefacts
+packages/desktop/src-tauri/binaries/
+packages/hub/build/
+.vercel
