@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import net from 'node:net';
 import { spawn, type ChildProcess, execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -161,6 +162,8 @@ export class OpenCodeServer {
       OPENCODE_CONFIG: undefined,
     };
     const args = ['serve', '--hostname', HOST, '--port', String(port)];
+    // A missing cwd surfaces as a confusing ENOENT on the exe itself; the workspace may not exist yet on a fresh data dir.
+    fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
     const shell = needsShell(exe);
     const child = shell
       ? spawn(shellCommand(exe, args), { cwd: WORKSPACE_DIR, env, shell: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
