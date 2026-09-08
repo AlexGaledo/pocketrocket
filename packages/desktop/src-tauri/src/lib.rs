@@ -225,15 +225,47 @@ fn node_version(exe: &std::ffi::OsStr) -> Option<(u32, u32, String)> {
 
 /// The Node 24 sidecar: Tauri installs `binaries/node-<triple>.exe` as `node.exe` next to the app exe.
 fn sidecar_node(app: &AppHandle) -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
+    sidecar_dirs(app).into_iter().map(|d| d.join(NODE_BIN)).find(|p| p.exists())
+}
+
+/// Every directory the sidecar `node.exe` could be sitting in.
+fn sidecar_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
-        candidates.push(dir.join(NODE_BIN));
+        dirs.push(dir);
     }
     if let Ok(res) = app.path().resource_dir() {
-        candidates.push(res.join(NODE_BIN));
-        candidates.push(res.join("binaries").join(NODE_BIN));
+        dirs.push(res.join("binaries"));
+        dirs.push(res);
     }
-    candidates.into_iter().find(|p| p.exists())
+    dirs
+}
+
+fn same_dir(a: &std::path::Path, b: &std::path::Path) -> bool {
+    let c = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    c(a) == c(b)
+}
+
+/// The user's own Node on PATH, as an absolute path, or None.
+///
+/// Deliberately not `Command::new("node")`: on Windows CreateProcess searches the *calling
+/// executable's own directory* before PATH, and the sidecar is installed as `node.exe` right next
+/// to PocketRocket.exe. A bare "node" therefore always resolved to the sidecar, so the preference
+/// for a newer system Node below could never fire and the About box called the sidecar
+/// "system node 24.20.0". Skip the directories the sidecar lives in and scan PATH ourselves.
+fn system_node(app: &AppHandle) -> Option<PathBuf> {
+    let shadowed = sidecar_dirs(app);
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() || shadowed.iter().any(|s| same_dir(s, &dir)) {
+            continue;
+        }
+        let candidate = dir.join(NODE_BIN);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 /// Command that runs the hub straight from a repo checkout through tsx (development).
@@ -257,8 +289,9 @@ fn dev_hub_command(root: &std::path::Path) -> Result<(Command, PathBuf), String>
 /// the shipped Node 24 sidecar otherwise.
 fn bundled_hub_command(app: &AppHandle, hub: &std::path::Path) -> Result<(Command, String), String> {
     let entry = hub.join("hub.mjs");
-    let (exe, runtime) = match node_version(std::ffi::OsStr::new("node")) {
-        Some((maj, min, v)) if (maj, min) >= MIN_NODE => (PathBuf::from("node"), format!("system node {v}")),
+    let system = system_node(app).and_then(|p| node_version(p.as_os_str()).map(|(maj, min, v)| (p, maj, min, v)));
+    let (exe, runtime) = match system {
+        Some((p, maj, min, v)) if (maj, min) >= MIN_NODE => (p, format!("system node {v}")),
         _ => {
             let side = sidecar_node(app).ok_or_else(|| {
                 format!(
