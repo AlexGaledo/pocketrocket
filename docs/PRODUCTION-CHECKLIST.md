@@ -108,6 +108,8 @@ Then Settings → provider → DM a bot "Reply with exactly: pong", then ask it 
 
 ## 6b. Known small issues
 
+- Screen tab: the hub token rides the noVNC iframe URL (same-origin loopback, per-launch token, `Referrer-Policy: no-referrer` + `no-store` on `/screen/*`). Proper fix later: short-lived ticket exchanged for an httpOnly cookie scoped to `/screen`.
+
 - Switching provider from a cold model cache does not reset bot models until the background refresh lands; harmless at turn time (`resolveModelId` maps it), but Settings may briefly show a foreign model.
 - Installed app inherited `mode: remote, sshHost: <host>` from the legacy config; that VPS still runs the old Claudebot build. Switch to "This PC" or redeploy with `scripts/deploy.sh <host>`.
 - `pocketrocket.vercel.app` is taken by an unrelated site; production is `pocketrocket-chi.vercel.app` until a custom domain is added.

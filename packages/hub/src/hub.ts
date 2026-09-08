@@ -86,6 +86,13 @@ export function createHub(opts: HubOptions = {}): Hub {
 
   // /screen/* -> noVNC (websockify) on the computer. Same-origin, so the SSH tunnel / Tailscale covers it.
   const screenProxy = httpProxy.createProxyServer({ target: SCREEN_URL, ws: true, changeOrigin: true });
+  // The noVNC iframe carries the hub token in its query string (an iframe cannot send headers), so make
+  // sure nothing loaded under /screen/ can leak that URL through a Referer header, and keep it out of caches.
+  screenProxy.on('proxyRes', (proxyRes) => {
+    proxyRes.headers['referrer-policy'] = 'no-referrer';
+    proxyRes.headers['cache-control'] = 'no-store';
+    proxyRes.headers['x-frame-options'] = 'SAMEORIGIN';
+  });
   screenProxy.on('error', (_err, _req, res) => {
     if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
       res.writeHead(502, { 'content-type': 'text/plain' });
