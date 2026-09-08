@@ -5,14 +5,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { nanoid } from 'nanoid';
 import { DESKTOP_HOME, SCREEN_DISPLAY, WORKSPACE_DIR } from '../config.js';
+import { hubTool } from './botTools.js';
+import type { HubTool, ToolOutput } from '../providers/types.js';
 
 const run = promisify(execFile);
 const env = { ...process.env, DISPLAY: SCREEN_DISPLAY };
-const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
-const err = (t: string) => ({ content: [{ type: 'text' as const, text: t }], isError: true });
+const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
+const err = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }], isError: true });
 
 async function geometry(): Promise<string> {
   try {
@@ -23,7 +24,7 @@ async function geometry(): Promise<string> {
   }
 }
 
-async function screenshot() {
+async function screenshot(): Promise<ToolOutput> {
   const f = path.join(os.tmpdir(), 'pocketrocket-shot-' + nanoid(6) + '.png');
   try {
     await run('scrot', ['-o', '-z', f], { env });
@@ -41,12 +42,10 @@ async function screenshot() {
   }
 }
 
-export function desktopTools() {
-  const shot = tool('desktop_screenshot', 'Take a screenshot of the whole virtual desktop (all windows). Use it to see the current state before and after acting.', {}, screenshot, {
-    annotations: { readOnlyHint: true },
-  });
+export function desktopTools(): HubTool[] {
+  const shot = hubTool('desktop_screenshot', 'Take a screenshot of the whole virtual desktop (all windows). Use it to see the current state before and after acting.', {}, screenshot, { readOnly: true });
 
-  const click = tool(
+  const click = hubTool(
     'desktop_click',
     'Move the mouse to (x, y) on the desktop and click. Coordinates are pixels from the top-left of the last screenshot.',
     {
@@ -69,7 +68,7 @@ export function desktopTools() {
     },
   );
 
-  const type = tool(
+  const type = hubTool(
     'desktop_type',
     'Type text into the focused window (click a field first). Use desktop_key for Enter/Tab/shortcuts.',
     { text: z.string().min(1) },
@@ -84,7 +83,7 @@ export function desktopTools() {
     },
   );
 
-  const key = tool(
+  const key = hubTool(
     'desktop_key',
     'Press a key or shortcut in xdotool syntax, e.g. "Return", "Tab", "ctrl+l", "ctrl+shift+t", "alt+F4", "super". Space-separate to press several in sequence.',
     { keys: z.string().min(1) },
@@ -99,7 +98,7 @@ export function desktopTools() {
     },
   );
 
-  const scroll = tool(
+  const scroll = hubTool(
     'desktop_scroll',
     'Scroll at (x, y).',
     { x: z.number().int().min(0), y: z.number().int().min(0), direction: z.enum(['up', 'down']), clicks: z.number().int().min(1).max(30).optional().describe('Default 5') },
@@ -114,7 +113,7 @@ export function desktopTools() {
     },
   );
 
-  const launch = tool(
+  const launch = hubTool(
     'desktop_launch',
     'Start a desktop application by command, e.g. "xfce4-terminal", "thunar", "mousepad /path/file.txt". Returns a screenshot after it opens.',
     { command: z.string().min(1).describe('Program and arguments') },

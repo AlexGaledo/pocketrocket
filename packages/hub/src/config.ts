@@ -13,7 +13,9 @@ export const WORKSPACE_DIR = path.join(DATA_DIR, 'workspace');
 export const BOTS_DIR = path.join(DATA_DIR, 'bots');
 export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
 export const DB_PATH = path.join(DATA_DIR, 'pocketrocket.db');
-export const WEB_DIST = path.join(ROOT_DIR, 'packages', 'web', 'dist');
+export const WEB_DIST = process.env.POCKETROCKET_WEB_DIST
+  ? path.resolve(process.env.POCKETROCKET_WEB_DIST)
+  : path.join(ROOT_DIR, 'packages', 'web', 'dist');
 
 export const CLAUDE_EXE =
   process.env.CLAUDE_EXE ??
@@ -23,19 +25,34 @@ export const CLAUDE_EXE =
 
 export const HOST = '127.0.0.1';
 export const PORT = Number(process.env.PORT ?? 7788);
-export const USER_NAME = process.env.POCKETROCKET_USER ?? (() => {
+/** When set, every /api/* call (except GET /api/health) needs `Authorization: Bearer <token>` and /ws needs ?token=. */
+export const HUB_TOKEN = process.env.POCKETROCKET_TOKEN ?? null;
+
+/** OS account name, the fallback for settings.userName (the human's display name). */
+export function osUserName(): string {
   try {
     return os.userInfo().username || 'you';
   } catch {
     return 'you';
   }
-})();
+}
 
 export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 5);
 export const MAX_CONCURRENT_TURNS = Number(process.env.MAX_CONCURRENT_TURNS ?? 4);
 export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 export const CAUSE_COST_CAP_USD = Number(process.env.CAUSE_COST_CAP_USD ?? 5);
 export const MAX_TURNS_PER_QUERY = 40;
+
+export const VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(here, '..', 'package.json'), 'utf8')) as { version?: string };
+    return pkg.version ?? '0.1.0';
+  } catch {
+    return '0.1.0';
+  }
+})();
+
+export const SECRETS_PATH = path.join(DATA_DIR, 'secrets.json');
 
 export const USER_SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills');
 

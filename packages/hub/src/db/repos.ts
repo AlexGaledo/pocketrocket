@@ -186,19 +186,44 @@ export class Repos {
   }
 
   // ---------- sessions ----------
-  getSession(botId: string, roomId: string): { sdkSessionId: string | null; lastSeenSeq: number } {
+  /**
+   * Session token for (bot, room). `provider` names the adapter that created the token; pass the active
+   * provider id to get `sdkSessionId: null` for a token another provider wrote (resume tokens are not portable).
+   */
+  getSession(botId: string, roomId: string, provider?: string): { sdkSessionId: string | null; lastSeenSeq: number; provider: string | null } {
     const r = this.db.get('SELECT * FROM sessions WHERE bot_id=? AND room_id=?', botId, roomId);
-    return r
-      ? { sdkSessionId: (r.sdk_session_id as string) ?? null, lastSeenSeq: r.last_seen_seq as number }
-      : { sdkSessionId: null, lastSeenSeq: 0 };
+    if (!r) return { sdkSessionId: null, lastSeenSeq: 0, provider: null };
+    const rowProvider = (r.provider as string) ?? null;
+    const stale = provider !== undefined && rowProvider !== null && rowProvider !== provider;
+    return {
+      sdkSessionId: stale ? null : ((r.sdk_session_id as string) ?? null),
+      lastSeenSeq: r.last_seen_seq as number,
+      provider: rowProvider,
+    };
   }
-  saveSession(botId: string, roomId: string, patch: { sdkSessionId?: string | null; lastSeenSeq?: number }) {
+  saveSession(botId: string, roomId: string, patch: { sdkSessionId?: string | null; lastSeenSeq?: number; provider?: string | null }) {
     const cur = this.getSession(botId, roomId);
     const s = { ...cur, ...patch };
     this.db.run(
-      'INSERT INTO sessions (bot_id,room_id,sdk_session_id,last_seen_seq,updated_at) VALUES (?,?,?,?,?) ' +
-        'ON CONFLICT(bot_id,room_id) DO UPDATE SET sdk_session_id=excluded.sdk_session_id,last_seen_seq=excluded.last_seen_seq,updated_at=excluded.updated_at',
-      botId, roomId, s.sdkSessionId, s.lastSeenSeq, now(),
+      'INSERT INTO sessions (bot_id,room_id,sdk_session_id,last_seen_seq,updated_at,provider) VALUES (?,?,?,?,?,?) ' +
+        'ON CONFLICT(bot_id,room_id) DO UPDATE SET sdk_session_id=excluded.sdk_session_id,last_seen_seq=excluded.last_seen_seq,' +
+        'updated_at=excluded.updated_at,provider=excluded.provider',
+      botId, roomId, s.sdkSessionId, s.lastSeenSeq, now(), s.provider,
+    );
+  }
+
+  // ---------- settings (key -> JSON value) ----------
+  allSettings(): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const r of this.db.all<{ key: string; value: string }>('SELECT key, value FROM settings')) {
+      try { out[r.key] = JSON.parse(r.value); } catch { /* ignore corrupt row */ }
+    }
+    return out;
+  }
+  setSetting(key: string, value: unknown) {
+    this.db.run(
+      'INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+      key, JSON.stringify(value),
     );
   }
   resetSession(botId: string, roomId: string) {

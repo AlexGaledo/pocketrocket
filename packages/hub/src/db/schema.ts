@@ -20,7 +20,11 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, seq);
 CREATE TABLE IF NOT EXISTS sessions (
   bot_id TEXT NOT NULL, room_id TEXT NOT NULL, sdk_session_id TEXT, last_seen_seq INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER, PRIMARY KEY (bot_id, room_id)
+  updated_at INTEGER, provider TEXT, PRIMARY KEY (bot_id, room_id)
+);
+-- Global settings (see @pocketrocket/shared SettingsSchema); value holds JSON.
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY, value TEXT
 );
 CREATE TABLE IF NOT EXISTS routines (
   id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, room_id TEXT NOT NULL, name TEXT NOT NULL, cron TEXT NOT NULL,

@@ -1,5 +1,6 @@
 import type { Bot, Room } from '@pocketrocket/shared';
-import { MAX_HOPS, USER_NAME, WORKSPACE_DIR, botHome } from '../config.js';
+import { MAX_HOPS, WORKSPACE_DIR, botHome } from '../config.js';
+import { settings } from '../services/SettingsStore.js';
 
 export interface PromptCtx {
   bot: Bot;
@@ -10,6 +11,13 @@ export interface PromptCtx {
   identity: string;
   browser?: boolean;
   desktop?: boolean;
+  /**
+   * How the provider exposes hub tools: 'mcp__pocketrocket__' for the Claude Agent SDK, '' for CLI
+   * providers that reach them over the HTTP MCP endpoint under their plain names.
+   */
+  toolPrefix?: string;
+  /** Provider has best-effort permissions: explain the request_approval tool. */
+  requestApproval?: boolean;
 }
 
 export const POCKETROCKET_TOOLS = ['send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room', 'create_bot', 'update_bot', 'delete_bot', 'add_to_room', 'remove_from_room'];
@@ -19,6 +27,8 @@ function firstLine(s: string) {
 }
 
 export function buildSystemPrompt(ctx: PromptCtx): string {
+  const USER_NAME = settings.get().userName;
+  const prefix = ctx.toolPrefix ?? 'mcp__pocketrocket__';
   const others = ctx.members.filter((m) => m.id !== ctx.bot.id);
   const roster = others.length
     ? others
@@ -52,7 +62,7 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
     '## Shared computer',
     'Working directory (shared with all bots): ' + WORKSPACE_DIR,
     'Your private home: ' + botHome(ctx.bot.id) + ' (memory.md lives here). Files are shared; memory is not.',
-    'Custom tools: ' + POCKETROCKET_TOOLS.map((t) => 'mcp__pocketrocket__' + t).join(', ') + '.',
+    'Custom tools: ' + POCKETROCKET_TOOLS.map((t) => prefix + t).join(', ') + '.',
     'Use update_memory when you learn something durable about the user, the project, or how you should work. Keep memory short and factual.',
     ...(ctx.browser
       ? [
@@ -61,7 +71,12 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
       : []),
     ...(ctx.desktop
       ? [
-          'Desktop: mcp__pocketrocket__desktop_* tools (desktop_screenshot, desktop_click, desktop_type, desktop_key, desktop_scroll, desktop_launch) operate the XFCE desktop on this computer that ' + USER_NAME + ' watches on the Screen tab. The desktop folder is the shared workspace. Always screenshot first, act in small steps, verify with the screenshot each action returns. Prefer Bash/file tools for anything a shell can do; use the desktop only for GUI apps and sites that need a real browser interaction the Browser tool cannot do.',
+          'Desktop: ' + prefix + 'desktop_* tools (desktop_screenshot, desktop_click, desktop_type, desktop_key, desktop_scroll, desktop_launch) operate the XFCE desktop on this computer that ' + USER_NAME + ' watches on the Screen tab. The desktop folder is the shared workspace. Always screenshot first, act in small steps, verify with the screenshot each action returns. Prefer Bash/file tools for anything a shell can do; use the desktop only for GUI apps and sites that need a real browser interaction the Browser tool cannot do.',
+        ]
+      : []),
+    ...(ctx.requestApproval
+      ? [
+          'Approvals: this provider cannot intercept every action, so you must ask first. Call ' + prefix + 'request_approval({ action, command?, paths?, reason? }) BEFORE you: write, move or delete anything outside ' + WORKSPACE_DIR + ' and your private home; run a destructive, privileged or network-changing shell command (rm -r, sudo, git push, package publishes, installs outside the workspace); or do anything irreversible or costly. It shows ' + USER_NAME + ' an approval card and returns { allowed, message }. If allowed is false, do not do it: pick another approach or say so in the room. Everything inside the workspace needs no approval.',
         ]
       : []),
     'You manage the team: create_bot makes a specialist, update_bot changes any bot (or "me"), delete_bot removes a bot for good (including yourself, when ' + USER_NAME + ' asks or your role is finished), add_to_room / remove_from_room change who is in a group chat. Check list_bots first; reuse existing bots instead of creating duplicates. Never delete or rewrite a bot on your own initiative. When ' + USER_NAME + ' tells you to delete or change a bot, including yourself, do it in that same turn without asking for confirmation: ' + USER_NAME + "'s message is the confirmation, and confirm=true is how you record it. Deleting yourself is fine and expected when asked; finish your other steps first, delete last, then reply with a short goodbye.",

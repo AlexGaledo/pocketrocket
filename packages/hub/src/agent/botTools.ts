@@ -1,13 +1,13 @@
 import { z } from 'zod';
-import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import type { Bot, Room, HandoffPayload } from '@pocketrocket/shared';
-import { USER_NAME } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
+import { settings } from '../services/SettingsStore.js';
 import { events } from '../events.js';
 import { parseMentions } from '../rooms/mentions.js';
 import { desktopTools } from './desktopTools.js';
+import type { HubTool, ToolOutput } from '../providers/types.js';
 
 export interface ToolCtx {
   bot: Bot;
@@ -24,12 +24,46 @@ export interface ToolCtx {
   setState: (s: 'waiting' | 'working') => void;
   /** Attach desktop (computer-use) tools for this turn. */
   desktop?: boolean;
+  /** Model ids the active provider offers; create_bot/update_bot validate against it. */
+  models: string[];
+  /**
+   * Ask the user for approval through the PermissionBroker. Present only for providers whose permission
+   * parity is 'best-effort' (everything but Claude); adds the `request_approval` tool.
+   */
+  requestApproval?: (a: { action: string; command?: string; paths?: string[]; reason?: string }) => Promise<{ allowed: boolean; message: string }>;
 }
 
-const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
-const err = (t: string) => ({ content: [{ type: 'text' as const, text: t }], isError: true });
+export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
+export const err = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }], isError: true });
 
-export function createBotToolServer(ctx: ToolCtx) {
+/** Build a provider-agnostic HubTool from a zod shape; the handler sees parsed, typed args. */
+export function hubTool<S extends z.ZodRawShape>(
+  name: string,
+  description: string,
+  shape: S,
+  handler: (a: z.infer<z.ZodObject<S>>) => Promise<ToolOutput>,
+  opts?: { readOnly?: boolean },
+): HubTool {
+  const schema = z.object(shape);
+  return {
+    name,
+    description,
+    inputSchema: schema as unknown as z.ZodObject<z.ZodRawShape>,
+    readOnly: opts?.readOnly,
+    handler: async (input) => {
+      const parsed = schema.safeParse(input ?? {});
+      if (!parsed.success) return err('Invalid arguments: ' + parsed.error.issues.map((i) => i.path.join('.') + ' ' + i.message).join('; '));
+      return handler(parsed.data as z.infer<z.ZodObject<S>>);
+    },
+  };
+}
+
+/**
+ * The hub's own tools, independent of any provider SDK. `providers/claude.ts` wraps them with the Agent
+ * SDK's `tool()`; CLI providers call the same handlers over the HTTP MCP endpoint.
+ */
+export function createHubTools(ctx: ToolCtx): HubTool[] {
+  const userName = settings.get().userName;
   const others = () => ctx.members.filter((m) => m.id !== ctx.bot.id);
   const findBot = (ref: string) => {
     const r = ref.replace(/^@/, '').toLowerCase();
@@ -43,8 +77,13 @@ export function createBotToolServer(ctx: ToolCtx) {
     events.emitEvent({ type: 'message.new', message: msg });
     return msg;
   };
+  const modelHint = ctx.models.length ? ' One of: ' + ctx.models.join(', ') + '.' : '';
+  const checkModel = (m: string | undefined) =>
+    !m || !ctx.models.length || ctx.models.includes(m)
+      ? null
+      : err('Unknown model "' + m + '" for the active provider. Available: ' + ctx.models.join(', ') + '.');
 
-  const sendMessage = tool(
+  const sendMessage = hubTool(
     'send_message',
     'Post a message to the current room immediately, before your turn ends. Use @handle inside the text to mention bots; mentioned bots will respond.',
     { text: z.string().min(1).describe('Message text. May contain @handle mentions.') },
@@ -55,7 +94,7 @@ export function createBotToolServer(ctx: ToolCtx) {
     },
   );
 
-  const handoff = tool(
+  const handoff = hubTool(
     'handoff',
     'Hand a task to another bot in this room. It picks the task up with room context. Use for delegation; you do not need to wait for it.',
     {
@@ -80,7 +119,7 @@ export function createBotToolServer(ctx: ToolCtx) {
     },
   );
 
-  const updateMemory = tool(
+  const updateMemory = hubTool(
     'update_memory',
     'Update your persistent memory.md (private to you, survives across rooms and restarts). Keep it short and factual.',
     {
@@ -99,11 +138,9 @@ export function createBotToolServer(ctx: ToolCtx) {
     },
   );
 
-  const readMemory = tool('read_memory', 'Read your current memory.md.', {}, async () => text(ctx.memory.read(ctx.bot.id) || '(empty)'), {
-    annotations: { readOnlyHint: true },
-  });
+  const readMemory = hubTool('read_memory', 'Read your current memory.md.', {}, async () => text(ctx.memory.read(ctx.bot.id) || '(empty)'), { readOnly: true });
 
-  const saveSkill = tool(
+  const saveSkill = hubTool(
     'save_skill',
     'Save a reusable workflow you just performed as a SKILL.md in the shared skill pool. The user reviews it before it becomes active.',
     {
@@ -114,49 +151,49 @@ export function createBotToolServer(ctx: ToolCtx) {
     async (a) => {
       try {
         const s = ctx.skills.save(a.name, a.description, a.markdown, { source: 'bot', createdByBot: ctx.bot.id });
-        return text('Saved skill "' + s.name + '" (pending review by ' + USER_NAME + ').');
+        return text('Saved skill "' + s.name + '" (pending review by ' + userName + ').');
       } catch (e) {
         return err(String((e as Error).message));
       }
     },
   );
 
-  const listBots = tool(
+  const listBots = hubTool(
     'list_bots',
     'List the bots in this room with their roles.',
     {},
     async () => {
       const inRoom = new Set(ctx.members.map((b) => b.id));
       const line = (b: Bot) => '@' + b.handle + ' — ' + b.name + (b.title ? ' — ' + b.title : '') + (b.id === ctx.bot.id ? ' (you)' : '') + (b.description ? '\n  ' + b.description.split('\n')[0].slice(0, 160) : '');
-      const others = ctx.repos.listBots().filter((b) => !inRoom.has(b.id));
+      const rest = ctx.repos.listBots().filter((b) => !inRoom.has(b.id));
       return text(
         'In this room:\n' + (ctx.members.map(line).join('\n') || '(none)') +
-        (others.length ? '\n\nOther bots on this account (use add_to_room to bring one in):\n' + others.map(line).join('\n') : '\n\nNo other bots exist yet; create_bot can make one.'),
+        (rest.length ? '\n\nOther bots on this account (use add_to_room to bring one in):\n' + rest.map(line).join('\n') : '\n\nNo other bots exist yet; create_bot can make one.'),
       );
     },
-    { annotations: { readOnlyHint: true } },
+    { readOnly: true },
   );
 
-  const readRoom = tool(
+  const readRoom = hubTool(
     'read_room',
     'Read recent messages in the current room (oldest first).',
-    { limit: z.number().int().min(1).max(200).optional().describe("Default 30") },
+    { limit: z.number().int().min(1).max(200).optional().describe('Default 30') },
     async (a) => {
       const msgs = ctx.repos
         .listMessages(ctx.room.id, { limit: a.limit ?? 30 })
         .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine');
       const who = (m: { authorType: string; authorId: string | null }) =>
         m.authorType === 'user'
-          ? USER_NAME
+          ? userName
           : m.authorType === 'system'
             ? 'system'
             : '@' + (ctx.members.find((b) => b.id === m.authorId)?.handle ?? ctx.repos.getBot(m.authorId ?? '')?.handle ?? 'bot');
       return text(msgs.map((m) => '#' + m.seq + ' [' + who(m) + ']: ' + m.text).join('\n') || '(no messages)');
     },
-    { annotations: { readOnlyHint: true } },
+    { readOnly: true },
   );
 
-  const createBot = tool(
+  const createBot = hubTool(
     'create_bot',
     'Create a new specialist bot (a persistent teammate with its own memory). In a group chat it joins this room and can be @mentioned right away. Use when the room lacks a needed role.',
     {
@@ -167,11 +204,13 @@ export function createBotToolServer(ctx: ToolCtx) {
       avatar: z.string().max(8).optional().describe('Single emoji (default 🤖)'),
       tools: z.array(z.enum(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'])).optional().describe('Default: all of them'),
       join_this_room: z.boolean().optional().describe('Add the bot to the current room (group chats only). Default true'),
-      model: z.enum(['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5-20251001']).optional().describe('Model for the new bot. Default: same as yours. Haiku = cheapest/fastest, Opus = strongest.'),
+      model: z.string().optional().describe('Model for the new bot. Default: same as yours.' + modelHint),
     },
     async (a) => {
       if (ctx.repos.listBots().length >= 50) return err('Bot limit reached (50).');
       if (ctx.repos.getBotByHandle(a.handle)) return err('Handle @' + a.handle + ' already exists. Use add_to_room to bring an existing bot in, or pick another handle.');
+      const bad = checkModel(a.model);
+      if (bad) return bad;
       const bot = ctx.repos.createBot({ name: a.name, handle: a.handle, title: a.title, description: a.description, avatar: a.avatar ?? '🤖', model: a.model ?? ctx.bot.model, allowedTools: a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'], maxBudgetUsd: ctx.bot.maxBudgetUsd });
       ctx.memory.ensureHome(bot.id);
       ctx.memory.writeIdentity(bot.id, a.description);
@@ -188,11 +227,11 @@ export function createBotToolServer(ctx: ToolCtx) {
       }
       const note = ctx.repos.insertMessage({ roomId: ctx.room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' created bot ' + bot.avatar + ' ' + bot.name + ' (@' + bot.handle + ')' + (joined ? ' and added it to this room.' : '.'), payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
       events.emitEvent({ type: 'message.new', message: note });
-      return text('Created @' + bot.handle + ' (' + bot.name + ').' + (joined ? ' It is in this room; mention @' + bot.handle + ' to give it work.' : ctx.room.kind === 'group' ? ' Room is full (6), not added.' : ' This is a DM, so it was not added here; ' + USER_NAME + ' can open a DM or add it to a group chat.'));
+      return text('Created @' + bot.handle + ' (' + bot.name + ').' + (joined ? ' It is in this room; mention @' + bot.handle + ' to give it work.' : ctx.room.kind === 'group' ? ' Room is full (6), not added.' : ' This is a DM, so it was not added here; ' + userName + ' can open a DM or add it to a group chat.'));
     },
   );
 
-  const addToRoom = tool(
+  const addToRoom = hubTool(
     'add_to_room',
     'Add an existing bot (by @handle) to the current group chat so it can be mentioned here.',
     { handle: z.string().describe('@handle of an existing bot') },
@@ -224,7 +263,7 @@ export function createBotToolServer(ctx: ToolCtx) {
     events.emitEvent({ type: 'message.new', message: note });
   };
 
-  const updateBot = tool(
+  const updateBot = hubTool(
     'update_bot',
     'Change an existing bot (any bot, including yourself: use "me"). Only the fields you pass change. Description replaces the identity instructions.',
     {
@@ -234,7 +273,7 @@ export function createBotToolServer(ctx: ToolCtx) {
       title: z.string().max(80).optional(),
       description: z.string().min(10).max(4000).optional().describe('New role instructions (full replacement)'),
       avatar: z.string().max(8).optional(),
-      model: z.enum(['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5-20251001']).optional(),
+      model: z.string().optional().describe('Model id.' + modelHint),
       tools: z.array(TOOL_ENUM).optional().describe('Full replacement of the allowed tool list'),
       max_budget_usd: z.number().min(0.05).max(50).optional().describe('Budget per turn'),
     },
@@ -242,6 +281,8 @@ export function createBotToolServer(ctx: ToolCtx) {
       const target = resolveAny(a.bot);
       if (!target) return err('No bot "' + a.bot + '". Existing: ' + ctx.repos.listBots().map((x) => '@' + x.handle).join(', '));
       if (a.handle && a.handle !== target.handle && ctx.repos.getBotByHandle(a.handle)) return err('Handle @' + a.handle + ' is taken.');
+      const bad = checkModel(a.model);
+      if (bad) return bad;
       const patch: Partial<Bot> = {};
       if (a.name !== undefined) patch.name = a.name;
       if (a.handle !== undefined) patch.handle = a.handle;
@@ -262,7 +303,7 @@ export function createBotToolServer(ctx: ToolCtx) {
     },
   );
 
-  const deleteBot = tool(
+  const deleteBot = hubTool(
     'delete_bot',
     'Permanently delete a bot (any bot, including yourself: use "me"). Removes it from all rooms and deletes its memory. Chat history stays. Requires confirm=true.',
     {
@@ -288,7 +329,7 @@ export function createBotToolServer(ctx: ToolCtx) {
     },
   );
 
-  const removeFromRoom = tool(
+  const removeFromRoom = hubTool(
     'remove_from_room',
     'Remove a bot (or yourself: "me") from the current group chat. The bot keeps existing and can be added back.',
     { bot: z.string().describe('@handle, name, or "me"') },
@@ -307,8 +348,24 @@ export function createBotToolServer(ctx: ToolCtx) {
     },
   );
 
-  // alwaysLoad: keep these schemas in the prompt so bots don't spend a ToolSearch roundtrip every turn.
-  const tools: Parameters<typeof createSdkMcpServer>[0]['tools'] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, createBot, addToRoom, updateBot, deleteBot, removeFromRoom];
-  if (ctx.desktop) tools!.push(...desktopTools());
-  return createSdkMcpServer({ name: 'pocketrocket', version: '0.1.0', alwaysLoad: true, tools });
+  const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, createBot, addToRoom, updateBot, deleteBot, removeFromRoom];
+
+  if (ctx.requestApproval) {
+    tools.push(hubTool(
+      'request_approval',
+      'Ask ' + userName + ' to approve an action before you take it. Required before writing outside the workspace, running a destructive or network-changing shell command, or anything irreversible. Returns whether it was approved.',
+      {
+        action: z.string().min(3).describe('What you want to do, in one line'),
+        command: z.string().optional().describe('The exact shell command, when the action is a command'),
+        paths: z.array(z.string()).optional().describe('Absolute paths the action touches'),
+        reason: z.string().optional().describe('Why it is needed'),
+      },
+      async (a) => {
+        const r = await ctx.requestApproval!({ action: a.action, command: a.command, paths: a.paths, reason: a.reason });
+        return text(JSON.stringify(r));
+      },
+    ));
+  }
+  if (ctx.desktop) tools.push(...desktopTools());
+  return tools;
 }

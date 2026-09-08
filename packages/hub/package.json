@@ -11,8 +11,9 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.263",
-    "@pocketrocket/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@playwright/mcp": "^0.0.80",
+    "@pocketrocket/shared": "workspace:*",
     "croner": "^9.0.0",
     "dotenv": "^16.4.7",
     "http-proxy": "^1.18.1",

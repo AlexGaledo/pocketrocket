@@ -1,18 +1,18 @@
 import fs from 'node:fs';
-import { spawn } from 'node:child_process';
 import { nanoid } from 'nanoid';
-import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
-import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import type { Bot, BotState, Room, ToolPayload } from '@pocketrocket/shared';
-import { CDP_URL, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, PLAYWRIGHT_MCP_CLI, WORKSPACE_DIR, botHome } from '../config.js';
+import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, WORKSPACE_DIR, botHome } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
+import type { ProviderRegistry } from '../providers/registry.js';
+import type { ProviderInit, TurnContext, TurnSink } from '../providers/types.js';
+import type { TurnRegistry } from '../mcp/httpServer.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
-import { createBotToolServer } from './botTools.js';
+import { createHubTools } from './botTools.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -35,16 +35,16 @@ export interface RunnerHooks {
   setState: (botId: string, roomId: string, state: BotState, note?: string) => void;
 }
 
-// Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
-// EVERYWHERE and bypasses canUseTool, so file/shell tools must never appear there: reads inside
-// cwd/additionalDirectories are already free, edits inside are covered by acceptEdits, and anything
-// outside (plus every Bash call) then falls through to the PermissionBroker.
-const AUTO_OK = new Set(['WebSearch', 'WebFetch']);
-const ALL_BUILTINS = ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit'];
-
+/**
+ * Provider-agnostic turn driver: builds the TurnContext, hands it to the active provider, and turns the
+ * provider's TurnSink callbacks into messages, tool chips, events and usage rows. Nothing here knows about
+ * any particular agent SDK — that lives in providers/<id>.ts.
+ */
 export class BotRunner {
-  private active = new Map<string, Query>();
-  lastInit: { apiKeySource?: string; model?: string; version?: string; tools?: string[]; skills?: string[] } = {};
+  private activeTurns = new Set<string>();
+  private aborts = new Map<string, AbortController>();
+  /** Last init info reported by the active provider (GET /api/health). */
+  lastInit: ProviderInit = {};
 
   constructor(
     private repos: Repos,
@@ -53,22 +53,29 @@ export class BotRunner {
     private broker: PermissionBroker,
     private usage: UsageTracker,
     private hooks: RunnerHooks,
+    private providers: ProviderRegistry,
+    private turns: TurnRegistry,
   ) {}
 
   interrupt(turnId: string) {
-    const q = this.active.get(turnId);
-    if (!q) return false;
-    void q.interrupt().catch(() => undefined);
-    return true;
+    const ac = this.aborts.get(turnId);
+    const stopped = this.providers.active().interrupt(turnId);
+    if (ac) ac.abort();
+    return stopped || !!ac;
   }
   isActive(turnId: string) {
-    return this.active.has(turnId);
+    return this.activeTurns.has(turnId);
+  }
+  /** Interrupt every in-flight turn (graceful shutdown). */
+  interruptAll() {
+    for (const id of [...this.activeTurns]) this.interrupt(id);
   }
 
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const { bot, room } = req;
     const turnId = nanoid(10);
-    const session = this.repos.getSession(bot.id, room.id);
+    const provider = this.providers.active();
+    const session = this.repos.getSession(bot.id, room.id, provider.id);
     this.memory.ensureHome(bot.id);
     const memoryText = this.memory.read(bot.id);
     const identity = this.memory.readIdentity(bot.id) || bot.description;
@@ -76,83 +83,52 @@ export class BotRunner {
     const setState = (s: BotState, note?: string) => this.hooks.setState(bot.id, room.id, s, note);
 
     const desktopOn = bot.allowedTools.includes('Desktop') && DESKTOP_AVAILABLE;
-    const toolServer = createBotToolServer({
+    const browserOn = bot.allowedTools.includes('Browser');
+    const bestEffort = provider.info.permissions === 'best-effort';
+    const ac = new AbortController();
+    const permCtx = { bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s) };
+
+    const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
       repos: this.repos, memory: this.memory, skills: this.skills,
       dispatchFromBot: (targets) => this.hooks.dispatchFromBot(req, targets),
       setState: (s) => setState(s),
       desktop: desktopOn,
+      models: provider.modelsSync().map((m) => m.id),
+      requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
     });
 
-    const allowed = bot.allowedTools.filter((t) => AUTO_OK.has(t));
-    const disallowed = ALL_BUILTINS.filter((t) => !bot.allowedTools.includes(t));
-    // "Browser" = Playwright MCP attached over CDP to the Chromium on the screen (shared, logged-in profile).
-    const browserOn = bot.allowedTools.includes('Browser') && fs.existsSync(PLAYWRIGHT_MCP_CLI);
-    const mcpServers: NonNullable<Options['mcpServers']> = { pocketrocket: toolServer };
-    if (browserOn) mcpServers.browser = { type: 'stdio', command: process.execPath, args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', CDP_URL, '--caps', 'vision'] };
-
-    let resolveDone: () => void = () => undefined;
-    const done = new Promise<void>((r) => (resolveDone = r));
-    async function* prompt(): AsyncGenerator<SDKUserMessage> {
-      yield { type: 'user', message: { role: 'user', content: req.injected }, parent_tool_use_id: null };
-      await done;
-    }
-
-    const options: Options = {
-      pathToClaudeCodeExecutable: CLAUDE_EXE,
-      spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
-      cwd: WORKSPACE_DIR,
-      additionalDirectories: [botHome(bot.id)],
-      resume: session.sdkSessionId ?? undefined,
+    const mcpToken = this.turns.registerTurn(tools);
+    const ctx: TurnContext = {
+      turnId, bot, room, members: req.members,
+      systemPrompt: buildSystemPrompt({
+        bot, room, members: req.members, hop: req.hop, memory: memoryText, identity,
+        browser: browserOn, desktop: desktopOn,
+        toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',
+        requestApproval: bestEffort,
+      }),
+      input: req.injected,
+      resumeToken: session.sdkSessionId,
+      workspaceDir: WORKSPACE_DIR,
+      botHome: botHome(bot.id),
+      tools,
+      allowedBuiltins: bot.allowedTools,
+      permission: async (name, input, extra) => {
+        const r = await this.broker.decide(permCtx, name, input, { signal: ac.signal, blockedPath: extra?.blockedPath });
+        return r.behavior === 'allow' ? 'allow' : 'deny';
+      },
+      permissionDetailed: (name, input, o) =>
+        this.broker.decide(permCtx, name, input, {
+          signal: (o.signal ?? ac.signal) as AbortSignal,
+          suggestions: o.suggestions as never,
+          blockedPath: o.blockedPath,
+        }),
+      pluginDir,
       model: bot.model,
-      systemPrompt: {
-        type: 'preset', preset: 'claude_code',
-        append: buildSystemPrompt({ bot, room, members: req.members, hop: req.hop, memory: memoryText, identity, browser: browserOn, desktop: desktopOn }),
-      },
-      settingSources: [],
-      plugins: pluginDir ? [{ type: 'local', path: pluginDir }] : undefined,
-      skills: pluginDir ? 'all' : [],
-      permissionMode: 'acceptEdits',
-      // Availability: only the bot's built-ins (+ Skill when a plugin is attached) exist in context.
-      // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
-      tools: [...bot.allowedTools.filter((t) => ALL_BUILTINS.includes(t)), ...(pluginDir ? ['Skill'] : [])],
-      allowedTools: [...allowed, 'mcp__pocketrocket__*', ...(browserOn ? ['mcp__browser__*'] : [])],
-      disallowedTools: disallowed,
-      mcpServers,
-      strictMcpConfig: true,
-      canUseTool: (name, input, o) =>
-        this.broker.decide({ bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s) => setState(s) }, name, input, o),
-      // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
-      // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: {
-        PreToolUse: [
-          {
-            matcher: 'Read|Glob|Grep|NotebookEdit',
-            hooks: [
-              async (input) => {
-                const i = input as PreToolUseHookInput;
-                const roots = [WORKSPACE_DIR, botHome(bot.id)];
-                const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);
-                const outside = paths.filter((p) => !isInside(p, roots, WORKSPACE_DIR));
-                if (process.env.POCKETROCKET_DEBUG) console.log('[hook PreToolUse]', i.tool_name, paths, outside.length ? 'ASK' : 'ok');
-                if (!outside.length) return {};
-                return {
-                  hookSpecificOutput: {
-                    hookEventName: 'PreToolUse',
-                    permissionDecision: 'ask',
-                    permissionDecisionReason: i.tool_name + ' outside workspace: ' + outside.join(', '),
-                  },
-                };
-              },
-            ],
-          },
-        ],
-      },
-      includePartialMessages: true,
-      maxTurns: MAX_TURNS_PER_QUERY,
       maxBudgetUsd: bot.maxBudgetUsd,
-      env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/0.1.0' },
-      stderr: (d) => { if (process.env.POCKETROCKET_DEBUG) process.stderr.write('[claude ' + bot.handle + '] ' + d); },
+      maxTurns: MAX_TURNS_PER_QUERY,
+      signal: ac.signal,
+      mcp: { url: this.turns.url(), token: mcpToken },
     };
 
     events.emitEvent({ type: 'turn.start', turnId, botId: bot.id, roomId: room.id, causeId: req.causeId, hop: req.hop });
@@ -160,95 +136,69 @@ export class BotRunner {
 
     const texts: string[] = [];
     const toolMsgIds = new Map<string, string>();
-    let costUsd = 0;
-    let ok = false;
-    let error: string | undefined;
     let lastMessageId: string | undefined;
 
-    const q = query({ prompt: prompt(), options });
-    this.active.set(turnId, q);
+    const sink: TurnSink = {
+      onInit: (info) => { this.lastInit = info; },
+      onSession: (token) => {
+        if (token && token !== session.sdkSessionId) this.repos.saveSession(bot.id, room.id, { sdkSessionId: token, provider: provider.id });
+      },
+      onDelta: (text) => events.emitEvent({ type: 'turn.delta', turnId, roomId: room.id, botId: bot.id, text }),
+      onText: (text) => {
+        // NO_REPLY is the sentinel a bot uses to stay silent; swallow it instead of posting it.
+        if (/^\W*NO_REPLY\W*$/.test(text.trim())) {
+          events.emitEvent({ type: 'bot.state', botId: bot.id, state: 'done', roomId: room.id, note: 'no reply' });
+          return;
+        }
+        texts.push(text);
+        const msg = this.repos.insertMessage({
+          roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'text', text, payload: null,
+          causeId: req.causeId, hop: req.hop, turnId,
+        });
+        lastMessageId = msg.id;
+        events.emitEvent({ type: 'message.new', message: msg });
+      },
+      onToolUse: (id, name, input) => {
+        const payload: ToolPayload = { toolUseId: id, name, input, done: false };
+        const msg = this.repos.insertMessage({
+          roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'tool', text: name, payload,
+          causeId: req.causeId, hop: req.hop, turnId,
+        });
+        toolMsgIds.set(id, msg.id);
+        events.emitEvent({ type: 'message.new', message: msg });
+      },
+      onToolResult: (id, output, isError) => {
+        const msgId = toolMsgIds.get(id);
+        if (!msgId) return;
+        const cur = this.repos.getMessage(msgId);
+        if (!cur || !cur.payload) return;
+        const payload: ToolPayload = { ...(cur.payload as ToolPayload), output: output.slice(0, 20000), isError, done: true };
+        this.repos.updateMessage(msgId, { payload });
+        events.emitEvent({ type: 'message.update', id: msgId, roomId: room.id, patch: { payload } });
+      },
+      onState: (s) => setState(s),
+    };
+
+    this.activeTurns.add(turnId);
+    this.aborts.set(turnId, ac);
+    let ok = false;
+    let error: string | undefined;
+    let costUsd = 0;
     try {
-      for await (const m of q as AsyncIterable<SDKMessage>) {
-        if (m.type === 'system' && m.subtype === 'init') {
-          this.lastInit = { apiKeySource: m.apiKeySource, model: m.model, version: m.claude_code_version, tools: m.tools, skills: m.skills };
-          if (m.session_id && m.session_id !== session.sdkSessionId) this.repos.saveSession(bot.id, room.id, { sdkSessionId: m.session_id });
-          continue;
-        }
-        if (m.type === 'stream_event') {
-          if (m.parent_tool_use_id) continue;
-          const ev = m.event as { type: string; delta?: { type?: string; text?: string } };
-          if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) {
-            events.emitEvent({ type: 'turn.delta', turnId, roomId: room.id, botId: bot.id, text: ev.delta.text });
-          }
-          continue;
-        }
-        if (m.type === 'assistant') {
-          if (m.parent_tool_use_id) continue;
-          for (const block of m.message.content) {
-            if (block.type === 'text' && block.text.trim()) {
-              if (/^\W*NO_REPLY\W*$/.test(block.text.trim())) {
-                events.emitEvent({ type: 'bot.state', botId: bot.id, state: 'done', roomId: room.id, note: 'no reply' });
-                continue;
-              }
-              texts.push(block.text);
-              const msg = this.repos.insertMessage({
-                roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'text', text: block.text, payload: null,
-                causeId: req.causeId, hop: req.hop, turnId,
-              });
-              lastMessageId = msg.id;
-              events.emitEvent({ type: 'message.new', message: msg });
-            } else if (block.type === 'tool_use') {
-              const payload: ToolPayload = { toolUseId: block.id, name: block.name, input: block.input, done: false };
-              const msg = this.repos.insertMessage({
-                roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'tool', text: block.name, payload,
-                causeId: req.causeId, hop: req.hop, turnId,
-              });
-              toolMsgIds.set(block.id, msg.id);
-              events.emitEvent({ type: 'message.new', message: msg });
-              setState('working');
-            }
-          }
-          continue;
-        }
-        if (m.type === 'user') {
-          if (m.parent_tool_use_id) continue;
-          const content = m.message.content;
-          if (!Array.isArray(content)) continue;
-          for (const block of content) {
-            if (block.type !== 'tool_result') continue;
-            const msgId = toolMsgIds.get(block.tool_use_id);
-            if (!msgId) continue;
-            const cur = this.repos.getMessage(msgId);
-            if (!cur || !cur.payload) continue;
-            const output = typeof block.content === 'string'
-              ? block.content
-              : (block.content ?? []).map((c) => (c.type === 'text' ? c.text : '[' + c.type + ']')).join('\n');
-            const payload: ToolPayload = { ...(cur.payload as ToolPayload), output: output.slice(0, 20000), isError: !!block.is_error, done: true };
-            this.repos.updateMessage(msgId, { payload });
-            events.emitEvent({ type: 'message.update', id: msgId, roomId: room.id, patch: { payload } });
-          }
-          setState('thinking');
-          continue;
-        }
-        if (m.type === 'result') {
-          costUsd = m.total_cost_usd ?? 0;
-          ok = m.subtype === 'success';
-          if (!ok) error = m.subtype + ((m as { errors?: string[] }).errors?.length ? ': ' + (m as { errors?: string[] }).errors!.join('; ') : '');
-          const u = m.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
-          this.usage.record(bot.id, room.id, turnId, req.causeId, {
-            costUsd, inputTokens: u?.input_tokens ?? 0, outputTokens: u?.output_tokens ?? 0,
-            cacheReadTokens: u?.cache_read_input_tokens ?? 0, cacheWriteTokens: u?.cache_creation_input_tokens ?? 0,
-            modelUsage: (m as { modelUsage?: unknown }).modelUsage, durationMs: m.duration_ms,
-          });
-          resolveDone();
-          break;
-        }
-      }
+      const outcome = await provider.runTurn(ctx, sink);
+      ok = outcome.ok;
+      error = outcome.error;
+      costUsd = outcome.costUsd;
+      // Only turns the provider actually accounted for become usage rows (matches the pre-provider behaviour:
+      // a turn that died before any result reported nothing).
+      const u = outcome.usage;
+      if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, req.causeId, u);
     } catch (e) {
-      error = error ?? String((e as Error).message ?? e);
+      error = String((e as Error).message ?? e);
     } finally {
-      resolveDone();
-      this.active.delete(turnId);
+      this.activeTurns.delete(turnId);
+      this.aborts.delete(turnId);
+      this.turns.unregister(mcpToken);
     }
 
     if (!ok && !error) error = 'Turn ended without a result';

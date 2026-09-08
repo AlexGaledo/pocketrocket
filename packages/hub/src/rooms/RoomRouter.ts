@@ -1,5 +1,6 @@
 import type { Bot, BotState, Message, Room } from '@pocketrocket/shared';
-import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS, USER_NAME } from '../config.js';
+import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
+import { settings } from '../services/SettingsStore.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { BotRunner, TurnRequest, TurnResult } from '../agent/BotRunner.js';
@@ -178,7 +179,7 @@ export class RoomRouter {
       .messagesAfter(room.id, lastSeenSeq)
       .filter((m) => (m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine') && m.authorId !== bot.id);
     const who = (m: Message) => {
-      if (m.authorType === 'user') return USER_NAME;
+      if (m.authorType === 'user') return settings.get().userName;
       if (m.authorType === 'system') return m.kind === 'routine' ? 'routine' : 'system';
       const b = this.repos.getBot(m.authorId ?? '');
       return b ? '@' + b.handle : 'bot';

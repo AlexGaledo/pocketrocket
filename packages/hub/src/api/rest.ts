@@ -1,8 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import { BotInputSchema, RoomInputSchema, RoutineInputSchema, type HealthInfo } from '@pocketrocket/shared';
+import {
+  BotInputSchema, RoomInputSchema, RoutineInputSchema, SecretsPatchSchema, SettingsPatchSchema,
+  PROVIDER_IDS, type HealthInfo, type ProviderId,
+} from '@pocketrocket/shared';
 import net from 'node:net';
-import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL } from '../config.js';
+import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, VERSION } from '../config.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -22,6 +25,9 @@ import type { SkillService } from '../services/SkillService.js';
 import type { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import type { BotRunner } from '../agent/BotRunner.js';
+import type { SettingsStore } from '../services/SettingsStore.js';
+import type { SecretsStore } from '../services/SecretsStore.js';
+import type { ProviderRegistry } from '../providers/registry.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
@@ -32,6 +38,7 @@ class HttpError extends Error {
 
 export interface RestDeps {
   repos: Repos; memory: MemoryService; skills: SkillService; scheduler: RoutineScheduler; router: RoomRouter; runner: BotRunner;
+  settings: SettingsStore; secrets: SecretsStore; providers: ProviderRegistry;
 }
 
 export function createRest(deps: RestDeps) {
@@ -41,26 +48,53 @@ export function createRest(deps: RestDeps) {
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '/?$');
     routes.push({ method, pattern, keys, handler });
   };
-  const { repos, memory, skills, scheduler, router, runner } = deps;
+  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers } = deps;
   const need = <T>(v: T | undefined, what: string): T => { if (!v) throw new HttpError(404, what + ' not found'); return v; };
   const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
     const r = schema.safeParse(body);
     if (!r.success) throw new HttpError(400, r.error.issues.map((i) => i.path.join('.') + ': ' + i.message).join('; '));
     return r.data;
   };
+  /**
+   * Partial body parse. zod 4 keeps `.default()` inside `.partial()`, so parsing `{name}` against a
+   * partial schema yields EVERY key filled with its default — which would silently reset the fields the
+   * caller did not send. Validate, then keep only the keys actually present in the request body.
+   */
+  const parsePatch = <T extends object>(schema: z.ZodType<T>, body: unknown): Partial<T> => {
+    const parsed = parse(schema, body) as Record<string, unknown>;
+    const sent = new Set(Object.keys((body ?? {}) as Record<string, unknown>));
+    return Object.fromEntries(Object.entries(parsed).filter(([k]) => sent.has(k))) as Partial<T>;
+  };
 
   // ---- health
-  add('GET', '/api/health', (): HealthInfo => {
+  add('GET', '/api/health', (): HealthInfo & { provider: ProviderId; version: string } => {
     const exe = runner.constructor as typeof BotRunner;
     const chk = exe.checkExe();
-    return { ok: chk.ok, claudeExe: CLAUDE_EXE, error: chk.error, apiKeySource: runner.lastInit.apiKeySource, subscriptionType: runner.lastInit.model };
+    return {
+      ok: chk.ok, claudeExe: CLAUDE_EXE, error: chk.error,
+      apiKeySource: runner.lastInit.apiKeySource, subscriptionType: runner.lastInit.model,
+      provider: settings.get().provider, version: VERSION,
+    };
   });
   add('GET', '/api/debug/last-init', () => runner.lastInit);
   add('GET', '/api/screen', async () => {
     const [screen, cdp] = await Promise.all([probe(SCREEN_URL), probe(CDP_URL)]);
     return { screen, cdp, url: '/screen/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=screen%2Fwebsockify' };
   });
-  add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR }));
+  add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR, version: VERSION }));
+
+  // ---- settings / secrets / providers
+  add('GET', '/api/settings', () => settings.get());
+  add('PUT', '/api/settings', ({ body }) => settings.patch(parsePatch(SettingsPatchSchema, body)));
+  // Only which keys are set is ever returned; values stay on disk / in the environment.
+  add('GET', '/api/secrets', () => secrets.status());
+  add('PUT', '/api/secrets', ({ body }) => secrets.set(parse(SecretsPatchSchema, body)));
+  add('GET', '/api/providers', () => providers.response());
+  add('POST', '/api/providers/:id/check', ({ params }) => {
+    const id = params.id as ProviderId;
+    if (!(PROVIDER_IDS as readonly string[]).includes(id)) throw new HttpError(404, 'Unknown provider ' + params.id);
+    return providers.check(id, true);
+  });
 
   // ---- bots
   add('GET', '/api/bots', () => repos.listBots());
@@ -75,7 +109,7 @@ export function createRest(deps: RestDeps) {
   });
   add('PATCH', '/api/bots/:id', ({ params, body }) => {
     const cur = need(repos.getBot(params.id), 'Bot');
-    const input = parse(BotInputSchema.partial(), body);
+    const input = parsePatch(BotInputSchema.partial(), body);
     if (input.handle && input.handle !== cur.handle && repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
     const bot = repos.updateBot(params.id, input)!;
     if (input.description !== undefined) memory.writeIdentity(bot.id, input.description);
@@ -122,7 +156,7 @@ export function createRest(deps: RestDeps) {
   });
   add('PATCH', '/api/rooms/:id', ({ params, body }) => {
     need(repos.getRoom(params.id), 'Room');
-    const input = parse(RoomInputSchema.partial(), body);
+    const input = parsePatch(RoomInputSchema.partial(), body);
     const room = repos.updateRoom(params.id, input)!;
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return room;
@@ -182,7 +216,7 @@ export function createRest(deps: RestDeps) {
   });
   add('PATCH', '/api/routines/:id', ({ params, body }) => {
     need(repos.getRoutine(params.id), 'Routine');
-    const i = parse(RoutineInputSchema.partial(), body);
+    const i = parsePatch(RoutineInputSchema.partial(), body);
     if (i.cron) { const bad = (scheduler.constructor as typeof RoutineScheduler).validate(i.cron); if (bad) throw new HttpError(400, 'Invalid cron: ' + bad); }
     const r = repos.updateRoutine(params.id, i)!;
     scheduler.reload();

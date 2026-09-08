@@ -13,6 +13,14 @@ export class Db {
     this.raw = new DatabaseSync(file);
     if (file !== ':memory:') this.raw.exec('PRAGMA journal_mode = WAL;');
     this.raw.exec(SCHEMA_SQL);
+    this.migrate();
+  }
+
+  /** Additive column migrations for databases created by an older schema. */
+  private migrate() {
+    const cols = (table: string) =>
+      (this.raw.prepare('PRAGMA table_info(' + table + ')').all() as { name: string }[]).map((c) => c.name);
+    if (!cols('sessions').includes('provider')) this.raw.exec('ALTER TABLE sessions ADD COLUMN provider TEXT');
   }
   run(sql: string, ...params: unknown[]) {
     return this.raw.prepare(sql).run(...(params as never[]));

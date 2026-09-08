@@ -56,10 +56,30 @@ export class PermissionBroker {
     } else {
       reason = toolName + ' requires approval';
     }
-    return this.ask(ctx, toolName, input, reason, danger, opts);
+    return this.promptUser(ctx, toolName, input, reason, danger, opts);
   }
 
-  private async ask(
+  /**
+   * Public entry for the `request_approval` hub tool: providers without full permission interception ask
+   * the user through the same approval cards. `danger` comes from the bash classifier when a command is given.
+   */
+  async ask(
+    ctx: PermCtx,
+    req: { action: string; command?: string; paths?: string[]; reason?: string },
+    signal: AbortSignal,
+  ): Promise<{ allowed: boolean; message: string }> {
+    const danger = req.command ? classifyBash(req.command, [WORKSPACE_DIR, botHome(ctx.bot.id)]).danger : false;
+    const result = await this.promptUser(
+      ctx, 'request_approval',
+      { action: req.action, command: req.command, paths: req.paths, reason: req.reason },
+      req.action, danger, { signal },
+    );
+    return result.behavior === 'allow'
+      ? { allowed: true, message: 'Approved by the user.' }
+      : { allowed: false, message: result.message ?? 'The user declined this action.' };
+  }
+
+  private async promptUser(
     ctx: PermCtx,
     toolName: string,
     input: Record<string, unknown>,

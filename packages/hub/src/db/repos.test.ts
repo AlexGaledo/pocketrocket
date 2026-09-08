@@ -24,10 +24,10 @@ describe('Repos', () => {
     const r = fresh();
     const bot = r.createBot({ name: 'A', handle: 'a', title: '', description: '', avatar: '', model: 'm', allowedTools: ['Read'], maxBudgetUsd: 1 });
     const room = r.createRoom({ kind: 'dm', name: 'A', memberIds: [bot.id], coordinatorBotId: null });
-    expect(r.getSession(bot.id, room.id)).toEqual({ sdkSessionId: null, lastSeenSeq: 0 });
+    expect(r.getSession(bot.id, room.id)).toEqual({ sdkSessionId: null, lastSeenSeq: 0, provider: null });
     r.saveSession(bot.id, room.id, { sdkSessionId: 'sess-1' });
     r.saveSession(bot.id, room.id, { lastSeenSeq: 7 });
-    expect(r.getSession(bot.id, room.id)).toEqual({ sdkSessionId: 'sess-1', lastSeenSeq: 7 });
+    expect(r.getSession(bot.id, room.id)).toEqual({ sdkSessionId: 'sess-1', lastSeenSeq: 7, provider: null });
     r.recordUsage({ botId: bot.id, roomId: room.id, turnId: 't1', causeId: 'c1', costUsd: 0.5, inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, modelUsage: null, durationMs: 10 });
     r.recordUsage({ botId: bot.id, roomId: room.id, turnId: 't2', causeId: 'c1', costUsd: 0.25, inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, modelUsage: null, durationMs: 10 });
     expect(r.usageTotals({ causeId: 'c1' }).costUsd).toBeCloseTo(0.75);

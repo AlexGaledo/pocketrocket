@@ -1,13 +1,14 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { ClientEventSchema, DEFAULT_SETTINGS, type ServerEvent } from '@pocketrocket/shared';
+import { ClientEventSchema, type ServerEvent } from '@pocketrocket/shared';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
+import type { SettingsStore } from '../services/SettingsStore.js';
 
 /** Creates the app WebSocket server in noServer mode; the caller routes HTTP upgrades (see index.ts). */
-export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRouter; broker: PermissionBroker }) {
+export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRouter; broker: PermissionBroker; settings: SettingsStore }) {
   const wss = new WebSocketServer({ noServer: true });
   const send = (ws: WebSocket, ev: ServerEvent) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(ev));
@@ -18,7 +19,7 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
   });
 
   wss.on('connection', (ws) => {
-    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: DEFAULT_SETTINGS /* TODO(P1A): real settings store */ });
+    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: deps.settings.get() });
     ws.on('message', (raw) => {
       let data: unknown;
       try {
