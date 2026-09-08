@@ -59,5 +59,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # tauri-build validates that every externalBin sidecar exists, even for `cargo check`.
+      - name: Fetch Node sidecar
+        run: pnpm desktop:fetch-node
+
       - name: cargo check
         run: cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml
