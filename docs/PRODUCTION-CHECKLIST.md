@@ -10,7 +10,7 @@ Use before every public release. Status column: ☑ done and verified · ☐ ope
 | Unit tests green | ☑ 152 | `pnpm test` |
 | Versions in sync (root, packages, tauri.conf, Cargo.toml) | ☑ | `pnpm version:sync --check` |
 | `Cargo.lock` refreshed after a version bump | ☐ per release | `cargo check` then commit |
-| CI green on `main` (`ci.yml`: ubuntu tests + windows cargo check) | ☐ first push pending | GitHub Actions tab |
+| CI green on `main` (`ci.yml`: ubuntu tests + windows desktop:prepare + cargo check) | ☑ run 34250487822 | GitHub Actions tab |
 | Release workflow produces the NSIS installer (`release.yml`) | ☐ untested on a tag | push `v0.1.0` tag, watch Actions |
 | CHANGELOG has an entry for the release | ◐ Unreleased filled | `CHANGELOG.md` |
 
