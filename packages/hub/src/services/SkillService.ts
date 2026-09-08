@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Skill } from '@claudebot/shared';
+import type { Skill } from '@pocketrocket/shared';
 import { SKILLS_DIR, USER_SKILLS_DIR, botPluginDir } from '../config.js';
 import type { Repos } from '../db/repos.js';
 

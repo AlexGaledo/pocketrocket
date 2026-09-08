@@ -1,5 +1,5 @@
 import { Cron } from 'croner';
-import type { Routine, RoutinePayload } from '@claudebot/shared';
+import type { Routine, RoutinePayload } from '@pocketrocket/shared';
 import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import { events } from '../events.js';

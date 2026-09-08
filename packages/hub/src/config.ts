@@ -8,11 +8,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // src/config.ts or dist/config.js -> packages/hub -> packages -> repo root
 export const ROOT_DIR = path.resolve(here, '..', '..', '..');
 
-export const DATA_DIR = process.env.CLAUDEBOT_DATA ? path.resolve(process.env.CLAUDEBOT_DATA) : path.join(ROOT_DIR, 'data');
+export const DATA_DIR = process.env.POCKETROCKET_DATA ? path.resolve(process.env.POCKETROCKET_DATA) : path.join(ROOT_DIR, 'data');
 export const WORKSPACE_DIR = path.join(DATA_DIR, 'workspace');
 export const BOTS_DIR = path.join(DATA_DIR, 'bots');
 export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
-export const DB_PATH = path.join(DATA_DIR, 'claudebot.db');
+export const DB_PATH = path.join(DATA_DIR, 'pocketrocket.db');
 export const WEB_DIST = path.join(ROOT_DIR, 'packages', 'web', 'dist');
 
 export const CLAUDE_EXE =
@@ -23,7 +23,13 @@ export const CLAUDE_EXE =
 
 export const HOST = '127.0.0.1';
 export const PORT = Number(process.env.PORT ?? 7788);
-export const USER_NAME = process.env.CLAUDEBOT_USER ?? 'Alex';
+export const USER_NAME = process.env.POCKETROCKET_USER ?? (() => {
+  try {
+    return os.userInfo().username || 'you';
+  } catch {
+    return 'you';
+  }
+})();
 
 export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 5);
 export const MAX_CONCURRENT_TURNS = Number(process.env.MAX_CONCURRENT_TURNS ?? 4);
@@ -53,4 +59,17 @@ export function botPluginDir(botId: string) {
 
 export function ensureDirs() {
   for (const d of [DATA_DIR, WORKSPACE_DIR, BOTS_DIR, SKILLS_DIR]) fs.mkdirSync(d, { recursive: true });
+}
+
+// Legacy migration: copy claudebot.db (and -wal/-shm) to pocketrocket.db if the old
+// file exists and the new one hasn't been created yet. Old files are left in place.
+export function migrateLegacyDb() {
+  const legacyPath = path.join(DATA_DIR, 'claudebot.db');
+  if (fs.existsSync(DB_PATH) || !fs.existsSync(legacyPath)) return;
+  for (const suffix of ['', '-wal', '-shm']) {
+    const src = legacyPath + suffix;
+    const dest = DB_PATH + suffix;
+    if (fs.existsSync(src)) fs.copyFileSync(src, dest);
+  }
+  console.log('migrated legacy claudebot.db -> pocketrocket.db');
 }

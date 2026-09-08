@@ -3,7 +3,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { clsx } from 'clsx';
 import { X } from 'lucide-react';
-import type { Bot, BotState } from '@claudebot/shared';
+import type { Bot, BotState } from '@pocketrocket/shared';
 
 export function cn(...a: (string | false | null | undefined)[]) {
   return clsx(a);

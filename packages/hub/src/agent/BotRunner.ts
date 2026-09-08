@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import { query, type Options, type Query, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
-import type { Bot, BotState, Room, ToolPayload } from '@claudebot/shared';
+import type { Bot, BotState, Room, ToolPayload } from '@pocketrocket/shared';
 import { CDP_URL, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, PLAYWRIGHT_MCP_CLI, WORKSPACE_DIR, botHome } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -88,7 +88,7 @@ export class BotRunner {
     const disallowed = ALL_BUILTINS.filter((t) => !bot.allowedTools.includes(t));
     // "Browser" = Playwright MCP attached over CDP to the Chromium on the screen (shared, logged-in profile).
     const browserOn = bot.allowedTools.includes('Browser') && fs.existsSync(PLAYWRIGHT_MCP_CLI);
-    const mcpServers: NonNullable<Options['mcpServers']> = { claudebot: toolServer };
+    const mcpServers: NonNullable<Options['mcpServers']> = { pocketrocket: toolServer };
     if (browserOn) mcpServers.browser = { type: 'stdio', command: process.execPath, args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', CDP_URL, '--caps', 'vision'] };
 
     let resolveDone: () => void = () => undefined;
@@ -116,7 +116,7 @@ export class BotRunner {
       // Availability: only the bot's built-ins (+ Skill when a plugin is attached) exist in context.
       // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
       tools: [...bot.allowedTools.filter((t) => ALL_BUILTINS.includes(t)), ...(pluginDir ? ['Skill'] : [])],
-      allowedTools: [...allowed, 'mcp__claudebot__*', ...(browserOn ? ['mcp__browser__*'] : [])],
+      allowedTools: [...allowed, 'mcp__pocketrocket__*', ...(browserOn ? ['mcp__browser__*'] : [])],
       disallowedTools: disallowed,
       mcpServers,
       strictMcpConfig: true,
@@ -134,7 +134,7 @@ export class BotRunner {
                 const roots = [WORKSPACE_DIR, botHome(bot.id)];
                 const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);
                 const outside = paths.filter((p) => !isInside(p, roots, WORKSPACE_DIR));
-                if (process.env.CLAUDEBOT_DEBUG) console.log('[hook PreToolUse]', i.tool_name, paths, outside.length ? 'ASK' : 'ok');
+                if (process.env.POCKETROCKET_DEBUG) console.log('[hook PreToolUse]', i.tool_name, paths, outside.length ? 'ASK' : 'ok');
                 if (!outside.length) return {};
                 return {
                   hookSpecificOutput: {
@@ -151,8 +151,8 @@ export class BotRunner {
       includePartialMessages: true,
       maxTurns: MAX_TURNS_PER_QUERY,
       maxBudgetUsd: bot.maxBudgetUsd,
-      env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'claudebot/0.1' },
-      stderr: (d) => { if (process.env.CLAUDEBOT_DEBUG) process.stderr.write('[claude ' + bot.handle + '] ' + d); },
+      env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/0.1.0' },
+      stderr: (d) => { if (process.env.POCKETROCKET_DEBUG) process.stderr.write('[claude ' + bot.handle + '] ' + d); },
     };
 
     events.emitEvent({ type: 'turn.start', turnId, botId: bot.id, roomId: room.id, causeId: req.causeId, hop: req.hop });

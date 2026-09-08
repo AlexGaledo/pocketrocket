@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { ServerEvent } from '@claudebot/shared';
+import type { ServerEvent } from '@pocketrocket/shared';
 
 class HubEvents extends EventEmitter {
   emitEvent(ev: ServerEvent) {

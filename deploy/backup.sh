@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Daily snapshot of Claudebot's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
-# Installed as /etc/cron.daily/claudebot-backup by setup-vps.sh. Keeps the 7 newest archives.
+# Daily snapshot of PocketRocket's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
+# Installed as /etc/cron.daily/pocketrocket-backup by setup-vps.sh. Keeps the 7 newest archives.
 set -euo pipefail
-ROOT="${CLAUDEBOT_ROOT:-/root/claudebot}"
-OUT="${CLAUDEBOT_BACKUPS:-/root/claudebot-backups}"
+ROOT="${POCKETROCKET_ROOT:-/root/pocketrocket}"
+OUT="${POCKETROCKET_BACKUPS:-/root/pocketrocket-backups}"
 mkdir -p "$OUT"
 stamp="$(date +%F-%H%M)"
 tar -czf "$OUT/data-$stamp.tgz" -C "$ROOT" \

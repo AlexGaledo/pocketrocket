@@ -1,5 +1,5 @@
 {
-  "name": "@claudebot/shared",
+  "name": "@pocketrocket/shared",
   "version": "0.1.0",
   "private": true,
   "type": "module",

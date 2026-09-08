@@ -44,7 +44,7 @@ ws.on('message', async (raw) => {
     const m = ev.message;
     if (m.roomId !== room.id) return;
     const a = m.authorType === 'user' ? 'alex' : m.authorType === 'system' ? 'system' : '@' + who(m.authorId);
-    console.log('#' + m.seq, '[' + a + ']', m.kind, 'hop' + m.hop, JSON.stringify(m.kind === 'tool' ? m.payload.name.replace('mcp__claudebot__', '⚡') + ' ' + JSON.stringify(m.payload.input).slice(0, 90) : m.text).slice(0, 230));
+    console.log('#' + m.seq, '[' + a + ']', m.kind, 'hop' + m.hop, JSON.stringify(m.kind === 'tool' ? m.payload.name.replace('mcp__pocketrocket__', '⚡') + ' ' + JSON.stringify(m.payload.input).slice(0, 90) : m.text).slice(0, 230));
   } else if (ev.type === 'turn.end') console.log('   turn.end', who(ev.botId), ev.error ?? '', '$' + (ev.costUsd ?? 0).toFixed(3));
   else if (ev.type === 'approval.request') { console.log('   APPROVAL', ev.approval.toolName, ev.approval.reason); ws.send(JSON.stringify({ type: 'approval.decide', approvalId: ev.approval.approvalId, decision: 'allow' })); }
   else if (ev.type === 'error') console.log('   ERROR', ev.message);

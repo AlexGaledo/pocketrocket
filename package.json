@@ -1,15 +1,15 @@
 {
-  "name": "claude-claudebot",
+  "name": "pocketrocket",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "pnpm -r build",
-    "start": "pnpm --filter @claudebot/hub start",
+    "start": "pnpm --filter @pocketrocket/hub start",
     "test": "pnpm -r test",
-    "desktop:dev": "pnpm --filter @claudebot/desktop dev",
-    "desktop:build": "pnpm --filter @claudebot/desktop build:app"
+    "desktop:dev": "pnpm --filter @pocketrocket/desktop dev",
+    "desktop:build": "pnpm --filter @pocketrocket/desktop build:app"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

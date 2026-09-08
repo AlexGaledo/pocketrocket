@@ -5,7 +5,7 @@ import {
   PanelRightOpen, Send, Square, Users, Settings2, Check, ShieldAlert, ArrowRightLeft, Clock, Info, Monitor,
   FileText, Pencil, Terminal, Globe, Search, Zap, MousePointer2, ChevronDown,
 } from 'lucide-react';
-import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, ToolPayload } from '@claudebot/shared';
+import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, ToolPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
 
@@ -208,8 +208,8 @@ function toolMeta(p: ToolPayload): { icon: React.ReactNode; label: string; targe
   const s = (k: string) => (typeof i[k] === 'string' ? (i[k] as string) : '');
   const base = (v: string) => v.split(/[\\/]/).pop() ?? v;
   const n = p.name;
-  if (n.startsWith('mcp__claudebot__desktop_')) return { icon: <MousePointer2 size={12} />, label: n.replace('mcp__claudebot__desktop_', 'desktop '), target: s('command') || s('keys') || s('text') || (i.x !== undefined ? i.x + ',' + i.y : '') };
-  if (n.startsWith('mcp__claudebot__')) return { icon: <Zap size={12} />, label: n.replace('mcp__claudebot__', ''), target: s('to_bot') ? '@' + s('to_bot').replace(/^@/, '') : s('handle') || s('name') || s('text').slice(0, 40) };
+  if (n.startsWith('mcp__pocketrocket__desktop_')) return { icon: <MousePointer2 size={12} />, label: n.replace('mcp__pocketrocket__desktop_', 'desktop '), target: s('command') || s('keys') || s('text') || (i.x !== undefined ? i.x + ',' + i.y : '') };
+  if (n.startsWith('mcp__pocketrocket__')) return { icon: <Zap size={12} />, label: n.replace('mcp__pocketrocket__', ''), target: s('to_bot') ? '@' + s('to_bot').replace(/^@/, '') : s('handle') || s('name') || s('text').slice(0, 40) };
   if (n.startsWith('mcp__browser__')) return { icon: <Globe size={12} />, label: n.replace('mcp__browser__browser_', 'web '), target: s('url') ? s('url').replace(/^https?:\/\//, '').slice(0, 40) : s('text') || s('element')?.slice(0, 30) || '' };
   switch (n) {
     case 'Read': return { icon: <FileText size={12} />, label: 'Read', target: base(s('file_path')) };
@@ -269,7 +269,7 @@ function TraceDetail({ m, onClose }: { m: Message; onClose: () => void }) {
   return (
     <div className="mt-2 overflow-hidden rounded-2xl bg-card2/60 text-[12px]">
       <div className="flex items-center gap-2 px-3 py-2">
-        <span className="font-mono font-medium">{p.name.replace('mcp__claudebot__', '').replace('mcp__browser__', 'browser: ')}</span>
+        <span className="font-mono font-medium">{p.name.replace('mcp__pocketrocket__', '').replace('mcp__browser__', 'browser: ')}</span>
         {p.isError ? <Badge tone="bad">failed</Badge> : p.done ? <Badge tone="ok">done</Badge> : <Badge tone="accent">running</Badge>}
         <button className="ml-auto text-muted hover:text-fg" onClick={onClose} aria-label="Collapse"><ChevronDown size={14} /></button>
       </div>

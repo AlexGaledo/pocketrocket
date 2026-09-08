@@ -1,4 +1,4 @@
-import type { Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo } from '@claudebot/shared';
+import type { Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo } from '@pocketrocket/shared';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });

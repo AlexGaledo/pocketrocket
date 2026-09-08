@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
-import type { ApprovalPayload, Bot, Room } from '@claudebot/shared';
+import type { ApprovalPayload, Bot, Room } from '@pocketrocket/shared';
 import { APPROVAL_TIMEOUT_MS, WORKSPACE_DIR, botHome } from '../config.js';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
@@ -37,7 +37,7 @@ export class PermissionBroker {
     let reason = '';
     let danger = false;
 
-    if (toolName.startsWith('mcp__claudebot__')) return { behavior: 'allow' };
+    if (toolName.startsWith('mcp__pocketrocket__')) return { behavior: 'allow' };
 
     if (PATH_TOOLS.has(toolName)) {
       const paths = opts.blockedPath ? [opts.blockedPath] : pathsFromInput(toolName, input);

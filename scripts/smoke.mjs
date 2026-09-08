@@ -3,7 +3,7 @@
 import WebSocket from 'ws';
 
 const BASE = process.env.HUB ?? 'http://127.0.0.1:7788';
-const text = process.argv[2] ?? 'Create a file hello.txt in the workspace containing "hi from claudebot", then tell me its full path.';
+const text = process.argv[2] ?? 'Create a file hello.txt in the workspace containing "hi from pocketrocket", then tell me its full path.';
 
 async function api(method, path, body) {
   const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });

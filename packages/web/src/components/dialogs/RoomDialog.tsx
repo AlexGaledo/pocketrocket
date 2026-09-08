@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Room } from '@claudebot/shared';
+import type { Room } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
 import { Button, Dialog, Input, Label, Select, cn } from '../ui';

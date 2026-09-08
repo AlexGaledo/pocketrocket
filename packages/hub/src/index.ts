@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import httpProxy from 'http-proxy';
-import { HOST, PORT, WEB_DIST, CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, ensureDirs } from './config.js';
+import { HOST, PORT, WEB_DIST, CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, ensureDirs, migrateLegacyDb } from './config.js';
 import { Db } from './db/db.js';
 import { Repos } from './db/repos.js';
 import { MemoryService } from './services/MemoryService.js';
@@ -15,7 +15,7 @@ import { RoutineScheduler } from './services/RoutineScheduler.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
 
-// The SDK warns every turn that bare allowedTools entries (WebSearch/WebFetch/mcp__claudebot__*) bypass
+// The SDK warns every turn that bare allowedTools entries (WebSearch/WebFetch/mcp__pocketrocket__*) bypass
 // canUseTool. That is intentional here; file/shell tools are never pre-approved. Silence just that warning.
 const origEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
@@ -24,6 +24,7 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
 }) as typeof process.emitWarning;
 
 ensureDirs();
+migrateLegacyDb();
 const db = new Db();
 const repos = new Repos(db);
 const memory = new MemoryService();
@@ -50,7 +51,7 @@ const screenProxy = httpProxy.createProxyServer({ target: SCREEN_URL, ws: true, 
 screenProxy.on('error', (_err, _req, res) => {
   if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
     res.writeHead(502, { 'content-type': 'text/plain' });
-    res.end('Screen is not running on this computer. On the VPS: systemctl status claudebot-screen');
+    res.end('Screen is not running on this computer. On the VPS: systemctl status pocketrocket-screen');
   } else if (res && 'destroy' in res) {
     (res as { destroy: () => void }).destroy();
   }
@@ -71,7 +72,7 @@ const server = http.createServer(async (req, res) => {
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(WEB_DIST, 'index.html');
     if (!fs.existsSync(file)) {
       res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end('Claudebot hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
+      res.end('PocketRocket hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
       return;
     }
     const isShell = path.basename(file) === 'index.html';
@@ -103,9 +104,9 @@ server.on('upgrade', (req, socket, head) => {
 
 server.listen(PORT, HOST, () => {
   const exe = BotRunner.checkExe();
-  console.log('[claudebot] hub listening on http://' + HOST + ':' + PORT);
-  console.log('[claudebot] workspace: ' + WORKSPACE_DIR);
-  console.log('[claudebot] claude: ' + CLAUDE_EXE + (exe.ok ? '' : '  (NOT FOUND)'));
+  console.log('[pocketrocket] hub listening on http://' + HOST + ':' + PORT);
+  console.log('[pocketrocket] workspace: ' + WORKSPACE_DIR);
+  console.log('[pocketrocket] claude: ' + CLAUDE_EXE + (exe.ok ? '' : '  (NOT FOUND)'));
   scheduler.start();
 });
 

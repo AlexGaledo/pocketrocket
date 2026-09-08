@@ -1,4 +1,4 @@
-import type { Bot } from '@claudebot/shared';
+import type { Bot } from '@pocketrocket/shared';
 
 /** Parse @handle mentions (case-insensitive) in `text` matching `members`. Unique, in order, excluding `selfId`. */
 export function parseMentions(text: string, members: Bot[], selfId?: string): Bot[] {

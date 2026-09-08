@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Claudebot",
+  "productName": "PocketRocket",
   "version": "0.1.0",
-  "identifier": "com.claudebot.desktop",
+  "identifier": "com.pocketrocket.app",
   "build": {
     "frontendDist": "../ui"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Claudebot",
+        "title": "PocketRocket",
         "width": 1400,
         "height": 900,
         "minWidth": 900,

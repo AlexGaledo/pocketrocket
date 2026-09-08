@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Claudebot "computer": a persistent XFCE desktop on a virtual display, exposed via VNC -> noVNC.
+# PocketRocket "computer": a persistent XFCE desktop on a virtual display, exposed via VNC -> noVNC.
 # - Desktop folder = $DATA/workspace (what bots write shows up on the desktop)
 # - Desktop config/home persists in $DATA/desktop-home; Chromium profile in $DATA/browser-profile
 # - CDP on 127.0.0.1:9222 (Browser tool), xdotool/scrot on DISPLAY :99 (Desktop tool)
 # - noVNC on 127.0.0.1:6080, proxied by the hub at /screen/
 set -euo pipefail
 export DISPLAY=:99
-DATA="${CLAUDEBOT_DATA:-$HOME/claudebot/data}"
+DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket/data}"
 PROFILE="$DATA/browser-profile"
 DHOME="$DATA/desktop-home"
 WS="$DATA/workspace"

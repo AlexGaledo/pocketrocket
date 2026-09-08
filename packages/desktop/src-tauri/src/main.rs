@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    claudebot_desktop_lib::run()
+    pocketrocket_desktop_lib::run()
 }

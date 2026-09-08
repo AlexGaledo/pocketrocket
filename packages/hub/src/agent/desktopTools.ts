@@ -24,7 +24,7 @@ async function geometry(): Promise<string> {
 }
 
 async function screenshot() {
-  const f = path.join(os.tmpdir(), 'claudebot-shot-' + nanoid(6) + '.png');
+  const f = path.join(os.tmpdir(), 'pocketrocket-shot-' + nanoid(6) + '.png');
   try {
     await run('scrot', ['-o', '-z', f], { env });
     const data = fs.readFileSync(f).toString('base64');

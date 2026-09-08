@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time (idempotent) VPS setup for the Claudebot screen: X virtual display, VNC, noVNC, Chromium.
+# One-time (idempotent) VPS setup for the PocketRocket screen: X virtual display, VNC, noVNC, Chromium.
 # Run as root on Ubuntu/Debian from the repo dir: bash deploy/setup-vps.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -25,22 +25,22 @@ fi
 
 echo "==> daily backup of data/ (keeps 7)"
 chmod +x deploy/backup.sh
-ln -sf "$(pwd)/deploy/backup.sh" /etc/cron.daily/claudebot-backup
+ln -sf "$(pwd)/deploy/backup.sh" /etc/cron.daily/pocketrocket-backup
 
-echo "==> installing claudebot-screen.service"
+echo "==> installing pocketrocket-screen.service"
 chmod +x deploy/screen.sh
-stamp="$(cat deploy/claudebot-screen.service deploy/screen.sh | md5sum | cut -d' ' -f1)"
-prev="$(cat /etc/claudebot-screen.stamp 2>/dev/null || true)"
-cp deploy/claudebot-screen.service /etc/systemd/system/claudebot-screen.service
+stamp="$(cat deploy/pocketrocket-screen.service deploy/screen.sh | md5sum | cut -d' ' -f1)"
+prev="$(cat /etc/pocketrocket-screen.stamp 2>/dev/null || true)"
+cp deploy/pocketrocket-screen.service /etc/systemd/system/pocketrocket-screen.service
 systemctl daemon-reload
-systemctl enable claudebot-screen >/dev/null 2>&1 || true
+systemctl enable pocketrocket-screen >/dev/null 2>&1 || true
 # Restart only when the screen files changed or it is down: a restart closes open tabs (logins persist).
-if [ "$stamp" != "$prev" ] || ! systemctl is-active -q claudebot-screen; then
-  systemctl restart claudebot-screen
-  echo "$stamp" > /etc/claudebot-screen.stamp
+if [ "$stamp" != "$prev" ] || ! systemctl is-active -q pocketrocket-screen; then
+  systemctl restart pocketrocket-screen
+  echo "$stamp" > /etc/pocketrocket-screen.stamp
   sleep 4
 else
   echo "   screen unchanged, left running"
 fi
-systemctl is-active claudebot-screen
+systemctl is-active pocketrocket-screen
 echo "screen: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6080/vnc.html)  cdp: $(curl -s http://127.0.0.1:9222/json/version | head -c 80)"

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, type Bot, type BotInput } from '@claudebot/shared';
+import { BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, type Bot, type BotInput } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
 import { Button, Dialog, Input, Label, Select, Textarea, cn } from '../ui';

@@ -1,4 +1,4 @@
-import type { ClientEvent, ServerEvent } from '@claudebot/shared';
+import type { ClientEvent, ServerEvent } from '@pocketrocket/shared';
 import { useStore } from '../store';
 
 let socket: WebSocket | null = null;

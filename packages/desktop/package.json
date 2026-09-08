@@ -1,8 +1,8 @@
 {
-  "name": "@claudebot/desktop",
+  "name": "@pocketrocket/desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Claudebot desktop app: native window + managed SSH tunnel to the hub",
+  "description": "PocketRocket desktop app: native window + managed SSH tunnel to the hub",
   "scripts": {
     "dev": "cargo tauri dev",
     "build": "echo skip",

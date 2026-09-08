@@ -1,4 +1,4 @@
-import type { Bot, BotState, Message, Room } from '@claudebot/shared';
+import type { Bot, BotState, Message, Room } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS, USER_NAME } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';

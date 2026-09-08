@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import type {
   Bot, Room, Message, Routine, RoutineRun, Skill, UsageTotals, UsageRow, MessageKind, AuthorType,
-} from '@claudebot/shared';
+} from '@pocketrocket/shared';
 import type { Db, Row } from './db.js';
 
 const now = () => Date.now();

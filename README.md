@@ -1,4 +1,4 @@
-# Claudebot
+# PocketRocket
 
 A local, Grok Bot–style messenger for a fleet of persistent Claude agents. Each bot has its own identity, memory, skills, and routines; bots share one workspace, talk in DMs or group chats, @mention and hand work to each other, and ask you for approval before touching anything outside the workspace.
 
@@ -19,7 +19,7 @@ Requirements: Node 26+ (uses built-in `node:sqlite`), pnpm, Claude Code CLI inst
 
 | Thing | Where it lives | Notes |
 |---|---|---|
-| Bot | `data/claudebot.db` + `data/bots/<id>/` | `CLAUDE.md` = identity, `memory.md` = private memory (injected every turn), `plugin/` = assigned skills |
+| Bot | `data/pocketrocket.db` + `data/bots/<id>/` | `CLAUDE.md` = identity, `memory.md` = private memory (injected every turn), `plugin/` = assigned skills |
 | Workspace | `data/workspace/` | Shared cwd for every bot. File tools auto-allowed here; anything outside prompts you |
 | DM | room kind `dm` | Bot always replies |
 | Group chat | room kind `group`, 1–6 bots | Only @mentioned bots reply. No mention → coordinator bot (if set). Bots can @mention each other; max 5 hops per thread, $5 cost cap per thread |
@@ -55,7 +55,7 @@ scripts/          smoke.mjs (DM), group-smoke.mjs (3-bot room) — run from pack
 - `WebSearch/WebFetch`: silent when enabled for the bot.
 - "Allow for this session" adds the SDK's suggested permission rule for the rest of that session; approvals time out after 10 minutes as a deny.
 
-Tests: `pnpm test` (vitest in hub). Debug the CLI subprocess with `CLAUDEBOT_DEBUG=1`.
+Tests: `pnpm test` (vitest in hub). Debug the CLI subprocess with `POCKETROCKET_DEBUG=1`.
 
 ## Deploy to a VPS (always-on "cloud computer")
 
@@ -63,21 +63,21 @@ The hub is the shared computer: run it on a Linux box and every bot works there,
 
 ```bash
 # once, on the VPS: install Node 22.13+, pnpm, Claude Code CLI (`curl -fsSL https://claude.ai/install.sh | bash`), then `claude` to log in
-scripts/deploy.sh crm-agency        # upload, install, build, (re)start the systemd unit
-ssh -L 7788:127.0.0.1:7788 crm-agency   # then open http://127.0.0.1:7788
+scripts/deploy.sh <host>        # upload, install, build, (re)start the systemd unit
+ssh -L 7788:127.0.0.1:7788 <host>   # then open http://127.0.0.1:7788
 ```
 
-The service (`/etc/systemd/system/claudebot.service`) binds `127.0.0.1:7788` only. Reach it over an SSH tunnel or Tailscale; never expose the port directly, the hub has no auth. Data lives in `~/claudebot/data/` on the VPS. Logs: `journalctl -u claudebot -f`.
+The service (`/etc/systemd/system/pocketrocket.service`) binds `127.0.0.1:7788` only. Reach it over an SSH tunnel or Tailscale; never expose the port directly, the hub has no auth. Data lives in `~/pocketrocket/data/` on the VPS. Logs: `journalctl -u pocketrocket -f`.
 
 ## Screen: a persistent desktop the bots and you share (Grok Bot "computer")
 
-On the VPS, `deploy/setup-vps.sh` (run by `scripts/deploy.sh`) installs Xvfb + XFCE (xfwm4, panel, desktop, Thunar, terminal, Mousepad) + x11vnc + noVNC + xdotool/scrot + a Playwright Chromium, and starts `claudebot-screen.service`.
+On the VPS, `deploy/setup-vps.sh` (run by `scripts/deploy.sh`) installs Xvfb + XFCE (xfwm4, panel, desktop, Thunar, terminal, Mousepad) + x11vnc + noVNC + xdotool/scrot + a Playwright Chromium, and starts `pocketrocket-screen.service`.
 
-What persists (all under `data/`, backed up daily to `/root/claudebot-backups`, 7 kept, cron in `/etc/cron.daily/claudebot-backup`):
+What persists (all under `data/`, backed up daily to `/root/pocketrocket-backups`, 7 kept, cron in `/etc/cron.daily/pocketrocket-backup`):
 - `data/workspace` — the desktop folder itself (Desktop/Downloads/Documents all point here). Bots' files appear on the desktop.
 - `data/desktop-home` — XFCE settings, panel layout, app config.
 - `data/browser-profile` — Chrome logins, cookies, history.
-- `data/claudebot.db`, `data/bots/<id>` (memory), `data/skills`.
+- `data/pocketrocket.db`, `data/bots/<id>` (memory), `data/skills`.
 
 Using it:
 - Hub proxies noVNC at `/screen/` (HTTP + WebSocket), so the SSH tunnel is enough. Open the **Screen** tab or the monitor icon in the chat header; click inside to use the desktop, log into accounts in Chrome once.
@@ -86,7 +86,7 @@ Using it:
 - Neither Browser nor Desktop actions go through approval cards (they would fire on every click). The system prompt forbids destructive account actions unless explicitly instructed. Only give these tools to bots you trust with the logged-in sessions on that machine. Chrome runs as root with `--no-sandbox`; treat the desktop as a shared work machine, not your personal one.
 - Locally on Windows there is no screen service; the tab shows "not running". `SCREEN_URL`, `CDP_URL`, `SCREEN_DISPLAY` in `.env` can point at another noVNC/Chromium/X display.
 
-Ops: `systemctl status claudebot-screen`, `journalctl -u claudebot-screen -f`. Resolution via `SCREEN_W`/`SCREEN_H` in the unit. Redeploys leave the screen running unless `deploy/screen.sh` or the unit changed. Restore a backup: stop both services, untar into `/root/claudebot`, start them.
+Ops: `systemctl status pocketrocket-screen`, `journalctl -u pocketrocket-screen -f`. Resolution via `SCREEN_W`/`SCREEN_H` in the unit. Redeploys leave the screen running unless `deploy/screen.sh` or the unit changed. Restore a backup: stop both services, untar into `/root/pocketrocket`, start them.
 
 ## Desktop app (Windows, Tauri)
 
@@ -94,15 +94,15 @@ Ops: `systemctl status claudebot-screen`, `journalctl -u claudebot-screen -f`. R
 
 | Mode | What happens | State lives in |
 |---|---|---|
-| **Local: this PC** (default) | The app starts its own hub as a child process (`node` + `tsx` from this repo) and shuts it down on quit. No network hop. | `%APPDATA%\com.claudebot.desktop\data\` — SQLite db (WAL), bot memories, workspace, skills. `hub.log` next to it. |
+| **Local: this PC** (default) | The app starts its own hub as a child process (`node` + `tsx` from this repo) and shuts it down on quit. No network hop. | `%APPDATA%\com.pocketrocket.desktop\data\` — SQLite db (WAL), bot memories, workspace, skills. `hub.log` next to it. |
 | **VPS over SSH tunnel** | Opens `ssh -N -L 7788:127.0.0.1:7788 <host>` itself, waits for the hub, respawns the tunnel if it drops. Gets the virtual desktop/screen. | on the VPS |
 | **Attach** | Connects to a hub you already run (`pnpm dev` / `pnpm start`). | wherever that hub points |
 
-Menu: Connection → mode / settings; View → Reload (F5), Open data folder, Quit. Settings file: `%APPDATA%\com.claudebot.desktop\config.json` (`mode`, `sshHost`, `port`, optional `hubDir` if the repo moved).
+Menu: Connection → mode / settings; View → Reload (F5), Open data folder, Quit. Settings file: `%APPDATA%\com.pocketrocket.desktop\config.json` (`mode`, `sshHost`, `port`, optional `hubDir` if the repo moved).
 
 ```bash
-pnpm desktop:build      # -> packages/desktop/src-tauri/target/release/claudebot-desktop.exe
-                        #    + bundle/nsis/Claudebot_0.1.0_x64-setup.exe
+pnpm desktop:build      # -> packages/desktop/src-tauri/target/release/pocketrocket-desktop.exe
+                        #    + bundle/nsis/PocketRocket_0.1.0_x64-setup.exe
 pnpm desktop:dev
 ```
 

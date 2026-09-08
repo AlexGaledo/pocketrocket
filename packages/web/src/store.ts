@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals } from '@claudebot/shared';
+import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals } from '@pocketrocket/shared';
 import { api } from './lib/api';
 import { wsSend } from './lib/ws';
 
@@ -46,14 +46,14 @@ export const useStore = create<State>((set, get) => ({
   bots: [],
   rooms: [],
   botStates: {},
-  activeRoomId: localStorage.getItem('claudebot.activeRoom'),
+  activeRoomId: localStorage.getItem('pocketrocket.activeRoom'),
   messages: {},
   loaded: {},
   streaming: {},
   unread: {},
   usage: {},
   memory: {},
-  panelOpen: localStorage.getItem('claudebot.panel') !== '0',
+  panelOpen: localStorage.getItem('pocketrocket.panel') !== '0',
   panelTab: 'memory',
   panelBotId: null,
   dialog: null,
@@ -131,7 +131,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setActiveRoom: (id) => {
-    if (id) localStorage.setItem('claudebot.activeRoom', id);
+    if (id) localStorage.setItem('pocketrocket.activeRoom', id);
     const unread = { ...get().unread };
     if (id) delete unread[id];
     set({ activeRoomId: id, unread });
@@ -165,11 +165,11 @@ export const useStore = create<State>((set, get) => ({
     wsSend({ type: 'turn.interrupt', turnId });
   },
   openPanel: (tab, botId) => {
-    localStorage.setItem('claudebot.panel', '1');
+    localStorage.setItem('pocketrocket.panel', '1');
     set({ panelOpen: true, panelTab: tab, panelBotId: botId === undefined ? get().panelBotId : botId });
   },
   closePanel: () => {
-    localStorage.setItem('claudebot.panel', '0');
+    localStorage.setItem('pocketrocket.panel', '0');
     set({ panelOpen: false });
   },
   openDialog: (dialog) => set({ dialog }),

@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { ClientEventSchema, type ServerEvent } from '@claudebot/shared';
+import { ClientEventSchema, type ServerEvent } from '@pocketrocket/shared';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';

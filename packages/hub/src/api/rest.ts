@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import { BotInputSchema, RoomInputSchema, RoutineInputSchema, type HealthInfo } from '@claudebot/shared';
+import { BotInputSchema, RoomInputSchema, RoutineInputSchema, type HealthInfo } from '@pocketrocket/shared';
 import net from 'node:net';
 import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL } from '../config.js';
 

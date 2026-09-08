@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from 'lucide-react';
-import type { Routine, RoutineRun, Skill, UsageRow } from '@claudebot/shared';
+import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
 import { Avatar, Badge, Button, Input, Label, Select, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
@@ -80,7 +80,7 @@ function ScreenTab() {
       ) : (
         <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
           <p className="font-medium text-fg">No virtual screen on this computer.</p>
-          <p>On the VPS the screen is a service: <code className="font-mono">systemctl status claudebot-screen</code>. Set it up with <code className="font-mono">bash deploy/setup-vps.sh</code>.</p>
+          <p>On the VPS the screen is a service: <code className="font-mono">systemctl status pocketrocket-screen</code>. Set it up with <code className="font-mono">bash deploy/setup-vps.sh</code>.</p>
           <p>When it runs you get a live Chromium here: log into your accounts once, then give bots the <span className="font-mono">Browser</span> tool and they work inside that same logged-in browser while you watch.</p>
         </div>
       )}

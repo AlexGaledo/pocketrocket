@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
-import type { Bot, Room, HandoffPayload } from '@claudebot/shared';
+import type { Bot, Room, HandoffPayload } from '@pocketrocket/shared';
 import { USER_NAME } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
@@ -310,5 +310,5 @@ export function createBotToolServer(ctx: ToolCtx) {
   // alwaysLoad: keep these schemas in the prompt so bots don't spend a ToolSearch roundtrip every turn.
   const tools: Parameters<typeof createSdkMcpServer>[0]['tools'] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, createBot, addToRoom, updateBot, deleteBot, removeFromRoom];
   if (ctx.desktop) tools!.push(...desktopTools());
-  return createSdkMcpServer({ name: 'claudebot', version: '0.1.0', alwaysLoad: true, tools });
+  return createSdkMcpServer({ name: 'pocketrocket', version: '0.1.0', alwaysLoad: true, tools });
 }

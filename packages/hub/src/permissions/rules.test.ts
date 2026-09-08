@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { classifyBash } from './bashRules.js';
 import { isInside } from './pathRules.js';
 
-const ws = path.join(os.tmpdir(), 'claudebot-test-ws');
+const ws = path.join(os.tmpdir(), 'pocketrocket-test-ws');
 fs.mkdirSync(ws, { recursive: true });
 
 describe('classifyBash', () => {

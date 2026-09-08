@@ -1,11 +1,11 @@
 [package]
-name = "claudebot-desktop"
+name = "pocketrocket-desktop"
 version = "0.1.0"
-description = "Claudebot desktop app"
+description = "PocketRocket desktop app"
 edition = "2021"
 
 [lib]
-name = "claudebot_desktop_lib"
+name = "pocketrocket_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

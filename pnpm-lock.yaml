@@ -15,17 +15,19 @@ importers:
         specifier: ^8.18.0
         version: 8.21.3
 
+  packages/desktop: {}
+
   packages/hub:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.263
         version: 0.3.263(@anthropic-ai/sdk@0.124.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(zod@4.5.4))(zod@4.5.4)
-      '@claudebot/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@playwright/mcp':
         specifier: ^0.0.80
         version: 0.0.80
+      '@pocketrocket/shared':
+        specifier: workspace:*
+        version: link:../shared
       croner:
         specifier: ^9.0.0
         version: 9.1.0
@@ -72,7 +74,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@claudebot/shared':
+      '@pocketrocket/shared':
         specifier: workspace:*
         version: link:../shared
       '@radix-ui/react-dialog':

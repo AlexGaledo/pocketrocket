@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { Plus, Hash, Settings2, Sun, Moon, BarChart3 } from 'lucide-react';
 import { useStore, botById } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
-import type { Bot, Message, Room } from '@claudebot/shared';
+import type { Bot, Message, Room } from '@pocketrocket/shared';
 
 function useTheme() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
-    try { localStorage.setItem('claudebot.theme', dark ? 'dark' : 'light'); } catch { /* ignore */ }
+    try { localStorage.setItem('pocketrocket.theme', dark ? 'dark' : 'light'); } catch { /* ignore */ }
   }, [dark]);
   return [dark, setDark] as const;
 }
@@ -24,7 +24,7 @@ function activityFor(bot: Bot, messages: Record<string, Message[]>): string | nu
   }
   if (!latest || !latest.payload || (latest.payload as { done?: boolean }).done) return null;
   const p = latest.payload as { name: string; input: Record<string, unknown> };
-  const name = p.name.replace('mcp__claudebot__', '').replace('mcp__browser__browser_', 'web ');
+  const name = p.name.replace('mcp__pocketrocket__', '').replace('mcp__browser__browser_', 'web ');
   const target = String(p.input?.file_path ?? p.input?.command ?? p.input?.url ?? p.input?.query ?? p.input?.text ?? '').split(/[\\/]/).pop() ?? '';
   return (name + ' ' + target).trim().slice(0, 36);
 }
@@ -60,7 +60,7 @@ export function Sidebar() {
       <div className="flex h-11 items-center justify-between px-3">
         <div className="flex items-center gap-2 text-[14px] font-semibold tracking-tight">
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[12px] text-ink-fg">⚡</span>
-          Claudebot
+          PocketRocket
         </div>
         <span className="text-[11.5px] text-dim">{busy ? busy + ' working' : ''}</span>
       </div>

@@ -27,8 +27,8 @@ function run(name, args, color) {
 
 let shuttingDown = false;
 const children = [
-  run('hub', ['--filter', '@claudebot/hub', 'dev'], '34'),
-  run('web', ['--filter', '@claudebot/web', 'dev'], '35'),
+  run('hub', ['--filter', '@pocketrocket/hub', 'dev'], '34'),
+  run('web', ['--filter', '@pocketrocket/web', 'dev'], '35'),
 ];
 
 function shutdown(code) {

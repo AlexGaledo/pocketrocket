@@ -1,10 +1,10 @@
-//! Claudebot desktop.
+//! PocketRocket desktop.
 //! Modes:
 //!   local  – the app runs its own hub as a child process; every bit of state (SQLite, memories,
 //!            workspace, skills) lives in the app's data dir. No network hop, lowest latency.
 //!   remote – ssh -L tunnel to a hub on a VPS (screen/desktop features live there).
 //!   attach – connect to a hub something else already started on 127.0.0.1:<port>.
-//! Config: <app config dir>/config.json (Windows: %APPDATA%\com.claudebot.desktop\config.json).
+//! Config: <app config dir>/config.json (Windows: %APPDATA%\com.pocketrocket.app\config.json).
 
 use serde::{Deserialize, Serialize};
 use std::io::Read;
@@ -29,7 +29,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { mode: "local".into(), ssh_host: "crm-agency".into(), port: 7788, hub_dir: None }
+        Self { mode: "local".into(), ssh_host: "".into(), port: 7788, hub_dir: None }
     }
 }
 
@@ -71,6 +71,60 @@ fn data_dir(app: &AppHandle) -> PathBuf {
     let d = config_dir(app).join("data");
     let _ = std::fs::create_dir_all(&d);
     d
+}
+
+fn dir_has_files(d: &std::path::Path) -> bool {
+    match std::fs::read_dir(d) {
+        Ok(mut it) => it.next().is_some(),
+        Err(_) => false,
+    }
+}
+
+/// Best-effort recursive copy; ignores per-file errors so one locked/unreadable file
+/// doesn't abort the whole migration.
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
+    let entries = match std::fs::read_dir(src) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    let _ = std::fs::create_dir_all(dst);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let dest_path = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &dest_path);
+        } else {
+            let _ = std::fs::copy(&path, &dest_path);
+        }
+    }
+}
+
+/// One-time migration from the old Claudebot app data dir (Windows: %APPDATA%\com.claudebot.desktop)
+/// into this app's config/data dirs. Only runs if this app has no config.json yet and no data files.
+fn migrate_legacy_data(app: &AppHandle) {
+    let new_config_path = config_path(app);
+    let new_data_dir = data_dir(app);
+    if new_config_path.exists() || dir_has_files(&new_data_dir) {
+        return;
+    }
+    let legacy_dir = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .and_then(|d| d.parent().map(|p| p.join("com.claudebot.desktop")));
+    let legacy_dir = match legacy_dir {
+        Some(d) if d.exists() => d,
+        _ => return,
+    };
+    let legacy_config = legacy_dir.join("config.json");
+    if legacy_config.exists() {
+        let _ = std::fs::copy(&legacy_config, &new_config_path);
+    }
+    let legacy_data = legacy_dir.join("data");
+    if legacy_data.exists() {
+        copy_dir_recursive(&legacy_data, &new_data_dir);
+    }
+    eprintln!("migrated legacy Claudebot data");
 }
 
 fn load_config(app: &AppHandle) -> Config {
@@ -142,7 +196,7 @@ fn spawn_hub(app: &AppHandle, cfg: &Config) -> Result<Child, String> {
     let tsx = hub.join("node_modules").join("tsx").join("dist").join("cli.mjs");
     let entry = hub.join("src").join("index.ts");
     if !entry.exists() {
-        return Err(format!("hub not found at {}. Set hubDir in config.json to the claudebot repo.", hub.display()));
+        return Err(format!("hub not found at {}. Set hubDir in config.json to the pocketrocket repo.", hub.display()));
     }
     if !tsx.exists() {
         return Err(format!("dependencies missing: run `pnpm install` in {}", root.display()));
@@ -153,7 +207,7 @@ fn spawn_hub(app: &AppHandle, cfg: &Config) -> Result<Child, String> {
     let mut cmd = Command::new("node");
     cmd.arg(strip_verbatim(&tsx)).arg(strip_verbatim(&entry));
     cmd.current_dir(strip_verbatim(&hub));
-    cmd.env("CLAUDEBOT_DATA", strip_verbatim(&data));
+    cmd.env("POCKETROCKET_DATA", strip_verbatim(&data));
     cmd.env("PORT", cfg.port.to_string());
     cmd.env("NODE_NO_WARNINGS", "1");
     cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(log_err));
@@ -223,7 +277,7 @@ fn connect(app: AppHandle, state: AppState, show_splash: bool) {
         (inner.config.clone(), inner.generation)
     };
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.set_title(&format!("Claudebot · {}", match cfg.mode.as_str() { "local" => "this PC".to_string(), "remote" => cfg.ssh_host.clone(), _ => "attached".to_string() }));
+        let _ = win.set_title(&format!("PocketRocket · {}", match cfg.mode.as_str() { "local" => "this PC".to_string(), "remote" => cfg.ssh_host.clone(), _ => "attached".to_string() }));
     }
 
     std::thread::spawn(move || {
@@ -263,7 +317,7 @@ fn connect(app: AppHandle, state: AppState, show_splash: bool) {
             if started.elapsed() > Duration::from_secs(60) {
                 let mut inner = state.0.lock().unwrap();
                 inner.status.error = Some(match cfg.mode.as_str() {
-                    "remote" => format!("No answer from the hub through the tunnel after 60s. On the VPS: systemctl status claudebot. Locally: ssh {}", cfg.ssh_host),
+                    "remote" => format!("No answer from the hub through the tunnel after 60s. On the VPS: systemctl status pocketrocket. Locally: ssh {}", cfg.ssh_host),
                     "local" => "The hub did not come up within 60s. See hub.log in the app data folder.".to_string(),
                     _ => format!("No hub on 127.0.0.1:{}. Start one with `pnpm start` and retry.", cfg.port),
                 });
@@ -322,6 +376,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![get_config, get_status, save_config, retry])
         .setup(move |app| {
             let handle = app.handle().clone();
+            migrate_legacy_data(&handle);
             let cfg = load_config(&handle);
             state.0.lock().unwrap().config = cfg;
 
@@ -357,7 +412,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building Claudebot")
+        .expect("error while building PocketRocket")
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 if let Some(st) = app.try_state::<AppState>() {
