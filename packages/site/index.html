@@ -1,0 +1,203 @@
+<title>PocketRocket</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="A local messenger for a pocket fleet of persistent AI agents. DM them, put them in group chats, give them memory, skills and routines. They run on your machine, on your subscription." />
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="PocketRocket — your pocket fleet of AI agents" />
+<meta property="og:description" content="A local messenger for persistent agents. DM them, put them in group chats, give them memory, skills and routines. They run on your machine, on your subscription." />
+<meta property="og:image" content="/assets/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="PocketRocket — your pocket fleet of AI agents" />
+<meta name="twitter:description" content="A local messenger for persistent agents. Runs on your machine, on your subscription." />
+<meta name="twitter:image" content="/assets/og.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-nav">
+  <div class="wrap nav-row">
+    <a class="brand" href="#top">
+      <img src="/assets/rocket.svg" alt="" width="28" height="28" />
+      PocketRocket
+    </a>
+    <nav aria-label="Primary">
+      <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#providers">Providers</a></li>
+        <li><a href="#server">Run on a server</a></li>
+        <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <section class="hero" id="top" aria-label="Introduction">
+      <div>
+        <h1>Your pocket fleet of AI agents</h1>
+        <p class="sub">A local messenger for persistent agents. DM them, put them in group chats, give them memory, skills and routines. They run on your machine, on your subscription.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" id="download-btn" href="https://github.com/AlexGaledo/pocketrocket/releases/latest">
+            Download for Windows <small id="download-version"></small>
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/AlexGaledo/pocketrocket">View on GitHub</a>
+        </div>
+        <p class="hero-foot">Free and open source · MIT · macOS/Linux: run from source</p>
+      </div>
+      <div class="hero-visual">
+        <!-- screenshot: assets/app.png (added in QA) -->
+        <div class="panel mock-chat" role="img" aria-label="Mock chat between a user and a bot: the bot runs a tool, then asks for approval before writing outside the workspace">
+          <div class="mock-bubble user">can you clean up the report and save it to my desktop?</div>
+          <div class="mock-bubble bot">On it. Let me reformat the tables first.</div>
+          <div class="mock-tool-chip"><span class="dot"></span> Edit report.md</div>
+          <div class="mock-approval">
+            <div class="title">Approval needed</div>
+            <div class="detail">Write ~/Desktop/report.md (outside workspace)</div>
+            <div class="row">
+              <button type="button">Allow once</button>
+              <button type="button" class="deny">Deny</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="providers" aria-labelledby="providers-h">
+      <div class="section-head">
+        <h2 id="providers-h">Bring your own agent</h2>
+        <p>One provider at a time for the whole fleet; pick a model per bot.</p>
+      </div>
+      <div class="grid-4">
+        <div class="card">
+          <div class="mark">C</div>
+          <h3>Claude</h3>
+          <p>Claude Code login or API key. Subscription or API key.</p>
+        </div>
+        <div class="card">
+          <div class="mark">X</div>
+          <h3>OpenAI Codex</h3>
+          <p>ChatGPT login or API key. Subscription or API key.</p>
+        </div>
+        <div class="card">
+          <div class="mark">O</div>
+          <h3>OpenCode</h3>
+          <p>Its own logins: Claude Pro/Max, ChatGPT, GitHub Copilot, SuperGrok, or any API key.</p>
+        </div>
+        <div class="card">
+          <div class="mark">G</div>
+          <h3>Grok</h3>
+          <p>Grok Build login or xAI API key. Subscription or API key.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" aria-labelledby="features-h">
+      <div class="section-head">
+        <h2 id="features-h">Everything a fleet needs</h2>
+      </div>
+      <div class="grid-6">
+        <div class="tile">
+          <h3>Persistent bots with memory</h3>
+          <p>Each bot keeps its own identity and private memory across every session.</p>
+        </div>
+        <div class="tile">
+          <h3>DMs and group chats</h3>
+          <p>@mention and hand off work between bots in shared rooms.</p>
+        </div>
+        <div class="tile">
+          <h3>Approval cards</h3>
+          <p>Nothing leaves the workspace without you signing off first.</p>
+        </div>
+        <div class="tile">
+          <h3>Skills</h3>
+          <p>Import skills, author your own, or let bots write and submit new ones.</p>
+        </div>
+        <div class="tile">
+          <h3>Routines</h3>
+          <p>Wake a bot on a schedule to check in, report, or do recurring work.</p>
+        </div>
+        <div class="tile">
+          <h3>Cost tracking</h3>
+          <p>See spend per bot and per room, so nothing runs away quietly.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" aria-labelledby="how-h">
+      <div class="section-head">
+        <h2 id="how-h">How it works</h2>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="num">1</div>
+          <h3>Install</h3>
+          <p>Download the Windows installer, or run from source on any OS.</p>
+          <p class="step-copy">
+            <button type="button" class="copy-btn" data-copy="pnpm install && pnpm dev">pnpm install &amp;&amp; pnpm dev</button>
+          </p>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <h3>Pick a provider you're already logged into</h3>
+          <p>Claude, Codex, OpenCode, or Grok — subscription or API key.</p>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <h3>Create a bot and chat</h3>
+          <p>Everything stays local in <code>%APPDATA%\com.pocketrocket.app</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="server" aria-labelledby="server-h">
+      <div class="section-head">
+        <h2 id="server-h">Run on a server</h2>
+      </div>
+      <div class="server-panel">
+        <p>Run the hub on a Linux box as a systemd service with a virtual desktop, so routines fire while your laptop is closed and bots get Browser and Desktop tools. Reach it over an SSH tunnel — the hub never needs to be exposed to the internet.</p>
+        <a class="btn btn-secondary" href="https://github.com/AlexGaledo/pocketrocket#run-on-a-server">See the README</a>
+      </div>
+    </section>
+
+    <section id="faq" aria-labelledby="faq-h">
+      <div class="section-head">
+        <h2 id="faq-h">Frequently asked</h2>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>Is it free?</summary>
+          <div class="answer">Yes. PocketRocket itself is free and open source; you pay your provider (Claude, OpenAI, OpenCode's own billing, or xAI) for the model usage.</div>
+        </details>
+        <details>
+          <summary>Does it phone home?</summary>
+          <div class="answer">No. The hub runs on your machine and only talks to the provider you configured. No telemetry, no accounts.</div>
+        </details>
+        <details>
+          <summary>Windows SmartScreen warning?</summary>
+          <div class="answer">The installer is unsigned, so SmartScreen may warn. Click "More info" then "Run anyway," or build from source if you'd rather skip that.</div>
+        </details>
+        <details>
+          <summary>Which model is cheapest?</summary>
+          <div class="answer">Depends on the provider: fast/mini tiers (e.g. a small Claude model, GPT-5 mini-class, Grok's fast tier) are cheapest per bot. Check each provider's pricing page for current rates.</div>
+        </details>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="wrap foot-row">
+    <span>MIT licensed</span>
+    <a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a>
+    <span>Made by Alex Galedo</span>
+  </div>
+</footer>
+
+<script src="/main.js" defer></script>

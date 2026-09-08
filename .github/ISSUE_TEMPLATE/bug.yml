@@ -1,0 +1,94 @@
+name: Bug report
+description: Something in PocketRocket isn't working right
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much as you can.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: Which provider was the hub set to when this happened?
+      options:
+        - Claude
+        - OpenAI Codex
+        - OpenCode
+        - Grok
+        - Not provider-related
+    validations:
+      required: true
+
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How are you running PocketRocket?
+      options:
+        - Windows installer (desktop app)
+        - From source (pnpm dev)
+        - From source (pnpm build && pnpm start)
+        - VPS / systemd
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. Windows 11 24H2, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PocketRocket version
+      description: From Help → About, or the version in package.json / the installer filename
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, step by step?
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: >-
+        Paste relevant lines from `hub.log` (desktop app: View menu → Open hub
+        log, or the data folder; from source or VPS: the hub's stdout, or
+        `journalctl -u pocketrocket`). Set `POCKETROCKET_DEBUG=1` for more
+        detail. Redact anything sensitive.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?

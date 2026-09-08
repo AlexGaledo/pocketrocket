@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest an idea or improvement for PocketRocket
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. If this is about a new or changed provider adapter, please say so below — those need a design discussion before implementation.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider (if relevant)
+      options:
+        - Claude
+        - OpenAI Codex
+        - OpenCode
+        - Grok
+        - Not provider-related
+    validations:
+      required: false
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that PocketRocket doesn't support today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to see happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
