@@ -2,13 +2,15 @@
 
 **Your pocket fleet of AI agents.**
 
+[**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/pocketrocket/releases/latest) · [Changelog](CHANGELOG.md)
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![CI](https://github.com/AlexGaledo/pocketrocket/actions/workflows/ci.yml/badge.svg)
 ![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket)
 
 PocketRocket is a messenger for a fleet of persistent agents. Each bot has its own identity, memory, skills, and routines; bots share one workspace, talk in DMs or group chats, @mention and hand off work to each other, and ask you for approval before touching anything outside the workspace. It runs entirely on your machine — a Node hub plus a React UI — against a provider you're already logged into: Claude, OpenAI Codex, OpenCode, or Grok.
 
-<!-- screenshot -->
+![PocketRocket](packages/site/assets/app.png)
 
 ## Install
 

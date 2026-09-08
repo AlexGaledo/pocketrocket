@@ -52,20 +52,20 @@
         <p class="hero-foot">Free and open source · MIT · macOS/Linux: run from source</p>
       </div>
       <div class="hero-visual">
-        <!-- screenshot: assets/app.png (added in QA) -->
-        <div class="panel mock-chat" role="img" aria-label="Mock chat between a user and a bot: the bot runs a tool, then asks for approval before writing outside the workspace">
-          <div class="mock-bubble user">can you clean up the report and save it to my desktop?</div>
-          <div class="mock-bubble bot">On it. Let me reformat the tables first.</div>
-          <div class="mock-tool-chip"><span class="dot"></span> Edit report.md</div>
-          <div class="mock-approval">
-            <div class="title">Approval needed</div>
-            <div class="detail">Write ~/Desktop/report.md (outside workspace)</div>
-            <div class="row">
-              <button type="button">Allow once</button>
-              <button type="button" class="deny">Deny</button>
-            </div>
-          </div>
-        </div>
+        <!-- Real capture of the app (packages/site/assets/app.png), not a mock. Both themes ship
+             so the shot matches the visitor's; width/height are the intrinsic 2x pixels, which
+             stops the hero reflowing while the image decodes. -->
+        <picture>
+          <source srcset="assets/app-dark.png" media="(prefers-color-scheme: dark)" />
+          <img
+            class="shot"
+            src="assets/app.png"
+            width="2880"
+            height="1800"
+            decoding="async"
+            alt="PocketRocket: a DM with a bot named Assistant. The bot writes launch-checklist.md in the workspace, shows the Write tool step inline, and reports where it saved the file. The right panel shows estimated usage for the room."
+          />
+        </picture>
       </div>
     </section>
 
