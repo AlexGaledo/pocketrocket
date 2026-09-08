@@ -1,9 +1,13 @@
 import { z } from 'zod';
 import type { Bot, BotState, Message, Room, UsageTotals, ApprovalPayload } from './models.js';
+import type { Settings, ProviderId } from './providers.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
-  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState> }
+  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings }
+  | { type: 'settings.changed'; settings: Settings }
+  /** Provider switched (or its check changed); clients refetch GET /api/providers. */
+  | { type: 'providers.changed'; active: ProviderId }
   | { type: 'bots.changed'; bots: Bot[] }
   | { type: 'rooms.changed'; rooms: Room[] }
   | { type: 'message.new'; message: Message }

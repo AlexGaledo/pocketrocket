@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { ClientEventSchema, type ServerEvent } from '@pocketrocket/shared';
+import { ClientEventSchema, DEFAULT_SETTINGS, type ServerEvent } from '@pocketrocket/shared';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
@@ -18,7 +18,7 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
   });
 
   wss.on('connection', (ws) => {
-    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates() });
+    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: DEFAULT_SETTINGS /* TODO(P1A): real settings store */ });
     ws.on('message', (raw) => {
       let data: unknown;
       try {
