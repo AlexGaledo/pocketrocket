@@ -35,7 +35,7 @@ describe('createHubTools', () => {
 
   it('validates create_bot/update_bot models against the active provider', async () => {
     const { tools, bot, repos } = setup();
-    const out = await byName(tools, 'update_bot').handler({ bot: 'me', model: 'gpt-5.5-codex' });
+    const out = await byName(tools, 'update_bot').handler({ bot: 'me', model: 'test-model-x' });
     expect(out.isError).toBe(true);
     expect(out.content[0]).toMatchObject({ text: expect.stringContaining('Unknown model') });
     expect(repos.getBot(bot.id)!.model).toBe('claude-sonnet-5');
@@ -58,7 +58,7 @@ describe('createHubTools', () => {
 
   it('request_approval routes to the PermissionBroker and reports the decision', async () => {
     const repos = new Repos(new Db(':memory:'));
-    const bot = repos.createBot({ name: 'Codey', handle: 'codey', title: '', description: 'x', avatar: '🤖', model: 'gpt-5.5-codex', allowedTools: ['Bash'], maxBudgetUsd: 2 });
+    const bot = repos.createBot({ name: 'Codey', handle: 'codey', title: '', description: 'x', avatar: '🤖', model: 'test-model-x', allowedTools: ['Bash'], maxBudgetUsd: 2 });
     const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
     const broker = new PermissionBroker(repos);
     const ac = new AbortController();
@@ -68,7 +68,7 @@ describe('createHubTools', () => {
     const tools = createHubTools({
       bot, room, members: [bot], turnId: 't1', hop: 0, causeId: 'c1',
       repos, memory: new MemoryService(), skills: new SkillService(repos),
-      dispatchFromBot: () => [], setState: () => undefined, models: ['gpt-5.5-codex'],
+      dispatchFromBot: () => [], setState: () => undefined, models: ['test-model-x'],
       requestApproval: (a) => broker.ask(permCtx, a, ac.signal),
     });
     const tool = byName(tools, 'request_approval');
@@ -93,7 +93,7 @@ describe('createHubTools', () => {
 
   it('request_approval reports a denial back to the bot', async () => {
     const repos = new Repos(new Db(':memory:'));
-    const bot = repos.createBot({ name: 'Codey', handle: 'codey2', title: '', description: 'x', avatar: '🤖', model: 'gpt-5.5-codex', allowedTools: [], maxBudgetUsd: 2 });
+    const bot = repos.createBot({ name: 'Codey', handle: 'codey2', title: '', description: 'x', avatar: '🤖', model: 'test-model-x', allowedTools: [], maxBudgetUsd: 2 });
     const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
     const broker = new PermissionBroker(repos);
     const permCtx = { bot, room, turnId: 't1', hop: 0, causeId: 'c1', setState: () => undefined };

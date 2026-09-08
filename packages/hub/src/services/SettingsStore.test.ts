@@ -7,7 +7,7 @@ import { SettingsStore } from './SettingsStore.js';
 
 const MODELS: Record<ProviderId, ModelInfo[]> = {
   claude: [{ id: 'claude-sonnet-5', label: 'Sonnet 5', default: true }, { id: 'claude-opus-5', label: 'Opus 5' }],
-  codex: [{ id: 'gpt-5.5-codex', label: 'Codex', default: true }],
+  codex: [{ id: 'test-model-x', label: 'Codex', default: true }],
   opencode: [],
   grok: [{ id: 'grok-code-fast-1', label: 'Grok', default: true }],
 };
@@ -44,17 +44,17 @@ describe('SettingsStore', () => {
 
   it('repoints bots whose model the new provider does not offer', () => {
     const { repos, settings } = store();
-    const keep = repos.createBot({ name: 'Keep', handle: 'keep', title: '', description: '', avatar: '🤖', model: 'gpt-5.5-codex', allowedTools: [], maxBudgetUsd: 1 });
+    const keep = repos.createBot({ name: 'Keep', handle: 'keep', title: '', description: '', avatar: '🤖', model: 'test-model-x', allowedTools: [], maxBudgetUsd: 1 });
     const move = repos.createBot({ name: 'Move', handle: 'move', title: '', description: '', avatar: '🤖', model: 'claude-opus-5', allowedTools: [], maxBudgetUsd: 1 });
     const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [move.id], coordinatorBotId: null });
 
     settings.patch({ provider: 'codex' });
 
-    expect(repos.getBot(move.id)!.model).toBe('gpt-5.5-codex');
-    expect(repos.getBot(keep.id)!.model).toBe('gpt-5.5-codex');
+    expect(repos.getBot(move.id)!.model).toBe('test-model-x');
+    expect(repos.getBot(keep.id)!.model).toBe('test-model-x');
     const sys = repos.listMessages(room.id, { limit: 10 }).filter((m) => m.kind === 'system');
     expect(sys.length).toBe(1);
-    expect(sys[0].text).toContain('gpt-5.5-codex');
+    expect(sys[0].text).toContain('test-model-x');
   });
 
   it('leaves models alone when the new provider publishes no list', () => {

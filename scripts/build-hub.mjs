@@ -29,6 +29,16 @@ const SHARED_ENTRY = path.join(ROOT, 'packages', 'shared', 'src', 'index.ts');
 
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
+function dirSize(dir) {
+  let total = 0;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) total += dirSize(p);
+    else if (e.isFile()) total += fs.statSync(p).size;
+  }
+  return total;
+}
+
 function run(args, label) {
   console.log(`[hub:bundle] ${label}`);
   const r = spawnSync(pnpm, args, { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
@@ -37,6 +47,10 @@ function run(args, label) {
     process.exit(r.status ?? 1);
   }
 }
+
+// 0. typecheck the hub before anything expensive — esbuild strips types without checking them,
+// so a type error would otherwise sail straight into the installer.
+run(['--filter', '@pocketrocket/hub', 'build'], 'typechecking the hub (tsc --noEmit)');
 
 // 1. web UI
 run(['--filter', '@pocketrocket/web', 'build'], 'building the web UI (vite)');
@@ -72,6 +86,46 @@ if (!fs.existsSync(path.join(BUILD, 'node_modules'))) {
   console.error('[hub:bundle] pnpm deploy produced no node_modules');
   process.exit(1);
 }
+// Every runtime dep is external in the bundle, so a missing one is a crash at first use rather
+// than a build error. Assert the ones that are only reached through dynamic paths.
+const REQUIRED = [
+  '@anthropic-ai/claude-agent-sdk',
+  '@modelcontextprotocol/sdk',
+  '@opencode-ai/sdk',
+  '@playwright/mcp',
+  'croner',
+  'dotenv',
+  'http-proxy',
+  'nanoid',
+  'ws',
+  'zod',
+];
+const missing = REQUIRED.filter((d) => !fs.existsSync(path.join(BUILD, 'node_modules', d, 'package.json')));
+if (missing.length) {
+  console.error(`[hub:bundle] deployed node_modules is missing: ${missing.join(', ')}`);
+  process.exit(1);
+}
+
+// The Claude Agent SDK's platform optional dep (@anthropic-ai/claude-agent-sdk-win32-x64) is a
+// ~220 MB vendored copy of the Claude CLI that we never execute: providers/claude.ts always
+// passes `pathToClaudeCodeExecutable: CLAUDE_EXE`, the user's own claude.exe, which is also what
+// check() requires before the provider reports ok. Dropping it roughly halves the installer.
+//
+// `pnpm deploy --no-optional` cannot do this: the legacy deploy walks every optional dep and the
+// workspace lockfile only carries entries for the platform actually installed, so it dies with
+// ERR_PNPM_LOCKFILE_MISSING_DEPENDENCY on …-win32-arm64. Prune afterwards instead.
+const NM = path.join(BUILD, 'node_modules', '@anthropic-ai');
+let pruned = 0;
+if (fs.existsSync(NM)) {
+  for (const entry of fs.readdirSync(NM)) {
+    if (!/^claude-agent-sdk-(linux|darwin|win32)-/.test(entry)) continue;
+    const dir = path.join(NM, entry);
+    pruned += dirSize(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`[hub:bundle]   pruned vendored CLI ${entry}`);
+  }
+}
+if (pruned) console.log(`[hub:bundle] pruned ${(pruned / 1024 / 1024).toFixed(0)} MB of vendored Claude CLI binaries`);
 const linked = fs
   .readdirSync(path.join(BUILD, 'node_modules'), { withFileTypes: true })
   .filter((e) => e.isSymbolicLink())

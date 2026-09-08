@@ -1,12 +1,29 @@
 // Smoke test against a running hub: creates a bot + DM, sends a message, prints WS events until turn.end.
-// Usage: node scripts/smoke.mjs ["message text"]
+//
+// Usage: node scripts/smoke.mjs [--port 7788] [--token <hex>] ["message text"]
+//        HUB=http://127.0.0.1:7791 POCKETROCKET_TOKEN=<hex> node scripts/smoke.mjs "…"
+//
+// --port/--token override the HUB / POCKETROCKET_TOKEN env vars. A token is required against a
+// hub started with POCKETROCKET_TOKEN set (bearer on REST, ?token= on the WS).
 import WebSocket from 'ws';
 
-const BASE = process.env.HUB ?? 'http://127.0.0.1:7788';
-const text = process.argv[2] ?? 'Create a file hello.txt in the workspace containing "hi from pocketrocket", then tell me its full path.';
+const argv = process.argv.slice(2);
+function flag(name) {
+  const i = argv.indexOf('--' + name);
+  if (i < 0) return undefined;
+  const v = argv[i + 1];
+  argv.splice(i, 2);
+  return v;
+}
+const port = flag('port');
+const TOKEN = flag('token') ?? process.env.POCKETROCKET_TOKEN ?? null;
+const BASE = port ? 'http://127.0.0.1:' + port : (process.env.HUB ?? 'http://127.0.0.1:7788');
+const text = argv[0] ?? 'Create a file hello.txt in the workspace containing "hi from pocketrocket", then tell me its full path.';
+
+const authHeaders = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};
 
 async function api(method, path, body) {
-  const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json', ...authHeaders }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json();
   if (!r.ok) throw new Error(method + ' ' + path + ' -> ' + r.status + ' ' + JSON.stringify(j));
   return j;
@@ -22,7 +39,7 @@ let room = rooms.find((r) => r.kind === 'dm' && r.memberIds[0] === bot.id);
 if (!room) room = await api('POST', '/api/rooms', { kind: 'dm', name: 'Smoke DM', memberIds: [bot.id], coordinatorBotId: null });
 console.log('bot', bot.id, 'room', room.id);
 
-const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws');
+const ws = new WebSocket(BASE.replace('http', 'ws') + '/ws' + (TOKEN ? '?token=' + encodeURIComponent(TOKEN) : ''));
 await new Promise((r) => ws.once('open', r));
 let streamed = '';
 ws.on('message', (raw) => {

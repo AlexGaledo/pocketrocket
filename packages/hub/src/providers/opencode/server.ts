@@ -78,22 +78,33 @@ async function freePort(): Promise<number> {
   });
 }
 
-/** Kill the child and everything it spawned (opencode is a shim + a bun runtime on Windows). */
-function killTree(child: ChildProcess) {
-  if (!child.pid) return;
+/**
+ * Kill the child and everything it spawned (opencode is a `.cmd` shim wrapping a bun runtime on
+ * Windows, so killing only the shim leaves the server running). Awaited by `stop()`: the caller
+ * may `process.exit()` right after, and a fire-and-forget `taskkill` can lose that race.
+ */
+function killTree(child: ChildProcess): Promise<void> {
+  if (!child.pid) return Promise.resolve();
   if (process.platform === 'win32') {
-    try {
-      execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined);
-      return;
-    } catch {
-      /* fall through */
-    }
+    return new Promise<void>((resolve) => {
+      try {
+        execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => resolve());
+      } catch {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          /* already gone */
+        }
+        resolve();
+      }
+    });
   }
   try {
     child.kill('SIGTERM');
   } catch {
     /* already gone */
   }
+  return Promise.resolve();
 }
 
 export interface StartedServer {
@@ -236,9 +247,11 @@ export class OpenCodeServer {
     const started = this.started;
     this.started = null;
     this.starting = null;
-    if (started) await started.bridge.stop();
+    // Kill the serve child first: it is the thing holding the bridge's MCP connection open, so
+    // draining the bridge before it is gone is the slow order (and used to deadlock outright).
     const child = this.child;
     this.child = null;
-    if (child) killTree(child);
+    if (child) await killTree(child);
+    if (started) await started.bridge.stop();
   }
 }

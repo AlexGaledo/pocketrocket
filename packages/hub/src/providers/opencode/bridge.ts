@@ -70,7 +70,13 @@ export class McpBridge {
     const server = this.server;
     this.server = null;
     this.url = null;
-    if (server) await new Promise<void>((r) => server.close(() => r()));
+    if (!server) return;
+    // `server.close()` stops accepting but then waits for every open connection, and the whole
+    // point of this bridge is that `opencode serve` holds one open for the life of the server.
+    // Without closeAllConnections() the await never settles and shutdown hangs until the
+    // 8s force-exit in index.ts, orphaning the serve child. (Found in P4 QA.)
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
   }
 
   register(sessionID: string, turnToken: string) {

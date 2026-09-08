@@ -5,7 +5,46 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// src/config.ts or dist/config.js -> packages/hub -> packages -> repo root
+
+/**
+ * The hub package directory — the one holding `package.json` and `node_modules`.
+ *
+ * From source this file is `<hub>/src/config.ts`, so the package dir is one level up.
+ * In the esbuild bundle everything collapses into `<hub>/hub.mjs`, so it is `here` itself.
+ * Pick whichever candidate actually has `node_modules`; fall back to the parent (the
+ * source layout) when neither does, e.g. when tests run before an install.
+ *
+ * Exported for tests.
+ */
+export function resolveHubDir(from: string, exists: (p: string) => boolean = fs.existsSync): string {
+  for (const dir of [from, path.resolve(from, '..')]) {
+    if (exists(path.join(dir, 'node_modules'))) return dir;
+  }
+  return path.resolve(from, '..');
+}
+
+/**
+ * Version from the nearest `package.json`: `<here>/package.json` (bundle layout, written by
+ * `pnpm deploy`) before `<here>/../package.json` (source layout). Exported for tests.
+ */
+export function resolveVersion(
+  from: string,
+  read: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'),
+): string {
+  for (const dir of [from, path.resolve(from, '..')]) {
+    try {
+      const pkg = JSON.parse(read(path.join(dir, 'package.json'))) as { version?: string };
+      if (typeof pkg.version === 'string' && pkg.version) return pkg.version;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return '0.0.0-unknown';
+}
+
+// src/config.ts or dist/config.js -> packages/hub -> packages -> repo root.
+// Only used for the dev-mode defaults below; the desktop app always sets
+// POCKETROCKET_DATA and POCKETROCKET_WEB_DIST explicitly.
 export const ROOT_DIR = path.resolve(here, '..', '..', '..');
 
 export const DATA_DIR = process.env.POCKETROCKET_DATA ? path.resolve(process.env.POCKETROCKET_DATA) : path.join(ROOT_DIR, 'data');
@@ -43,21 +82,14 @@ export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 export const CAUSE_COST_CAP_USD = Number(process.env.CAUSE_COST_CAP_USD ?? 5);
 export const MAX_TURNS_PER_QUERY = 40;
 
-export const VERSION: string = (() => {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.resolve(here, '..', 'package.json'), 'utf8')) as { version?: string };
-    return pkg.version ?? '0.1.0';
-  } catch {
-    return '0.1.0';
-  }
-})();
+export const VERSION: string = resolveVersion(here);
 
 export const SECRETS_PATH = path.join(DATA_DIR, 'secrets.json');
 
 export const USER_SKILLS_DIR = path.join(os.homedir(), '.claude', 'skills');
 
 // Screen (virtual browser on the computer): noVNC served by websockify, Chromium CDP for bots.
-export const HUB_DIR = path.resolve(here, '..');
+export const HUB_DIR = resolveHubDir(here);
 export const SCREEN_URL = process.env.SCREEN_URL ?? 'http://127.0.0.1:6080';
 export const CDP_URL = process.env.CDP_URL ?? 'http://127.0.0.1:9222';
 export const PLAYWRIGHT_MCP_CLI = path.join(HUB_DIR, 'node_modules', '@playwright', 'mcp', 'cli.js');
