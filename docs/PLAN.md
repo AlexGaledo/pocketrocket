@@ -1,6 +1,6 @@
 # PocketRocket v1 — production/distribution plan
 
-Status: approved by Alex on 2026-09-08 (interview answers below). Orchestrated by Claude; implementation delegated to Opus/Sonnet sub-agents per phase. Research inputs: `docs/research/cli-agents.md`, `docs/research/xai-tauri.md`.
+Status: **Executed 2026-09-08; see CHANGELOG.** Approved by Alex on 2026-09-08 (interview answers below). Orchestrated by Claude; implementation delegated to Opus/Sonnet sub-agents per phase. Research inputs: `docs/research/cli-agents.md`, `docs/research/xai-tauri.md`.
 
 ## Decisions (from interview)
 
@@ -143,17 +143,17 @@ export interface AgentProvider {
 
 | Phase | Work | Owner | Depends on |
 |---|---|---|---|
-| **P0 Bootstrap** | `git init`, LICENSE, `.gitignore`, rename per naming map, settings table + `userName`, legacy data migration (hub/desktop/deploy), `gh repo create` (private), first commit | Sonnet (rename) + Opus (migration/settings) | — |
-| **P1A Provider core** | Provider interface, `HubTool` refactor, Claude adapter (no behaviour change), `request_approval`, settings/providers REST+WS, HTTP MCP endpoint, hub token/origin checks | Opus | P0 |
-| **P1B Desktop bundling** | hub build pipeline, fetch-node, tauri.conf resources/sidecar, `lib.rs` Node detection + resource paths + legacy migration + menu, splash rebrand, icon set | Opus | P0 |
-| **P1C Web: sounds + settings + onboarding** | `sounds.ts`, cue wiring, settings dialog, onboarding wizard, bot model dropdown (against §1/§3 contract in `packages/shared`) | Sonnet | P0 + shared contract |
-| **P1D Site + docs** | `packages/site`, README rewrite, CONTRIBUTING, CHANGELOG, SECURITY, issue template | Sonnet | P0 |
-| **P2A Codex adapter** | `providers/codex.ts`, JSONL parser, tests with fixture streams + fake CLI; live verification of `-c` MCP injection if Codex is installed | Opus | P1A |
-| **P2B OpenCode adapter** | `providers/opencode.ts` via serve + SDK, permission routing, tests; live smoke with local opencode 1.17 | Opus | P1A |
-| **P2C Grok adapter** | verify Grok Build CLI headless capabilities → `providers/grok.ts` (CLI) or AI SDK fallback; tests | Opus | P1A |
-| **P3 CI + hardening** | workflows, shutdown, log rotation, version script | Sonnet | P1A, P1B |
-| **P4 QA/integration** | typecheck, tests, `pnpm desktop:build`, install NSIS locally, onboarding smoke with Claude + OpenCode, fix loop, screenshots, Vercel deploy, push | Opus | all |
-| **P5 Handover** | Move dir, update memory, final report | Claude | P4 |
+| ✅ **P0 Bootstrap** | `git init`, LICENSE, `.gitignore`, rename per naming map, settings table + `userName`, legacy data migration (hub/desktop/deploy), `gh repo create` (private), first commit | Sonnet (rename) + Opus (migration/settings) | — |
+| ✅ **P1A Provider core** | Provider interface, `HubTool` refactor, Claude adapter (no behaviour change), `request_approval`, settings/providers REST+WS, HTTP MCP endpoint, hub token/origin checks | Opus | P0 |
+| ✅ **P1B Desktop bundling** | hub build pipeline, fetch-node, tauri.conf resources/sidecar, `lib.rs` Node detection + resource paths + legacy migration + menu, splash rebrand, icon set | Opus | P0 |
+| ✅ **P1C Web: sounds + settings + onboarding** | `sounds.ts`, cue wiring, settings dialog, onboarding wizard, bot model dropdown (against §1/§3 contract in `packages/shared`) | Sonnet | P0 + shared contract |
+| ✅ **P1D Site + docs** | `packages/site`, README rewrite, CONTRIBUTING, CHANGELOG, SECURITY, issue template | Sonnet | P0 |
+| ✅ **P2A Codex adapter** | `providers/codex.ts`, JSONL parser, tests with fixture streams + fake CLI; live verification of `-c` MCP injection if Codex is installed | Opus | P1A |
+| ✅ **P2B OpenCode adapter** | `providers/opencode.ts` via serve + SDK, permission routing, tests; live smoke with local opencode 1.17 | Opus | P1A |
+| ✅ **P2C Grok adapter** | verify Grok Build CLI headless capabilities → `providers/grok.ts` (CLI) or AI SDK fallback; tests | Opus | P1A |
+| ✅ **P3 CI + hardening** | workflows, shutdown, log rotation, version script | Sonnet | P1A, P1B |
+| ✅ **P4 QA/integration** | typecheck, tests, `pnpm desktop:build`, install NSIS locally, onboarding smoke with Claude + OpenCode, fix loop, screenshots, Vercel deploy, push | Opus | all |
+| ⏳ **P5 Handover** | Move dir, update memory, final report | Claude | P4 |
 
 Acceptance for v1: fresh-machine flow works: run installer → app starts hub with bundled Node → onboarding detects Claude CLI login → first bot answers a DM with sound cues → switch provider to OpenCode → bot answers → approval card appears for an out-of-workspace write from either provider. `pnpm test` green, CI green, site live.
 
