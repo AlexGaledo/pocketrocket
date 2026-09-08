@@ -1,0 +1,35 @@
+[Unit]
+Description=PocketRocket hub
+After=network.target
+Wants=pocketrocket-screen.service
+After=pocketrocket-screen.service
+
+[Service]
+Type=simple
+User=pocketrocket
+Group=pocketrocket
+Environment=HOME=/home/pocketrocket
+Environment=PATH=/home/pocketrocket/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=POCKETROCKET_DATA=/home/pocketrocket/pocketrocket/data
+Environment=XAUTHORITY=/home/pocketrocket/pocketrocket/data/desktop-home/.Xauthority
+WorkingDirectory=/home/pocketrocket/pocketrocket/packages/hub
+ExecStart=/home/pocketrocket/pocketrocket/packages/hub/node_modules/.bin/tsx src/index.ts
+Restart=always
+RestartSec=3
+KillMode=control-group
+
+# Hardening. PrivateTmp isolates this unit's own /tmp; BindReadOnlyPaths punches through just far
+# enough to let the Desktop tool's xdotool/scrot (spawned in-process, see
+# packages/hub/src/agent/desktopTools.ts) reach the X11 socket that pocketrocket-screen.service
+# creates in the real /tmp. The "-" prefix means a missing source directory is skipped instead of
+# failing the unit (e.g. before the screen unit has ever started).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pocketrocket/pocketrocket/data /home/pocketrocket
+PrivateTmp=yes
+BindReadOnlyPaths=-/tmp/.X11-unix
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

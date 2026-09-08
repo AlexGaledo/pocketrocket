@@ -2,8 +2,8 @@
 # Daily snapshot of PocketRocket's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
 # Installed as /etc/cron.daily/pocketrocket-backup by setup-vps.sh. Keeps the 7 newest archives.
 set -euo pipefail
-ROOT="${POCKETROCKET_ROOT:-/root/pocketrocket}"
-OUT="${POCKETROCKET_BACKUPS:-/root/pocketrocket-backups}"
+ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket/pocketrocket}"
+OUT="${POCKETROCKET_BACKUPS:-/var/backups/pocketrocket}"
 mkdir -p "$OUT"
 stamp="$(date +%F-%H%M)"
 tar -czf "$OUT/data-$stamp.tgz" -C "$ROOT" \
