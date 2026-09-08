@@ -67,4 +67,4 @@ Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the
 
 ## 6. Server mode (`deploy/`, `scripts/deploy.sh <host>`)
 
-Systemd units `pocketrocket` and `pocketrocket-screen` under `/root/pocketrocket`; env for the hub lives in the unit file (`PORT`, `POCKETROCKET_DATA`, `SCREEN_*`, `CDP_URL`). `SCREEN_W`/`SCREEN_H` in the screen unit. No hub token in server mode by design: reach it only through an SSH tunnel.
+Systemd units `pocketrocket` and `pocketrocket-screen` run as the unprivileged `pocketrocket` user under `/home/pocketrocket/pocketrocket`; env for the hub lives in the unit file (`PORT`, `POCKETROCKET_DATA`, `SCREEN_*`, `CDP_URL`). `SCREEN_W`/`SCREEN_H` in the screen unit. The hub token applies in server mode too: it is written to `<data>/hub-token` on the VPS; reach the hub only through an SSH tunnel and open the `#token=` URL. VNC password: `<data>/vnc-passwd.txt`.
