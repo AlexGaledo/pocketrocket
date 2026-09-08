@@ -1,0 +1,10 @@
+{"type":"available_commands","tools":["read_file","run_terminal_cmd"],"commands":["review"]}
+{"type":"text","data":"Let me read the file."}
+{"type":"tool_call","toolCallId":"call_1","title":"Read","kind":"read","status":"in_progress","toolName":"read_file","rawInput":{"path":"src/main.rs"},"content":[],"locations":[]}
+{"type":"tool_call_update","toolCallId":"call_1","status":"completed","content":[],"rawOutput":{"lines":42},"locations":[]}
+{"type":"tool_call","toolCallId":"call_2","title":"Ask","kind":"other","status":"in_progress","toolName":"pocketrocket__request_approval","rawInput":{"summary":"delete build/"},"content":[],"locations":[]}
+{"type":"tool_call_update","toolCallId":"call_2","status":"failed","content":[],"rawOutput":"denied by the user","locations":[]}
+{"type":"usage","messageId":"resp_1","stopReason":"tool_use","usage":{"input_tokens":900,"output_tokens":30,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"type":"text","data":"Done."}
+{"type":"usage","messageId":"resp_2","stopReason":"end_turn","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":4000,"cache_creation_input_tokens":50}}
+{"type":"end","stopReason":"end_turn","sessionId":"3f2a1c88-0000-4000-8000-000000000002","requestId":"abc","usage":{"input_tokens":1000,"output_tokens":50,"cache_read_input_tokens":4000,"cache_creation_input_tokens":50,"total_tokens":5100},"num_turns":2,"modelUsage":{}}

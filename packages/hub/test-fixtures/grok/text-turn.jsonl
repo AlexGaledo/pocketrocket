@@ -1,0 +1,5 @@
+{"type":"thought","data":"Analyzing the directory structure..."}
+{"type":"text","data":"Here's a "}
+{"type":"text","data":"summary"}
+{"type":"usage","messageId":"resp_1","stopReason":"end_turn","usage":{"input_tokens":812,"output_tokens":45,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"reasoning_tokens":0},"signature":"sig"}
+{"type":"end","stopReason":"end_turn","sessionId":"3f2a1c88-0000-4000-8000-000000000001","requestId":"xyz789","usage":{"input_tokens":812,"output_tokens":45,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"reasoning_tokens":0,"total_tokens":857},"num_turns":1,"modelUsage":{"grok-4.6":{"inputTokens":812,"outputTokens":45,"cacheReadInputTokens":0,"modelCalls":1,"costUSD":0.0018886}},"total_cost_usd":0.0018886,"total_cost_usd_ticks":18886000}
