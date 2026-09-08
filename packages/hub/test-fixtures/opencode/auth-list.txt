@@ -1,0 +1,7 @@
+[0m
+[90m┌[39m  Credentials [90m~\.local\share\opencode\auth.json
+[90m│[39m
+[34m●[39m  OpenCode Zen [90mapi
+[90m│[39m
+[90m└[39m  1 credentials
+

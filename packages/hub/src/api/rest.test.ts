@@ -63,6 +63,11 @@ describe('settings / secrets / providers REST', () => {
     const res = (await api<ProvidersResponse>('GET', '/api/providers')).body;
     expect(res.active).toBe('claude');
     expect(res.providers).toHaveLength(4);
-    expect(res.providers.find((p) => p.id === 'opencode')!.check.ok).toBe(false);
+    // Every provider reports a real check now (P2A/P2B/P2C landed), so assert the shape rather than a
+    // value that depends on which CLIs happen to be installed on the machine running the tests.
+    for (const p of res.providers) {
+      expect(typeof p.check.ok).toBe('boolean');
+      expect(p.check.hint).toBeTruthy();
+    }
   });
 });
