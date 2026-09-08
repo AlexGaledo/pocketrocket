@@ -11,3 +11,4 @@ packages/desktop/icon-src.png
 packages/desktop/src-tauri/binaries/
 packages/hub/build/
 .vercel
+.claude/
