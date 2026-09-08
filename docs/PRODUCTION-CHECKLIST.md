@@ -42,7 +42,7 @@ Use before every public release. Status column: ☑ done and verified · ☐ ope
 | Quit kills the hub + provider children (no orphan `node`/`opencode`) | ☑ (shutdown deadlock fixed) | `tasklist` after quit |
 | `hub.log` rotates (2 MB × 5) | ☑ code | fill the log |
 | Help → Check for updates opens Releases; About shows version | ☑ | menu |
-| Connection screen matches in-app settings, active mode indicated | ◐ in progress | splash + menu check marks |
+| Connection screen matches in-app settings, active mode indicated | ☑ (`docs/screenshots/desktop-connection.png`, checked menu items) | splash + menu check marks |
 | SmartScreen warning documented (unsigned) | ☑ | README, site FAQ |
 | Code signing certificate | ☐ deferred (decided) | — |
 | Auto-updater | ☐ deferred (decided) | — |
