@@ -14,7 +14,7 @@
     "desktop:prepare": "pnpm hub:bundle && pnpm desktop:fetch-node",
     "desktop:dev": "pnpm --filter @pocketrocket/desktop dev",
     "desktop:build": "pnpm desktop:prepare && pnpm --filter @pocketrocket/desktop build:app",
-    "version": "node scripts/version.mjs"
+    "version:sync": "node scripts/version.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
