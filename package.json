@@ -8,10 +8,17 @@
     "build": "pnpm -r build",
     "start": "pnpm --filter @pocketrocket/hub start",
     "test": "pnpm -r test",
+    "hub:bundle": "node scripts/build-hub.mjs",
+    "desktop:fetch-node": "node scripts/fetch-node.mjs",
+    "desktop:icon": "node scripts/make-icon.mjs",
+    "desktop:prepare": "pnpm hub:bundle && pnpm desktop:fetch-node",
     "desktop:dev": "pnpm --filter @pocketrocket/desktop dev",
-    "desktop:build": "pnpm --filter @pocketrocket/desktop build:app"
+    "desktop:build": "pnpm desktop:prepare && pnpm --filter @pocketrocket/desktop build:app",
+    "version": "node scripts/version.mjs"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "esbuild": "^0.25.0",
     "typescript": "^5.7.3",
     "ws": "^8.18.0"
   },

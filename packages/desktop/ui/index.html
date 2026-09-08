@@ -11,7 +11,8 @@
   .card { width: 440px; padding: 28px; border-radius: 24px; background: #fff; box-shadow: 0 2px 4px rgba(17,18,20,.06), 0 24px 48px rgba(17,18,20,.12); }
   h1 { margin: 0 0 4px; font-size: 20px; display: flex; align-items: center; gap: 10px; letter-spacing: -0.01em; }
   .mark { width: 28px; height: 28px; border-radius: 50%; background: #111214; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
-  .muted { color: #6e7681; font-size: 13px; } .dim { color: #a0a7b1; font-size: 12px; }
+  .muted { color: #6e7681; font-size: 13px; } .dim { color: #a0a7b1; font-size: 12px; word-break: break-all; }
+  #runtime { margin-top: -8px; }
   .status { margin: 18px 0; padding: 12px 14px; border-radius: 14px; background: #f0f1f3; min-height: 44px; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: #e8842f; animation: blink 1s ease-in-out infinite; }
   .dot.ok { background: #1f9d6a; animation: none; } .dot.bad { background: #de4747; animation: none; }
@@ -32,9 +33,10 @@
 <body>
 <div class="wrap">
   <div class="card">
-    <h1><span class="mark">⚡</span> PocketRocket</h1>
-    <div class="muted" id="sub">Starting</div>
+    <h1><span class="mark">🚀</span> PocketRocket</h1>
+    <div class="muted" id="sub">Your pocket fleet of AI agents</div>
     <div class="status"><span class="dot" id="dot"></span><span id="msg">Starting</span><div class="err" id="err" hidden></div></div>
+    <div class="dim" id="runtime"></div>
     <details id="settings">
       <summary>Connection settings</summary>
       <label>Where the bots run</label>
@@ -48,6 +50,7 @@
         <div style="flex:0 0 110px"><label>Port</label><input id="port" type="number" value="7788" /></div>
       </div>
       <div class="dim" id="datadir" style="margin-top:10px"></div>
+      <div class="dim" id="logpath"></div>
       <div class="btns"><button id="retry">Retry</button><button class="primary" id="save">Save and connect</button></div>
     </details>
   </div>
@@ -66,9 +69,20 @@
     try {
       const s = await invoke('get_status');
       const dot = $('dot');
-      if (s.dataDir) $('datadir').innerHTML = 'Local data folder: <code>' + s.dataDir + '</code>';
+      if (s.dataDir) $('datadir').innerHTML = 'Data folder: <code>' + s.dataDir + '</code>';
+      if (s.logPath) $('logpath').innerHTML = 'Hub log: <code>' + s.logPath + '</code>';
+      $('runtime').textContent = [s.runtime, s.version ? 'v' + s.version : ''].filter(Boolean).join(' · ');
       if (s.connected) { dot.className = 'dot ok'; $('msg').textContent = 'Connected, opening'; }
-      else if (s.error) { dot.className = 'dot bad'; $('msg').textContent = 'Could not connect'; $('err').hidden = false; $('err').textContent = s.error; $('settings').open = true; }
+      else if (s.error) {
+        dot.className = 'dot bad';
+        $('msg').textContent = 'Could not connect';
+        $('err').hidden = false;
+        $('err').textContent = s.error
+          + (s.runtime ? '\n\nRuntime: ' + s.runtime : '')
+          + (s.dataDir ? '\nData folder: ' + s.dataDir : '')
+          + (s.logPath ? '\nHub log: ' + s.logPath : '');
+        $('settings').open = true;
+      }
       else { dot.className = 'dot'; $('msg').textContent = (s.mode === 'local' ? (s.childRunning ? 'Starting the hub' : 'Launching') : s.mode === 'remote' ? (s.childRunning ? 'Tunnel up, waiting for the hub' : 'Opening tunnel') : 'Looking for a hub') + ' · ' + s.attempts + 's'; $('err').hidden = true; }
     } catch (e) { $('msg').textContent = 'Not running inside the desktop app.'; }
   }
