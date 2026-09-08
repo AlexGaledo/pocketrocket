@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import os from 'node:os';
 import path from 'node:path';
 import { HUB_DIR, PLAYWRIGHT_MCP_CLI, VERSION, resolveHubDir, resolveVersion } from './config.js';
 
 // The bundle collapses src/ away: hub.mjs sits at <hub>/hub.mjs next to node_modules and
 // package.json, while the source lives at <hub>/src/config.ts. Both layouts have to resolve
 // to the same package dir, or PLAYWRIGHT_MCP_CLI points nowhere and VERSION falls back.
-const SRC = path.join('C:', 'app', 'hub', 'src');
-const BUNDLE = path.join('C:', 'app', 'hub');
+// Absolute on every platform: `C:/...` is relative on Linux, so build from the temp root instead.
+const BUNDLE = path.resolve(os.tmpdir(), 'pr-app', 'hub');
+const SRC = path.join(BUNDLE, 'src');
 
 describe('resolveHubDir', () => {
   it('goes up one level from the source layout (src/config.ts)', () => {
