@@ -132,7 +132,14 @@ export function desktopTools(): HubTool[] {
         const { spawn } = await import('node:child_process');
         // Launch in the shared workspace (= desktop folder) with the desktop's HOME so app config persists.
         const child = spawn(cmd, args, { env: { ...env, HOME: DESKTOP_HOME }, cwd: WORKSPACE_DIR, detached: true, stdio: 'ignore' });
+        // A missing binary surfaces as an async 'error' event; without a listener it would crash the hub.
+        const spawnError = new Promise<string | null>((resolve) => {
+          child.once('error', (e) => resolve(e.message));
+          child.once('spawn', () => resolve(null));
+        });
         child.unref();
+        const failed = await Promise.race([spawnError, new Promise<null>((r) => setTimeout(() => r(null), 1500))]);
+        if (failed) return err('Launch failed: ' + failed);
         await new Promise((r) => setTimeout(r, 1500));
         return screenshot();
       } catch (e) {

@@ -3,6 +3,7 @@ import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from '
 import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
+import { getToken } from '../lib/auth';
 import { Avatar, Badge, Button, Input, Label, Select, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
 
 export function RightPanel() {
@@ -63,7 +64,18 @@ function ScreenTab() {
     const id = setInterval(tick, 10000);
     return () => { alive = false; clearInterval(id); };
   }, []);
-  const src = st?.url ? st.url + '&n=' + nonce : '';
+  // /screen/* sits behind the hub token, and an iframe cannot send an Authorization header, so the token
+  // rides the query string: once for vnc.html itself, once inside `path` for the websockify upgrade.
+  const withToken = (url: string) => {
+    const token = getToken();
+    if (!token) return url;
+    const u = new URL(url, window.location.origin);
+    u.searchParams.set('token', token);
+    const p = u.searchParams.get('path');
+    if (p) u.searchParams.set('path', p + (p.includes('?') ? '&' : '?') + 'token=' + token);
+    return u.pathname + u.search;
+  };
+  const src = st?.url ? withToken(st.url) + '&n=' + nonce : '';
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-3 py-2 text-xs">
@@ -71,7 +83,7 @@ function ScreenTab() {
         <span className="flex-1 text-muted">{st === null ? 'checking…' : st.screen ? 'Computer screen live' + (st.cdp ? ' · bots can drive it' : ' · CDP down') : 'Screen not running'}</span>
         <Button size="sm" variant="ghost" title="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={13} /></Button>
         <Button size="sm" variant="ghost" title="Bigger" onClick={() => setWide(!wide)}>{wide ? 'Fit' : 'Wide'}</Button>
-        {st?.screen && <Button size="sm" onClick={() => window.open(st.url, '_blank', 'width=1320,height=880')}>Pop out</Button>}
+        {st?.screen && <Button size="sm" onClick={() => window.open(withToken(st.url), '_blank', 'width=1320,height=880')}>Pop out</Button>}
       </div>
       {st?.screen ? (
         <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>

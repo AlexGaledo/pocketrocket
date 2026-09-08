@@ -1,6 +1,6 @@
 # PocketRocket production checklist
 
-Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-08 (v0.1.0, pre-release).
+Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-09 (v0.1.0, pre-release). Security audit: `docs/AUDIT-2026-09-09.md`; remediation landed the same day (see CHANGELOG → Security).
 
 ## 1. Build and quality gates
 
@@ -37,7 +37,8 @@ See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release a
 | CI: top-level `permissions: contents: read`, every third-party action SHA-pinned, Dependabot configured (audit #21) | ☑ | `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml` |
 | Screenshots/docs/fixtures redacted of the local username and SSH host alias (audit A) | ☑ | see this file's redaction grep in the audit report |
 | Dependency audit | ☑ | `pnpm audit --prod` → 0 |
-| Secret scanning + branch protection on GitHub | ☐ | repo Settings → Code security; protect `main` |
+| Branch protection on `main` (required checks, no force-push), Dependabot alerts + security fixes | ☑ | `gh api repos/AlexGaledo/pocketrocket/branches/main/protection` |
+| Secret scanning + push protection | ☐ not available on a private free-plan repo; auto-enabled when public | repo Settings → Code security |
 
 ## 3. Desktop app (Windows)
 
