@@ -1,7 +1,12 @@
 node_modules
 dist
 data/
-.env
+.env*
+!.env.example
+secrets.json
+auth.json
+hub-token
+**/hub-token
 *.log
 packages/desktop/src-tauri/target
 packages/desktop/src-tauri/gen

@@ -41,3 +41,46 @@ export function isDesktopMode(): boolean {
     return false;
   }
 }
+
+/**
+ * The hub now always requires a token. When the API 401s or the WS upgrade is refused, the UI
+ * shows a small "paste the hub token" panel. This is a tiny pub-sub outside the zustand store so
+ * lib/api.ts and lib/ws.ts (which the store itself imports) can report failures without a cycle.
+ */
+type Listener = () => void;
+let needsToken = false;
+const listeners = new Set<Listener>();
+
+function emit() {
+  for (const l of listeners) l();
+}
+
+export function reportAuthFailure(): void {
+  if (needsToken) return;
+  needsToken = true;
+  emit();
+}
+
+export function clearAuthFailure(): void {
+  if (!needsToken) return;
+  needsToken = false;
+  emit();
+}
+
+export function getNeedsToken(): boolean {
+  return needsToken;
+}
+
+export function subscribeAuthFailure(cb: Listener): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+
+export function setToken(token: string): void {
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    /* sessionStorage unavailable */
+  }
+  clearAuthFailure();
+}

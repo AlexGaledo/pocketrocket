@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Much smaller download: the hub bundle went from 271 MB to 62 MB (Windows installer ~30 MB) by dropping the Claude Agent SDK's vendored copy of the Claude CLI, which PocketRocket never runs — it always drives your own `claude.exe`.
 - The installed executable is `PocketRocket.exe` (it was `pocketrocket-desktop.exe`); the Start menu and desktop shortcuts were already named PocketRocket.
 
+### Security
+
+Fixes from the pre-release audit ([`docs/AUDIT-2026-09-09.md`](docs/AUDIT-2026-09-09.md)):
+
+- The hub token is now always on — there is no unauthenticated mode. It's auto-generated when `POCKETROCKET_TOKEN` is unset, written to `<data>/hub-token` (0600), and printed at startup as `http://127.0.0.1:7788/#token=…`.
+- `Origin: null` is no longer whitelisted; REST/WS requests from a sandboxed iframe or any other `null`-origin context are rejected like any other foreign origin.
+- `/screen/*` (the noVNC desktop bridge) now requires the same bearer token as every other route, instead of being exempt.
+- Bash/path permission rules tightened: relative-path and post-`cd` resolution, denial of interpreter eval/exec flags, and `isInside` now requires the canonical path **and** its realpath both stay inside the allowed roots, instead of either one being enough.
+- Bot CRUD and tool-grant changes now go through a human approval card; a bot can no longer widen its own tool grants unattended.
+- Provider child processes get a per-provider environment allowlist instead of the hub's entire `process.env`.
+- `secrets.json` permissions are re-applied on every write, not just when the file is first created.
+- CI hardened: a top-level `permissions: contents: read`, every third-party GitHub Action pinned to a commit SHA, and Dependabot configured for `github-actions`, `npm`, and `cargo`.
+- Redacted the local Windows username and an internal SSH host alias out of screenshots, test fixtures, and docs (`app.png`, `app-dark.png`, `docs/screenshots/*`, `.env.example`, `docs/PLAN.md`, `docs/PRODUCTION-CHECKLIST.md`), and widened `.gitignore` to catch `.env*`, `secrets.json`, `auth.json`, and `hub-token` going forward.
+
 ### Fixed
 
 - Quitting the hub with Ctrl+C while OpenCode was the active provider hung for eight seconds and left an `opencode serve` process running in the background. It now shuts down in about a second with nothing left behind.

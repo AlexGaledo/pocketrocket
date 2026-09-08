@@ -308,7 +308,7 @@ function UsageTab() {
   const rooms = useStore((s) => s.rooms);
   const live = useStore((s) => s.usage);
   const [rows, setRows] = useState<UsageRow[]>([]);
-  const [health, setHealth] = useState<{ apiKeySource?: string; claudeExe: string; ok: boolean; error?: string } | null>(null);
+  const [health, setHealth] = useState<{ apiKeySource?: string; claudeExe: string; ok: boolean; error?: string; version?: string } | null>(null);
   useEffect(() => {
     api.usage().then((u) => setRows(u.rows));
     api.health().then(setHealth).catch(() => undefined);
@@ -340,7 +340,7 @@ function UsageTab() {
       {health && (
         <div className="rounded-2xl bg-card2/60 p-2 text-[11px] text-muted">
           <div className="mb-1 text-[12px] font-medium text-muted">Hub</div>
-          <div>claude: <span className="font-mono">{health.claudeExe}</span> {health.ok ? <Badge tone="ok">found</Badge> : <Badge tone="bad">missing</Badge>}</div>
+          <div>claude: <span className="font-mono" title={health.claudeExe}>{health.claudeExe.split(/[\\/]/).pop()}{health.version ? ` · ${health.version}` : ''}</span> {health.ok ? <Badge tone="ok">found</Badge> : <Badge tone="bad">missing</Badge>}</div>
           <div>auth: {health.apiKeySource ?? '(known after first turn)'}</div>
         </div>
       )}

@@ -16,18 +16,27 @@ Use before every public release. Status column: ☑ done and verified · ☐ ope
 
 ## 2. Security
 
+See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release audit this section tracks (leaks, vulnerabilities, verified-OK, and the action order in its section D).
+
 | Item | Status | How to verify |
 |---|---|---|
 | Hub binds `127.0.0.1` only | ☑ | `netstat -ano \| findstr 7788` |
-| Origin check on REST + WS + `/screen/` upgrade | ☑ tests | `curl -H "Origin: http://evil.example" http://127.0.0.1:7788/api/bots` → 403 |
+| Origin check on REST + WS + `/screen/` upgrade, including `Origin: null` | ☑ tests | `curl -H "Origin: null" http://127.0.0.1:7788/api/bots` → 403 |
 | Host check (DNS rebinding) | ☑ tests | `curl -H "Host: evil.example" ...` → rejected |
-| Bearer token required in desktop mode (`POCKETROCKET_TOKEN`), health stays open | ☑ | `/api/bots` 401 without token, `/api/health` 200 |
+| Bearer token always required (audit B3/D3) — auto-generated to `<data>/hub-token` when `POCKETROCKET_TOKEN` unset, health stays open | ☑ | `/api/bots` 401 without token, `/api/health` 200 |
+| `/screen/*` behind the same token (audit B2) | ☑ | `curl http://127.0.0.1:7788/screen/vnc.html` → 401 without token |
 | Per-turn MCP token on `/mcp`; tools scoped to that turn | ☑ tests | `mcp/httpServer.test.ts` |
 | Secrets file never returned by the API (`GET /api/secrets` = which keys set) | ☑ | `SecretsStore.test.ts` |
 | No telemetry / no outbound calls except the chosen provider and GitHub releases page | ☑ | grep for `fetch(`/`https://` in hub |
 | Approval cards for out-of-workspace/dangerous ops: Claude full, OpenCode via permission API, Codex/Grok via `request_approval` | ◐ Claude + OpenCode live-verified; Codex/Grok fixtures only | README "Permissions by provider" |
+| Bot CRUD / tool-grant changes gated behind human approval (audit B6) | ☑ | attempt to widen a bot's tools, expect an approval card |
+| `bashRules`/`pathRules` tightened: relative paths, interpreter flags, `isInside` AND-not-OR (audit B3–B5) | ◐ see SECURITY.md Threat model — best-effort against a cooperative model, not a hostile one | `permissions/rules.test.ts`, `permissions/pathRules.test.ts` |
+| Provider children get a per-provider env allowlist instead of the hub's full `process.env` (audit B7) | ☑ | inspect `claude.ts`/`codex.ts`/`grok.ts`/`opencode/server.ts` spawn options |
+| Secrets file permissions enforced on every write, not just creation (audit #17) | ☑ | `SecretsStore.test.ts` |
 | VPS docs say never expose the port; SSH tunnel / Tailscale only | ☑ | `SECURITY.md`, README |
-| Dependency audit | ☐ | `pnpm audit --prod` |
+| CI: top-level `permissions: contents: read`, every third-party action SHA-pinned, Dependabot configured (audit #21) | ☑ | `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml` |
+| Screenshots/docs/fixtures redacted of the local username and SSH host alias (audit A) | ☑ | see this file's redaction grep in the audit report |
+| Dependency audit | ☑ | `pnpm audit --prod` → 0 |
 | Secret scanning + branch protection on GitHub | ☐ | repo Settings → Code security; protect `main` |
 
 ## 3. Desktop app (Windows)
@@ -99,7 +108,7 @@ Then Settings → provider → DM a bot "Reply with exactly: pong", then ask it 
 ## 6b. Known small issues
 
 - Switching provider from a cold model cache does not reset bot models until the background refresh lands; harmless at turn time (`resolveModelId` maps it), but Settings may briefly show a foreign model.
-- Installed app inherited `mode: remote, sshHost: crm-agency` from the legacy config; that VPS still runs the old Claudebot build. Switch to "This PC" or redeploy with `scripts/deploy.sh crm-agency`.
+- Installed app inherited `mode: remote, sshHost: <host>` from the legacy config; that VPS still runs the old Claudebot build. Switch to "This PC" or redeploy with `scripts/deploy.sh <host>`.
 - `pocketrocket.vercel.app` is taken by an unrelated site; production is `pocketrocket-chi.vercel.app` until a custom domain is added.
 
 ## 7. Server mode (optional path)

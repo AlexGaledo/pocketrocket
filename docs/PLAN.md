@@ -17,10 +17,10 @@ Status: **Executed 2026-09-08; see CHANGELOG.** Approved by Alex on 2026-09-08 (
 | GitHub | `AlexGaledo/pocketrocket`, **private for now**, MIT. Created via `gh`. |
 | Migration | Hard rename everywhere; hub + desktop auto-migrate old Claudebot data on first start; deploy script migrates VPS units/dirs. |
 | Release | GitHub Actions: CI on push; tag `v*` → NSIS installer → GitHub Release. Unsigned, no auto-updater (Help → Check for updates opens Releases). |
-| VPS/screen | Keep all, made generic (no hardcoded `crm-agency` / `Alex`). |
+| VPS/screen | Keep all, made generic (no hardcoded `<host>` / `Alex`). |
 | Onboarding | First-run wizard: pick provider, detect CLI + login, ask user's name, create first bot. |
 | Icon | Generated rocket mark (SVG → full Tauri icon set), black circle / white glyph. |
-| Working dir | Move `claude-grokbot` → `C:\Users\alex\desktop\pocketrocket` as the last step (needs session restart). |
+| Working dir | Move `claude-grokbot` → `C:\Users\<you>\desktop\pocketrocket` as the last step (needs session restart). |
 
 ## Naming map
 

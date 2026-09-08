@@ -127,13 +127,13 @@ describe('permission ask -> hub tool', () => {
         id: 'per_3',
         sessionID: 's',
         permission: 'external_directory',
-        metadata: { filepath: 'C:\\Users\\alex\\Desktop\\pr-test.txt', parentDir: 'C:\\Users\\alex\\Desktop' },
+        metadata: { filepath: 'C:\\Users\\dev\\projects\\pocketrocket\\pr-test.txt', parentDir: 'C:\\Users\\dev\\projects\\pocketrocket' },
         tool: { messageID: 'msg', callID: 'call-2' },
       },
       () => 'read',
     );
     expect(m.name).toBe('Read');
-    expect(m.input.file_path).toBe('C:\\Users\\alex\\Desktop\\pr-test.txt');
+    expect(m.input.file_path).toBe('C:\\Users\\dev\\projects\\pocketrocket\\pr-test.txt');
   });
 
   it('falls back to the triggering tool call input when a read ask carries empty metadata', () => {
@@ -183,7 +183,7 @@ describe('TurnTracker over a captured MCP + external_directory run', () => {
 
     // The out-of-project write raised exactly one ask, mapped onto the Write tool, and was rejected.
     expect(h.asks).toHaveLength(1);
-    expect(h.asks[0]).toMatchObject({ name: 'Write', input: { file_path: 'C:\\Users\\alex\\Desktop\\pr-test.txt' } });
+    expect(h.asks[0]).toMatchObject({ name: 'Write', input: { file_path: 'C:\\Users\\dev\\projects\\pocketrocket\\pr-test.txt' } });
     expect(h.replies).toEqual([{ id: 'per_081576943001sXj3pt4sY2XhoP', response: 'reject' }]);
 
     // The MCP call was flagged for the bridge while it was in flight, then cleared.
@@ -240,7 +240,7 @@ describe('duplicate asks for one action', () => {
     const h = harness('ses_z', 'allow');
     const base = {
       sessionID: 'ses_z',
-      metadata: { filepath: 'C:\\Users\\alex\\Desktop\\pr-test.txt' },
+      metadata: { filepath: 'C:\\Users\\dev\\projects\\pocketrocket\\pr-test.txt' },
       tool: { messageID: 'msg', callID: 'call-1' },
     };
     h.tracker.handle({

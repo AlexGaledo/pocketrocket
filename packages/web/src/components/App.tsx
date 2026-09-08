@@ -7,6 +7,7 @@ import { BotDialog } from './dialogs/BotDialog';
 import { RoomDialog } from './dialogs/RoomDialog';
 import { SettingsDialog } from './dialogs/SettingsDialog';
 import { Onboarding } from './Onboarding';
+import { TokenPrompt } from './TokenPrompt';
 import { cn } from './ui';
 
 export function App() {
@@ -53,6 +54,7 @@ export function App() {
       {dialog?.kind === 'settings' && <SettingsDialog onClose={() => openDialog(null)} />}
 
       {showOnboarding && <Onboarding />}
+      <TokenPrompt />
     </div>
   );
 }

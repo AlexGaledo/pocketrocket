@@ -7,8 +7,11 @@
 //
 // Run: pnpm desktop:fetch-node   (cached — re-running is a no-op while the version matches)
 //
-// Nothing is pinned: the newest v24.x with an LTS codename wins, and the zip is checked against
-// the signed SHASUMS256.txt for that release before anything is extracted.
+// The major version is pinned below (NODE_MAJOR); the newest vNODE_MAJOR.x.y with an LTS codename
+// is resolved at run time and the exact resolved version is logged and stamped to node.version.
+// The zip is checked against SHASUMS256.txt for that release via a plain SHA256 comparison —
+// nodejs.org does not publish a machine-verifiable signature for that file, so this is integrity
+// (tamper-in-transit / bad mirror) checking only, not authenticity (GPG) verification.
 
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -23,6 +26,7 @@ const EXE = path.join(BIN, 'node-x86_64-pc-windows-msvc.exe');
 const LICENSE = path.join(BIN, 'NODE-LICENSE');
 const STAMP = path.join(BIN, 'node.version');
 const DIST = 'https://nodejs.org/dist';
+const NODE_MAJOR = 24;
 
 async function text(url) {
   const r = await fetch(url);
@@ -30,12 +34,12 @@ async function text(url) {
   return r.text();
 }
 
-async function latestLts24() {
+async function latestLtsMajor() {
   const index = JSON.parse(await text(`${DIST}/index.json`));
   const candidates = index
-    .filter((r) => r.lts && /^v24\./.test(r.version) && (r.files ?? []).includes('win-x64-zip'))
+    .filter((r) => r.lts && new RegExp(`^v${NODE_MAJOR}\\.`).test(r.version) && (r.files ?? []).includes('win-x64-zip'))
     .sort((a, b) => cmpSemver(b.version, a.version));
-  if (!candidates.length) throw new Error('no LTS v24.x win-x64 release found on nodejs.org');
+  if (!candidates.length) throw new Error(`no LTS v${NODE_MAJOR}.x win-x64 release found on nodejs.org`);
   return candidates[0].version; // "v24.x.y"
 }
 
@@ -62,7 +66,8 @@ function extract(zip, members, dest) {
   if (ps.status !== 0) throw new Error(`could not extract ${zip} (tar: ${tar.stderr?.toString().trim()})`);
 }
 
-const version = await latestLts24();
+const version = await latestLtsMajor();
+console.log(`[fetch-node] resolved latest LTS v${NODE_MAJOR}.x -> ${version}`);
 const stamped = fs.existsSync(STAMP) ? fs.readFileSync(STAMP, 'utf8').trim() : '';
 if (stamped === version && fs.existsSync(EXE) && fs.existsSync(LICENSE)) {
   console.log(`[fetch-node] ${version} already in ${path.relative(ROOT, BIN)}`);

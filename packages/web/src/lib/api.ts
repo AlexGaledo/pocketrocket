@@ -2,13 +2,21 @@ import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus,
 } from '@pocketrocket/shared';
-import { getToken } from './auth';
+import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
+  // Sent on every request (GET included) so mutating routes always carry it — the hub rejects
+  // mutating routes without a JSON content type.
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (token) headers.authorization = 'Bearer ' + token;
   const r = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (r.status === 401) {
+    reportAuthFailure();
+    const j = await r.json().catch(() => ({}));
+    throw new Error((j as { error?: string }).error ?? 'Unauthorized');
+  }
+  clearAuthFailure();
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((j as { error?: string }).error ?? r.statusText);
   return j as T;

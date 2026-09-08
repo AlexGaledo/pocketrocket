@@ -60,15 +60,20 @@ Custom tools every bot gets: `send_message`, `handoff`, `update_memory`, `read_m
 
 ## Permissions
 
+See [SECURITY.md](SECURITY.md) for the token model and the threat model behind these rules — treat every bot like a contractor with a shell on your machine, not a sandboxed toy.
+
 Permission depth depends on what each provider's CLI exposes; see the table above for the summary. In more detail, for providers with hub-mediated permissions:
 
 - `Read/Glob/Grep` inside `data/workspace/` or the bot's home: silent. Outside: an approval card.
 - `Write/Edit` inside the workspace: auto-accepted. Outside: approval card.
 - `Bash`: an allowlist of read-only/build commands runs silently; anything else asks, and destructive patterns (`rm -rf`, `git push`, `curl | sh`, …) are flagged red. Absolute paths outside the workspace always ask.
 - `WebSearch/WebFetch`: silent when enabled for the bot.
+- Creating or editing a bot, or changing what tools it's allowed to use, shows an approval card too — a bot can no longer widen its own permissions without a human clicking "allow".
 - "Allow for this session" adds a permission rule for the rest of that session; approvals time out after 10 minutes as a deny.
 
 For Codex and Grok, permission parity is **best effort by design**: the provider sandboxes itself to the workspace directory, and a hub-provided `request_approval` tool is injected for anything outside it or otherwise dangerous — the model has to choose to call it, so it's not as airtight as Claude's hook-based interception or OpenCode's native permission API.
+
+The hub always requires a token — every run mode, no exceptions. It's minted on first start and printed as a URL (`http://127.0.0.1:7788/#token=…`); the desktop app and web UI consume that fragment automatically. If you're running with `pnpm start`, either copy that printed URL or read the token straight from `<data>/hub-token`.
 
 Tests: `pnpm test` (vitest in the hub). Debug a provider subprocess with `POCKETROCKET_DEBUG=1`.
 

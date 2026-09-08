@@ -11,7 +11,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `PORT` ★ | `7788` | Hub HTTP/WS port, always bound to `127.0.0.1`. |
 | `POCKETROCKET_DATA` ★ | `<repo>/data` | Data root: `pocketrocket.db`, `bots/`, `workspace/`, `skills/`, `secrets.json`, `grok-home/`. Desktop: `%APPDATA%\com.pocketrocket.app\data`. |
 | `POCKETROCKET_WEB_DIST` ★ | `<repo>/packages/web/dist` | Where the built web UI is served from. Desktop points it at the bundled `hub/web`. |
-| `POCKETROCKET_TOKEN` ★ | unset | When set, every `/api/*` route except `GET /api/health`, and `/ws`, require this bearer token. Desktop generates a fresh 32-hex token per launch. Unset = loopback + Origin/Host checks only (dev / `pnpm start`). |
+| `POCKETROCKET_TOKEN` ★ | auto-generated when unset, stored in `<data>/hub-token` | Bearer token required on every `/api/*` route (except `GET /api/health`), `/ws`, and `/screen/*`. When unset, the hub mints a fresh token on each start, writes it to `<data>/hub-token` (0600), and prints it as `http://127.0.0.1:7788/#token=…`. Desktop reads/generates its own per-launch token the same way. There is no unauthenticated mode. |
 | `POCKETROCKET_DEBUG` | unset | `1` = log provider CLI stderr and PreToolUse hook decisions. |
 | `CLAUDE_EXE` | `~/.local/bin/claude(.exe)` | Path to the Claude Code CLI the Agent SDK spawns. |
 | `ANTHROPIC_API_KEY` | unset | Use an API key instead of the Claude Code login. Also settable in Settings → API keys. |
