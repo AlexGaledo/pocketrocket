@@ -1,17 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Plus, Hash, Settings2, Sun, Moon, BarChart3 } from 'lucide-react';
+import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3 } from 'lucide-react';
+import { MODELS } from '@pocketrocket/shared';
 import { useStore, botById } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
+import { resolveDark } from '../lib/theme';
 import type { Bot, Message, Room } from '@pocketrocket/shared';
-
-function useTheme() {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark);
-    try { localStorage.setItem('pocketrocket.theme', dark ? 'dark' : 'light'); } catch { /* ignore */ }
-  }, [dark]);
-  return [dark, setDark] as const;
-}
 
 /** What a bot is doing right now, from its latest unfinished tool call in any loaded room. */
 function activityFor(bot: Bot, messages: Record<string, Message[]>): string | null {
@@ -39,7 +31,16 @@ export function Sidebar() {
   const setActiveRoom = useStore((s) => s.setActiveRoom);
   const openDialog = useStore((s) => s.openDialog);
   const openPanel = useStore((s) => s.openPanel);
-  const [dark, setDark] = useTheme();
+  const settings = useStore((s) => s.settings);
+  const providers = useStore((s) => s.providers);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const dark = resolveDark(settings.theme);
+  const toggleTheme = () => void updateSettings({ theme: dark ? 'light' : 'dark' });
+
+  const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
+  const modelLabel = activeProvider?.models.find((m) => m.id === settings.defaultModel)?.label
+    ?? MODELS.find((m) => m.id === settings.defaultModel)?.label
+    ?? settings.defaultModel;
 
   const dms = rooms.filter((r) => r.kind === 'dm');
   const groups = rooms.filter((r) => r.kind === 'group');
@@ -64,6 +65,14 @@ export function Sidebar() {
         </div>
         <span className="text-[11.5px] text-dim">{busy ? busy + ' working' : ''}</span>
       </div>
+      <button
+        className="mx-3 mb-1 flex items-center gap-1.5 self-start rounded-full bg-card2 px-2.5 py-1 text-[11.5px] text-muted hover:text-fg"
+        title="Provider settings"
+        onClick={() => openDialog({ kind: 'settings' })}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+        {activeProvider?.label ?? 'Claude'} · {modelLabel}
+      </button>
 
       <div className="flex-1 overflow-y-auto px-1 pb-2">
         <SectionHeader label="Team" onAdd={() => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
@@ -116,7 +125,10 @@ export function Sidebar() {
         <button className="flex h-8 flex-1 items-center gap-2 rounded-full px-3 text-[12.5px] text-muted hover:bg-panel/70 hover:text-fg" onClick={() => openPanel('usage')}>
           <BarChart3 size={14} /> Usage
         </button>
-        <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title={dark ? 'Light theme' : 'Dark theme'} onClick={() => setDark(!dark)}>
+        <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Settings" onClick={() => openDialog({ kind: 'settings' })}>
+          <Settings size={15} />
+        </button>
+        <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title={dark ? 'Light theme' : 'Dark theme'} onClick={toggleTheme}>
           {dark ? <Sun size={15} /> : <Moon size={15} />}
         </button>
       </div>

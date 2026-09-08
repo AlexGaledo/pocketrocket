@@ -14,9 +14,13 @@ const DEFAULT_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSear
 
 export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => void }) {
   const toast = useStore((s) => s.toast);
+  const providers = useStore((s) => s.providers);
+  const settings = useStore((s) => s.settings);
+  const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
+  const models = activeProvider?.models.length ? activeProvider.models : MODELS.map((m) => ({ id: m.id, label: m.label as string, note: undefined as string | undefined }));
   const [f, setF] = useState<BotInput>({
     name: bot?.name ?? '', handle: bot?.handle ?? '', title: bot?.title ?? '', description: bot?.description ?? '', avatar: bot?.avatar ?? '🤖',
-    model: bot?.model ?? DEFAULT_MODEL, allowedTools: bot?.allowedTools ?? DEFAULT_TOOLS, maxBudgetUsd: bot?.maxBudgetUsd ?? 2,
+    model: bot?.model ?? settings.defaultModel ?? DEFAULT_MODEL, allowedTools: bot?.allowedTools ?? DEFAULT_TOOLS, maxBudgetUsd: bot?.maxBudgetUsd ?? 2,
   });
   const [busy, setBusy] = useState(false);
   const set = (p: Partial<BotInput>) => setF({ ...f, ...p });
@@ -53,7 +57,7 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
         <Textarea rows={5} value={f.description} onChange={(e) => set({ description: e.target.value })} placeholder="What this bot is responsible for, how it should work, what it should avoid." />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        <div><Label>Model</Label><Select value={f.model} onChange={(e) => set({ model: e.target.value })}>{MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</Select></div>
+        <div><Label>Model</Label><Select value={f.model} onChange={(e) => set({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>)}</Select></div>
         <div><Label hint="stops a runaway turn">Budget per turn (USD)</Label><Input type="number" step="0.5" min="0.05" value={f.maxBudgetUsd} onChange={(e) => set({ maxBudgetUsd: Number(e.target.value) })} /></div>
       </div>
       <div className="mt-3">

@@ -1,11 +1,13 @@
 import type { ClientEvent, ServerEvent } from '@pocketrocket/shared';
 import { useStore } from '../store';
+import { getToken } from './auth';
 
 let socket: WebSocket | null = null;
 let retry = 0;
 
 export function connectWs() {
-  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+  const token = getToken();
+  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (token ? '?token=' + encodeURIComponent(token) : '');
   socket = new WebSocket(url);
   socket.onopen = () => {
     retry = 0;

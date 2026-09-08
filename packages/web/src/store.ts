@@ -1,11 +1,35 @@
 import { create } from 'zustand';
-import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals } from '@pocketrocket/shared';
+import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse } from '@pocketrocket/shared';
+import { DEFAULT_SETTINGS, MODELS } from '@pocketrocket/shared';
 import { api } from './lib/api';
 import { wsSend } from './lib/ws';
+import { play, setSoundsEnabled } from './lib/sounds';
+import { applyTheme, watchSystemTheme } from './lib/theme';
+import { isDesktopMode } from './lib/auth';
 
 export type PanelTab = 'screen' | 'memory' | 'skills' | 'routines' | 'usage';
 
 interface Streaming { botId: string; roomId: string; text: string }
+
+/** Providers list to fall back to when GET /api/providers 404s (hub not caught up yet) or errors. */
+const FALLBACK_PROVIDERS: ProvidersResponse = {
+  active: 'claude',
+  providers: [
+    {
+      id: 'claude',
+      label: 'Claude',
+      blurb: 'Anthropic Claude via the Agent SDK. Subscription or API key.',
+      authModes: ['subscription', 'apiKey'],
+      secretKeys: [],
+      permissions: 'full',
+      check: { ok: true, auth: 'unknown' },
+      models: MODELS.map((m) => ({ id: m.id, label: m.label })),
+    },
+  ],
+};
+
+// turnId -> last time a 'receive' sound fired for that turn, so turn.end doesn't double it with 'done'.
+const recentReceive = new Map<string, number>();
 
 interface State {
   connected: boolean;
@@ -22,10 +46,16 @@ interface State {
   panelOpen: boolean;
   panelTab: PanelTab;
   panelBotId: string | null;
-  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | null;
+  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'settings' } | null;
   toasts: { id: number; text: string; bad?: boolean }[];
+  settings: Settings;
+  providers: ProvidersResponse | null;
+  helloReceived: boolean;
+  _playedConnectedSound: boolean;
 
   setConnected: (v: boolean) => void;
+  updateSettings: (patch: SettingsPatch) => Promise<void>;
+  fetchProviders: () => Promise<void>;
   applyEvent: (ev: ServerEvent) => void;
   setActiveRoom: (id: string | null) => void;
   loadMessages: (roomId: string) => Promise<void>;
@@ -58,16 +88,42 @@ export const useStore = create<State>((set, get) => ({
   panelBotId: null,
   dialog: null,
   toasts: [],
+  settings: DEFAULT_SETTINGS,
+  providers: null,
+  helloReceived: false,
+  _playedConnectedSound: false,
 
-  setConnected: (connected) => set({ connected }),
+  setConnected: (connected) => {
+    const was = get().connected;
+    set({ connected });
+    if (connected && !was && isDesktopMode() && !get()._playedConnectedSound) {
+      set({ _playedConnectedSound: true });
+      play('connected');
+    }
+  },
 
   applyEvent: (ev) => {
     const s = get();
     switch (ev.type) {
       case 'hello': {
-        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {} });
+        const settings = ev.settings ?? DEFAULT_SETTINGS;
+        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true });
+        setSoundsEnabled(settings.sounds);
+        applyTheme(settings.theme);
+        watchSystemTheme(() => get().settings.theme);
+        void get().fetchProviders();
         const active = s.activeRoomId && ev.rooms.some((r) => r.id === s.activeRoomId) ? s.activeRoomId : (ev.rooms[0]?.id ?? null);
         get().setActiveRoom(active);
+        return;
+      }
+      case 'settings.changed': {
+        set({ settings: ev.settings });
+        setSoundsEnabled(ev.settings.sounds);
+        applyTheme(ev.settings.theme);
+        return;
+      }
+      case 'providers.changed': {
+        void get().fetchProviders();
         return;
       }
       case 'bots.changed':
@@ -88,6 +144,10 @@ export const useStore = create<State>((set, get) => ({
         const streaming = { ...s.streaming };
         if (m.turnId && m.kind === 'text' && streaming[m.turnId]) streaming[m.turnId] = { ...streaming[m.turnId], text: '' };
         set({ messages: { ...s.messages, [m.roomId]: [...list, m] }, unread, streaming });
+        if (m.authorType === 'bot' && m.kind === 'text') {
+          if (m.turnId) recentReceive.set(m.turnId, Date.now());
+          play('receive', { roomActive: m.roomId === s.activeRoomId });
+        }
         return;
       }
       case 'message.update': {
@@ -108,12 +168,22 @@ export const useStore = create<State>((set, get) => ({
         const streaming = { ...s.streaming };
         delete streaming[ev.turnId];
         set({ streaming });
+        const roomActive = ev.roomId === s.activeRoomId;
+        if (ev.error) {
+          play('error', { roomActive });
+        } else {
+          const lastReceive = recentReceive.get(ev.turnId);
+          const doubleCounted = lastReceive !== undefined && Date.now() - lastReceive < 1500;
+          if (!doubleCounted) play('done', { roomActive });
+        }
+        recentReceive.delete(ev.turnId);
         return;
       }
       case 'bot.state':
         set({ botStates: { ...s.botStates, [ev.botId]: ev.state } });
         return;
       case 'approval.request':
+        play('approvalRequest');
         if (ev.roomId !== s.activeRoomId) get().toast('Approval needed in another room', true);
         return;
       case 'memory.updated':
@@ -156,10 +226,12 @@ export const useStore = create<State>((set, get) => ({
   sendMessage: (text) => {
     const roomId = get().activeRoomId;
     if (!roomId || !text.trim()) return;
-    if (!wsSend({ type: 'message.send', roomId, text })) get().toast('Not connected', true);
+    if (wsSend({ type: 'message.send', roomId, text })) play('send');
+    else get().toast('Not connected', true);
   },
   decide: (approvalId, decision) => {
     wsSend({ type: 'approval.decide', approvalId, decision });
+    play(decision === 'deny' ? 'deny' : 'approve');
   },
   interrupt: (turnId) => {
     wsSend({ type: 'turn.interrupt', turnId });
@@ -181,6 +253,33 @@ export const useStore = create<State>((set, get) => ({
   refresh: async () => {
     const [bots, rooms] = await Promise.all([api.bots.list(), api.rooms.list()]);
     set({ bots, rooms });
+  },
+
+  updateSettings: async (patch) => {
+    const prev = get().settings;
+    const next = { ...prev, ...patch };
+    set({ settings: next });
+    setSoundsEnabled(next.sounds);
+    if (patch.theme) applyTheme(next.theme);
+    try {
+      const saved = await api.settings.update(patch);
+      set({ settings: saved });
+      setSoundsEnabled(saved.sounds);
+      applyTheme(saved.theme);
+    } catch (e) {
+      // Hub may not have the settings endpoint yet (parallel work-in-progress) — keep the
+      // optimistic value locally rather than bouncing the UI back, but let the user know.
+      console.warn('settings update did not persist:', (e as Error).message);
+    }
+  },
+
+  fetchProviders: async () => {
+    try {
+      const providers = await api.providers.list();
+      set({ providers });
+    } catch {
+      set({ providers: get().providers ?? FALLBACK_PROVIDERS });
+    }
   },
 }));
 

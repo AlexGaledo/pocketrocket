@@ -1,7 +1,14 @@
-import type { Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo } from '@pocketrocket/shared';
+import type {
+  Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
+  Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus,
+} from '@pocketrocket/shared';
+import { getToken } from './auth';
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const token = getToken();
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (token) headers.authorization = 'Bearer ' + token;
+  const r = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((j as { error?: string }).error ?? r.statusText);
   return j as T;
@@ -50,5 +57,17 @@ export const api = {
     if (q.botId) p.set('botId', q.botId);
     if (q.roomId) p.set('roomId', q.roomId);
     return req<{ totals: UsageTotals; rows: UsageRow[] }>('GET', '/api/usage?' + p.toString());
+  },
+  settings: {
+    get: () => req<Settings>('GET', '/api/settings'),
+    update: (patch: SettingsPatch) => req<Settings>('PUT', '/api/settings', patch),
+  },
+  providers: {
+    list: () => req<ProvidersResponse>('GET', '/api/providers'),
+    check: (id: ProviderId) => req<ProviderCheck>('POST', '/api/providers/' + id + '/check'),
+  },
+  secrets: {
+    get: () => req<SecretsStatus>('GET', '/api/secrets'),
+    update: (patch: Record<string, string>) => req<SecretsStatus>('PUT', '/api/secrets', patch),
   },
 };

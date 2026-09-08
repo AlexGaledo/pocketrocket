@@ -5,6 +5,8 @@ import { ChatPane } from './ChatPane';
 import { RightPanel } from './RightPanel';
 import { BotDialog } from './dialogs/BotDialog';
 import { RoomDialog } from './dialogs/RoomDialog';
+import { SettingsDialog } from './dialogs/SettingsDialog';
+import { Onboarding } from './Onboarding';
 import { cn } from './ui';
 
 export function App() {
@@ -13,6 +15,9 @@ export function App() {
   const dialog = useStore((s) => s.dialog);
   const toasts = useStore((s) => s.toasts);
   const openDialog = useStore((s) => s.openDialog);
+  const settings = useStore((s) => s.settings);
+  const helloReceived = useStore((s) => s.helloReceived);
+  const showOnboarding = helloReceived && settings.onboarded === false;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -45,6 +50,9 @@ export function App() {
 
       {dialog?.kind === 'bot' && <BotDialog bot={dialog.bot} onClose={() => openDialog(null)} />}
       {dialog?.kind === 'room' && <RoomDialog room={dialog.room} onClose={() => openDialog(null)} />}
+      {dialog?.kind === 'settings' && <SettingsDialog onClose={() => openDialog(null)} />}
+
+      {showOnboarding && <Onboarding />}
     </div>
   );
 }
