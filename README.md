@@ -4,13 +4,54 @@
 
 [**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/pocketrocket/releases/latest) · [Changelog](CHANGELOG.md)
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![CI](https://github.com/AlexGaledo/pocketrocket/actions/workflows/ci.yml/badge.svg)
-![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![CI](https://github.com/AlexGaledo/pocketrocket/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexGaledo/pocketrocket/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket?include_prereleases&label=release)](https://github.com/AlexGaledo/pocketrocket/releases)
+![Node](https://img.shields.io/badge/node-%E2%89%A522.13-5fa04e)
+![Desktop](https://img.shields.io/badge/desktop-Windows-blue)
 
 PocketRocket is a messenger for a fleet of persistent agents. Each bot has its own identity, memory, skills, and routines; bots share one workspace, talk in DMs or group chats, @mention and hand off work to each other, and ask you for approval before touching anything outside the workspace. It runs entirely on your machine — a Node hub plus a React UI — against a provider you're already logged into: Claude, OpenAI Codex, OpenCode, or Grok.
 
-![PocketRocket](packages/site/assets/app.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/site/assets/app-dark.png" />
+  <img alt="PocketRocket: a DM with a bot that writes a file in the workspace, showing the tool step inline, with the room's estimated usage in the right panel." src="packages/site/assets/app.png" />
+</picture>
+
+### In short
+
+- **Local.** The hub binds `127.0.0.1` and talks to nothing but the provider you chose. No accounts, no telemetry.
+- **Your subscription.** It drives a CLI you already log into instead of asking for a new API key.
+- **Persistent.** Every bot keeps an identity and a private memory across sessions and restarts.
+- **A team, not a chatbot.** DMs, group chats, @mentions and handoffs between bots in one shared workspace.
+- **You hold the keys.** Anything outside the workspace — and any change to what a bot may do — waits on an approval card.
+- **Costed.** Spend tracked per bot and per room, with a budget cap per turn.
+
+## Contents
+
+- [Status](#status)
+- [Install](#install)
+- [Providers](#providers)
+- [Concepts](#concepts)
+- [Permissions](#permissions)
+- [Desktop app](#desktop-app)
+- [Run on a server](#run-on-a-server)
+- [Development](#development)
+- [Contributing](#contributing)
+
+## Status
+
+Pre-release, working toward v1. Concretely:
+
+| Area | State |
+|---|---|
+| Hub, rooms, memory, skills, routines, approvals | Working, covered by 228 unit tests |
+| Claude and OpenCode providers | Verified end to end against real logins |
+| Codex and Grok providers | Built to each CLI's documented contract, **never run against a real account** — labelled *Untested* in the picker |
+| Windows installer | Builds and installs; **unsigned**, so SmartScreen warns |
+| macOS / Linux | Run from source; no installer |
+| Auto-update, code signing | Deliberately out of scope for v1 |
+
+Security: the hub always requires a token, binds loopback only, and checks `Origin` and `Host`. The pre-release audit and its remediation are in [`docs/AUDIT-2026-09-09.md`](docs/AUDIT-2026-09-09.md); the threat model, and what the permission rules deliberately do *not* protect against, are in [SECURITY.md](SECURITY.md). Read that before giving a bot the Browser or Desktop tool.
 
 ## Install
 

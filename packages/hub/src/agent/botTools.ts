@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Bot, Room, HandoffPayload } from '@pocketrocket/shared';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
+import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
 import { settings } from '../services/SettingsStore.js';
 import { events } from '../events.js';
@@ -143,13 +144,21 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       find: z.string().optional().describe('Text to find (patch mode only)'),
     },
     async (a) => {
-      if (a.mode === 'replace') ctx.memory.write(ctx.bot.id, a.text);
-      else if (a.mode === 'append') ctx.memory.append(ctx.bot.id, a.text);
+      let trimmed = false;
+      if (a.mode === 'replace') trimmed = ctx.memory.write(ctx.bot.id, a.text);
+      else if (a.mode === 'append') trimmed = ctx.memory.append(ctx.bot.id, a.text);
       else {
         if (!a.find) return err('patch mode needs `find`');
         if (!ctx.memory.patch(ctx.bot.id, a.find, a.text)) return err('`find` text not present in memory');
       }
-      return text('Memory updated.');
+      // Memory is capped because it rides the system prompt every turn. Say so, so the bot prunes
+      // deliberately instead of appending into a file that silently drops its oldest notes.
+      return text(
+        trimmed
+          ? 'Memory updated, but it hit the ' + Math.round(MAX_MEMORY_BYTES / 1024) +
+            ' KB limit and the oldest notes were dropped. Read it back and rewrite it shorter, keeping only what still matters.'
+          : 'Memory updated.',
+      );
     },
   );
 
