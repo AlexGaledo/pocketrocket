@@ -69,5 +69,7 @@ describe('settings / secrets / providers REST', () => {
       expect(typeof p.check.ok).toBe('boolean');
       expect(p.check.hint).toBeTruthy();
     }
-  });
+    // GET /api/providers probes all four CLIs by spawning them, which lands within a few hundred ms of the
+    // 5s default on its own and tips over when the suite runs it in parallel. Slow test, not a slow assert.
+  }, 30_000);
 });

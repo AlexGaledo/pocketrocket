@@ -100,7 +100,7 @@ PocketRocket drives whichever CLI you already use. Pick **one provider for the w
 | Skill pool | `data/skills/<name>/SKILL.md` | Import from your provider's skill directory, author in the UI, or let a bot `save_skill` (goes to review first) |
 | Routine | cron in DB | Wakes a bot with a prompt in a room while the hub runs |
 
-Custom tools every bot gets: `send_message`, `handoff`, `update_memory`, `read_memory`, `save_skill`, `list_bots`, `read_room`, and full team CRUD: `create_bot`, `update_bot`, `delete_bot` (any bot, including itself, `confirm: true` required), `add_to_room`, `remove_from_room`. A coordinator can recruit its own specialists ("create a researcher and a writer, then draft the post"), retune them, and retire them. Limits: 50 bots per account, 6 per room. The system prompt tells bots not to delete or rewrite a bot unless you asked.
+Custom tools every bot gets: `send_message`, `handoff`, `update_memory`, `read_memory`, `save_skill`, `list_bots`, `read_room`, and full team CRUD: `create_bot`, `update_bot`, `delete_bot` (any bot, including itself, `confirm: true` required), `create_room`, `add_to_room`, `remove_from_room`. A coordinator can recruit its own specialists, put them in a group chat of its own making, retune them, and retire them ("create a researcher and a writer, start a room with them, then draft the post"). Limits: 50 bots per account, 6 per room. The system prompt tells bots not to delete or rewrite a bot unless you asked.
 
 ## Permissions
 

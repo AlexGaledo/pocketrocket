@@ -285,6 +285,57 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     },
   );
 
+  const createRoom = hubTool(
+    'create_room',
+    'Start a new group chat with existing bots (by @handle) so work can be split across them. You are added ' +
+      'automatically. Shows ' + userName + ' an approval card first.',
+    {
+      name: z.string().describe('Short room name, e.g. "launch-plan"'),
+      handles: z.array(z.string()).describe('@handles of existing bots to put in the room, besides you'),
+      coordinator: z.string().optional().describe('@handle that answers messages with no @mention. Defaults to you.'),
+    },
+    async (a) => {
+      const name = a.name.trim();
+      if (!name) return err('A room needs a name.');
+
+      // Resolve every handle before asking, so a typo is a plain error rather than a declined card.
+      const wanted: Bot[] = [];
+      for (const h of a.handles) {
+        const found = ctx.repos.getBotByHandle(h.replace(/^@/, '').toLowerCase());
+        if (!found) return err('No bot with handle ' + h + '. Existing: ' + ctx.repos.listBots().map((x) => '@' + x.handle).join(', '));
+        if (found.id !== ctx.bot.id && !wanted.some((w) => w.id === found.id)) wanted.push(found);
+      }
+      const self = ctx.repos.getBot(ctx.bot.id)!;
+      const members = [self, ...wanted];
+      if (members.length < 2) return err('A group chat needs at least one other bot besides you.');
+      if (members.length > 6) return err('A room holds at most 6 bots; you asked for ' + members.length + '.');
+
+      const coordRef = (a.coordinator ?? ctx.bot.handle).replace(/^@/, '').toLowerCase();
+      const coord = members.find((m) => m.handle.toLowerCase() === coordRef);
+      if (!coord) return err('Coordinator @' + coordRef + ' is not one of the room members.');
+
+      const denied = await gate(
+        'create_room',
+        'Create group chat "' + name + '" with ' + members.map((m) => '@' + m.handle).join(', ') + ' (coordinator @' + coord.handle + ')',
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+
+      const room = ctx.repos.createRoom({ kind: 'group', name, memberIds: members.map((m) => m.id), coordinatorBotId: coord.id });
+      events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
+      const note = ctx.repos.insertMessage({
+        roomId: room.id, authorType: 'system', authorId: null, kind: 'system',
+        text: '@' + ctx.bot.handle + ' created this room with ' + members.map((m) => '@' + m.handle).join(', ') + '.',
+        payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId,
+      });
+      events.emitEvent({ type: 'message.new', message: note });
+      return text(
+        'Created "' + name + '" with ' + members.map((m) => '@' + m.handle).join(', ') + '. ' +
+        'You are not in that room right now, so send_message there to start the work.',
+      );
+    },
+  );
+
   const TOOL_ENUM = z.enum(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'Browser', 'Desktop']);
   const resolveAny = (ref: string) => {
     const r = ref.replace(/^@/, '').toLowerCase();
@@ -406,7 +457,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     },
   );
 
-  const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, createBot, addToRoom, updateBot, deleteBot, removeFromRoom];
+  const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom];
 
   if (ctx.requestApproval) {
     tools.push(hubTool(

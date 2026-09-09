@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `create_room`: a bot can now start its own group chat with existing bots instead of only being able to create bots and add them to a room you made first. It is added to the room automatically and is the coordinator unless it names another member. Gated by the same approval card as every other fleet change.
+
+### Changed
+
+- The per-run step limit went from 40 to 80 and is now tunable with `MAX_TURNS_PER_QUERY`. 40 was tuned for chat and is tight for computer use, where a navigate, a snapshot and a click are three steps. The live cost brake is the bot's per-turn budget, which the SDK enforces mid-run, so the step count only ever had to catch a loop that is cheap but endless.
+
+### Fixed
+
+- A turn that ran out of steps ended with `error_max_turns` and abandoned the job mid-task. It now resumes the same session and carries on, at most `MAX_TURN_CONTINUATIONS` times (default 2), each one re-checked against the remaining budget and the abort signal, and each announced in the room so a long turn is visible rather than mysteriously slow.
+- Two provider tests spawned all four CLIs and sat within a few hundred milliseconds of vitest's 5s default, so they failed intermittently once the suite got wider. Both now declare the timeout they actually need.
+
 ## [0.2.0] - 2026-09-09
 
 First public release. (`0.1.0` was the internal Claudebot-era version, so the first release under the

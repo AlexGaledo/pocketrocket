@@ -20,7 +20,7 @@ export interface PromptCtx {
   requestApproval?: boolean;
 }
 
-export const POCKETROCKET_TOOLS = ['send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room', 'create_bot', 'update_bot', 'delete_bot', 'add_to_room', 'remove_from_room'];
+export const POCKETROCKET_TOOLS = ['send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room', 'create_bot', 'update_bot', 'delete_bot', 'create_room', 'add_to_room', 'remove_from_room'];
 
 function firstLine(s: string) {
   return s.split('\n')[0].slice(0, 120);
