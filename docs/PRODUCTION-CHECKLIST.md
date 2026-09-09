@@ -1,17 +1,17 @@
 # PocketRocket production checklist
 
-Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-09 (v0.1.0, pre-release). Security audit: `docs/AUDIT-2026-09-09.md`; remediation landed the same day (see CHANGELOG → Security).
+Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-09 (v0.2.0, pre-release). Security audit: `docs/AUDIT-2026-09-09.md`; remediation landed the same day (see CHANGELOG → Security).
 
 ## 1. Build and quality gates
 
 | Item | Status | How to verify |
 |---|---|---|
 | Typecheck + Vite build clean | ☑ | `pnpm -r build` |
-| Unit tests green | ☑ 228 | `pnpm test` |
+| Unit tests green | ☑ 256 | `pnpm test` |
 | Versions in sync (root, packages, tauri.conf, Cargo.toml) | ☑ | `pnpm version:sync --check` |
 | `Cargo.lock` refreshed after a version bump | ☐ per release | `cargo check` then commit |
 | CI green on `main` (`ci.yml`: ubuntu tests + windows desktop:prepare + cargo check) | ☑ run 34250487822 | GitHub Actions tab |
-| Release workflow produces the NSIS installer (`release.yml`) | ☐ untested on a tag | push `v0.1.0` tag, watch Actions |
+| Release workflow produces the NSIS installer (`release.yml`) | ☐ untested on a tag | push `v0.2.0` tag, watch Actions |
 | CHANGELOG has an entry for the release | ◐ Unreleased filled | `CHANGELOG.md` |
 
 ## 2. Security
@@ -25,6 +25,7 @@ See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release a
 | Host check (DNS rebinding) | ☑ tests | `curl -H "Host: evil.example" ...` → rejected |
 | Bearer token always required (audit B3/D3) — auto-generated to `<data>/hub-token` when `POCKETROCKET_TOKEN` unset, health stays open | ☑ | `/api/bots` 401 without token, `/api/health` 200 |
 | `/screen/*` behind the same token (audit B2) | ☑ | `curl http://127.0.0.1:7788/screen/vnc.html` → 401 without token |
+| `/screen/*` authenticated by a `/screen`-scoped httpOnly cookie, bought with a single-use ticket; no `?token=` there | ☑ tests | `curl 'http://127.0.0.1:7788/screen/vnc.html?token=<token>'` → 401; `screenTicket.test.ts` |
 | Per-turn MCP token on `/mcp`; tools scoped to that turn | ☑ tests | `mcp/httpServer.test.ts` |
 | Secrets file never returned by the API (`GET /api/secrets` = which keys set) | ☑ | `SecretsStore.test.ts` |
 | No telemetry / no outbound calls except the chosen provider and GitHub releases page | ☑ | grep for `fetch(`/`https://` in hub |
@@ -45,7 +46,7 @@ See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release a
 | Item | Status | How to verify |
 |---|---|---|
 | Installer builds locally (`pnpm desktop:build`) | ☑ release | `target/release/bundle/nsis/PocketRocket_<v>_x64-setup.exe` |
-| Installer size acceptable | ☑ 29.7 MB (unused vendored Claude CLI pruned) | `PocketRocket_0.1.0_x64-setup.exe` |
+| Installer size acceptable | ☑ 29.7 MB (unused vendored Claude CLI pruned) | `PocketRocket_0.2.0_x64-setup.exe` |
 | Runs with system Node ≥ 22.13 and with the bundled Node 24 sidecar | ☑ both | splash shows runtime; `hub.log` startup line |
 | First run: onboarding wizard appears, provider check works, first bot created | ☑ Playwright run | fresh `%APPDATA%\com.pocketrocket.app` |
 | Legacy Claudebot data migrated on first launch | ☑ verified (config + db) | launch with old `com.claudebot.desktop` present |
@@ -129,8 +130,6 @@ The accessibility pass covered, and fixed:
 | Topics/description on GitHub, social preview image | ◐ description, homepage and 10 topics set (`gh repo view --json repositoryTopics,homepageUrl`); the social preview image can only be uploaded through repo Settings → General in a browser — use `packages/site/assets/og.png` |
 
 ## 6b. Known small issues
-
-- Screen tab: the hub token rides the noVNC iframe URL (same-origin loopback, per-launch token, `Referrer-Policy: no-referrer` + `no-store` on `/screen/*`). Proper fix later: short-lived ticket exchanged for an httpOnly cookie scoped to `/screen`.
 
 - Installed app inherited `mode: remote, sshHost: <host>` from the legacy config; that VPS still runs the old Claudebot build. Switch to "This PC" or redeploy with `scripts/deploy.sh <host>`.
 - `pocketrocket.vercel.app` is taken by an unrelated site; production is `pocketrocket-chi.vercel.app` until a custom domain is added.

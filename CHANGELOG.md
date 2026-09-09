@@ -5,7 +5,10 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-09
+
+First public release. (`0.1.0` was the internal Claudebot-era version, so the first release under the
+PocketRocket name starts at 0.2.0.)
 
 ### Added
 
@@ -15,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - First-run onboarding wizard: pick a provider, detect its CLI and login, name yourself, create a first bot.
 - Settings dialog: provider selection with live install/login checks, default model, API key fields, sounds toggle, theme.
 - Landing site (`packages/site`), live at <https://pocketrocket-chi.vercel.app>, with real screenshots of the app in the hero.
+- Bot memory is capped at 8 KB. It is injected into the system prompt on every turn and bots are told to record anything durable they learn, so an append-happy bot would otherwise have made every later turn steadily more expensive. Older notes are dropped first, and `update_memory` tells the bot when that happened so it prunes deliberately instead of writing into a file that silently forgets.
 - Providers carry a `maturity` flag. Claude and OpenCode have been driven end to end against real logins; Codex and Grok are written to each CLI's documented contract and covered by fixtures but have never been run against a real account, so the picker labels them **Untested** and says what that means. The README and the site say the same.
 
 ### Changed
@@ -25,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The installed executable is `PocketRocket.exe` (it was `pocketrocket-desktop.exe`); the Start menu and desktop shortcuts were already named PocketRocket.
 
 ### Security
+
+- The Screen tab no longer puts the hub token in a URL. An `<iframe>` cannot send an `Authorization` header, so the token used to ride the noVNC query string, where it sat in the DOM, in history, and in anything that later read `location`. The app now spends the token once on a normal authenticated `POST` for a single-use ticket, and the browser trades that ticket for an httpOnly cookie scoped to `/screen` that it can never read back. `?token=` is refused on `/screen/*` outright, and the cookie authenticates nothing else — presenting it to `/api/*` gets a 401.
 
 Fixes from the pre-release audit ([`docs/AUDIT-2026-09-09.md`](docs/AUDIT-2026-09-09.md)):
 

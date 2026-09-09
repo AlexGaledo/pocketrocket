@@ -1,4 +1,4 @@
-# Configuration reference (v0.1.0)
+# Configuration reference (v0.2.0)
 
 Four layers, lowest to highest precedence for overlapping keys: **defaults in code** → **`.env` / environment variables** (read once at hub start) → **`data/secrets.json`** (API keys; env var wins if both set) → **settings table** (`PUT /api/settings`, live). The desktop app has its own `config.json` for how it launches the hub.
 

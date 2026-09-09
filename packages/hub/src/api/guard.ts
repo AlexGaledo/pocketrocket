@@ -74,6 +74,18 @@ export function bearerToken(req: IncomingMessage): string | null {
   return m ? m[1] : null;
 }
 
+/** A single cookie value out of the `Cookie` header, or null. Node hands us the raw header and nothing else. */
+export function cookieValue(req: IncomingMessage, name: string): string | null {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return null;
+}
+
 /** Constant-time string compare, length-guarded (audit 2026-09-09, B16). */
 export function tokenMatches(supplied: string | null, expected: string): boolean {
   if (supplied === null) return false;
@@ -90,6 +102,11 @@ export function tokenMatches(supplied: string | null, expected: string): boolean
 export interface TokenOptions {
   /** True when a GET of this pathname maps to a file the hub serves publicly out of WEB_DIST. */
   isPublicAsset?: (pathname: string) => boolean;
+  /**
+   * Credential check for `/screen/*`, which has its own scheme (see ScreenSessions). Left out, `/screen/*` is
+   * refused outright — an unwired caller must not accidentally get the looser query-string rule back.
+   */
+  screenAuth?: (req: IncomingMessage) => boolean;
 }
 
 /**
@@ -98,12 +115,17 @@ export interface TokenOptions {
  * under WEB_DIST (the shell that then asks for the token), and `/mcp`, which carries its own per-turn bearer
  * and is checked by the MCP handler. `/screen/*` — HTTP and the websocket upgrade — is no longer exempt: it
  * proxies into a passwordless noVNC session that, in server mode, drives a root desktop.
+ *
+ * `/screen/*` is also the one place `?token=` is refused. A browser cannot put a header on an iframe or a
+ * websocket, so the token used to ride the query string; it now presents a `/screen`-scoped httpOnly cookie
+ * instead, and the branch sits above the public-asset check so no file layout under WEB_DIST can widen it.
  */
 export function checkToken(req: IncomingMessage, url: URL, token: string | null, opts: TokenOptions = {}): boolean {
   if (!token) return true;
   const method = req.method ?? 'GET';
   if (url.pathname === '/api/health' && method === 'GET') return true;
   if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return true;
+  if (url.pathname.startsWith('/screen/')) return opts.screenAuth?.(req) ?? false;
   if (method === 'GET' && (url.pathname === '/' || (opts.isPublicAsset?.(url.pathname) ?? false))) return true;
   return tokenMatches(bearerToken(req) ?? url.searchParams.get('token'), token);
 }

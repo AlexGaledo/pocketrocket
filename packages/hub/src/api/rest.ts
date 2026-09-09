@@ -7,6 +7,7 @@ import {
 import net from 'node:net';
 import { readBody } from './body.js';
 import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, VERSION } from '../config.js';
+import { SCREEN_VIEWER_PATH, type ScreenSessions } from './screenSession.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -40,6 +41,8 @@ class HttpError extends Error {
 export interface RestDeps {
   repos: Repos; memory: MemoryService; skills: SkillService; scheduler: RoutineScheduler; router: RoomRouter; runner: BotRunner;
   settings: SettingsStore; secrets: SecretsStore; providers: ProviderRegistry;
+  /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
+  screenSessions: ScreenSessions;
 }
 
 export function createRest(deps: RestDeps) {
@@ -49,7 +52,7 @@ export function createRest(deps: RestDeps) {
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '/?$');
     routes.push({ method, pattern, keys, handler });
   };
-  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers } = deps;
+  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions } = deps;
   const need = <T>(v: T | undefined, what: string): T => { if (!v) throw new HttpError(404, what + ' not found'); return v; };
   const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
     const r = schema.safeParse(body);
@@ -80,8 +83,11 @@ export function createRest(deps: RestDeps) {
   add('GET', '/api/debug/last-init', () => runner.lastInit);
   add('GET', '/api/screen', async () => {
     const [screen, cdp] = await Promise.all([probe(SCREEN_URL), probe(CDP_URL)]);
-    return { screen, cdp, url: '/screen/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=screen%2Fwebsockify' };
+    return { screen, cdp, url: SCREEN_VIEWER_PATH };
   });
+  // The web client cannot put the hub token in an iframe URL, so it spends the token here instead: one
+  // authenticated POST buys a ticket that `/screen/session` trades for a `/screen`-scoped httpOnly cookie.
+  add('POST', '/api/screen/ticket', () => ({ url: screenSessions.mintTicket().url }));
   add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR, version: VERSION }));
 
   // ---- settings / secrets / providers

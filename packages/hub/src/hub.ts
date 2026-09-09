@@ -21,7 +21,8 @@ import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
-import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, clientIp } from './api/guard.js';
+import { AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, tokenMatches } from './api/guard.js';
+import { SCREEN_COOKIE, SCREEN_VIEWER_PATH, ScreenSessions } from './api/screenSession.js';
 import { readBody } from './api/body.js';
 import { addSecret } from './providers/redact.js';
 
@@ -80,7 +81,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.runner = runner;
   const scheduler = new RoutineScheduler(repos, router);
 
-  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers });
+  const screenSessions = new ScreenSessions();
+  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions });
   const handleMcp = createMcpHandler(turns);
 
   const MIME: Record<string, string> = {
@@ -90,8 +92,8 @@ export function createHub(opts: HubOptions = {}): Hub {
 
   // /screen/* -> noVNC (websockify) on the computer. Same-origin, so the SSH tunnel / Tailscale covers it.
   const screenProxy = httpProxy.createProxyServer({ target: SCREEN_URL, ws: true, changeOrigin: true });
-  // The noVNC iframe carries the hub token in its query string (an iframe cannot send headers), so make
-  // sure nothing loaded under /screen/ can leak that URL through a Referer header, and keep it out of caches.
+  // Nothing secret rides these URLs any more, but the noVNC page is a live view of a real desktop: keep it
+  // out of caches, out of Referer headers, and out of anyone else's frame.
   screenProxy.on('proxyRes', (proxyRes) => {
     proxyRes.headers['referrer-policy'] = 'no-referrer';
     proxyRes.headers['cache-control'] = 'no-store';
@@ -121,6 +123,15 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   };
 
+  /**
+   * `/screen/*` is the one place a browser cannot set a header — it is an iframe and then a websocket — so the
+   * hub token used to ride the query string. It now presents the httpOnly cookie that `/screen/session` handed
+   * out in exchange for a ticket. A bearer header still works for scripts and curl; `?token=` no longer does,
+   * which is the whole point: the hub token can never end up in a URL, a history entry or a DOM attribute.
+   */
+  const screenAuth = (req: http.IncomingMessage): boolean =>
+    screenSessions.valid(cookieValue(req, SCREEN_COOKIE)) || (token !== null && tokenMatches(bearerToken(req), token));
+
   const limiter = new AuthRateLimiter();
 
   const server = http.createServer(async (req, res) => {
@@ -138,7 +149,27 @@ export function createHub(opts: HubOptions = {}): Hub {
         res.end(JSON.stringify({ error: 'Too many failed authentication attempts; try again in a minute' }));
         return;
       }
-      if (!checkToken(req, url, token, { isPublicAsset })) {
+      // The screen handshake authenticates with a one-shot ticket rather than the hub token, so it answers
+      // ahead of the general check — but a bad ticket is a failed auth like any other and feeds the limiter.
+      if (url.pathname === '/screen/session' && (req.method ?? 'GET') === 'GET') {
+        const cookie = screenSessions.redeem(url.searchParams.get('ticket'));
+        if (!cookie) {
+          limiter.fail(ip);
+          res.writeHead(401, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid or expired screen ticket' }));
+          return;
+        }
+        limiter.succeed(ip);
+        res.writeHead(302, {
+          'set-cookie': cookie,
+          location: SCREEN_VIEWER_PATH,
+          'cache-control': 'no-store',
+          'referrer-policy': 'no-referrer',
+        });
+        res.end();
+        return;
+      }
+      if (!checkToken(req, url, token, { isPublicAsset, screenAuth })) {
         limiter.fail(ip);
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Missing or invalid hub token' }));
@@ -205,7 +236,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       return;
     }
     // Applies to /screen/* too: the noVNC proxy used to be exempt (audit 2026-09-09, B2).
-    if (!checkToken(req, url, token, { isPublicAsset })) {
+    if (!checkToken(req, url, token, { isPublicAsset, screenAuth })) {
       limiter.fail(ip);
       socket.destroy();
       return;

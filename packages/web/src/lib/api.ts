@@ -25,6 +25,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 export const api = {
   health: () => req<HealthInfo>('GET', '/api/health'),
   screen: () => req<{ screen: boolean; cdp: boolean; url: string }>('GET', '/api/screen'),
+  // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL.
+  screenTicket: () => req<{ url: string }>('POST', '/api/screen/ticket'),
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
     create: (b: BotInput) => req<Bot>('POST', '/api/bots', b),

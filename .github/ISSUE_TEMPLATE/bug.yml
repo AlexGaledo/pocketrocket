@@ -47,7 +47,7 @@ body:
     attributes:
       label: PocketRocket version
       description: From Help → About, or the version in package.json / the installer filename
-      placeholder: e.g. 0.1.0
+      placeholder: e.g. 0.2.0
     validations:
       required: true
 
