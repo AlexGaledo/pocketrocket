@@ -45,6 +45,8 @@ interface State {
   usage: Record<string, UsageTotals>;
   memory: Record<string, string>;
   panelOpen: boolean;
+  /** Left sidebar. Same treatment as panelOpen: remembered per browser so a narrow screen stays narrow. */
+  sidebarOpen: boolean;
   panelTab: PanelTab;
   panelBotId: string | null;
   dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'settings' } | null;
@@ -64,6 +66,7 @@ interface State {
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
   openPanel: (tab: PanelTab, botId?: string | null) => void;
+  toggleSidebar: () => void;
   closePanel: () => void;
   openDialog: (d: State['dialog']) => void;
   toast: (text: string, bad?: boolean) => void;
@@ -85,6 +88,7 @@ export const useStore = create<State>((set, get) => ({
   usage: {},
   memory: {},
   panelOpen: localStorage.getItem('pocketrocket.panel') !== '0',
+  sidebarOpen: localStorage.getItem('pocketrocket.sidebar') !== '0',
   panelTab: 'memory',
   panelBotId: null,
   dialog: null,
@@ -244,6 +248,11 @@ export const useStore = create<State>((set, get) => ({
   closePanel: () => {
     localStorage.setItem('pocketrocket.panel', '0');
     set({ panelOpen: false });
+  },
+  toggleSidebar: () => {
+    const open = !get().sidebarOpen;
+    localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
+    set({ sidebarOpen: open });
   },
   openDialog: (dialog) => set({ dialog }),
   toast: (text, bad) => {

@@ -1,4 +1,4 @@
-import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3 } from 'lucide-react';
+import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3, PanelLeftClose } from 'lucide-react';
 import { MODELS } from '@pocketrocket/shared';
 import { useStore, botById } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
@@ -35,6 +35,7 @@ export function Sidebar() {
   const settings = useStore((s) => s.settings);
   const providers = useStore((s) => s.providers);
   const updateSettings = useStore((s) => s.updateSettings);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
   const dark = resolveDark(settings.theme);
   const toggleTheme = () => void updateSettings({ theme: dark ? 'light' : 'dark' });
 
@@ -66,7 +67,17 @@ export function Sidebar() {
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[12px] text-ink-fg">⚡</span>
           PocketRocket
         </div>
-        <span className="text-[11.5px] text-dim">{busy ? busy + ' working' : ''}</span>
+        <div className="flex items-center gap-1">
+          <span className="text-[11.5px] text-dim">{busy ? busy + ' working' : ''}</span>
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-full text-dim hover:bg-panel/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            title="Hide bots (Ctrl+B)"
+            aria-label="Hide bots"
+            onClick={toggleSidebar}
+          >
+            <PanelLeftClose size={15} />
+          </button>
+        </div>
       </div>
       <button
         className="mx-3 mb-1 flex items-center gap-1.5 self-start rounded-full bg-card2 px-2.5 py-1 text-[11.5px] text-muted hover:text-fg"
@@ -91,7 +102,9 @@ export function Sidebar() {
                 onMove={move}
               />
               {!collapsed.includes(section.key) && (
-                <ul className="space-y-0.5">
+                // Indented past the header's chevron: without this the rows start left of their own
+                // heading and the grouping reads as flat.
+                <ul className="ml-2 space-y-0.5 border-l border-line/60 pl-1">
                   {section.bots.map((b) => {
             const dm = dmFor(b.id);
             const active = dm && dm.id === activeRoomId;
