@@ -131,7 +131,15 @@ export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 5);
 export const MAX_CONCURRENT_TURNS = Number(process.env.MAX_CONCURRENT_TURNS ?? 4);
 export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 export const CAUSE_COST_CAP_USD = Number(process.env.CAUSE_COST_CAP_USD ?? 5);
-export const MAX_TURNS_PER_QUERY = 40;
+/**
+ * Steps (model round trips) one run may take before the provider stops it.
+ *
+ * This is not the runaway-cost brake — `maxBudgetUsd` is, and it is enforced live inside the run — so this
+ * only has to catch a loop that is cheap but endless. 40 was tuned for chat and is too tight for computer
+ * use, where every navigate, snapshot, click and keystroke costs a step: reading a few pages and writing a
+ * file can pass 50 on its own. Whatever is left over is picked up by MAX_TURN_CONTINUATIONS.
+ */
+export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 80);
 /**
  * How many times a turn that ran out of steps may be resumed to finish the job.
  *

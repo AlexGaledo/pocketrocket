@@ -25,6 +25,8 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `POCKETROCKET_GROK_HOME` | `<data>/grok-home` | Isolated Grok home PocketRocket writes its `config.toml` into. |
 | `GROK_SANDBOX` | unset | Override the `--sandbox` mode passed to `grok`. |
 | `MAX_HOPS` | `5` | Bot-to-bot mention hops per thread. |
+| `MAX_TURNS_PER_QUERY` | `80` | Steps (model round trips) one run may take. Browser work spends these fast — a navigate, a snapshot and a click are three. The live cost brake is the bot's per-turn budget, not this. |
+| `MAX_TURN_CONTINUATIONS` | `2` | Times a run that hit the step limit is resumed to finish the job. Each one is re-checked against the remaining budget and the abort signal. `0` disables. |
 | `MAX_CONCURRENT_TURNS` | `4` | Turns the hub runs in parallel. |
 | `CAUSE_COST_CAP_USD` | `5` | Dollar cap per thread (cause) across bots. |
 | `SCREEN_URL` | `http://127.0.0.1:6080` | noVNC endpoint proxied at `/screen/` (server mode). |
@@ -33,7 +35,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 
-Not configurable by env in this version (constants in `config.ts`): `HOST=127.0.0.1`, `APPROVAL_TIMEOUT_MS=10 min`, `MAX_TURNS_PER_QUERY=40`, `USER_SKILLS_DIR=~/.claude/skills`.
+Not configurable by env in this version (constants in `config.ts`): `HOST=127.0.0.1`, `APPROVAL_TIMEOUT_MS=10 min`, `USER_SKILLS_DIR=~/.claude/skills`.
 
 ## 2. Settings (live, `GET/PUT /api/settings`, stored in the `settings` table)
 
