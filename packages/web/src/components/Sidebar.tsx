@@ -2,6 +2,7 @@ import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3 } from 'lucide-re
 import { MODELS } from '@pocketrocket/shared';
 import { useStore, botById } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
+import { BotGroupHeader, useBotGroups } from './BotGroups';
 import { resolveDark } from '../lib/theme';
 import type { Bot, Message, Room } from '@pocketrocket/shared';
 
@@ -47,6 +48,8 @@ export function Sidebar() {
   const dmFor = (botId: string) => dms.find((r) => r.memberIds[0] === botId);
   const busy = bots.filter((b) => ['thinking', 'working', 'blocked', 'waiting'].includes(botStates[b.id] ?? 'idle')).length;
 
+  const { sections, collapsed, toggle, move } = useBotGroups(bots, groups);
+
   const openDm = async (botId: string) => {
     const existing = dmFor(botId);
     if (existing) return setActiveRoom(existing.id);
@@ -75,9 +78,21 @@ export function Sidebar() {
       </button>
 
       <div className="flex-1 overflow-y-auto px-1 pb-2">
-        <SectionHeader label="Team" onAdd={() => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
-        <ul className="mb-3 space-y-0.5">
-          {bots.map((b) => {
+        <SectionHeader label="Bots" onAdd={() => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
+        <div className="mb-3">
+          {sections.map((section, i) => (
+            <div key={section.key}>
+              <BotGroupHeader
+                group={section}
+                index={i}
+                count={section.bots.length}
+                isCollapsed={collapsed.includes(section.key)}
+                onToggle={() => toggle(section.key)}
+                onMove={move}
+              />
+              {!collapsed.includes(section.key) && (
+                <ul className="space-y-0.5">
+                  {section.bots.map((b) => {
             const dm = dmFor(b.id);
             const active = dm && dm.id === activeRoomId;
             const n = dm ? unread[dm.id] ?? 0 : 0;
@@ -108,9 +123,13 @@ export function Sidebar() {
                 </div>
               </li>
             );
-          })}
-          {!bots.length && <li className="px-3 py-2 text-[12.5px] text-muted">No teammates yet.</li>}
-        </ul>
+                  })}
+                </ul>
+              )}
+            </div>
+          ))}
+          {!bots.length && <div className="px-3 py-2 text-[12.5px] text-muted">No bots yet.</div>}
+        </div>
 
         <SectionHeader label="Group chats" onAdd={() => openDialog({ kind: 'room', room: null })} addTitle="New group chat" />
         <ul className="space-y-0.5">
