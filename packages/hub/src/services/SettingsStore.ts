@@ -12,6 +12,12 @@ export interface SettingsDeps {
    * to re-point bots whose model does not exist in the new provider. Omitted in tests that never switch.
    */
   models?: (provider: ProviderId) => ModelInfo[];
+  /**
+   * Awaiting variant of `models`, used when the sync cache is still cold: OpenCode reads its model list
+   * from `opencode models`, so switching to it right after startup would otherwise leave every bot
+   * pointing at a model OpenCode does not offer. Omitted in tests that never switch.
+   */
+  modelsAsync?: (provider: ProviderId) => Promise<ModelInfo[]>;
 }
 
 /** Defaults with the OS account name filled in for `userName`. */
@@ -51,7 +57,18 @@ export class SettingsStore {
     this.cache = next;
     events.emitEvent({ type: 'settings.changed', settings: next });
     if (next.provider !== prev.provider) {
-      this.repointBots(next.provider);
+      if (!this.repointBots(next.provider) && this.deps.modelsAsync) {
+        // Cold model cache. Repoint once the real list lands; the events it emits update the UI then.
+        void this.deps
+          .modelsAsync(next.provider)
+          .then((models) => {
+            // A second switch may have landed while we waited; only repoint if this is still the provider.
+            if (this.get().provider === next.provider) this.repointBots(next.provider, models);
+          })
+          .catch(() => {
+            /* the provider is unreachable; bots keep their model and the turn path resolves it */
+          });
+      }
       events.emitEvent({ type: 'providers.changed', active: next.provider });
     }
     return next;
@@ -65,10 +82,12 @@ export class SettingsStore {
   /**
    * After a provider switch, bots pointing at a model the new provider does not offer are moved to that
    * provider's default model, with a system message in every room the bot is in.
+   *
+   * Returns false when the provider's model list is not known yet, so the caller can retry asynchronously.
    */
-  private repointBots(provider: ProviderId) {
-    const models = this.deps.models?.(provider) ?? [];
-    if (!models.length) return;
+  private repointBots(provider: ProviderId, knownModels?: ModelInfo[]): boolean {
+    const models = knownModels ?? this.deps.models?.(provider) ?? [];
+    if (!models.length) return false;
     const fallback = models.find((m) => m.default)?.id ?? models[0].id;
     const known = new Set(models.map((m) => m.id));
     let changed = false;
@@ -88,6 +107,7 @@ export class SettingsStore {
       }
     }
     if (changed) events.emitEvent({ type: 'bots.changed', bots: this.deps.repos.listBots() });
+    return true;
   }
 }
 

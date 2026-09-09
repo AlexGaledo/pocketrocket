@@ -21,6 +21,8 @@ export interface ProviderRegistry {
   /** The provider every bot runs on right now (settings.provider). */
   active(): AgentProvider;
   modelsSync(id: ProviderId): ModelInfo[];
+  /** `modelsSync` but willing to wait for a cold cache (OpenCode shells out to `opencode models`). */
+  modelsAwaited(id: ProviderId): Promise<ModelInfo[]>;
   /** Cached for 60s; `force` re-runs the detection (used by POST /api/providers/:id/check). */
   check(id: ProviderId, force?: boolean): Promise<ProviderCheck>;
   response(): Promise<ProvidersResponse>;
@@ -59,6 +61,10 @@ export function createProviders(deps: RegistryDeps): ProviderRegistry {
     get,
     active: () => get(deps.settings.get().provider),
     modelsSync: (id) => get(id).modelsSync(),
+    modelsAwaited: (id) => {
+      const p = get(id);
+      return p.modelsAwaited ? p.modelsAwaited() : p.models();
+    },
     check,
     async response(): Promise<ProvidersResponse> {
       const providers: ProviderInfo[] = [];

@@ -1,16 +1,16 @@
-/* ---- tokens: mirrors packages/web/src/index.css ---- */
+/* ---- tokens: mirrors packages/web/src/index.css, incl. its WCAG-AA text colors ---- */
 :root {
   --bg: #f7f7f8;
   --panel: #ffffff;
   --card2: #f0f1f3;
   --line: #e6e7ea;
   --fg: #111214;
-  --muted: #6e7681;
-  --dim: #a0a7b1;
-  --accent: #4f7df3;
-  --accent2: #3b69e0;
-  --ok: #1f9d6a;
-  --warn: #e8842f;
+  --muted: #5c636d;
+  --dim: #676d75;
+  --accent: #3f66c9;
+  --accent2: #2f52ab;
+  --ok: #177a52;
+  --warn: #9c5a20;
   --ink: #111214;
   --ink-fg: #ffffff;
   --shadow: 0 1px 2px rgba(17, 18, 20, 0.04), 0 8px 24px rgba(17, 18, 20, 0.06);
@@ -28,7 +28,7 @@
     --line: #262a31;
     --fg: #f2f3f5;
     --muted: #9aa3ae;
-    --dim: #666d77;
+    --dim: #868d98;
     --accent: #7ea1ff;
     --accent2: #5f88f2;
     --ok: #38c48a;
@@ -233,6 +233,11 @@ section { padding: 56px 0; }
   box-shadow: var(--shadow);
 }
 .card h3 { margin: 12px 0 6px; font-size: 16px; }
+/* Codex and Grok ship built-to-spec but never run against a real account; say so on the card. */
+.tag-untested {
+  margin-left: 6px; padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+  font-size: 11px; font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
 .card p { margin: 0; color: var(--muted); font-size: 13.5px; }
 .card .mark {
   width: 36px; height: 36px; border-radius: 10px;

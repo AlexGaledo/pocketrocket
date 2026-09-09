@@ -15,6 +15,7 @@ export const GROK_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['XAI_API_KEY'],
   permissions: 'best-effort',
+  maturity: 'untested',
 };
 
 /** Fallback list (docs.x.ai/docs/models). `models()` prefers whatever the installed CLI reports. */

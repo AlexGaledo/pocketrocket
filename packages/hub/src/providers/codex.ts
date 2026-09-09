@@ -40,6 +40,7 @@ export const CODEX_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['OPENAI_API_KEY'],
   permissions: 'best-effort',
+  maturity: 'untested',
 };
 
 /**

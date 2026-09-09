@@ -99,6 +99,12 @@ export interface AgentProvider {
   models(): Promise<ModelInfo[]>;
   /** Synchronous snapshot of `models()` (registry cache); used where async is not possible. */
   modelsSync(): ModelInfo[];
+  /**
+   * `models()` never blocks, so it answers empty while a provider's cache is still cold. This is the
+   * awaiting variant, for the few callers that need a real list more than they need a fast answer.
+   * Providers with a static list can leave it out; the registry falls back to `models()`.
+   */
+  modelsAwaited?(): Promise<ModelInfo[]>;
   check(): Promise<ProviderCheck>;
   runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome>;
   interrupt(turnId: string): boolean;

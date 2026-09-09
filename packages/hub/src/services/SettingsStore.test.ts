@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import os from 'node:os';
 import type { ModelInfo, ProviderId } from '@pocketrocket/shared';
 import { Db } from '../db/db.js';
@@ -61,6 +61,44 @@ describe('SettingsStore', () => {
     const { repos, settings } = store();
     const bot = repos.createBot({ name: 'B', handle: 'b', title: '', description: '', avatar: '🤖', model: 'claude-sonnet-5', allowedTools: [], maxBudgetUsd: 1 });
     settings.patch({ provider: 'opencode' });
+    expect(repos.getBot(bot.id)!.model).toBe('claude-sonnet-5');
+  });
+
+  it('repoints once a cold model cache resolves', async () => {
+    // OpenCode's list comes from `opencode models`, so modelsSync answers empty right after startup.
+    const repos = new Repos(new Db(':memory:'));
+    const late: ModelInfo[] = [{ id: 'anthropic/claude-sonnet-4', label: 'Sonnet', default: true }];
+    const settings = new SettingsStore({
+      repos,
+      models: (p) => MODELS[p],
+      modelsAsync: async (p) => (p === 'opencode' ? late : MODELS[p]),
+    });
+    const bot = repos.createBot({ name: 'B', handle: 'b', title: '', description: '', avatar: '🤖', model: 'claude-sonnet-5', allowedTools: [], maxBudgetUsd: 1 });
+    const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
+
+    settings.patch({ provider: 'opencode' });
+    expect(repos.getBot(bot.id)!.model).toBe('claude-sonnet-5');
+
+    await vi.waitFor(() => expect(repos.getBot(bot.id)!.model).toBe('anthropic/claude-sonnet-4'));
+    const sys = repos.listMessages(room.id, { limit: 10 }).filter((m) => m.kind === 'system');
+    expect(sys[0].text).toContain('anthropic/claude-sonnet-4');
+  });
+
+  it('does not repoint for a provider that was switched away from while the list loaded', async () => {
+    const repos = new Repos(new Db(':memory:'));
+    let release: (m: ModelInfo[]) => void = () => {};
+    const settings = new SettingsStore({
+      repos,
+      models: (p) => MODELS[p],
+      modelsAsync: (p) => (p === 'opencode' ? new Promise<ModelInfo[]>((r) => { release = r; }) : Promise.resolve(MODELS[p])),
+    });
+    const bot = repos.createBot({ name: 'B', handle: 'b', title: '', description: '', avatar: '🤖', model: 'claude-sonnet-5', allowedTools: [], maxBudgetUsd: 1 });
+
+    settings.patch({ provider: 'opencode' });
+    settings.patch({ provider: 'claude' });   // back before the slow list lands
+    release([{ id: 'anthropic/claude-sonnet-4', label: 'Sonnet', default: true }]);
+    await new Promise((r) => setTimeout(r, 0));
+
     expect(repos.getBot(bot.id)!.model).toBe('claude-sonnet-5');
   });
 });

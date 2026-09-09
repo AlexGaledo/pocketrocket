@@ -7,7 +7,7 @@ Use before every public release. Status column: ☑ done and verified · ☐ ope
 | Item | Status | How to verify |
 |---|---|---|
 | Typecheck + Vite build clean | ☑ | `pnpm -r build` |
-| Unit tests green | ☑ 152 | `pnpm test` |
+| Unit tests green | ☑ 228 | `pnpm test` |
 | Versions in sync (root, packages, tauri.conf, Cargo.toml) | ☑ | `pnpm version:sync --check` |
 | `Cargo.lock` refreshed after a version bump | ☐ per release | `cargo check` then commit |
 | CI green on `main` (`ci.yml`: ubuntu tests + windows desktop:prepare + cargo check) | ☑ run 34250487822 | GitHub Actions tab |
@@ -56,7 +56,7 @@ See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release a
 | SmartScreen warning documented (unsigned) | ☑ | README, site FAQ |
 | Code signing certificate | ☐ deferred (decided) | — |
 | Auto-updater | ☐ deferred (decided) | — |
-| Uninstall leaves no service/task; data dir kept (documented) | ☐ | Apps & features → uninstall, inspect `%LOCALAPPDATA%` |
+| Uninstall leaves no service/task; data dir kept (documented) | ☑ | Nothing to leave behind: the app registers no service, scheduled task or autostart entry (`grep -riE "schtasks\|autostart\|CurrentVersion.Run" packages/desktop/src-tauri/src` → nothing), and the NSIS uninstall section only deletes `$INSTDIR` + shortcuts. Data retention documented in README → Uninstalling. |
 
 ## 4. Providers
 
@@ -64,10 +64,15 @@ See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release a
 |---|---|---|---|---|---|---|
 | Claude (Agent SDK) | ☑ | ☑ pong | ☑ | ☑ (cache read) | ☑ | ready |
 | OpenCode (serve + SDK) | ☑ | ☑ pong (free model; paid path untested, Zen account has no payment method) | ☑ real permission ask | ☑ | ☑ from OpenCode | ready |
-| Codex (CLI) | ☑ fake CLI | ☐ needs `codex login` | ☐ | ☐ | ☑ estimate | **needs Alex** |
-| Grok (Grok Build CLI) | ☑ fake CLI | ☐ needs `grok login` or `XAI_API_KEY` | ☐ | ☐ | ☑ estimate | **needs Alex** |
+| Codex (CLI) | ☑ fake CLI | ☐ no account | ☐ | ☐ | ☑ estimate | **untested** |
+| Grok (Grok Build CLI) | ☑ fake CLI | ☐ no account | ☐ | ☐ | ☑ estimate | **untested** |
 
-Manual steps for the two open rows:
+Codex and Grok have no account to test against, and shipping them as silent peers of the two that were
+verified would overstate them. They now carry `maturity: 'untested'` in `ProviderInfo`, which the picker
+renders as an **Untested** badge with a warning line, and which the README and site repeat. Flip a provider
+to `'verified'` in its `*_INFO` once the rows below are ticked.
+
+Manual steps, whenever an account is available:
 
 ```powershell
 # Codex
@@ -89,9 +94,26 @@ Then Settings → provider → DM a bot "Reply with exactly: pong", then ask it 
 | Onboarding wizard (welcome → provider → name → first bot → done) | ☑ live (Playwright) |
 | Bot dialog model list follows the active provider | ☑ |
 | Dark mode across app, splash, site | ☑ |
-| Provider switch resets invalid bot models with a visible system message | ☑ tests |
+| Provider switch resets invalid bot models with a visible system message | ☑ tests, incl. a cold model cache |
 | Empty states, error toasts, interrupt button | ☑ pre-existing |
-| Accessibility pass (focus rings, labels, contrast) on new dialogs | ◐ |
+| Accessibility pass (focus rings, labels, contrast) on new dialogs | ☑ see below |
+
+The accessibility pass covered, and fixed:
+
+- **Keyboard**: the provider cards are `role="radio"` on a `div` and had neither `tabIndex` nor a key
+  handler, so a provider could not be chosen without a mouse — in the onboarding wizard too, which is the
+  first screen a new user sees. They now use a roving tabindex with Enter/Space to select and arrows to move.
+- **Focus rings**: `Button` had none at all; inputs had one but no `outline-none`, so the browser outline
+  and the ring stacked. Every button, toggle chip and segmented control now shows a `focus-visible` ring.
+- **Labels**: `Label` rendered a `<span>`, so no field in any dialog was programmatically labelled. A new
+  `Field` wrapper mints an id that `Label` and the control share; captions over button groups render as a
+  span named by `aria-labelledby` instead. API-key rows, the token prompt and the sounds switch got names.
+- **State**: toggle chips report `aria-pressed`, the theme control is a named group, decorative avatars and
+  emoji are `aria-hidden`, and bot avatars carry a real `aria-label` rather than a mouse-only `title`.
+- **Contrast**: the light theme failed WCAG AA badly — `--dim` sat at **2.15:1** on `--card2` and `--warn`
+  at 2.39:1, against a 4.5:1 requirement, and `--muted`/`--accent`/`--ok`/`--bad` were all under it too.
+  Every text token in both themes is now ≥ 4.5:1 against the lowest-contrast surface it is used on. Dark
+  mode needed only `--dim`. `packages/site/styles.css` mirrors the same values.
 
 ## 6. Website and repo
 
@@ -104,13 +126,12 @@ Then Settings → provider → DM a bot "Reply with exactly: pong", then ask it 
 | README: install, providers table, permissions, server mode, development | ☑ |
 | LICENSE (MIT), CONTRIBUTING, SECURITY, issue templates | ☑ |
 | Repo public (currently private by decision) | ☐ flip when ready |
-| Topics/description on GitHub, social preview image | ☐ |
+| Topics/description on GitHub, social preview image | ◐ description, homepage and 10 topics set (`gh repo view --json repositoryTopics,homepageUrl`); the social preview image can only be uploaded through repo Settings → General in a browser — use `packages/site/assets/og.png` |
 
 ## 6b. Known small issues
 
 - Screen tab: the hub token rides the noVNC iframe URL (same-origin loopback, per-launch token, `Referrer-Policy: no-referrer` + `no-store` on `/screen/*`). Proper fix later: short-lived ticket exchanged for an httpOnly cookie scoped to `/screen`.
 
-- Switching provider from a cold model cache does not reset bot models until the background refresh lands; harmless at turn time (`resolveModelId` maps it), but Settings may briefly show a foreign model.
 - Installed app inherited `mode: remote, sshHost: <host>` from the legacy config; that VPS still runs the old Claudebot build. Switch to "This PC" or redeploy with `scripts/deploy.sh <host>`.
 - `pocketrocket.vercel.app` is taken by an unrelated site; production is `pocketrocket-chi.vercel.app` until a custom domain is added.
 

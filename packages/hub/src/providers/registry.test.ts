@@ -35,7 +35,7 @@ describe('provider registry', () => {
   it('a not-yet-implemented provider checks as not-ok with a hint and fails a turn', async () => {
     // Tests StubProvider itself rather than a registry slot, so it keeps passing as each P2x adapter lands.
     const stub = new StubProvider(
-      { id: 'codex', label: 'Placeholder', blurb: '', authModes: ['apiKey'], secretKeys: [], permissions: 'best-effort' },
+      { id: 'codex', label: 'Placeholder', blurb: '', authModes: ['apiKey'], secretKeys: [], permissions: 'best-effort', maturity: 'untested' },
       [],
       'install the CLI first',
     );

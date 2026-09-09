@@ -109,7 +109,7 @@ export function Onboarding() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
       <div className="panel flex w-[560px] max-w-full flex-col p-8">
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
@@ -127,7 +127,7 @@ export function Onboarding() {
           <div className="flex flex-col gap-3">
             <div className="text-[17px] font-semibold tracking-tight">Choose a provider</div>
             <div className="text-[12.5px] text-muted">Bots run through this provider. You can change it later in Settings.</div>
-            <div className="mt-1 flex flex-col gap-2" role="radiogroup">
+            <div className="mt-1 flex flex-col gap-2" role="radiogroup" aria-label="Provider">
               {(providers?.providers ?? []).map((p) => (
                 <ProviderCard key={p.id} info={p} selected={p.id === providerId} onSelect={() => setProviderId(p.id)} onChecked={() => void useStore.getState().fetchProviders()} />
               ))}
@@ -168,7 +168,7 @@ export function Onboarding() {
                   onClick={() => void createBot(t)}
                   className={cn('flex flex-col items-center gap-1.5 rounded-2xl bg-card2/50 p-3 text-center hover:bg-card2 disabled:opacity-50')}
                 >
-                  <span className="text-2xl">{t.v.avatar}</span>
+                  <span aria-hidden className="text-2xl">{t.v.avatar}</span>
                   <span className="text-[12.5px] font-medium">{t.label}</span>
                   <span className="text-[11px] text-muted">@{t.v.handle}</span>
                   <span className="text-[11px] leading-snug text-dim">{t.v.title}</span>

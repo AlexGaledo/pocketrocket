@@ -4,7 +4,7 @@ import type { ProviderId, ProviderCheck, ModelInfo } from '@pocketrocket/shared'
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
 import { preview, type Cue } from '../../lib/sounds';
-import { Button, Dialog, Input, Label, Select } from '../ui';
+import { Button, Dialog, Field, Input, Label, Select } from '../ui';
 import { ProviderCard } from '../ProviderCard';
 
 const CUES: { id: Cue; label: string }[] = [
@@ -69,7 +69,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       <div className="flex flex-col gap-6">
         <section>
           <div className="mb-2 text-[12.5px] font-semibold text-fg">Provider</div>
-          <div className="flex flex-col gap-2" role="radiogroup">
+          <div className="flex flex-col gap-2" role="radiogroup" aria-label="Provider">
             {(providers?.providers ?? []).map((p) => (
               <ProviderCard key={p.id} info={p} selected={p.id === settings.provider} onSelect={() => chooseProvider(p.id)} onChecked={(check) => patchCheck(p.id, check)} />
             ))}
@@ -88,14 +88,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           )}
         </section>
 
-        <section>
-          <Label hint="used for new bots">Default model</Label>
-          <Select value={settings.defaultModel} onChange={(e) => void updateSettings({ defaultModel: e.target.value })}>
-            {activeModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>
-            ))}
-          </Select>
-        </section>
+        <Field className="contents">
+          <section>
+            <Label hint="used for new bots">Default model</Label>
+            <Select value={settings.defaultModel} onChange={(e) => void updateSettings({ defaultModel: e.target.value })}>
+              {activeModels.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>
+              ))}
+            </Select>
+          </section>
+        </Field>
 
         {active && active.secretKeys.length > 0 && (
           <section>
@@ -106,6 +108,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   <span className="w-40 shrink-0 font-mono text-[12.5px] text-fg">{key}</span>
                   <Input
                     type="password"
+                    aria-label={key}
                     placeholder={secretsStatus[key] ? 'Set — enter a new value to replace' : 'Not set'}
                     value={secretDrafts[key] ?? ''}
                     onChange={(e) => setSecretDrafts((d) => ({ ...d, [key]: e.target.value }))}
@@ -118,21 +121,24 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </section>
         )}
 
-        <section>
-          <Label>You</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== settings.userName && void updateSettings({ userName: name.trim() })} placeholder="Your name" />
-        </section>
+        <Field className="contents">
+          <section>
+            <Label>You</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== settings.userName && void updateSettings({ userName: name.trim() })} placeholder="Your name" />
+          </section>
+        </Field>
 
         <section>
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[12.5px] font-semibold text-fg">Sounds</span>
+            <span id="settings-sounds-label" className="text-[12.5px] font-semibold text-fg">Sounds</span>
             <button
-              className={`relative h-6 w-10 rounded-full transition-colors ${settings.sounds ? 'bg-ink' : 'bg-card2'}`}
+              className={`relative h-6 w-10 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-panel ${settings.sounds ? 'bg-ink' : 'bg-card2'}`}
               role="switch"
               aria-checked={settings.sounds}
+              aria-labelledby="settings-sounds-label"
               onClick={() => void updateSettings({ sounds: !settings.sounds })}
             >
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-panel shadow transition-transform ${settings.sounds ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+              <span aria-hidden className={`absolute top-0.5 h-5 w-5 rounded-full bg-panel shadow transition-transform ${settings.sounds ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -143,12 +149,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </section>
 
         <section>
-          <Label>Theme</Label>
-          <div className="flex gap-0.5 rounded-full bg-card2 p-0.5">
+          <Label id="settings-theme-label">Theme</Label>
+          <div role="group" aria-labelledby="settings-theme-label" className="flex gap-0.5 rounded-full bg-card2 p-0.5">
             {(['system', 'light', 'dark'] as const).map((t) => (
               <button
                 key={t}
-                className={`flex-1 rounded-full py-1.5 text-[12.5px] font-medium capitalize ${settings.theme === t ? 'bg-panel text-fg shadow-[var(--shadow)]' : 'text-muted hover:text-fg'}`}
+                aria-pressed={settings.theme === t}
+                className={`flex-1 rounded-full py-1.5 text-[12.5px] font-medium capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${settings.theme === t ? 'bg-panel text-fg shadow-[var(--shadow)]' : 'text-muted hover:text-fg'}`}
                 onClick={() => void updateSettings({ theme: t })}
               >
                 {t}

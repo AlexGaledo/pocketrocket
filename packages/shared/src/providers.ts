@@ -41,6 +41,12 @@ export interface ProviderInfo {
   secretKeys: string[];
   /** Approval-card parity: 'full' = every out-of-workspace/dangerous op is intercepted; 'best-effort' = provider sandbox + request_approval tool. */
   permissions: 'full' | 'best-effort';
+  /**
+   * 'verified' = driven end to end against the real CLI, live login and all. 'untested' = written to the
+   * CLI's documented contract and covered by fixtures, but never run against a real account, so the
+   * picker says as much rather than presenting it as a peer of the two that were.
+   */
+  maturity: 'verified' | 'untested';
   check: ProviderCheck;
   models: ModelInfo[];
 }

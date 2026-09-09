@@ -22,6 +22,7 @@ const FALLBACK_PROVIDERS: ProvidersResponse = {
       authModes: ['subscription', 'apiKey'],
       secretKeys: [],
       permissions: 'full',
+      maturity: 'verified',
       check: { ok: true, auth: 'unknown' },
       models: MODELS.map((m) => ({ id: m.id, label: m.label })),
     },

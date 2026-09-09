@@ -63,7 +63,11 @@ export function createHub(opts: HubOptions = {}): Hub {
   const skills = new SkillService(repos);
   const usage = new UsageTracker(repos);
   const secrets = new SecretsStore();
-  const settings = new SettingsStore({ repos, models: (p) => providers.modelsSync(p) });
+  const settings = new SettingsStore({
+    repos,
+    models: (p) => providers.modelsSync(p),
+    modelsAsync: (p) => providers.modelsAwaited(p),
+  });
   installSettings(settings);
   const providers = createProviders({ settings });
   const broker = new PermissionBroker(repos);

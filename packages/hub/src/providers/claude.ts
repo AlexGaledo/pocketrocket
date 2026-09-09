@@ -30,6 +30,7 @@ export const CLAUDE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['ANTHROPIC_API_KEY'],
   permissions: 'full',
+  maturity: 'verified',
 };
 
 /** Wrap provider-agnostic hub tools as an in-process SDK MCP server named `pocketrocket`. */

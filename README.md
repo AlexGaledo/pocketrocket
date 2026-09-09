@@ -37,12 +37,15 @@ Building the desktop app additionally requires Rust (MSVC toolchain), Visual Stu
 
 PocketRocket drives whichever CLI you already use. Pick **one provider for the whole hub** in Settings; pick a **model per bot** within that provider.
 
-| Provider | Install the CLI | Log in / key | Auth modes | Permission parity | Cost notes |
-|---|---|---|---|---|---|
-| **Claude** | `curl -fsSL https://claude.ai/install.sh \| bash` (or see [Claude Code docs](https://code.claude.com/docs/en/agent-sdk/overview)) | `claude` (opens browser login), or set `ANTHROPIC_API_KEY` | Subscription or API key | **Full** — approval cards via a `PreToolUse` hook | Bots default to a cheaper model (`claude-sonnet-5`); the CLI's own default model is far more expensive — PocketRocket sets it explicitly per bot to avoid that trap. Each turn is a fresh process resuming the session; the Claude Code system prompt (~35k tokens) is prompt-cached, so follow-ups are cheap. |
-| **OpenAI Codex** | `npm install -g @openai/codex` | `codex login` (ChatGPT subscription), or `codex login --with-api-key` | Subscription or API key | Best effort: workspace sandbox (`--sandbox workspace-write`) + a `request_approval` tool for anything outside it | Reports token usage only (no cost field); the hub computes cost from a rate card. |
-| **OpenCode** | `npm install -g opencode-ai` (see [opencode.ai](https://opencode.ai/docs)) | `opencode auth login` — its own logins: Claude Pro/Max, ChatGPT, GitHub Copilot, SuperGrok, or any API key | Subscription (several providers) or API key | Approval cards via OpenCode's own permission API (`permission.asked` → our approval UI) | Reports per-step cost directly; no aggregate endpoint, the hub sums it. |
-| **Grok** | Windows: `irm https://x.ai/cli/install.ps1 \| iex` · macOS/Linux: `curl -fsSL https://x.ai/cli/install.sh \| bash` | Grok Build browser login, or set `XAI_API_KEY` | Subscription (Grok Build login) or API key — note SuperGrok/X Premium subscriptions do **not** include API access; API keys are pay-as-you-go from [console.x.ai](https://console.x.ai) | Best effort: workspace sandbox + a `request_approval` tool for anything outside it | `grok-code-fast-1` is the cheapest tier for coding work; `grok-4-fast` for cheap general use. |
+> **Claude and OpenCode are verified**: both have been driven end to end against a real login — turns, approval cards, session resume, cost.
+> **Codex and Grok are untested.** They are written to each CLI's documented contract and covered by fixtures, but have never been run against a real account, so the provider picker labels them *Untested*. Expect rough edges, and watch the approval cards closely the first time you use one. Reports welcome — see [`docs/PRODUCTION-CHECKLIST.md`](docs/PRODUCTION-CHECKLIST.md) for exactly what still needs verifying.
+
+| Provider | Status | Install the CLI | Log in / key | Auth modes | Permission parity | Cost notes |
+|---|---|---|---|---|---|---|
+| **Claude** | Verified | `curl -fsSL https://claude.ai/install.sh \| bash` (or see [Claude Code docs](https://code.claude.com/docs/en/agent-sdk/overview)) | `claude` (opens browser login), or set `ANTHROPIC_API_KEY` | Subscription or API key | **Full** — approval cards via a `PreToolUse` hook | Bots default to a cheaper model (`claude-sonnet-5`); the CLI's own default model is far more expensive — PocketRocket sets it explicitly per bot to avoid that trap. Each turn is a fresh process resuming the session; the Claude Code system prompt (~35k tokens) is prompt-cached, so follow-ups are cheap. |
+| **OpenAI Codex** | **Untested** | `npm install -g @openai/codex` | `codex login` (ChatGPT subscription), or `codex login --with-api-key` | Subscription or API key | Best effort: workspace sandbox (`--sandbox workspace-write`) + a `request_approval` tool for anything outside it | Reports token usage only (no cost field); the hub computes cost from a rate card. |
+| **OpenCode** | Verified | `npm install -g opencode-ai` (see [opencode.ai](https://opencode.ai/docs)) | `opencode auth login` — its own logins: Claude Pro/Max, ChatGPT, GitHub Copilot, SuperGrok, or any API key | Subscription (several providers) or API key | Approval cards via OpenCode's own permission API (`permission.asked` → our approval UI) | Reports per-step cost directly; no aggregate endpoint, the hub sums it. |
+| **Grok** | **Untested** | Windows: `irm https://x.ai/cli/install.ps1 \| iex` · macOS/Linux: `curl -fsSL https://x.ai/cli/install.sh \| bash` | Grok Build browser login, or set `XAI_API_KEY` | Subscription (Grok Build login) or API key — note SuperGrok/X Premium subscriptions do **not** include API access; API keys are pay-as-you-go from [console.x.ai](https://console.x.ai) | Best effort: workspace sandbox + a `request_approval` tool for anything outside it | `grok-code-fast-1` is the cheapest tier for coding work; `grok-4-fast` for cheap general use. |
 
 ## Concepts
 
@@ -94,6 +97,17 @@ pnpm desktop:build      # -> packages/desktop/src-tauri/target/release/PocketRoc
                         #    + bundle/nsis/PocketRocket_<version>_x64-setup.exe
 pnpm desktop:dev
 ```
+
+### Uninstalling
+
+Apps & features → PocketRocket → Uninstall. The installer is per-user and installs nothing but the app
+folder and its shortcuts: no Windows service, no scheduled task, no autostart entry, nothing outside
+your own user profile.
+
+**Your data is deliberately left behind.** Uninstalling removes the program, not
+`%APPDATA%\com.pocketrocket.app\` — the SQLite database, every bot's memory and skills, the shared
+workspace, `hub-token`, and `hub.log`. Reinstalling picks up exactly where you left off. To erase it too,
+delete that folder by hand after uninstalling.
 
 ## Run on a server
 
