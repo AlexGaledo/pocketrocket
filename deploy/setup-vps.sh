@@ -55,7 +55,9 @@ mkdir -p "$DATA_DIR"
 VNC_PASS="$DATA_DIR/vnc-passwd"
 VNC_PASS_TXT="$DATA_DIR/vnc-passwd.txt"
 if [ ! -f "$VNC_PASS" ]; then
-  vncpass="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 20)"
+  # Finite input on purpose: reading /dev/urandom into `head -c` leaves tr writing to a closed pipe, and
+  # under `set -euo pipefail` that SIGPIPE (141) aborts this script before a single unit file is written.
+  vncpass="$(head -c 256 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-20)"
   x11vnc -storepasswd "$vncpass" "$VNC_PASS" >/dev/null
   printf '%s\n' "$vncpass" > "$VNC_PASS_TXT"
   unset vncpass
