@@ -132,6 +132,14 @@ export const MAX_CONCURRENT_TURNS = Number(process.env.MAX_CONCURRENT_TURNS ?? 4
 export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 export const CAUSE_COST_CAP_USD = Number(process.env.CAUSE_COST_CAP_USD ?? 5);
 export const MAX_TURNS_PER_QUERY = 40;
+/**
+ * How many times a turn that ran out of steps may be resumed to finish the job.
+ *
+ * Raising MAX_TURNS_PER_QUERY instead would let a runaway turn burn 3x the steps before anyone sees it.
+ * A continuation is cheaper and safer: the session is resumed, so the model keeps its context, and every
+ * hop is re-checked against the bot's per-turn budget and its abort signal before it starts. 0 disables.
+ */
+export const MAX_TURN_CONTINUATIONS = Number(process.env.MAX_TURN_CONTINUATIONS ?? 2);
 
 export const VERSION: string = resolveVersion(here);
 

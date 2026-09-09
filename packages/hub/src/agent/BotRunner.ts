@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import type { Bot, BotState, Room, ToolPayload } from '@pocketrocket/shared';
-import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, WORKSPACE_DIR, botHome } from '../config.js';
+import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { MemoryService } from '../services/MemoryService.js';
@@ -9,7 +9,7 @@ import type { SkillService } from '../services/SkillService.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
-import type { ProviderInit, TurnContext, TurnSink } from '../providers/types.js';
+import type { ProviderInit, TurnContext, TurnOutcome, TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
@@ -192,14 +192,46 @@ export class BotRunner {
     let error: string | undefined;
     let costUsd = 0;
     try {
-      const outcome = await provider.runTurn(ctx, sink);
+      let outcome = await provider.runTurn(ctx, sink);
+      const record = (o: TurnOutcome) => {
+        costUsd += o.costUsd;
+        // Only turns the provider actually accounted for become usage rows (matches the pre-provider
+        // behaviour: a turn that died before any result reported nothing).
+        const u = o.usage;
+        if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, req.causeId, u);
+      };
+      record(outcome);
+
+      // Running out of steps is not a failure, it is an unfinished job. Resume the same session and let it
+      // keep going rather than handing the user a dead turn -- but bounded, budget-checked and visible, so
+      // a bot stuck in a loop still stops instead of quietly costing three times as much.
+      for (let attempt = 1; outcome.error === 'error_max_turns' && attempt <= MAX_TURN_CONTINUATIONS; attempt++) {
+        if (ac.signal.aborted) break;
+        if (costUsd >= bot.maxBudgetUsd) break;
+        const note = this.repos.insertMessage({
+          roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
+          text: bot.name + ' hit the ' + MAX_TURNS_PER_QUERY + '-step limit; continuing (' + attempt + '/' + MAX_TURN_CONTINUATIONS + ').',
+          payload: null, causeId: req.causeId, hop: req.hop, turnId,
+        });
+        events.emitEvent({ type: 'message.new', message: note });
+        setState('working');
+        outcome = await provider.runTurn(
+          {
+            ...ctx,
+            // saveSession already stored whatever the last run reported, so this picks up its context.
+            resumeToken: this.repos.getSession(bot.id, room.id, provider.id)?.sdkSessionId ?? ctx.resumeToken,
+            input:
+              'You stopped because you reached the step limit, not because the work was done. ' +
+              'Continue from exactly where you left off and finish the task. Do not start over or re-explain.',
+            maxBudgetUsd: bot.maxBudgetUsd - costUsd,
+          },
+          sink,
+        );
+        record(outcome);
+      }
+
       ok = outcome.ok;
       error = outcome.error;
-      costUsd = outcome.costUsd;
-      // Only turns the provider actually accounted for become usage rows (matches the pre-provider behaviour:
-      // a turn that died before any result reported nothing).
-      const u = outcome.usage;
-      if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, req.causeId, u);
     } catch (e) {
       error = redact(String((e as Error).message ?? e));
     } finally {
