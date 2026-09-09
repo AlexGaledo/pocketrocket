@@ -199,6 +199,30 @@ fn spawn_tunnel(cfg: &Config) -> Result<Child, String> {
     cmd.spawn().map_err(|e| format!("cannot start ssh: {e}. Is OpenSSH installed and `ssh {}` configured?", cfg.ssh_host))
 }
 
+/// Read the token the remote hub minted for its current run.
+///
+/// The hub mints a fresh token every start and writes it to `<data>/hub-token`, which is the right
+/// call — a token that leaks out of a log dies with the process. But it left remote mode asking the
+/// human to paste a new value after every restart, for a hub we are already holding an SSH session to.
+/// So we just read it. Tries the paths a deploy can leave behind, newest layout first.
+fn fetch_remote_token(cfg: &Config) -> Option<String> {
+    let script = "for d in /home/pocketrocket/pocketrocket /root/pocketrocket /root/claudebot; do                     if [ -r \"$d/data/hub-token\" ]; then cat \"$d/data/hub-token\"; exit 0; fi;                   done; exit 1";
+    let mut cmd = Command::new("ssh");
+    cmd.args([
+        "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &cfg.ssh_host, script,
+    ]);
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    no_window(&mut cmd);
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // Hex, 32 chars. Anything else means we read the wrong file and must not treat it as a credential.
+    let ok = token.len() == 32 && token.chars().all(|c| c.is_ascii_hexdigit());
+    if ok { Some(token) } else { None }
+}
+
 const NODE_BIN: &str = if cfg!(windows) { "node.exe" } else { "node" };
 /// node:sqlite is unflagged from here up, so anything older cannot run the hub.
 const MIN_NODE: (u32, u32) = (22, 13);
@@ -449,6 +473,9 @@ fn connect(app: AppHandle, state: AppState, show_splash: bool) {
                         Err(e) => inner.status.error = Some(e),
                     }
                 }
+                // Same SSH access the tunnel uses; without this the UI shows a token prompt after every
+                // remote hub restart. Failing is fine — the prompt is still there as the fallback.
+                inner.token = fetch_remote_token(&inner.config).unwrap_or_default();
             }
             "local" => {
                 if port_open(inner.config.port) {
@@ -468,8 +495,9 @@ fn connect(app: AppHandle, state: AppState, show_splash: bool) {
             }
             _ => {}
         }
-        // remote/attach talk to a hub we did not start, so we have no token for it
-        let token = if inner.config.mode == "local" { inner.token.clone() } else { String::new() };
+        // local: the token we handed the hub we spawned. remote: the one we just read over SSH.
+        // attach: someone else's hub on this machine, so we have nothing and the UI asks.
+        let token = if inner.config.mode == "attach" { String::new() } else { inner.token.clone() };
         (inner.config.clone(), inner.generation, token)
     };
     if let Some(win) = app.get_webview_window("main") {
