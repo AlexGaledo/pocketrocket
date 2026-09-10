@@ -119,7 +119,7 @@ Permission depth depends on what each provider's CLI exposes; see the table abov
 
 For Codex and Grok, permission parity is **best effort by design**: the provider sandboxes itself to the workspace directory, and a hub-provided `request_approval` tool is injected for anything outside it or otherwise dangerous — the model has to choose to call it, so it's not as airtight as Claude's hook-based interception or OpenCode's native permission API.
 
-The hub always requires a token — every run mode, no exceptions. It's minted on first start and printed as a URL (`http://127.0.0.1:7788/#token=…`); the desktop app and web UI consume that fragment automatically. If you're running with `pnpm start`, either copy that printed URL or read the token straight from `<data>/hub-token`.
+The hub always requires a token — every run mode, no exceptions. It's minted on first start, stored in `<data>/hub-token` and **reused on later starts** (so restarting the hub doesn't lock an open window out), and printed as a URL (`http://127.0.0.1:7788/#token=…`); the desktop app and web UI consume that fragment automatically. If you're running with `pnpm start`, either copy that printed URL or read the token straight from `<data>/hub-token`.
 
 Tests: `pnpm test` (vitest in the hub). Debug a provider subprocess with `POCKETROCKET_DEBUG=1`.
 

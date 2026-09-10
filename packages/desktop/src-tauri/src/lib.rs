@@ -201,10 +201,11 @@ fn spawn_tunnel(cfg: &Config) -> Result<Child, String> {
 
 /// Read the token the remote hub minted for its current run.
 ///
-/// The hub mints a fresh token every start and writes it to `<data>/hub-token`, which is the right
-/// call — a token that leaks out of a log dies with the process. But it left remote mode asking the
-/// human to paste a new value after every restart, for a hub we are already holding an SSH session to.
-/// So we just read it. Tries the paths a deploy can leave behind, newest layout first.
+/// The hub keeps its token in `<data>/hub-token`, so we read it over the SSH session we are already
+/// holding rather than asking the human to paste it. The hub reuses that value across restarts now
+/// (it used to re-mint on every start, which is what made the token prompt appear after every deploy);
+/// this still runs on each connect so a rotated or first-run token is picked up either way.
+/// Tries the paths a deploy can leave behind, newest layout first.
 fn fetch_remote_token(cfg: &Config) -> Option<String> {
     let script = "for d in /home/pocketrocket/pocketrocket /root/pocketrocket /root/claudebot; do                     if [ -r \"$d/data/hub-token\" ]; then cat \"$d/data/hub-token\"; exit 0; fi;                   done; exit 1";
     let mut cmd = Command::new("ssh");

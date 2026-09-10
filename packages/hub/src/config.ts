@@ -69,6 +69,12 @@ export const PORT = Number(process.env.PORT ?? 7788);
 /** Explicit token from the environment (the desktop app sets one), or null when the hub must mint its own. */
 // `|| null`, not `?? null`: an empty POCKETROCKET_TOKEN means "unset", never "no token required".
 export const HUB_TOKEN = process.env.POCKETROCKET_TOKEN || null;
+/**
+ * `1` restores the old behaviour: mint a brand-new token on every start. Off by default because it made
+ * every hub restart invalidate the token the UI was already holding, which is what the "paste the hub
+ * token" panel kept appearing for.
+ */
+export const ROTATE_HUB_TOKEN = ['1', 'true', 'yes', 'on'].includes(String(process.env.POCKETROCKET_ROTATE_TOKEN ?? '').toLowerCase());
 /** Where a self-minted token is written so local tooling (scripts/smoke.mjs) can find it. */
 export const HUB_TOKEN_PATH = path.join(DATA_DIR, 'hub-token');
 
@@ -101,12 +107,25 @@ export function restrictFile(file: string): void {
 
 /**
  * The hub is never unauthenticated (audit 2026-09-09, B3 / D3). `POCKETROCKET_TOKEN` wins when set;
- * otherwise a fresh 128-bit token is minted on every start and written to `<DATA_DIR>/hub-token` (0600) so a
- * human, `scripts/smoke.mjs` and the desktop shell can all pick it up. Rewritten each start, so a token that
- * leaked out of a log dies with the process.
+ * otherwise a 128-bit token lives in `<DATA_DIR>/hub-token` (0600) where a human, `scripts/smoke.mjs` and
+ * the desktop shell can all pick it up.
+ *
+ * That file is **reused** across restarts. It used to be re-minted every start so a token leaked into a log
+ * died with the process — but a restart then silently invalidated the token the open UI was holding, and the
+ * user got the "paste the hub token" panel after every deploy, `systemctl restart` and tsx-watch reload. The
+ * token is loopback-only and 0600 on disk, so a stable value is the better trade; `POCKETROCKET_ROTATE_TOKEN=1`
+ * brings the old behaviour back. Anything in the file that is not exactly 32 hex chars is ignored and replaced.
  */
 export function ensureHubToken(): string {
   if (HUB_TOKEN) return HUB_TOKEN;
+  if (!ROTATE_HUB_TOKEN) {
+    try {
+      const existing = fs.readFileSync(HUB_TOKEN_PATH, 'utf8').trim();
+      if (/^[0-9a-f]{32}$/.test(existing)) return existing;
+    } catch {
+      /* no readable token file yet: mint one below */
+    }
+  }
   const token = crypto.randomBytes(16).toString('hex');
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
