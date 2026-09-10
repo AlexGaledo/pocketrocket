@@ -58,7 +58,11 @@ export class PermissionBroker {
   private grants = new Map<string, ApprovalGrant>();
   /** `<botId>:<toolName>` the user chose "always" for, for the life of this hub process. */
   private alwaysAllowed = new Set<string>();
-  constructor(private repos: Repos) {}
+  /**
+   * `bypass`: allow every tool call and every `request_approval` without a card (BYPASS_PERMISSIONS).
+   * `askFleetChange` is not covered — bot/room changes always ask.
+   */
+  constructor(private repos: Repos, private opts: { bypass?: boolean } = {}) {}
 
   async decide(
     ctx: PermCtx,
@@ -66,6 +70,7 @@ export class PermissionBroker {
     input: Record<string, unknown>,
     opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; blockedPath?: string },
   ): Promise<PermissionResult> {
+    if (this.opts.bypass) return { behavior: 'allow' };
     const roots = [WORKSPACE_DIR, botHome(ctx.bot.id)];
     let reason = '';
     let danger = false;
@@ -108,6 +113,7 @@ export class PermissionBroker {
     req: { action: string; command?: string; paths?: string[]; reason?: string },
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
+    if (this.opts.bypass) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const danger = req.command ? classifyBash(req.command, [WORKSPACE_DIR, botHome(ctx.bot.id)]).danger : false;
     const { decision, approvalId } = await this.prompt(
       ctx, 'request_approval',

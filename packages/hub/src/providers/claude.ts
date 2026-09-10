@@ -141,7 +141,11 @@ export class ClaudeProvider implements AgentProvider {
       settingSources: [],
       plugins: pluginDir ? [{ type: 'local', path: pluginDir }] : undefined,
       skills: pluginDir ? 'all' : [],
-      permissionMode: 'acceptEdits',
+      // BYPASS_PERMISSIONS: the SDK skips canUseTool entirely (and the out-of-workspace hook below is left
+      // out, since an "ask" there would only route into a broker that allows everything).
+      ...(ctx.bypassPermissions
+        ? { permissionMode: 'bypassPermissions' as const, allowDangerouslySkipPermissions: true }
+        : { permissionMode: 'acceptEdits' as const }),
       // Availability: only the bot's built-ins (+ Skill when a plugin is attached) exist in context.
       // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
       tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)), ...(pluginDir ? ['Skill'] : [])],
@@ -152,7 +156,7 @@ export class ClaudeProvider implements AgentProvider {
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
       // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
       // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: {
+      hooks: ctx.bypassPermissions ? undefined : {
         PreToolUse: [
           {
             matcher: 'Read|Glob|Grep|NotebookEdit',

@@ -24,6 +24,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `GROK_HOME` | `~/.grok` | The user's own Grok CLI home; PocketRocket reads `auth.json` from it. |
 | `POCKETROCKET_GROK_HOME` | `<data>/grok-home` | Isolated Grok home PocketRocket writes its `config.toml` into. |
 | `GROK_SANDBOX` | unset | Override the `--sandbox` mode passed to `grok`. |
+| `POCKETROCKET_BYPASS_PERMISSIONS` | `1` | Run every bot turn with no approval cards: the broker allows every tool call, Claude runs in `bypassPermissions`, `request_approval` is not offered, and the Codex (`danger-full-access`), Grok (no sandbox) and OpenCode (all `allow`) sandboxes open up. Bot/room changes still show a card. Set `0` to restore the approval flow described in README "Permissions". |
 | `MAX_HOPS` | `5` | Bot-to-bot mention hops per thread. |
 | `MAX_TURNS_PER_QUERY` | `80` | Steps (model round trips) one run may take. Browser work spends these fast — a navigate, a snapshot and a click are three. The live cost brake is the bot's per-turn budget, not this. |
 | `MAX_TURN_CONTINUATIONS` | `2` | Times a run that hit the step limit is resumed to finish the job. Each one is re-checked against the remaining budget and the abort signal. `0` disables. |

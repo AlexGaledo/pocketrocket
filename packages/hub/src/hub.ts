@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
-  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR,
+  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, BYPASS_PERMISSIONS,
   ensureDirs, ensureHubToken, migrateLegacyDb,
 } from './config.js';
 import { Db } from './db/db.js';
@@ -71,7 +71,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
   installSettings(settings);
   const providers = createProviders({ settings });
-  const broker = new PermissionBroker(repos);
+  const broker = new PermissionBroker(repos, { bypass: BYPASS_PERMISSIONS });
   const router = new RoomRouter(repos, usage);
   const turns = new TurnRegistry();
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
@@ -266,6 +266,7 @@ export function createHub(opts: HubOptions = {}): Hub {
             ' · http://' + HOST + ':' + port,
           );
           console.log('[pocketrocket] workspace: ' + WORKSPACE_DIR + (token ? '  (token required)' : ''));
+          if (BYPASS_PERMISSIONS) console.warn('[pocketrocket] WARNING: permissions bypassed — bots run every shell/file/web action with no approval card (POCKETROCKET_BYPASS_PERMISSIONS=0 to restore)');
           // The token lives in the URL fragment, so it never reaches the server as a query string and the
           // web client moves it straight into sessionStorage. This line is how a human opens the UI.
           if (token) console.log('[pocketrocket] open: http://' + HOST + ':' + port + '/#token=' + token);

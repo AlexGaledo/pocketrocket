@@ -128,6 +128,13 @@ export function osUserName(): string {
 }
 
 export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 5);
+/**
+ * Run every bot turn without approval cards: the PermissionBroker allows every tool call, the Claude SDK
+ * runs in `bypassPermissions`, the `request_approval` tool is not offered, and the Codex / Grok / OpenCode
+ * sandboxes are opened up. On by default; `POCKETROCKET_BYPASS_PERMISSIONS=0` restores the approval flow.
+ * Fleet changes (create/update/delete a bot, room membership) still show a card either way.
+ */
+export const BYPASS_PERMISSIONS = !['0', 'false', 'no', 'off'].includes(String(process.env.POCKETROCKET_BYPASS_PERMISSIONS ?? '1').toLowerCase());
 export const MAX_CONCURRENT_TURNS = Number(process.env.MAX_CONCURRENT_TURNS ?? 4);
 export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 export const CAUSE_COST_CAP_USD = Number(process.env.CAUSE_COST_CAP_USD ?? 5);

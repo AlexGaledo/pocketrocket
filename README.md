@@ -106,6 +106,8 @@ Custom tools every bot gets: `send_message`, `handoff`, `update_memory`, `read_m
 
 See [SECURITY.md](SECURITY.md) for the token model and the threat model behind these rules — treat every bot like a contractor with a shell on your machine, not a sandboxed toy.
 
+> **Default: bypass.** The hub ships with `POCKETROCKET_BYPASS_PERMISSIONS=1`: no approval cards for tool calls, Claude runs in `bypassPermissions`, and the other providers' sandboxes are opened. Only bot/room changes still ask. Everything below describes the approval flow you get back by setting it to `0` (see [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)).
+
 Permission depth depends on what each provider's CLI exposes; see the table above for the summary. In more detail, for providers with hub-mediated permissions:
 
 - `Read/Glob/Grep` inside `data/workspace/` or the bot's home: silent. Outside: an approval card.

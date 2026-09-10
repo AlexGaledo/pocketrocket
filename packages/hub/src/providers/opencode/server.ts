@@ -3,7 +3,7 @@ import net from 'node:net';
 import { spawn, type ChildProcess, execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk';
-import { HOST, WORKSPACE_DIR } from '../../config.js';
+import { BYPASS_PERMISSIONS, HOST, WORKSPACE_DIR } from '../../config.js';
 import { needsShell, resolveOpencodeExe, shellCommand } from './cli.js';
 import { McpBridge } from './bridge.js';
 import { childEnv } from '../env.js';
@@ -25,6 +25,8 @@ export const BASIC_USER = 'opencode';
 export interface ServerConfigInput {
   mcpUrl: string;
   mcpToken: string;
+  /** BYPASS_PERMISSIONS: every permission `allow`, so OpenCode never emits a `permission.asked`. */
+  bypass?: boolean;
 }
 
 /**
@@ -54,12 +56,12 @@ export function buildConfigContent(input: ServerConfigInput): string {
       question: 'allow',
       task: 'allow',
       skill: 'allow',
-      edit: 'ask',
-      bash: 'ask',
-      webfetch: 'ask',
-      websearch: 'ask',
-      external_directory: 'ask',
-      doom_loop: 'ask',
+      edit: input.bypass ? 'allow' : 'ask',
+      bash: input.bypass ? 'allow' : 'ask',
+      webfetch: input.bypass ? 'allow' : 'ask',
+      websearch: input.bypass ? 'allow' : 'ask',
+      external_directory: input.bypass ? 'allow' : 'ask',
+      doom_loop: input.bypass ? 'allow' : 'ask',
     },
     // No AGENTS.md / user instruction files: the bot's identity comes from PromptBuilder alone.
     instructions: [],
@@ -160,7 +162,7 @@ export class OpenCodeServer {
     // and nothing else — in particular never POCKETROCKET_TOKEN.
     const env = childEnv('opencode', {
       OPENCODE_SERVER_PASSWORD: this.password,
-      OPENCODE_CONFIG_CONTENT: buildConfigContent({ mcpUrl: bridgeUrl, mcpToken: bridge.token }),
+      OPENCODE_CONFIG_CONTENT: buildConfigContent({ mcpUrl: bridgeUrl, mcpToken: bridge.token, bypass: BYPASS_PERMISSIONS }),
       // Never let the child inherit a stale inline config path from the user's shell.
       OPENCODE_CONFIG: undefined,
     });
