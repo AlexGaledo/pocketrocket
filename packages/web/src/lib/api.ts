@@ -27,6 +27,9 @@ export const api = {
   screen: () => req<{ screen: boolean; cdp: boolean; url: string }>('GET', '/api/screen'),
   // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL.
   screenTicket: () => req<{ url: string }>('POST', '/api/screen/ticket'),
+  config: () => req<{ workspaceDir: string; version: string }>('GET', '/api/config'),
+  // Opens the shared workspace on whichever computer the hub runs on; `where` says which one it was.
+  openWorkspace: () => req<{ ok: boolean; where: 'explorer' | 'finder' | 'screen' | 'file-manager'; path: string; error?: string }>('POST', '/api/workspace/open'),
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
     create: (b: BotInput) => req<Bot>('POST', '/api/bots', b),

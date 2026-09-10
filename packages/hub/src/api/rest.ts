@@ -6,7 +6,8 @@ import {
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
-import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, VERSION } from '../config.js';
+import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
+import { openWorkspace } from './openWorkspace.js';
 import { SCREEN_VIEWER_PATH, type ScreenSessions } from './screenSession.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
@@ -89,6 +90,10 @@ export function createRest(deps: RestDeps) {
   // authenticated POST buys a ticket that `/screen/session` trades for a `/screen`-scoped httpOnly cookie.
   add('POST', '/api/screen/ticket', () => ({ url: screenSessions.mintTicket().url }));
   add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR, version: VERSION }));
+  // Opens the workspace on the machine the HUB runs on, which is the only machine it exists on: the user's
+  // own PC for a local hub, the virtual desktop behind the Screen tab for a server one. The path is fixed,
+  // so the request carries nothing that reaches the shell.
+  add('POST', '/api/workspace/open', () => openWorkspace({ screen: DESKTOP_AVAILABLE }));
 
   // ---- settings / secrets / providers
   add('GET', '/api/settings', () => settings.get());

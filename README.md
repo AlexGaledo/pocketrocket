@@ -93,7 +93,7 @@ PocketRocket drives whichever CLI you already use. Pick **one provider for the w
 | Thing | Where it lives | Notes |
 |---|---|---|
 | Bot | `data/pocketrocket.db` + `data/bots/<id>/` | `CLAUDE.md`-style identity file, `memory.md` = private memory (injected every turn), `plugin/` = assigned skills |
-| Workspace | `data/workspace/` | Shared cwd for every bot. File tools auto-allowed here; anything outside prompts you |
+| Workspace | `data/workspace/` | Shared cwd for every bot. The folder button in the sidebar opens it on whichever computer the hub runs on: Explorer or Finder locally, the file manager on the virtual desktop for a server hub |
 | DM | room kind `dm` | Bot always replies |
 | Group chat | room kind `group`, 1–6 bots | Only @mentioned bots reply. No mention → coordinator bot (if set). Bots can @mention each other; max 5 hops per thread, $5 cost cap per thread |
 | Session | one provider session per (bot, room) | Resumed each turn; reset from the Memory tab |

@@ -1,9 +1,10 @@
-import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3, PanelLeftClose } from 'lucide-react';
+import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3, PanelLeftClose, FolderOpen } from 'lucide-react';
 import { MODELS } from '@pocketrocket/shared';
 import { useStore, botById } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
 import { BotGroupHeader, useBotGroups } from './BotGroups';
 import { resolveDark } from '../lib/theme';
+import { api } from '../lib/api';
 import type { Bot, Message, Room } from '@pocketrocket/shared';
 
 /** What a bot is doing right now, from its latest unfinished tool call in any loaded room. */
@@ -36,8 +37,29 @@ export function Sidebar() {
   const providers = useStore((s) => s.providers);
   const updateSettings = useStore((s) => s.updateSettings);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const toast = useStore((s) => s.toast);
   const dark = resolveDark(settings.theme);
   const toggleTheme = () => void updateSettings({ theme: dark ? 'light' : 'dark' });
+  /**
+   * The workspace lives on whatever computer the hub runs on, so the hub is what opens it. On a server hub
+   * that is the virtual desktop, and the toast says so rather than leaving the user staring at their own
+   * unchanged screen waiting for a window that was never going to appear here.
+   */
+  const openWorkspace = async () => {
+    try {
+      const r = await api.openWorkspace();
+      if (!r.ok) return toast(r.error ? 'Could not open the workspace: ' + r.error : 'Could not open the workspace', true);
+      const WHERE: Record<string, string> = {
+        explorer: 'Workspace opened in File Explorer',
+        finder: 'Workspace opened in Finder',
+        screen: 'Workspace opened on the virtual desktop — see the Screen tab',
+        'file-manager': 'Workspace opened in your file manager',
+      };
+      toast(WHERE[r.where] ?? 'Workspace opened');
+    } catch (e) {
+      toast('Could not open the workspace: ' + (e as Error).message, true);
+    }
+  };
 
   const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
   const modelLabel = activeProvider?.models.find((m) => m.id === settings.defaultModel)?.label
@@ -156,6 +178,9 @@ export function Sidebar() {
       <div className="flex items-center gap-1 px-2 pb-1">
         <button className="flex h-8 flex-1 items-center gap-2 rounded-full px-3 text-[12.5px] text-muted hover:bg-panel/70 hover:text-fg" onClick={() => openPanel('usage')}>
           <BarChart3 size={14} /> Usage
+        </button>
+        <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Open the shared workspace folder" onClick={() => void openWorkspace()}>
+          <FolderOpen size={15} />
         </button>
         <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Settings" onClick={() => openDialog({ kind: 'settings' })}>
           <Settings size={15} />
