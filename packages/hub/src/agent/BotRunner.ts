@@ -30,6 +30,14 @@ export interface TurnResult {
   costUsd: number;
   error?: string;
 }
+/**
+ * True when a provider refused to resume because the session it was handed no longer exists on disk.
+ * Claude Code reports it as `error_during_execution: No conversation found with session ID: <uuid>`.
+ */
+export function isStaleSessionError(error: string | undefined): boolean {
+  return !!error && /no conversation found with session id/i.test(error);
+}
+
 export interface RunnerHooks {
   /** Route mentions produced mid-turn (send_message / handoff tools). Returns handles dispatched. */
   dispatchFromBot: (req: TurnRequest, targets: Bot[]) => string[];
@@ -201,6 +209,23 @@ export class BotRunner {
         if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, req.causeId, u);
       };
       record(outcome);
+
+      // The CLI's session store is not ours: a re-login, a `cleanupPeriodDays` sweep or a redeploy can drop the
+      // transcript our `sessions` row still points at, and then every turn in that room dies with
+      // "No conversation found with session ID". Forget the token and run the same input once more from a
+      // fresh session rather than leaving the bot permanently broken (seen live on the VPS, 2026-09-10).
+      if (ctx.resumeToken && !ac.signal.aborted && isStaleSessionError(outcome.error)) {
+        this.repos.saveSession(bot.id, room.id, { sdkSessionId: null, provider: provider.id });
+        const note = this.repos.insertMessage({
+          roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
+          text: bot.name + "'s saved session no longer exists; starting a fresh one (earlier conversation context is lost).",
+          payload: null, causeId: req.causeId, hop: req.hop, turnId,
+        });
+        events.emitEvent({ type: 'message.new', message: note });
+        setState('thinking');
+        outcome = await provider.runTurn({ ...ctx, resumeToken: null, maxBudgetUsd: bot.maxBudgetUsd - costUsd }, sink);
+        record(outcome);
+      }
 
       // Running out of steps is not a failure, it is an unfinished job. Resume the same session and let it
       // keep going rather than handing the user a dead turn -- but bounded, budget-checked and visible, so
