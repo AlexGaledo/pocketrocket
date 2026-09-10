@@ -20,8 +20,11 @@ export interface ToolCtx {
   repos: Repos;
   memory: MemoryService;
   skills: SkillService;
-  /** Route a bot-authored message to target bots (hop+1). Returns handles actually dispatched. */
-  dispatchFromBot: (targets: Bot[]) => string[];
+  /**
+   * Route a bot-authored message to target bots (hop+1). Returns handles actually dispatched.
+   * `room` defaults to the room the turn is running in; pass another to wake bots in that room instead.
+   */
+  dispatchFromBot: (targets: Bot[], room?: Room) => string[];
   setState: (s: 'waiting' | 'working') => void;
   /** Attach desktop (computer-use) tools for this turn. */
   desktop?: boolean;
@@ -33,9 +36,9 @@ export interface ToolCtx {
    */
   requestApproval?: (a: { action: string; command?: string; paths?: string[]; reason?: string }) => Promise<{ allowed: boolean; message: string; approvalId?: string }>;
   /**
-   * Approval card for a fleet change (create/update/delete a bot, add/remove one from a room). Wired by
-   * BotRunner for every provider; when absent (unit tests) the change goes through unguarded.
-   * See audit 2026-09-09, B6/B14.
+   * Approval card for a fleet change (create/update/delete a bot, create/delete a room, add/remove a
+   * member). Wired by BotRunner for every provider; when absent (unit tests, or POCKETROCKET_BYPASS_PERMISSIONS)
+   * the change goes through unguarded. See audit 2026-09-09, B6/B14.
    */
   confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown> }) => Promise<{ allowed: boolean; message: string }>;
 }
@@ -76,14 +79,40 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     const r = ref.replace(/^@/, '').toLowerCase();
     return others().find((b) => b.handle.toLowerCase() === r || b.name.toLowerCase() === r);
   };
-  const post = (kind: 'text' | 'handoff', body: string, payload: HandoffPayload | null) => {
+  const post = (kind: 'text' | 'handoff', body: string, payload: HandoffPayload | null, room: Room = ctx.room) => {
     const msg = ctx.repos.insertMessage({
-      roomId: ctx.room.id, authorType: 'bot', authorId: ctx.bot.id, kind, text: body, payload,
+      roomId: room.id, authorType: 'bot', authorId: ctx.bot.id, kind, text: body, payload,
       causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId,
     });
     events.emitEvent({ type: 'message.new', message: msg });
     return msg;
   };
+  const roomMembers = (room: Room) =>
+    room.memberIds.map((id) => ctx.repos.getBot(id)).filter((b): b is Bot => !!b);
+  /**
+   * Resolve a room reference to that room and its live members. Every room tool takes an optional `room`
+   * and defaults to the one the turn is running in, so a bot can manage a room it is not a member of --
+   * before this, a bot that created a room could never touch it again.
+   */
+  type RoomRef = { ok: true; room: Room; members: Bot[] } | { ok: false; out: ToolOutput };
+  const resolveRoom = (ref?: string): RoomRef => {
+    if (!ref || !ref.trim()) {
+      return { ok: true, room: ctx.repos.getRoom(ctx.room.id) ?? ctx.room, members: ctx.members };
+    }
+    const raw = ref.trim();
+    const wanted = raw.replace(/^[#@]/, '').toLowerCase();
+    const all = ctx.repos.listRooms();
+    const byId = all.find((x) => x.id === raw);
+    const hits = byId ? [byId] : all.filter((x) => x.name.toLowerCase() === wanted);
+    if (!hits.length) {
+      return { ok: false, out: err('No room "' + raw + '". Call list_rooms to see the rooms and their ids.') };
+    }
+    if (hits.length > 1) {
+      return { ok: false, out: err('More than one room is named "' + raw + '"; pass an id instead. Matching ids: ' + hits.map((x) => x.id).join(', ')) };
+    }
+    return { ok: true, room: hits[0], members: roomMembers(hits[0]) };
+  };
+  const ROOM_ARG = z.string().optional().describe('Room name or id. Omit for the room you are in.');
   /**
    * Gate for anything that changes the fleet. Returns null when the user approved (or no gate is wired),
    * or the ToolOutput to hand straight back to the bot when they declined. Called BEFORE any mutation.
@@ -101,12 +130,14 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const sendMessage = hubTool(
     'send_message',
-    'Post a message to the current room immediately, before your turn ends. Use @handle inside the text to mention bots; mentioned bots will respond.',
-    { text: z.string().min(1).describe('Message text. May contain @handle mentions.') },
+    'Post a message immediately, before your turn ends. Use @handle inside the text to mention bots; mentioned bots will respond. Defaults to the room you are in; pass `room` to post into another room (you do not have to be a member of it).',
+    { text: z.string().min(1).describe('Message text. May contain @handle mentions.'), room: ROOM_ARG },
     async (a) => {
-      const msg = post('text', a.text, null);
-      const dispatched = ctx.dispatchFromBot(parseMentions(a.text, ctx.members, ctx.bot.id));
-      return text(JSON.stringify({ posted: true, seq: msg.seq, dispatched }));
+      const r = resolveRoom(a.room);
+      if (!r.ok) return r.out;
+      const msg = post('text', a.text, null, r.room);
+      const dispatched = ctx.dispatchFromBot(parseMentions(a.text, r.members, ctx.bot.id), r.room);
+      return text(JSON.stringify({ posted: true, room: r.room.name, seq: msg.seq, dispatched }));
     },
   );
 
@@ -200,19 +231,42 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const readRoom = hubTool(
     'read_room',
-    'Read recent messages in the current room (oldest first).',
-    { limit: z.number().int().min(1).max(200).optional().describe('Default 30') },
+    'Read recent messages (oldest first). Defaults to the room you are in; pass `room` to read another one.',
+    { limit: z.number().int().min(1).max(200).optional().describe('Default 30'), room: ROOM_ARG },
     async (a) => {
+      const r = resolveRoom(a.room);
+      if (!r.ok) return r.out;
       const msgs = ctx.repos
-        .listMessages(ctx.room.id, { limit: a.limit ?? 30 })
+        .listMessages(r.room.id, { limit: a.limit ?? 30 })
         .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine');
       const who = (m: { authorType: string; authorId: string | null }) =>
         m.authorType === 'user'
           ? userName
           : m.authorType === 'system'
             ? 'system'
-            : '@' + (ctx.members.find((b) => b.id === m.authorId)?.handle ?? ctx.repos.getBot(m.authorId ?? '')?.handle ?? 'bot');
+            : '@' + (r.members.find((b) => b.id === m.authorId)?.handle ?? ctx.repos.getBot(m.authorId ?? '')?.handle ?? 'bot');
       return text(msgs.map((m) => '#' + m.seq + ' [' + who(m) + ']: ' + m.text).join('\n') || '(no messages)');
+    },
+    { readOnly: true },
+  );
+
+  const listRooms = hubTool(
+    'list_rooms',
+    'List every room on this account with its id, kind and members. Use it to find a room you are not in, then pass its name or id to read_room, send_message, add_to_room, remove_from_room or delete_room.',
+    {},
+    async () => {
+      const rooms = ctx.repos.listRooms();
+      if (!rooms.length) return text('(no rooms)');
+      const line = (r: Room) => {
+        const members = roomMembers(r);
+        const coord = r.coordinatorBotId ? members.find((m) => m.id === r.coordinatorBotId) : undefined;
+        return [
+          (r.id === ctx.room.id ? '* ' : '  ') + r.name + ' [' + r.kind + '] id=' + r.id,
+          '    members: ' + (members.map((m) => '@' + m.handle + (m.id === ctx.bot.id ? ' (you)' : '')).join(', ') || '(none)'),
+          coord ? '    coordinator: @' + coord.handle : null,
+        ].filter(Boolean).join('\n');
+      };
+      return text('* = the room you are in now\n' + rooms.map(line).join('\n'));
     },
     { readOnly: true },
   );
@@ -265,23 +319,25 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const addToRoom = hubTool(
     'add_to_room',
-    'Add an existing bot (by @handle) to the current group chat so it can be mentioned here. Shows ' + userName + ' an approval card first.',
-    { handle: z.string().describe('@handle of an existing bot') },
+    'Add an existing bot (by @handle) to a group chat so it can be mentioned there. Defaults to the room you are in; pass `room` for another one.',
+    { handle: z.string().describe('@handle of an existing bot'), room: ROOM_ARG },
     async (a) => {
-      if (ctx.room.kind !== 'group') return err('Only group chats have members to add.');
+      const r = resolveRoom(a.room);
+      if (!r.ok) return r.out;
+      const room = r.room;
+      if (room.kind !== 'group') return err('Only group chats have members to add; "' + room.name + '" is a ' + room.kind + '.');
       const b = ctx.repos.getBotByHandle(a.handle.replace(/^@/, '').toLowerCase());
       if (!b) return err('No bot with handle ' + a.handle + '. Existing: ' + ctx.repos.listBots().map((x) => '@' + x.handle).join(', '));
-      const room = ctx.repos.getRoom(ctx.room.id)!;
-      if (room.memberIds.includes(b.id)) return text('@' + b.handle + ' is already in this room.');
-      if (room.memberIds.length >= 6) return err('Room is full (6 bots).');
-      const denied = await gate('add_to_room', 'Add @' + b.handle + ' (' + b.name + ') to "' + ctx.room.name + '"', a as unknown as Record<string, unknown>);
+      if (room.memberIds.includes(b.id)) return text('@' + b.handle + ' is already in "' + room.name + '".');
+      if (room.memberIds.length >= 6) return err('"' + room.name + '" is full (6 bots).');
+      const denied = await gate('add_to_room', 'Add @' + b.handle + ' (' + b.name + ') to "' + room.name + '"', a as unknown as Record<string, unknown>);
       if (denied) return denied;
       ctx.repos.updateRoom(room.id, { memberIds: [...room.memberIds, b.id] });
-      ctx.members.push(b);
+      if (room.id === ctx.room.id) ctx.members.push(b);
       events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
-      const note = ctx.repos.insertMessage({ roomId: ctx.room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' added ' + b.avatar + ' ' + b.name + ' (@' + b.handle + ') to this room.', payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
+      const note = ctx.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' added ' + b.avatar + ' ' + b.name + ' (@' + b.handle + ') to this room.', payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
       events.emitEvent({ type: 'message.new', message: note });
-      return text('Added @' + b.handle + '. Mention it to give it work.');
+      return text('Added @' + b.handle + ' to "' + room.name + '". Mention it to give it work.');
     },
   );
 
@@ -331,7 +387,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       events.emitEvent({ type: 'message.new', message: note });
       return text(
         'Created "' + name + '" with ' + members.map((m) => '@' + m.handle).join(', ') + '. ' +
-        'You are not in that room right now, so send_message there to start the work.',
+        'Your turn is still in this room, so start the work with send_message({ room: "' + name + '", text: "@handle ..." }).',
       );
     },
   );
@@ -343,8 +399,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       ? ctx.repos.getBot(ctx.bot.id)
       : ctx.repos.getBotByHandle(r) ?? ctx.repos.listBots().find((b) => b.name.toLowerCase() === r);
   };
-  const sysNote = (body: string) => {
-    const note = ctx.repos.insertMessage({ roomId: ctx.room.id, authorType: 'system', authorId: null, kind: 'system', text: body, payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
+  const sysNote = (body: string, room: Room = ctx.room) => {
+    const note = ctx.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text: body, payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
     events.emitEvent({ type: 'message.new', message: note });
   };
 
@@ -438,26 +494,56 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const removeFromRoom = hubTool(
     'remove_from_room',
-    'Remove a bot (or yourself: "me") from the current group chat. The bot keeps existing and can be added back. Shows ' + userName + ' an approval card first.',
-    { bot: z.string().describe('@handle, name, or "me"') },
+    'Remove a bot (or yourself: "me") from a group chat. The bot keeps existing and can be added back. Defaults to the room you are in; pass `room` for another one.',
+    { bot: z.string().describe('@handle, name, or "me"'), room: ROOM_ARG },
     async (a) => {
-      if (ctx.room.kind !== 'group') return err('Only group chats have members to remove.');
+      const r = resolveRoom(a.room);
+      if (!r.ok) return r.out;
+      const room = r.room;
+      if (room.kind !== 'group') return err('Only group chats have members to remove; "' + room.name + '" is a ' + room.kind + '.');
       const target = resolveAny(a.bot);
       if (!target) return err('No bot "' + a.bot + '".');
-      const room = ctx.repos.getRoom(ctx.room.id)!;
-      if (!room.memberIds.includes(target.id)) return text('@' + target.handle + ' is not in this room.');
-      const denied = await gate('remove_from_room', 'Remove @' + target.handle + ' (' + target.name + ') from "' + ctx.room.name + '"', a as unknown as Record<string, unknown>);
+      if (!room.memberIds.includes(target.id)) return text('@' + target.handle + ' is not in "' + room.name + '".');
+      const denied = await gate('remove_from_room', 'Remove @' + target.handle + ' (' + target.name + ') from "' + room.name + '"', a as unknown as Record<string, unknown>);
       if (denied) return denied;
       ctx.repos.updateRoom(room.id, { memberIds: room.memberIds.filter((id) => id !== target.id), coordinatorBotId: room.coordinatorBotId === target.id ? null : undefined });
-      const idx = ctx.members.findIndex((m) => m.id === target.id);
-      if (idx >= 0) ctx.members.splice(idx, 1);
+      if (room.id === ctx.room.id) {
+        const idx = ctx.members.findIndex((m) => m.id === target.id);
+        if (idx >= 0) ctx.members.splice(idx, 1);
+      }
       events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
-      sysNote('@' + ctx.bot.handle + ' removed ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ') from this room.');
-      return text('Removed @' + target.handle + ' from this room.');
+      sysNote('@' + ctx.bot.handle + ' removed ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ') from this room.', room);
+      return text('Removed @' + target.handle + ' from "' + room.name + '".');
     },
   );
 
-  const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom];
+  const deleteRoom = hubTool(
+    'delete_room',
+    'Disband a group chat: the room, its whole message history, its routines and its bot sessions are deleted for good. The bots themselves keep existing. You do not have to be a member. Requires confirm=true.',
+    {
+      room: z.string().describe('Room name or id, from list_rooms'),
+      confirm: z.boolean().describe('Must be true. Deleting a room cannot be undone.'),
+    },
+    async (a) => {
+      if (!a.confirm) return err('delete_room needs confirm=true; nothing was deleted.');
+      const r = resolveRoom(a.room);
+      if (!r.ok) return r.out;
+      const room = r.room;
+      if (room.kind !== 'group') return err('"' + room.name + '" is a ' + room.kind + ', not a group chat. DMs belong to ' + userName + ' and are not yours to delete.');
+      // Deleting the room this turn is running in would drop the transcript mid-turn, including the reply
+      // about to be posted. Refuse rather than corrupt the run; another room can always do it.
+      if (room.id === ctx.room.id) return err('You are in "' + room.name + '" right now, so you cannot delete it from inside it. Ask from another room, or have ' + userName + ' delete it.');
+      const denied = await gate('delete_room', 'Delete group chat "' + room.name + '" and its whole history', a as unknown as Record<string, unknown>);
+      if (denied) return denied;
+      const members = r.members.map((m) => '@' + m.handle).join(', ');
+      ctx.repos.deleteRoom(room.id);
+      events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
+      sysNote('@' + ctx.bot.handle + ' deleted the group chat "' + room.name + '" (' + (members || 'no members') + ').');
+      return text('Deleted "' + room.name + '". Its history is gone; the bots (' + (members || 'none') + ') still exist.');
+    },
+  );
+
+  const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom, deleteRoom];
 
   if (ctx.requestApproval) {
     tools.push(hubTool(

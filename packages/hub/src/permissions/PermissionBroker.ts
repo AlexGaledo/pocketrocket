@@ -39,7 +39,7 @@ const HUB_PREFIX = 'mcp__pocketrocket__';
 /** Hub tools that never need a card: read-only, or already visible to the user as a room message. */
 const SILENT_HUB_TOOLS = new Set([
   'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
-  'request_approval', ...DESKTOP_TOOL_NAMES,
+  'list_rooms', 'request_approval', ...DESKTOP_TOOL_NAMES,
 ]);
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
@@ -47,7 +47,7 @@ const SILENT_HUB_TOOLS = new Set([
  * touch `decide()`, are gated identically. Before the audit every `mcp__pocketrocket__*` call was allowed
  * unconditionally and a Read-only bot could grant itself Bash (audit 2026-09-09, B6).
  */
-const GATED_HUB_TOOLS = new Set(['create_bot', 'update_bot', 'delete_bot', 'create_room', 'add_to_room', 'remove_from_room']);
+const GATED_HUB_TOOLS = new Set(['create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room']);
 
 /** How long a `request_approval` grant stays valid. */
 export const GRANT_TTL_MS = 10 * 60 * 1000;
@@ -59,8 +59,8 @@ export class PermissionBroker {
   /** `<botId>:<toolName>` the user chose "always" for, for the life of this hub process. */
   private alwaysAllowed = new Set<string>();
   /**
-   * `bypass`: allow every tool call and every `request_approval` without a card (BYPASS_PERMISSIONS).
-   * `askFleetChange` is not covered — bot/room changes always ask.
+   * `bypass`: allow every tool call, every `request_approval` and every fleet change without a card
+   * (BYPASS_PERMISSIONS). Nothing raises an approval card at all.
    */
   constructor(private repos: Repos, private opts: { bypass?: boolean } = {}) {}
 
@@ -161,6 +161,7 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
+    if (this.opts.bypass) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const key = ctx.bot.id + ':' + toolName;
     if (this.alwaysAllowed.has(key)) return { allowed: true, message: 'Previously approved for this session.' };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });

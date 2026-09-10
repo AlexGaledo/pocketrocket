@@ -7,8 +7,8 @@ import { buildCodexArgs } from '../providers/codex.js';
 import { buildConfigContent } from '../providers/opencode/server.js';
 
 /**
- * BYPASS_PERMISSIONS: no approval card is ever raised for a tool call or a `request_approval`. Fleet
- * changes (create/update/delete a bot, room membership) are deliberately not covered and still ask.
+ * BYPASS_PERMISSIONS: no approval card is ever raised — not for a tool call, not for a `request_approval`,
+ * and (since the user asked for bots to have full control) not for a fleet or room change either.
  */
 
 function setup(bypass: boolean) {
@@ -45,8 +45,16 @@ describe('bypass permissions', () => {
     expect(s.cards()).toBe(0);
   });
 
-  it('still asks for a fleet change', async () => {
+  it('allows a fleet change without a card too', async () => {
     const s = setup(true);
+    const d = await s.broker.askFleetChange(s.ctx, 'delete_bot', { botId: s.ctx.bot.id }, 'delete Codey', new AbortController().signal);
+    s.off();
+    expect(d.allowed).toBe(true);
+    expect(s.cards()).toBe(0);
+  });
+
+  it('a fleet change still asks when bypass is off', async () => {
+    const s = setup(false);
     const d = await s.broker.askFleetChange(s.ctx, 'delete_bot', { botId: s.ctx.bot.id }, 'delete Codey', new AbortController().signal);
     s.off();
     expect(d.allowed).toBe(false);

@@ -101,7 +101,7 @@ export class BotRunner {
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
       repos: this.repos, memory: this.memory, skills: this.skills,
-      dispatchFromBot: (targets) => this.hooks.dispatchFromBot(req, targets),
+      dispatchFromBot: (targets, room) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets),
       setState: (s) => setState(s),
       desktop: desktopOn,
       models: provider.modelsSync().map((m) => m.id),
@@ -122,6 +122,7 @@ export class BotRunner {
         browser: browserOn, desktop: desktopOn,
         toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',
         requestApproval: bestEffort,
+        fleetGate: !BYPASS_PERMISSIONS,
       }),
       input: req.injected,
       resumeToken: session.sdkSessionId,
