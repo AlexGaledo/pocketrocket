@@ -77,6 +77,5 @@ who runs them):
   sudo -u $APP_USER -H claude                # or whichever provider CLI(s) you use
   sudo -u $APP_USER -H opencode auth login
 
-VNC password for the Screen tab (noVNC prompts for it): cat $DIR/data/vnc-passwd.txt
 Tunnel + open:  ssh -L 7788:127.0.0.1:7788 $HOST   then http://127.0.0.1:7788 -> Screen tab
 EOF

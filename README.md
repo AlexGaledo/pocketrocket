@@ -178,10 +178,9 @@ What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket`
 - `data/workspace`: the desktop folder itself (Desktop/Downloads/Documents point here)
 - `data/desktop-home`: XFCE settings, panel layout, app config, and the X auth cookie
 - `data/browser-profile`: Chrome logins, cookies, history
-- `data/vnc-passwd`, `data/vnc-passwd.txt`: the VNC password (hashed and plaintext, mode 600), generated once by `setup-vps.sh`
 - `data/pocketrocket.db`, `data/bots/<id>` (memory), `data/skills`
 
-Using it: the hub proxies noVNC at `/screen/`, so the same SSH tunnel is enough. Open the **Screen** tab; noVNC prompts for the VNC password (`cat /home/pocketrocket/pocketrocket/data/vnc-passwd.txt` on the VPS), then click inside to use the desktop and log into accounts in Chrome once. A **Browser** tool (Playwright MCP over CDP, loopback-only) gives bots fast, precise control of that logged-in Chrome. A **Desktop** tool gives bots full computer use (screenshot, click, type, key, scroll, launch apps) for anything Browser can't reach; slower and costlier (about 1.2k tokens per screenshot), so bots are told to prefer shell, file and Browser tools first. Neither tool goes through approval cards, so only give them to bots you trust with the logged-in sessions on that machine.
+Using it: the hub proxies noVNC at `/screen/`, so the same SSH tunnel is enough. Open the **Screen** tab (no second password: the hub token you are already signed in with is the gate, and VNC itself only listens on loopback), then click inside to use the desktop and log into accounts in Chrome once. A **Browser** tool (Playwright MCP over CDP, loopback-only) gives bots fast, precise control of that logged-in Chrome. A **Desktop** tool gives bots full computer use (screenshot, click, type, key, scroll, launch apps) for anything Browser can't reach; slower and costlier (about 1.2k tokens per screenshot), so bots are told to prefer shell, file and Browser tools first. Neither tool goes through approval cards, so only give them to bots you trust with the logged-in sessions on that machine.
 
 Ops: `systemctl status pocketrocket-screen`, `journalctl -u pocketrocket-screen -f`. Restore a backup: stop both services, untar into `/home/pocketrocket/pocketrocket`, `chown -R pocketrocket:pocketrocket` it, start them again.
 

@@ -50,20 +50,11 @@ if ! sudo -u "$APP_USER" -H bash -lc 'ls -d "$HOME"/.cache/ms-playwright/chromiu
   (cd packages/hub && sudo -u "$APP_USER" -H env "PATH=$PATH" bash -lc "pnpm dlx playwright@$PLAYWRIGHT_VERSION install chromium")
 fi
 
-echo "==> VNC password (generated once)"
 mkdir -p "$DATA_DIR"
-VNC_PASS="$DATA_DIR/vnc-passwd"
-VNC_PASS_TXT="$DATA_DIR/vnc-passwd.txt"
-if [ ! -f "$VNC_PASS" ]; then
-  # Finite input on purpose: reading /dev/urandom into `head -c` leaves tr writing to a closed pipe, and
-  # under `set -euo pipefail` that SIGPIPE (141) aborts this script before a single unit file is written.
-  vncpass="$(head -c 256 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-20)"
-  x11vnc -storepasswd "$vncpass" "$VNC_PASS" >/dev/null
-  printf '%s\n' "$vncpass" > "$VNC_PASS_TXT"
-  unset vncpass
-fi
-chmod 600 "$VNC_PASS" "$VNC_PASS_TXT"
-chown "$APP_USER:$APP_USER" "$DATA_DIR" "$VNC_PASS" "$VNC_PASS_TXT" 2>/dev/null || true
+chown "$APP_USER:$APP_USER" "$DATA_DIR" 2>/dev/null || true
+# VNC has no password of its own any more: the hub's /screen/ cookie auth is the gate (see deploy/screen.sh).
+# Clear the files an earlier setup generated so nobody goes looking for a password that is never asked for.
+rm -f "$DATA_DIR/vnc-passwd" "$DATA_DIR/vnc-passwd.txt"
 
 echo "==> daily backup of data/ (keeps 7; copied, not symlinked, so a bot can't rewrite root's cron job)"
 install -m 755 -o root -g root deploy/backup.sh /etc/cron.daily/pocketrocket-backup
@@ -90,5 +81,3 @@ else
 fi
 systemctl is-active pocketrocket-screen
 echo "screen: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6080/vnc.html)  cdp: $(curl -s http://127.0.0.1:9222/json/version | head -c 80)"
-echo
-echo "VNC password for the Screen tab: cat $VNC_PASS_TXT"
