@@ -198,9 +198,9 @@ export const VERSION: string = resolveVersion(here);
 export const SECRETS_PATH = path.join(DATA_DIR, 'secrets.json');
 
 // Optional PocketRocket account (Supabase Auth). Accounts are on only when both resolve to a value.
-// Built-in project the app ships with; a publishable key is public by design. Filled in before release.
-const BUILTIN_SUPABASE_URL = '';
-const BUILTIN_SUPABASE_KEY = '';
+// Built-in project the app ships with; a publishable key is public by design (RLS guards the data).
+const BUILTIN_SUPABASE_URL = 'https://aihkfrbjqalcvfurstor.supabase.co';
+const BUILTIN_SUPABASE_KEY = 'sb_publishable_I8mIenc7yM9Mq1aQDaVNWw_0k2qX1Kz';
 export const SUPABASE_URL = process.env.POCKETROCKET_SUPABASE_URL || BUILTIN_SUPABASE_URL;
 export const SUPABASE_PUBLISHABLE_KEY = process.env.POCKETROCKET_SUPABASE_KEY || BUILTIN_SUPABASE_KEY;
 /** The hub-held Supabase session (refresh token included), owner-only like secrets.json. Never under WORKSPACE_DIR. */
