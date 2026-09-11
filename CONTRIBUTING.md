@@ -26,9 +26,17 @@ deploy/              VPS provisioning scripts (systemd units, screen setup)
 
 Short, imperative subject line ("fix approval card race", not "fixed" or "fixes"). Reference the area when useful (`hub:`, `web:`, `site:`, `desktop:`). Keep unrelated changes out of a commit.
 
-## Provider adapters
+## Providers
 
-**Open an issue first** before starting work on a new or changed provider adapter (`packages/hub/src/providers/*`) — the adapter interface and permission model are still settling, and duplicate or conflicting work is easy to avoid with a quick heads-up.
+v1 ships **Claude only** — the Claude Agent SDK, driving your own Claude Code CLI and subscription
+login, or an `ANTHROPIC_API_KEY`. Adapters for OpenAI Codex, OpenCode and Grok exist in
+`packages/hub/src/providers/` but are not offered as a user-facing option; they sit behind a
+dev-only flag, `POCKETROCKET_PROVIDERS`, meant for local development and testing, not for end
+users. Don't document or promote them outside dev docs like this one.
+
+**Open an issue first** before starting work on a new or changed provider adapter
+(`packages/hub/src/providers/*`) — the adapter interface and permission model are still settling,
+and duplicate or conflicting work is easy to avoid with a quick heads-up.
 
 ## Pull requests
 

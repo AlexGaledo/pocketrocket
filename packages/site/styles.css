@@ -337,39 +337,6 @@ section { padding: 56px 0; }
   margin: 0 auto;
 }
 
-/* ---- providers grid ---- */
-.grid-4 {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-@media (max-width: 900px) {
-  .grid-4 { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 560px) {
-  .grid-4 { grid-template-columns: 1fr; }
-}
-.card {
-  padding: 22px;
-  border-radius: 20px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.24s ease;
-}
-.card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
-.card h3 { margin: 12px 0 6px; font-size: 16px; }
-/* Codex and Grok ship built-to-spec but never run against a real account; say so on the card. */
-.tag-untested {
-  margin-left: 6px; padding: 2px 7px; border-radius: 999px; vertical-align: middle;
-  font-size: 11px; font-weight: 600; color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent);
-}
-.card p { margin: 0; color: var(--muted); font-size: 13.5px; }
-.card .mark {
-  width: 36px; height: 36px; border-radius: 10px;
-  background: var(--card2);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px; font-weight: 700;
-}
 .footnote {
   text-align: center;
   color: var(--dim);
