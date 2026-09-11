@@ -12,6 +12,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "PocketRocket",
         "width": 1400,
         "height": 900,

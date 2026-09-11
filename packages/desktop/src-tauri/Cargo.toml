@@ -17,6 +17,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # only for the per-launch hub token
 getrandom = "0.3"
+# hands links to the default browser; ShellExecuteExW on Windows, so no cmd.exe parsing of the URL
+open = { version = "5", features = ["shellexecute-on-windows"] }
 
 [profile.release]
 opt-level = "s"

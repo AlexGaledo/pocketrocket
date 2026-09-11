@@ -1,7 +1,6 @@
 /**
  * Settings › About: version, a couple of facts from GET /api/health, and links out. Deliberately small.
- * Links open in a new window (`target="_blank"`). Inside the desktop app that is the webview's call:
- * without an opener plugin it may open an app window rather than the default browser.
+ * Links open with `target="_blank"`; the desktop app hands those to the default browser.
  */
 import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';

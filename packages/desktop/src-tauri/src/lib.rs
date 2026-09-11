@@ -16,10 +16,12 @@ use std::io::Read;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Manager, RunEvent, State};
+use tauri::webview::NewWindowResponse;
+use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewWindowBuilder};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -401,22 +403,50 @@ fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, Strin
     Ok((child, runtime))
 }
 
+/// Open a file or URL with whatever the OS associates with it. On Windows this is ShellExecuteExW,
+/// not `cmd /c start`: cmd would split a URL at `&` (every OAuth URL has one) and expand `%VAR%`,
+/// which matters now that URLs come from the web page. Runs on its own thread because the
+/// navigation handler calls it from inside a WebView2 event and launching a browser can take a moment.
 fn open_external(target: &str) {
-    #[cfg(windows)]
-    {
-        let mut cmd = Command::new("cmd");
-        cmd.args(["/c", "start", "", target]);
-        no_window(&mut cmd);
-        let _ = cmd.spawn();
+    let target = target.to_owned();
+    std::thread::spawn(move || {
+        if let Err(e) = open::that_detached(&target) {
+            eprintln!("cannot open {target}: {e}");
+        }
+    });
+}
+
+/// Send a link the webview must not show itself to the default browser (or mail client).
+/// Only http, https and mailto: the page asking is plain http, possibly through an SSH tunnel, so it
+/// must never get file:, javascript: or a custom protocol handler launched on this machine.
+fn open_in_browser(url: &Url) {
+    if may_open_externally(url) {
+        open_external(url.as_str());
+    } else {
+        eprintln!("not opening {}: scheme {} is not allowed", url, url.scheme());
     }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = Command::new("open").arg(target).spawn();
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let _ = Command::new("xdg-open").arg(target).spawn();
-    }
+}
+
+fn may_open_externally(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https" | "mailto")
+}
+
+/// Port of the hub the main webview may show. Outside `AppState`'s mutex on purpose: the navigation
+/// handler runs on the UI thread for every navigation and must never wait on that lock.
+static HUB_PORT: AtomicU16 = AtomicU16::new(0);
+
+/// What the main webview may load itself: the bundled splash page and the hub's own origin. The hub is
+/// always 127.0.0.1:<port> from here, remote mode included (that is where the SSH tunnel listens).
+fn stays_in_webview(url: &Url) -> bool {
+    let splash = match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost"),
+        "http" | "https" => url.host_str() == Some("tauri.localhost"),
+        _ => false,
+    };
+    let hub = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+        && url.port_or_known_default() == Some(HUB_PORT.load(Ordering::Relaxed));
+    splash || hub
 }
 
 const RELEASES_URL: &str = "https://github.com/AlexGaledo/pocketrocket/releases";
@@ -459,6 +489,7 @@ fn connect(app: AppHandle, state: AppState, show_splash: bool) {
         kill_child(&mut inner);
         inner.generation += 1;
         inner.token = random_token();
+        HUB_PORT.store(inner.config.port, Ordering::Relaxed);
         inner.status = Status {
             data_dir: data_dir(&app).to_string_lossy().to_string(),
             mode: inner.config.mode.clone(),
@@ -628,6 +659,33 @@ pub fn run() {
             let initial_mode = cfg.mode.clone();
             state.0.lock().unwrap().config = cfg;
 
+            // The main window is built here rather than from tauri.conf.json ("create": false) so it can
+            // get these two handlers. The UI opens outside links with window.open / target="_blank", and
+            // in a webview that is either nothing or a WebView2 popup (where Google refuses OAuth).
+            // Plain navigations off the hub go the same way. All of it happens in Rust: the page gets no
+            // new JS-callable capability.
+            let win_cfg = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("window \"main\" is missing from tauri.conf.json")?;
+            WebviewWindowBuilder::from_config(app.handle(), &win_cfg)?
+                .on_navigation(|url| {
+                    if stays_in_webview(url) {
+                        return true;
+                    }
+                    open_in_browser(url);
+                    false
+                })
+                .on_new_window(|url, _features| {
+                    open_in_browser(&url);
+                    NewWindowResponse::Deny
+                })
+                .build()?;
+
             let m_local = CheckMenuItem::with_id(app, "mode_local", "Local: this PC (own database)", true, initial_mode == "local", None::<&str>)?;
             let m_remote = CheckMenuItem::with_id(app, "mode_remote", "VPS: over SSH tunnel", true, initial_mode == "remote", None::<&str>)?;
             let m_attach = CheckMenuItem::with_id(app, "mode_attach", "Attach to a running local hub", true, initial_mode == "attach", None::<&str>)?;
@@ -664,7 +722,7 @@ pub fn run() {
                     open_external(&strip_verbatim(&log));
                 }
                 "settings" => { if let Some(w) = app.get_webview_window("main") { if let Ok(u) = splash_url().parse() { let _ = w.navigate(u); } } }
-                "check_updates" => open_external(RELEASES_URL),
+                "check_updates" => { if let Ok(u) = Url::parse(RELEASES_URL) { open_in_browser(&u); } }
                 "about" => {
                     let (runtime, data, log) = {
                         let inner = st.0.lock().unwrap();
@@ -696,4 +754,43 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn u(s: &str) -> Url {
+        Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn only_splash_and_hub_stay_in_the_webview() {
+        HUB_PORT.store(7788, Ordering::Relaxed);
+        assert!(stays_in_webview(&u("http://tauri.localhost/index.html")));
+        assert!(stays_in_webview(&u("tauri://localhost/index.html")));
+        assert!(stays_in_webview(&u("http://127.0.0.1:7788/?desktop=1#token=abc")));
+        assert!(stays_in_webview(&u("http://localhost:7788/settings")));
+
+        assert!(!stays_in_webview(&u("http://127.0.0.1:3000/")));
+        assert!(!stays_in_webview(&u("https://127.0.0.1:7788/")));
+        assert!(!stays_in_webview(&u("http://127.0.0.1.evil.com:7788/")));
+        assert!(!stays_in_webview(&u("https://github.com/AlexGaledo/pocketrocket")));
+        assert!(!stays_in_webview(&u("https://accounts.google.com/o/oauth2/auth?a=1&b=2")));
+        assert!(!stays_in_webview(&u("file:///C:/Windows/win.ini")));
+        assert!(!stays_in_webview(&u("about:blank")));
+    }
+
+    #[test]
+    fn only_web_and_mail_links_reach_the_os() {
+        assert!(may_open_externally(&u("https://github.com/AlexGaledo/pocketrocket/releases")));
+        assert!(may_open_externally(&u("http://example.com/")));
+        assert!(may_open_externally(&u("mailto:someone@example.com")));
+
+        assert!(!may_open_externally(&u("file:///C:/Windows/System32/calc.exe")));
+        assert!(!may_open_externally(&u("javascript:alert(1)")));
+        assert!(!may_open_externally(&u("ms-settings:privacy")));
+        assert!(!may_open_externally(&u("about:blank")));
+        assert!(!may_open_externally(&u("data:text/html,hi")));
+    }
 }

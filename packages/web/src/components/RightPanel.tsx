@@ -74,10 +74,10 @@ function ScreenTab() {
     return () => { alive = false; };
   }, [st?.screen, nonce]);
   const popOut = async () => {
-    // Opened synchronously so the click still counts as a user gesture; the ticket lands a beat later.
-    const w = window.open('', '_blank', 'width=1320,height=880');
-    if (!w) return;
-    try { w.location.replace((await api.screenTicket()).url); } catch { w.close(); }
+    // Ticket first, then open: the desktop app hands new windows to the default browser by URL, so a blank
+    // window that is pointed somewhere afterwards never gets anywhere. The click's user activation outlives
+    // the round-trip in browsers, so the popup is still allowed.
+    try { window.open((await api.screenTicket()).url, '_blank', 'width=1320,height=880'); } catch { /* hub unreachable */ }
   };
   return (
     <div className="flex h-full flex-col">
