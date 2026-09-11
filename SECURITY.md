@@ -18,6 +18,9 @@ Please report security issues via [GitHub private security advisories](https://g
   provider — *only if you sign in* from Settings → Account. Signing in sends your email to
   Supabase to complete the magic-link flow; it does not touch bot conversations, files, memory, or
   secrets, which stay on your machine or server. Everything works fully signed out. No telemetry.
+  The hub, not the browser, holds the account session (including its refresh token) in
+  `<data>/account.json`, owner-only like `secrets.json` and outside the bot workspace; signing out
+  deletes it, and neither the UI nor any bot is ever handed its contents.
 - Bot management actions that widen what a bot can do (creating/editing a bot, changing its tool
   grants, creating or deleting a room) show an approval card for a human to confirm, the same way
   a risky tool call does.

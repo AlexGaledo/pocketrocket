@@ -93,6 +93,7 @@ const REQUIRED = [
   '@modelcontextprotocol/sdk',
   '@opencode-ai/sdk',
   '@playwright/mcp',
+  '@supabase/supabase-js',
   'croner',
   'dotenv',
   'http-proxy',

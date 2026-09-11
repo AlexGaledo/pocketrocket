@@ -110,11 +110,19 @@ export interface TokenOptions {
 }
 
 /**
+ * Where the account email link (and an OAuth provider) sends the browser back to. A top-level navigation from
+ * the user's default browser, so it can carry neither the hub token nor the UI's cookie.
+ */
+export const AUTH_CALLBACK_PATH = '/auth/callback';
+
+/**
  * Allowlist, not deny-list (audit 2026-09-09, B2). With a token configured EVERYTHING needs it except:
  * `GET /api/health` (the desktop app polls it before it has the token), `GET /` and the static web assets
- * under WEB_DIST (the shell that then asks for the token), and `/mcp`, which carries its own per-turn bearer
- * and is checked by the MCP handler. `/screen/*` — HTTP and the websocket upgrade — is no longer exempt: it
- * proxies into a passwordless noVNC session that, in server mode, drives a root desktop.
+ * under WEB_DIST (the shell that then asks for the token), `/mcp`, which carries its own per-turn bearer
+ * and is checked by the MCP handler, and exactly `GET /auth/callback`: its `code` is only exchangeable with
+ * the PKCE verifier this hub holds, and the handler refuses it when no sign-in is waiting. The Host check
+ * still applies to it. `/screen/*` — HTTP and the websocket upgrade — is no longer exempt: it proxies
+ * into a passwordless noVNC session that, in server mode, drives a root desktop.
  *
  * `/screen/*` is also the one place `?token=` is refused. A browser cannot put a header on an iframe or a
  * websocket, so the token used to ride the query string; it now presents a `/screen`-scoped httpOnly cookie
@@ -124,6 +132,7 @@ export function checkToken(req: IncomingMessage, url: URL, token: string | null,
   if (!token) return true;
   const method = req.method ?? 'GET';
   if (url.pathname === '/api/health' && method === 'GET') return true;
+  if (url.pathname === AUTH_CALLBACK_PATH && method === 'GET') return true;
   if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return true;
   if (url.pathname.startsWith('/screen/')) return opts.screenAuth?.(req) ?? false;
   if (method === 'GET' && (url.pathname === '/' || (opts.isPublicAsset?.(url.pathname) ?? false))) return true;

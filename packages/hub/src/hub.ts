@@ -13,6 +13,7 @@ import { SkillService } from './services/SkillService.js';
 import { UsageTracker } from './services/UsageTracker.js';
 import { SettingsStore, installSettings } from './services/SettingsStore.js';
 import { SecretsStore } from './services/SecretsStore.js';
+import { AccountService } from './services/AccountService.js';
 import { PermissionBroker } from './permissions/PermissionBroker.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
@@ -21,9 +22,10 @@ import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
-import { AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, tokenMatches } from './api/guard.js';
+import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, tokenMatches } from './api/guard.js';
 import { SCREEN_COOKIE, SCREEN_VIEWER_PATH, ScreenSessions } from './api/screenSession.js';
 import { readBody } from './api/body.js';
+import { handleAuthCallback } from './api/authCallback.js';
 import { addSecret } from './providers/redact.js';
 
 export interface HubOptions {
@@ -34,6 +36,8 @@ export interface HubOptions {
   dbFile?: string;
   /** Skip directory creation + legacy db copy (tests). */
   skipBootstrap?: boolean;
+  /** Account service; tests hand in one over a fake Supabase client. */
+  account?: AccountService;
 }
 
 export interface Hub {
@@ -42,6 +46,7 @@ export interface Hub {
   repos: Repos;
   settings: SettingsStore;
   secrets: SecretsStore;
+  account: AccountService;
   providers: ReturnType<typeof createProviders>;
   turns: TurnRegistry;
   runner: BotRunner;
@@ -64,6 +69,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const skills = new SkillService(repos);
   const usage = new UsageTracker(repos);
   const secrets = new SecretsStore();
+  const account = opts.account ?? new AccountService();
   const settings = new SettingsStore({
     repos,
     enabled: ENABLED_PROVIDERS,
@@ -85,7 +91,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const scheduler = new RoutineScheduler(repos, router);
 
   const screenSessions = new ScreenSessions();
-  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions });
+  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account });
   const handleMcp = createMcpHandler(turns);
 
   const MIME: Record<string, string> = {
@@ -178,6 +184,11 @@ export function createHub(opts: HubOptions = {}): Hub {
         res.end(JSON.stringify({ error: 'Missing or invalid hub token' }));
         return;
       }
+      // Token-exempt, so reaching it proves nothing: it must not clear the limiter, and it feeds it on failure.
+      if (url.pathname === AUTH_CALLBACK_PATH && (req.method ?? 'GET') === 'GET') {
+        await handleAuthCallback(req, res, url, { account, limiter });
+        return;
+      }
       limiter.succeed(ip);
       const ct = checkContentType(req, url);
       if (!ct.ok) {
@@ -256,13 +267,15 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, providers, turns, runner,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, HOST, () => {
           port = (server.address() as { port: number }).port;
           scheduler.start();
+          // Async on purpose: an offline start must not hold the hub up (see AccountService).
+          void account.start();
           console.log(
             'PocketRocket hub v' + VERSION + ' · node ' + process.versions.node +
             ' · provider ' + settings.get().provider + ' · data ' + DATA_DIR +
@@ -283,6 +296,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       }),
     async shutdown() {
       scheduler.stop();
+      account.stop();
       runner.interruptAll();
       await providers.shutdown();
       for (const c of wss.clients) c.terminate();

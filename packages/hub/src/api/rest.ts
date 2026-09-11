@@ -31,19 +31,24 @@ import type { BotRunner } from '../agent/BotRunner.js';
 import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.js';
 import type { SecretsStore } from '../services/SecretsStore.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { AccountError, type AccountService } from '../services/AccountService.js';
+import { AUTH_CALLBACK_PATH } from './guard.js';
 
-type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown }) => unknown | Promise<unknown>;
+type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
 
 class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
+/** A handler returns this to answer 204 with no body. */
+const NO_CONTENT = Symbol('no content');
 
 export interface RestDeps {
   repos: Repos; memory: MemoryService; skills: SkillService; scheduler: RoutineScheduler; router: RoomRouter; runner: BotRunner;
   settings: SettingsStore; secrets: SecretsStore; providers: ProviderRegistry;
   /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
   screenSessions: ScreenSessions;
+  account: AccountService;
 }
 
 export function createRest(deps: RestDeps) {
@@ -53,7 +58,7 @@ export function createRest(deps: RestDeps) {
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '/?$');
     routes.push({ method, pattern, keys, handler });
   };
-  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions } = deps;
+  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account } = deps;
   const need = <T>(v: T | undefined, what: string): T => { if (!v) throw new HttpError(404, what + ' not found'); return v; };
   const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
     const r = schema.safeParse(body);
@@ -123,6 +128,24 @@ export function createRest(deps: RestDeps) {
     if (!providers.enabled.includes(id)) throw new HttpError(404, 'Unknown provider ' + params.id);
     return providers.check(id, true);
   });
+
+  // ---- account (optional). Human-only: no bot tool or MCP route reaches the AccountService.
+  add('GET', '/api/account', () => account.state());
+  add('POST', '/api/account/magic-link', async ({ body, req }) => {
+    const { email } = parse(z.object({ email: z.string() }), body);
+    await account.sendMagicLink(email, callbackUrl(req));
+    return NO_CONTENT;
+  });
+  add('POST', '/api/account/verify', ({ body }) => {
+    const { email, code } = parse(z.object({ email: z.string(), code: z.string() }), body);
+    return account.verifyCode(email, code);
+  });
+  add('POST', '/api/account/oauth', async ({ body, req }) => {
+    const { provider } = parse(z.object({ provider: z.enum(['google', 'github']) }), body);
+    return { url: await account.oauthUrl(provider, callbackUrl(req)) };
+  });
+  add('POST', '/api/account/cancel', () => account.cancelPending());
+  add('POST', '/api/account/sign-out', () => account.signOut());
 
   // ---- bots
   add('GET', '/api/bots', () => repos.listBots());
@@ -280,16 +303,28 @@ export function createRest(deps: RestDeps) {
         try { body = raw ? JSON.parse(raw) : {}; } catch { return send(res, 400, { error: 'Invalid JSON' }); }
       }
       try {
-        const out = await r.handler({ params, query: url.searchParams, body });
+        const out = await r.handler({ params, query: url.searchParams, body, req });
+        if (out === NO_CONTENT) { res.writeHead(204); res.end(); return true; }
         return send(res, 200, out ?? { ok: true });
       } catch (e) {
-        const status = e instanceof HttpError ? e.status : 500;
+        const status = e instanceof HttpError || e instanceof AccountError ? e.status : 500;
         if (status === 500) console.error(e);
         return send(res, status, { error: (e as Error).message ?? String(e) });
       }
     }
     return send(res, 404, { error: 'Not found' });
   };
+}
+
+/**
+ * Where the sign-in link sends the browser: this request's own Host (guard.ts has already held it to a loopback
+ * name), so it lands on this hub whatever port the desktop picked or a tunnel forwards. Re-checked strictly
+ * here because it is about to leave the machine inside an email.
+ */
+function callbackUrl(req: IncomingMessage): string {
+  const host = String(req.headers.host ?? '');
+  if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/i.test(host)) throw new HttpError(400, 'Bad Host header: ' + host);
+  return 'http://' + host + AUTH_CALLBACK_PATH;
 }
 
 function send(res: ServerResponse, status: number, body: unknown): boolean {

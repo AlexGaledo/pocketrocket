@@ -9,10 +9,12 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` ★ | `7788` | Hub HTTP/WS port, always bound to `127.0.0.1`. |
-| `POCKETROCKET_DATA` ★ | `<repo>/data` | Data root: `pocketrocket.db`, `bots/`, `workspace/`, `skills/`, `secrets.json`, `grok-home/`. Desktop: `%APPDATA%\com.pocketrocket.app\data`. |
+| `POCKETROCKET_DATA` ★ | `<repo>/data` | Data root: `pocketrocket.db`, `bots/`, `workspace/`, `skills/`, `secrets.json`, `account.json`, `grok-home/`. Desktop: `%APPDATA%\com.pocketrocket.app\data`. |
 | `POCKETROCKET_WEB_DIST` ★ | `<repo>/packages/web/dist` | Where the built web UI is served from. Desktop points it at the bundled `hub/web`. |
 | `POCKETROCKET_TOKEN` ★ | auto-generated when unset, stored in `<data>/hub-token` | Bearer token required on every `/api/*` route (except `GET /api/health`), `/ws`, and `/screen/*`. When unset, the hub reuses the token in `<data>/hub-token` (0600), minting and writing one the first time or whenever that file is missing or malformed, and prints it as `http://127.0.0.1:7788/#token=…`. Reuse is what keeps an already-open UI working across a restart. Desktop generates its own per-launch token in `local` mode and reads the remote one over SSH in `remote` mode. There is no unauthenticated mode. |
 | `POCKETROCKET_ROTATE_TOKEN` | unset | `1` = mint a brand-new hub token on every start instead of reusing `<data>/hub-token`. Tighter (a leaked token dies with the process) but every restart makes an already-open UI ask you to paste the new one. |
+| `POCKETROCKET_SUPABASE_URL` | built-in PocketRocket project | Supabase project URL for the optional PocketRocket account (Settings → Account). Accounts are enabled only when this and `POCKETROCKET_SUPABASE_KEY` both resolve to a value; otherwise the app runs signed out and `GET /api/account` reports `enabled: false`. The hub keeps the session in `<data>/account.json` (owner-only) and deletes it on sign-out. |
+| `POCKETROCKET_SUPABASE_KEY` | built-in PocketRocket key | The project's **publishable** (anon) key, public by design. Never a service-role / secret key. |
 | `POCKETROCKET_DEBUG` | unset | `1` = log provider CLI stderr and PreToolUse hook decisions. |
 | `CLAUDE_EXE` | `~/.local/bin/claude(.exe)` | Path to the Claude Code CLI the Agent SDK spawns. |
 | `ANTHROPIC_API_KEY` | unset | Use an API key instead of the Claude Code login. Also settable in Settings → API keys. |
