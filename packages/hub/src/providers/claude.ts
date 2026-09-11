@@ -50,6 +50,24 @@ function toolServer(tools: HubTool[]) {
   return createSdkMcpServer({ name: 'pocketrocket', version: VERSION, alwaysLoad: true, tools: wrapped });
 }
 
+/** `claude auth status` as JSON, or undefined when the CLI is too old, times out, or prints something else. */
+function authStatus(): Promise<{ loggedIn?: boolean; email?: string } | undefined> {
+  return new Promise((resolve) => {
+    const child = execFile(CLAUDE_EXE, ['auth', 'status'], { timeout: 5000, windowsHide: true }, (_err, stdout) => {
+      // A signed-out CLI may exit non-zero and still print the JSON, so the error alone decides nothing.
+      try {
+        const parsed = JSON.parse(String(stdout)) as { loggedIn?: unknown; email?: unknown };
+        resolve(typeof parsed.loggedIn === 'boolean'
+          ? { loggedIn: parsed.loggedIn, email: typeof parsed.email === 'string' ? parsed.email : undefined }
+          : undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+    child.on('error', () => resolve(undefined));
+  });
+}
+
 export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const;
   readonly label = 'Claude';
@@ -79,14 +97,19 @@ export class ClaudeProvider implements AgentProvider {
       child.on('error', () => resolve(undefined));
     });
     if (!version) return { ok: false, auth: 'unknown', version, error: 'claude --version did not answer within 2s', hint };
-    // `claude -p` under an OAuth login reports apiKeySource 'none' on the init message; that is the
-    // expected value for a subscription, not an error.
-    const auth = process.env.ANTHROPIC_API_KEY
-      ? 'apiKey'
-      : this.lastInit.apiKeySource === undefined || this.lastInit.apiKeySource === 'none'
-        ? 'subscription'
-        : 'unknown';
-    return { ok: true, version, auth, hint };
+    if (process.env.ANTHROPIC_API_KEY) return { ok: true, version, auth: 'apiKey', hint };
+    // `claude auth status` prints JSON ({ loggedIn, email, subscriptionType, ... }); without it a CLI that was
+    // installed but never signed in looked ready and every turn then failed.
+    const status = await authStatus();
+    if (status?.loggedIn === false) {
+      return { ok: false, version, auth: 'none', error: 'Claude Code is installed but not signed in.', hint };
+    }
+    // Older CLIs have no `auth status`: fall back to the init message, where an OAuth login reports
+    // apiKeySource 'none' (the expected value for a subscription, not an error).
+    const auth = status?.loggedIn || this.lastInit.apiKeySource === undefined || this.lastInit.apiKeySource === 'none'
+      ? 'subscription'
+      : 'unknown';
+    return { ok: true, version, auth, account: status?.email, hint };
   }
 
   interrupt(turnId: string): boolean {
