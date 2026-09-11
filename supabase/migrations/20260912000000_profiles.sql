@@ -16,8 +16,7 @@ create policy "Users read their own profile"
   on public.profiles for select to authenticated
   using ((select auth.uid()) = id);
 
-revoke all on public.profiles from anon;
-revoke insert, update, delete on public.profiles from authenticated;
+revoke all on public.profiles from anon, authenticated;
 grant select on public.profiles to authenticated;
 
 create function public.handle_new_user()
