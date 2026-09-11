@@ -91,7 +91,7 @@ jobs:
           releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: false
+          uploadUpdaterJson: false
 
       - name: Build only (no publish)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
