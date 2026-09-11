@@ -62,7 +62,7 @@ export function Onboarding() {
     // With one provider (the v1 default: Claude only) there is nothing to choose, so that step is skipped.
     if (s === 'provider') return !providers || providers.providers.length > 1;
     // The account step only exists when this hub can sign people in.
-    if (s === 'account') return account.enabled;
+    if (s === 'account') return account.enabled && (account.email || account.oauth.google || account.oauth.github);
     return true;
   });
   // The step is tracked by name, not position: providers and account state load after the wizard opens,

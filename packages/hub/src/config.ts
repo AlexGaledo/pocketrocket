@@ -203,6 +203,9 @@ const BUILTIN_SUPABASE_URL = 'https://aihkfrbjqalcvfurstor.supabase.co';
 const BUILTIN_SUPABASE_KEY = 'sb_publishable_I8mIenc7yM9Mq1aQDaVNWw_0k2qX1Kz';
 export const SUPABASE_URL = process.env.POCKETROCKET_SUPABASE_URL || BUILTIN_SUPABASE_URL;
 export const SUPABASE_PUBLISHABLE_KEY = process.env.POCKETROCKET_SUPABASE_KEY || BUILTIN_SUPABASE_KEY;
+// Supabase's built-in mailer only delivers to the project's own team, so email sign-in stays off (OAuth only)
+// until the project has its own SMTP sender; `1` turns it on.
+export const ACCOUNT_EMAIL = ['1', 'true', 'yes', 'on'].includes(String(process.env.POCKETROCKET_ACCOUNT_EMAIL ?? '').toLowerCase());
 /** The hub-held Supabase session (refresh token included), owner-only like secrets.json. Never under WORKSPACE_DIR. */
 export const ACCOUNT_PATH = path.join(DATA_DIR, 'account.json');
 

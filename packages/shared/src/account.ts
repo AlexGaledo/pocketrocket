@@ -16,10 +16,12 @@ export interface AccountState {
   user: AccountUser | null;
   /** OAuth providers switched on in the Supabase project (read from its public auth settings). */
   oauth: { google: boolean; github: boolean };
+  /** Email link/code sign-in is offered. Off until the project has its own email sender (POCKETROCKET_ACCOUNT_EMAIL). */
+  email: boolean;
   /** Set after POST /api/account/magic-link until the link is used, a code is verified, or it is cancelled. */
   pendingEmail: string | null;
 }
 
 export const SIGNED_OUT: AccountState = {
-  enabled: false, signedIn: false, user: null, oauth: { google: false, github: false }, pendingEmail: null,
+  enabled: false, signedIn: false, user: null, oauth: { google: false, github: false }, email: false, pendingEmail: null,
 };

@@ -19,9 +19,10 @@ the PocketRocket name starts at 0.2.0.)
   by default, respecting `prefers-reduced-motion`.
 - First-run onboarding wizard: detect the Claude CLI and login, name yourself, create a first bot.
 - Redesigned Settings, in sections: Account · Claude · Bots · Appearance · About.
-- **Optional PocketRocket account.** Sign in from Settings → Account with an email magic link
-  (Google/GitHub sign-in planned). Entirely optional — everything works signed out; an account
-  exists to enable paid plans later.
+- **Optional PocketRocket account.** Sign in from Settings → Account with GitHub; the browser
+  opens, and the app is signed in when you return. Entirely optional — everything works signed
+  out; an account exists to enable paid plans later. Email sign-in is built but stays off until
+  the project has its own email sender.
 - Models offered: **Sonnet 5** (default), **Opus 5**, **Fable 5.1**, **Haiku 4.5**, picked per bot.
 - A bot can now start its own group chat with `create_room` instead of only being addable to a room
   you made first — it's added automatically and becomes the coordinator unless it names another

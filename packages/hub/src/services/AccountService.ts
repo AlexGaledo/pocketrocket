@@ -6,7 +6,7 @@ import {
   type AuthChangeEvent, type AuthError, type Session, type SupabaseClient, type SupportedStorage, type User,
 } from '@supabase/supabase-js';
 import { SIGNED_OUT, type AccountState, type AccountUser } from '@pocketrocket/shared';
-import { ACCOUNT_PATH, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, restrictFile } from '../config.js';
+import { ACCOUNT_EMAIL, ACCOUNT_PATH, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, restrictFile } from '../config.js';
 import { events } from '../events.js';
 
 /** Fixed, so account.json reads the same whatever the project URL is. */
@@ -93,6 +93,8 @@ export interface AccountOptions {
   client?: AccountClient;
   /** fetch for the auth-settings probe and for a client built here. */
   fetch?: typeof fetch;
+  /** Offer email link/code sign-in (default: ACCOUNT_EMAIL). */
+  email?: boolean;
 }
 
 /**
@@ -134,7 +136,7 @@ export class AccountService {
       }
     }
     this.enabled = this.client !== null;
-    this.current = { ...SIGNED_OUT, enabled: this.enabled };
+    this.current = { ...SIGNED_OUT, enabled: this.enabled, email: this.enabled && (opts.email ?? ACCOUNT_EMAIL) };
   }
 
   state(): AccountState {
@@ -185,6 +187,7 @@ export class AccountService {
 
   async sendMagicLink(email: string, redirectTo: string): Promise<void> {
     const client = this.need();
+    if (!this.current.email) throw new AccountError('Email sign-in is not available; use GitHub or Google', 409);
     const addr = parseEmail(email);
     if (this.current.signedIn) throw new AccountError('Already signed in; sign out first', 409);
     const { error } = await client.auth.signInWithOtp({ email: addr, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });

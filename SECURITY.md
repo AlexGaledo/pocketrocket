@@ -15,8 +15,9 @@ Please report security issues via [GitHub private security advisories](https://g
   is transmitted anywhere except to Claude.
 - **Outbound calls are limited to three things**: the Claude provider (every bot turn), the GitHub
   releases page (Help → Check for updates, a plain link), and Supabase — PocketRocket's auth
-  provider — *only if you sign in* from Settings → Account. Signing in sends your email to
-  Supabase to complete the magic-link flow; it does not touch bot conversations, files, memory, or
+  provider. At startup the hub reads Supabase's public sign-in options (which sign-in buttons to
+  show; nothing about you is sent). Signing in from Settings → Account shares your GitHub (or
+  Google) identity and email with Supabase; it does not touch bot conversations, files, memory, or
   secrets, which stay on your machine or server. Everything works fully signed out. No telemetry.
   The hub, not the browser, holds the account session (including its refresh token) in
   `<data>/account.json`, owner-only like `secrets.json` and outside the bot workspace; signing out

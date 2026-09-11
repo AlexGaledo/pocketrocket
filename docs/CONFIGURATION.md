@@ -15,6 +15,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `POCKETROCKET_ROTATE_TOKEN` | unset | `1` = mint a brand-new hub token on every start instead of reusing `<data>/hub-token`. Tighter (a leaked token dies with the process) but every restart makes an already-open UI ask you to paste the new one. |
 | `POCKETROCKET_SUPABASE_URL` | built-in PocketRocket project | Supabase project URL for the optional PocketRocket account (Settings → Account). Accounts are enabled only when this and `POCKETROCKET_SUPABASE_KEY` both resolve to a value; otherwise the app runs signed out and `GET /api/account` reports `enabled: false`. The hub keeps the session in `<data>/account.json` (owner-only) and deletes it on sign-out. |
 | `POCKETROCKET_SUPABASE_KEY` | built-in PocketRocket key | The project's **publishable** (anon) key, public by design. Never a service-role / secret key. |
+| `POCKETROCKET_ACCOUNT_EMAIL` | off | `1` offers email link/code sign-in next to GitHub/Google. Leave off while the Supabase project uses the built-in mailer, which only delivers to the project's own team. |
 | `POCKETROCKET_DEBUG` | unset | `1` = log provider CLI stderr and PreToolUse hook decisions. |
 | `CLAUDE_EXE` | `~/.local/bin/claude(.exe)` | Path to the Claude Code CLI the Agent SDK spawns. |
 | `ANTHROPIC_API_KEY` | unset | Use an API key instead of the Claude Code login. Also settable in Settings → API keys. |

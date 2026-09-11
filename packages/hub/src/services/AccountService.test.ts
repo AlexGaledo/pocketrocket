@@ -58,18 +58,26 @@ const flagsOk = (external: Record<string, boolean> = { google: true, github: fal
 const offline = () => vi.fn(async (_url: string | URL | Request, _init?: RequestInit): Promise<Response> => { throw new TypeError('fetch failed'); });
 
 function service(f = fake(), fetchImpl: typeof fetch = flagsOk()) {
-  return new AccountService({ url: URL_, key: 'sb_publishable_x', file, client: f.client, fetch: fetchImpl });
+  return new AccountService({ url: URL_, key: 'sb_publishable_x', file, client: f.client, fetch: fetchImpl, email: true });
 }
 const onDisk = () => JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, string>;
 
 describe('AccountService', () => {
   it('is disabled without a URL and key, and then never touches the file', async () => {
     const s = new AccountService({ url: '', key: '', file });
-    expect(s.state()).toEqual({ enabled: false, signedIn: false, user: null, oauth: { google: false, github: false }, pendingEmail: null });
+    expect(s.state()).toEqual({ enabled: false, signedIn: false, user: null, oauth: { google: false, github: false }, email: false, pendingEmail: null });
     await s.start();
     await expect(s.sendMagicLink('a@b.co', 'http://127.0.0.1:7788/auth/callback')).rejects.toMatchObject({ status: 409 });
     await s.signOut();
     expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('refuses email sign-in unless it is switched on, without calling Supabase', async () => {
+    const f = fake();
+    const s = new AccountService({ url: URL_, key: 'sb_publishable_x', file, client: f.client, fetch: flagsOk(), email: false });
+    expect(s.state()).toMatchObject({ enabled: true, email: false });
+    await expect(s.sendMagicLink('a@b.co', 'http://127.0.0.1:7788/auth/callback')).rejects.toMatchObject({ status: 409 });
+    expect(f.auth.signInWithOtp).not.toHaveBeenCalled();
   });
 
   it('sends a magic link, then shows the email as pending and keeps it across a restart', async () => {
@@ -264,7 +272,7 @@ describe('AccountService over the real supabase-js client', () => {
 
   it('keeps the PKCE verifier and then the session in account.json, and signs in from the link', async () => {
     const stub = supabaseStub();
-    const s = new AccountService({ url: URL_, key: 'sb_publishable_x', file, fetch: stub.fn as unknown as typeof fetch });
+    const s = new AccountService({ url: URL_, key: 'sb_publishable_x', file, fetch: stub.fn as unknown as typeof fetch, email: true });
     try {
       await s.start();
       await s.sendMagicLink('alex@example.com', 'http://127.0.0.1:7788/auth/callback');
@@ -280,7 +288,7 @@ describe('AccountService over the real supabase-js client', () => {
       expect(onDisk()['pocketrocket-auth']).toContain('refresh-secret');
 
       // A new process picks the session straight back up from the file.
-      const again = new AccountService({ url: URL_, key: 'sb_publishable_x', file, fetch: stub.fn as unknown as typeof fetch });
+      const again = new AccountService({ url: URL_, key: 'sb_publishable_x', file, fetch: stub.fn as unknown as typeof fetch, email: true });
       await again.start();
       expect(again.state()).toMatchObject({ signedIn: true, user: { id: 'u1', plan: 'pro' } });
       again.stop();

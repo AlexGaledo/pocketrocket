@@ -45,6 +45,7 @@ export function AccountSignIn({ autoFocus }: { /** Focus the email field on moun
 
 function EmailForm({ autoFocus }: { autoFocus: boolean }) {
   const oauth = useStore((s) => s.account.oauth);
+  const emailOn = useStore((s) => s.account.email);
   const applyAccountResponse = useStore((s) => s.applyAccountResponse);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState<'link' | OAuthProvider | null>(null);
@@ -108,9 +109,14 @@ function EmailForm({ autoFocus }: { autoFocus: boolean }) {
     );
   }
 
+  const anyOauth = oauth.google || oauth.github;
+  if (!emailOn && !anyOauth) {
+    return <p className="text-[13px] leading-relaxed text-muted">Sign-in isn't available right now. Everything works without it.</p>;
+  }
+
   return (
     <div>
-      <form onSubmit={sendLink} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+      {emailOn && <form onSubmit={sendLink} className="flex flex-col gap-2 sm:flex-row sm:items-end">
         <Field className="min-w-0 flex-1">
           <Label>Email</Label>
           <Input
@@ -127,13 +133,15 @@ function EmailForm({ autoFocus }: { autoFocus: boolean }) {
         <Button type="submit" variant="primary" disabled={!email.trim() || busy !== null}>
           {busy === 'link' ? 'Sending…' : 'Email me a sign-in link'}
         </Button>
-      </form>
+      </form>}
 
-      {(oauth.google || oauth.github) && (
+      {anyOauth && (
         <>
-          <div className="my-3 flex items-center gap-3 text-[11.5px] text-dim" aria-hidden>
-            <span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" />
-          </div>
+          {emailOn && (
+            <div className="my-3 flex items-center gap-3 text-[11.5px] text-dim" aria-hidden>
+              <span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" />
+            </div>
+          )}
           {/* flex-1 only side by side: in a column it would set the height basis to 0 and squash the buttons. */}
           <div className="flex flex-col gap-2 sm:flex-row">
             {oauth.google && (

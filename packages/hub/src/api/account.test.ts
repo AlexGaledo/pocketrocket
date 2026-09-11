@@ -38,7 +38,7 @@ beforeAll(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-account-rest-'));
   const account = new AccountService({
     url: 'https://proj.supabase.co', key: 'sb_publishable_x', file: path.join(dir, 'account.json'),
-    client: { auth, from } as unknown as AccountClient,
+    client: { auth, from } as unknown as AccountClient, email: true,
     fetch: (async () => new Response(JSON.stringify({ external: { google: true, github: false } }))) as unknown as typeof fetch,
   });
   hub = createHub({ port: 0, dbFile: ':memory:', skipBootstrap: true, token: TOKEN, account });
@@ -79,7 +79,7 @@ describe('account REST', () => {
     const r = await request('GET', '/api/account');
     expect(r.status).toBe(200);
     expect(json<AccountState>(r)).toEqual({
-      enabled: true, signedIn: false, user: null, oauth: { google: true, github: false }, pendingEmail: null,
+      enabled: true, signedIn: false, user: null, oauth: { google: true, github: false }, email: true, pendingEmail: null,
     });
   });
 
