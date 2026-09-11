@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
+import type { ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
 import { api } from '../lib/api';
-import { Badge, Button, cn } from './ui';
+import { Badge, Button, RadioDot, cn, radioKeyDown } from './ui';
 
 export function statusPill(check: ProviderCheck): { tone: 'ok' | 'warn' | 'muted'; text: string } {
   if (check.ok) {
@@ -14,6 +14,25 @@ export function statusPill(check: ProviderCheck): { tone: 'ok' | 'warn' | 'muted
   // A detected version means the CLI/SDK is installed but not authenticated.
   if (check.version) return { tone: 'warn', text: 'Not logged in' };
   return { tone: 'muted', text: 'Not installed' };
+}
+
+/**
+ * Re-runs a provider's detection (POST /api/providers/:id/check), e.g. after the user installs or signs
+ * in. `onChecked` gets the fresh result; on failure the last known check simply stays in place.
+ */
+export function useRecheck(id: ProviderId, onChecked?: (check: ProviderCheck) => void) {
+  const [checking, setChecking] = useState(false);
+  const recheck = async () => {
+    setChecking(true);
+    try {
+      onChecked?.(await api.providers.check(id));
+    } catch {
+      /* leave the last known check in place */
+    } finally {
+      setChecking(false);
+    }
+  };
+  return { checking, recheck };
 }
 
 export function ProviderCard({
@@ -28,20 +47,8 @@ export function ProviderCard({
   /** called with the fresh ProviderCheck after a re-check completes */
   onChecked?: (check: ProviderCheck) => void;
 }) {
-  const [checking, setChecking] = useState(false);
+  const { checking, recheck } = useRecheck(info.id, onChecked);
   const pill = statusPill(info.check);
-
-  const recheck = async () => {
-    setChecking(true);
-    try {
-      const check = await api.providers.check(info.id);
-      onChecked?.(check);
-    } catch {
-      /* leave the last known check in place */
-    } finally {
-      setChecking(false);
-    }
-  };
 
   return (
     <div
@@ -56,26 +63,11 @@ export function ProviderCard({
       // itself. Roving tabindex (only the checked card is tabbable) plus arrows to move between cards,
       // which is what a real radio group does.
       tabIndex={selected ? 0 : -1}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-          return;
-        }
-        const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
-        if (!step) return;
-        e.preventDefault();
-        const cards = Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]') ?? []);
-        const next = cards[(cards.indexOf(e.currentTarget) + step + cards.length) % cards.length];
-        next?.focus();
-        next?.click();
-      }}
+      onKeyDown={(e) => radioKeyDown(e, onSelect)}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span aria-hidden className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1', selected ? 'bg-ink ring-ink' : 'ring-dim')}>
-            {selected && <span className="h-1.5 w-1.5 rounded-full bg-ink-fg" />}
-          </span>
+          <RadioDot checked={selected} />
           <span className="text-[13.5px] font-medium">{info.label}</span>
           {info.maturity === 'untested' && <Badge tone="warn">Untested</Badge>}
         </div>

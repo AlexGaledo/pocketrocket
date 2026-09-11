@@ -1,8 +1,19 @@
 import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
-  Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus,
+  Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState,
 } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
+
+/**
+ * A non-2xx answer from the hub. `message` is the hub's own `{ error }` text, ready to show the user;
+ * `status` lets callers tell "not there yet" (404) or "locked" (409) apart from a plain failure.
+ */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
@@ -14,16 +25,25 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   if (r.status === 401) {
     reportAuthFailure();
     const j = await r.json().catch(() => ({}));
-    throw new Error((j as { error?: string }).error ?? 'Unauthorized');
+    throw new ApiError((j as { error?: string }).error ?? 'Unauthorized', 401);
   }
   clearAuthFailure();
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((j as { error?: string }).error ?? r.statusText);
+  if (!r.ok) throw new ApiError((j as { error?: string }).error ?? r.statusText, r.status);
   return j as T;
 }
 
+/** GET /api/health also carries the hub's version and active provider, which HealthInfo leaves out. */
+export type HealthResponse = HealthInfo & { version?: string; provider?: ProviderId };
+
+/**
+ * What the account POSTs answer. The contract only pins GET /api/account to AccountState, so callers
+ * treat any other body as "done, go refetch" (see `store.applyAccountResponse`).
+ */
+export type AccountActionResponse = AccountState | { ok: boolean } | Record<string, unknown>;
+
 export const api = {
-  health: () => req<HealthInfo>('GET', '/api/health'),
+  health: () => req<HealthResponse>('GET', '/api/health'),
   screen: () => req<{ screen: boolean; cdp: boolean; url: string }>('GET', '/api/screen'),
   // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL.
   screenTicket: () => req<{ url: string }>('POST', '/api/screen/ticket'),
@@ -82,5 +102,14 @@ export const api = {
   secrets: {
     get: () => req<SecretsStatus>('GET', '/api/secrets'),
     update: (patch: Record<string, string>) => req<SecretsStatus>('PUT', '/api/secrets', patch),
+  },
+  // Optional PocketRocket account. The hub holds the session; the UI only ever sees AccountState.
+  account: {
+    get: () => req<AccountState>('GET', '/api/account'),
+    magicLink: (email: string) => req<AccountActionResponse>('POST', '/api/account/magic-link', { email }),
+    verify: (email: string, code: string) => req<AccountActionResponse>('POST', '/api/account/verify', { email, code }),
+    cancel: () => req<AccountActionResponse>('POST', '/api/account/cancel', {}),
+    signOut: () => req<AccountActionResponse>('POST', '/api/account/sign-out', {}),
+    oauth: (provider: 'google' | 'github') => req<{ url: string }>('POST', '/api/account/oauth', { provider }),
   },
 };

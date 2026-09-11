@@ -1,25 +1,13 @@
 import { useState } from 'react';
+import { CircleCheck } from 'lucide-react';
 import type { BotInput, ProviderId } from '@pocketrocket/shared';
 import { useStore } from '../store';
 import { api } from '../lib/api';
 import { play } from '../lib/sounds';
 import { Button, Input, cn } from './ui';
 import { ProviderCard } from './ProviderCard';
-
-const ROCKET_SVG = (
-  <svg viewBox="0 0 1024 1024" width="88" height="88">
-    <circle cx="512" cy="512" r="512" fill="#111214" />
-    <g transform="translate(512 512) rotate(45) translate(-512 -512)" fill="#FFFFFF">
-      <path d="M512 176c96 0 168 128 168 336v168H344V512c0-208 72-336 168-336z" />
-      <path d="M344 560l-96 96v128l96-64zM680 560l96 96v128l-96-64z" />
-      <circle cx="512" cy="452" r="58" fill="#111214" />
-      <circle cx="512" cy="452" r="34" fill="#FFFFFF" />
-      <path d="M440 680h144l24 56H416z" />
-    </g>
-    <circle cx="318" cy="742" r="46" fill="#FFFFFF" opacity="0.9" />
-    <circle cx="236" cy="808" r="30" fill="#FFFFFF" opacity="0.6" />
-  </svg>
-);
+import { AccountSignIn } from './AccountSignIn';
+import { RocketMark } from './RocketMark';
 
 const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] } }[] = [
   {
@@ -54,31 +42,40 @@ const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] }
   },
 ];
 
-const STEPS = ['welcome', 'provider', 'name', 'bot', 'done'] as const;
+const STEPS = ['welcome', 'provider', 'name', 'account', 'bot', 'done'] as const;
 type Step = (typeof STEPS)[number];
 
 export function Onboarding() {
   const settings = useStore((s) => s.settings);
   const providers = useStore((s) => s.providers);
+  const account = useStore((s) => s.account);
   const updateSettings = useStore((s) => s.updateSettings);
   const setActiveRoom = useStore((s) => s.setActiveRoom);
   const toast = useStore((s) => s.toast);
 
-  const [stepIdx, setStepIdx] = useState(0);
+  const [current, setCurrent] = useState<Step>('welcome');
   const [providerId, setProviderId] = useState<ProviderId>(settings.provider);
   const [name, setName] = useState(settings.userName === 'you' ? '' : settings.userName);
   const [busy, setBusy] = useState(false);
   const [botCreated, setBotCreated] = useState(false);
-  // With one provider (the v1 default: Claude only) there is nothing to choose, so that step is skipped.
-  const steps: readonly Step[] = providers && providers.providers.length <= 1 ? STEPS.filter((s) => s !== 'provider') : STEPS;
-  const idx = Math.min(stepIdx, steps.length - 1);
-  const step: Step = steps[idx];
+  const steps: readonly Step[] = STEPS.filter((s) => {
+    // With one provider (the v1 default: Claude only) there is nothing to choose, so that step is skipped.
+    if (s === 'provider') return !providers || providers.providers.length > 1;
+    // The account step only exists when this hub can sign people in.
+    if (s === 'account') return account.enabled;
+    return true;
+  });
+  // The step is tracked by name, not position: providers and account state load after the wizard opens,
+  // and a step appearing or vanishing must not move the user to a different screen. If the current step
+  // has just vanished, show the next one that still exists.
+  const step: Step = steps.includes(current) ? current : (STEPS.slice(STEPS.indexOf(current)).find((s) => steps.includes(s)) ?? 'done');
+  const idx = steps.indexOf(step);
 
   const chosenProvider = providers?.providers.find((p) => p.id === providerId);
   const providerReady = !!chosenProvider?.check.ok;
 
-  const goNext = () => setStepIdx((i) => Math.min(steps.length - 1, i + 1));
-  const goBack = () => setStepIdx((i) => Math.max(0, i - 1));
+  const goNext = () => setCurrent(steps[Math.min(steps.length - 1, idx + 1)]);
+  const goBack = () => setCurrent(steps[Math.max(0, idx - 1)]);
 
   const finish = async () => {
     await updateSettings({ onboarded: true, userName: name.trim() || settings.userName });
@@ -116,7 +113,7 @@ export function Onboarding() {
       <div className="panel flex w-[560px] max-w-full flex-col p-8">
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
-            {ROCKET_SVG}
+            <RocketMark />
             <div className="text-[22px] font-semibold tracking-tight">PocketRocket</div>
             <div className="text-[13.5px] font-medium text-muted">Your pocket fleet of AI agents</div>
             <p className="max-w-[42ch] text-[13.5px] leading-relaxed text-muted">
@@ -155,6 +152,34 @@ export function Onboarding() {
             <div className="mt-3 flex justify-end gap-2">
               <Button onClick={goBack}>Back</Button>
               <Button variant="primary" onClick={goNext}>Continue</Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'account' && (
+          <div className="flex flex-col gap-3">
+            <div className="text-[17px] font-semibold tracking-tight">Create an account</div>
+            {account.signedIn && account.user ? (
+              <div role="status" className="flex items-center gap-2.5 rounded-2xl bg-ok/10 px-3.5 py-3 text-[13px]">
+                <CircleCheck size={18} aria-hidden className="shrink-0 text-ok" />
+                <span>You're signed in as <strong className="font-semibold">{account.user.email}</strong>.</span>
+              </div>
+            ) : (
+              <>
+                {!account.pendingEmail && (
+                  <div className="text-[12.5px] leading-relaxed text-muted">
+                    Optional. PocketRocket works fully without an account; an account will hold your plan when paid features arrive.
+                  </div>
+                )}
+                <div className="mt-1"><AccountSignIn autoFocus /></div>
+              </>
+            )}
+            <div className="mt-3 flex justify-end gap-2">
+              {/* Back is quiet here so "Skip for now" reads as the way forward for most people. */}
+              <Button variant="ghost" onClick={goBack}>Back</Button>
+              {account.signedIn
+                ? <Button variant="primary" autoFocus onClick={goNext}>Continue</Button>
+                : <Button onClick={goNext}>Skip for now</Button>}
             </div>
           </div>
         )}

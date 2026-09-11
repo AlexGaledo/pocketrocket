@@ -84,8 +84,13 @@ body {
   background-attachment: fixed;
 }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-textarea, input, select { outline: none; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+/* In the base layer so a component's own focus style (`focus-visible:outline-none` + a ring, a Tailwind
+   utility) wins; unlayered, this outline beat every utility and stacked on top of the rings. Anything
+   without its own focus style still gets this outline. */
+@layer base {
+  textarea, input, select { outline: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+}
 button { font-family: inherit; }
 .panel { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow); }
 

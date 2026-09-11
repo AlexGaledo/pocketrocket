@@ -17,7 +17,8 @@ function useFieldId(explicit?: string) {
   return explicit ?? fieldId;
 }
 
-type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'danger' | 'outline'; size?: 'sm' | 'md' | 'icon' };
+// ComponentProps (not ButtonHTMLAttributes) so `ref` is accepted: React 19 passes it through as a prop.
+type BtnProps = React.ComponentProps<'button'> & { variant?: 'primary' | 'ghost' | 'danger' | 'outline'; size?: 'sm' | 'md' | 'icon' };
 export function Button({ className, variant = 'outline', size = 'md', ...p }: BtnProps) {
   return (
     <button
@@ -86,27 +87,141 @@ export function Label({ children, hint, htmlFor, id }: { children: React.ReactNo
   );
 }
 
-export function Dialog({ open, onOpenChange, title, description, children, wide }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; description?: string; children: React.ReactNode; wide?: boolean }) {
+/**
+ * The modal frame alone: overlay, centring, focus trap, Escape. `Dialog` below puts a title row and
+ * padding inside it; a dialog with its own layout (Settings has a side nav) uses the shell directly
+ * and renders `DialogTitle` itself.
+ */
+export function DialogShell({ open, onOpenChange, className, hasDescription, children }: { open: boolean; onOpenChange: (o: boolean) => void; className?: string; hasDescription?: boolean; children: React.ReactNode }) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] dark:bg-black/60" />
         <DialogPrimitive.Content
           // Radix warns unless a dialog either has a Description or opts out with an explicit undefined.
-          {...(description ? {} : { 'aria-describedby': undefined })}
-          className={cn('fixed left-1/2 top-1/2 z-50 max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-[24px] bg-panel p-7 shadow-[var(--shadow-lg)] focus:outline-none', wide ? 'w-[720px]' : 'w-[520px]')}
+          {...(hasDescription ? {} : { 'aria-describedby': undefined })}
+          // max-w keeps every dialog inside a phone-width window instead of running off the right edge.
+          className={cn('fixed left-1/2 top-1/2 z-50 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 rounded-[24px] bg-panel shadow-[var(--shadow-lg)] focus:outline-none', className)}
         >
-          <div className="mb-5 flex items-center justify-between">
-            <DialogPrimitive.Title className="text-[17px] font-semibold tracking-tight">{title}</DialogPrimitive.Title>
-            <DialogPrimitive.Close asChild>
-              <Button variant="ghost" size="icon" aria-label="Close"><X size={16} /></Button>
-            </DialogPrimitive.Close>
-          </div>
-          {description && <DialogPrimitive.Description className="sr-only">{description}</DialogPrimitive.Description>}
           {children}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+export function DialogTitle({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <DialogPrimitive.Title className={cn('text-[17px] font-semibold tracking-tight', className)}>{children}</DialogPrimitive.Title>;
+}
+
+export function DialogCloseButton() {
+  return (
+    <DialogPrimitive.Close asChild>
+      <Button variant="ghost" size="icon" aria-label="Close"><X size={16} /></Button>
+    </DialogPrimitive.Close>
+  );
+}
+
+export function Dialog({ open, onOpenChange, title, description, children, wide }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; description?: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <DialogShell open={open} onOpenChange={onOpenChange} hasDescription={!!description} className={cn('max-h-[90vh] overflow-y-auto p-7', wide ? 'w-[720px]' : 'w-[520px]')}>
+      <div className="mb-5 flex items-center justify-between">
+        <DialogTitle>{title}</DialogTitle>
+        <DialogCloseButton />
+      </div>
+      {description && <DialogPrimitive.Description className="sr-only">{description}</DialogPrimitive.Description>}
+      {children}
+    </DialogShell>
+  );
+}
+
+/**
+ * Keyboard for a `role="radio"` that is not a native input: Enter/Space select it, arrows move to the
+ * previous/next radio in the same radiogroup and select that one, as a native radio group does. Pair it
+ * with a roving tabindex (0 on the checked radio, -1 on the rest) so Tab enters the group once.
+ */
+export function radioKeyDown(e: React.KeyboardEvent<HTMLElement>, onSelect: () => void) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    onSelect();
+    return;
+  }
+  const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+  if (!step) return;
+  e.preventDefault();
+  const group = e.currentTarget.closest('[role="radiogroup"]') ?? e.currentTarget.parentElement;
+  const radios = Array.from(group?.querySelectorAll<HTMLElement>('[role="radio"]') ?? []);
+  const next = radios[(radios.indexOf(e.currentTarget) + step + radios.length) % radios.length];
+  next?.focus();
+  next?.click();
+}
+
+/** The dot inside a radio card. Decorative: the card itself carries role="radio" and aria-checked. */
+export function RadioDot({ checked }: { checked: boolean }) {
+  return (
+    <span aria-hidden className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-full ring-1', checked ? 'bg-ink ring-ink' : 'ring-dim')}>
+      {checked && <span className="h-1.5 w-1.5 rounded-full bg-ink-fg" />}
+    </span>
+  );
+}
+
+/**
+ * One choice in a radiogroup, drawn as a card with a title and a line of explanation. Put several inside
+ * an element with role="radiogroup" and an accessible name. `disabled` keeps the card readable (and the
+ * checked one focusable) but ignores selection.
+ */
+export function RadioCard({ checked, onSelect, disabled, title, badge, children }: { checked: boolean; onSelect: () => void; disabled?: boolean; title: React.ReactNode; badge?: React.ReactNode; children?: React.ReactNode }) {
+  const select = () => { if (!disabled) onSelect(); };
+  // The title names the radio and the explanation describes it; otherwise a screen reader would read
+  // the whole card as one long name.
+  const titleId = React.useId();
+  const descriptionId = React.useId();
+  return (
+    <div
+      role="radio"
+      aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      aria-labelledby={titleId}
+      aria-describedby={children ? descriptionId : undefined}
+      tabIndex={checked ? 0 : -1}
+      onClick={select}
+      onKeyDown={(e) => radioKeyDown(e, select)}
+      className={cn(
+        'rounded-2xl p-3.5 ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        checked ? 'bg-accent/8 ring-accent/50' : 'bg-card2/40 ring-line',
+        disabled ? 'cursor-default' : 'cursor-pointer',
+        !checked && !disabled && 'hover:bg-card2/70',
+        !checked && disabled && 'opacity-60',
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <RadioDot checked={checked} />
+        <span id={titleId} className="text-[13.5px] font-medium">{title}</span>
+        {badge}
+      </div>
+      {children && <div id={descriptionId} className="mt-1 pl-6 text-[12.5px] leading-relaxed text-muted">{children}</div>}
+    </div>
+  );
+}
+
+/** On/off toggle. Name it with `aria-labelledby` (or `aria-label`) pointing at its caption. */
+export function Switch({ checked, onChange, className, ...aria }: { checked: boolean; onChange: (next: boolean) => void; className?: string; 'aria-labelledby'?: string; 'aria-label'?: string; 'aria-describedby'?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      {...aria}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-panel',
+        checked ? 'bg-ink' : 'bg-card2 ring-1 ring-inset ring-line',
+        className,
+      )}
+    >
+      {/* left-0 matters: without it the knob starts from the button's centred content position. */}
+      <span aria-hidden className={cn('absolute left-0 top-0.5 h-5 w-5 rounded-full bg-panel shadow transition-transform', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+    </button>
   );
 }
 
