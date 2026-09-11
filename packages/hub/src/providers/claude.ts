@@ -19,7 +19,8 @@ const ALL_BUILTINS = ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bas
 
 const MODELS: ModelInfo[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'balanced, default', default: true },
-  { id: 'claude-opus-5', label: 'Opus 5', note: 'strongest, priciest' },
+  { id: 'claude-opus-5', label: 'Opus 5', note: 'strong, pricey' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'most capable, 2x Opus price' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', note: 'cheapest, fastest' },
 ];
 
