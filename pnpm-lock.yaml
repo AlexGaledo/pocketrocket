@@ -32,8 +32,8 @@ importers:
         specifier: 1.30.0
         version: 1.30.0(zod@4.5.4)
       '@opencode-ai/sdk':
-        specifier: 1.17.6
-        version: 1.17.6
+        specifier: 1.18.29
+        version: 1.18.29
       '@playwright/mcp':
         specifier: ^0.0.80
         version: 0.0.80
@@ -640,8 +640,8 @@ packages:
     cpu: [x64]
     os: [linux]
 
-  '@opencode-ai/sdk@1.17.6':
-    resolution: {integrity: sha512-kCzdd9Git2sjDjXSHj4mMWuU1RXZ38d7gFEcq2rzlVz7XV6PPwNw8pelWsk99La2CtDkpfoW5lfHnpCaK6/oBQ==}
+  '@opencode-ai/sdk@1.18.29':
+    resolution: {integrity: sha512-4CS+FoLPkymTlcga8jxivGDDb2AbWMIIl3b8+myoe2wtv/1ANYCErslgz1xy5hTVHymWE6CtVNKzRuPU0ED57A==}
 
   '@playwright/mcp@0.0.80':
     resolution: {integrity: sha512-FOPXHm2SvFhAQylm10jMZ35B/SR2TaMLVkavAlwoG4N2qCb5RqbvhQYcu3zmXNyxR2DW0Ooxe+9XPVt5UjKRCQ==}
@@ -2786,7 +2786,7 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@opencode-ai/sdk@1.17.6':
+  '@opencode-ai/sdk@1.18.29':
     dependencies:
       cross-spawn: 7.0.6
 
