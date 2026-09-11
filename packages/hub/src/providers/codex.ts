@@ -168,7 +168,7 @@ export interface CodexArgsInput {
   resumeToken: string | null;
   /** The bot has no Bash: drop the sandbox to read-only so it cannot shell out at all. */
   readOnly: boolean;
-  /** BYPASS_PERMISSIONS: `--sandbox danger-full-access` (unless readOnly, which still wins). */
+  /** Approvals bypassed: `--sandbox danger-full-access` (unless readOnly, which still wins). */
   fullAccess?: boolean;
 }
 

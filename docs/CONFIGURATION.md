@@ -25,7 +25,8 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `GROK_HOME` | `~/.grok` | The user's own Grok CLI home; PocketRocket reads `auth.json` from it. |
 | `POCKETROCKET_GROK_HOME` | `<data>/grok-home` | Isolated Grok home PocketRocket writes its `config.toml` into. |
 | `GROK_SANDBOX` | unset | Override the `--sandbox` mode passed to `grok`. |
-| `POCKETROCKET_BYPASS_PERMISSIONS` | `1` | Run every bot turn with no approval cards: the broker allows every tool call, Claude runs in `bypassPermissions`, `request_approval` is not offered, and the Codex (`danger-full-access`), Grok (no sandbox) and OpenCode (all `allow`) sandboxes open up. Bot/room changes still show a card. Set `0` to restore the approval flow described in README "Permissions". |
+| `POCKETROCKET_BYPASS_PERMISSIONS` | unset | Unset: the Settings value `approvals` decides (default `ask`) and can be changed live in Settings. Set, it overrides that value and locks it (Settings shows it as set by the server environment): `1` = bypass — no approval cards at all, not even for bot/room changes; the broker allows every tool call, Claude runs in `bypassPermissions`, `request_approval` is not offered, and the Codex (`danger-full-access`), Grok (no sandbox) and OpenCode (all `allow`) sandboxes open up. `0` = ask, the approval flow described in README "Permissions". Any value other than `1`/`true`/`yes`/`on` counts as `0`. |
+| `POCKETROCKET_PROVIDERS` | `claude` | Comma-separated providers the hub offers, e.g. `claude,opencode`. v1 ships Claude only; the Codex, OpenCode and Grok adapters are for development. Claude is always included. A disabled provider is never listed, checked, spawned or shut down, `PUT /api/settings` refuses it (400), and an install whose stored `provider` is disabled is moved to Claude at start (bots on a model Claude lacks are reset, with a system message). |
 | `MAX_HOPS` | `5` | Bot-to-bot mention hops per thread. |
 | `MAX_TURNS_PER_QUERY` | `80` | Steps (model round trips) one run may take. Browser work spends these fast — a navigate, a snapshot and a click are three. The live cost brake is the bot's per-turn budget, not this. |
 | `MAX_TURN_CONTINUATIONS` | `2` | Times a run that hit the step limit is resumed to finish the job. Each one is re-checked against the remaining budget and the abort signal. `0` disables. |
@@ -43,12 +44,13 @@ Not configurable by env in this version (constants in `config.ts`): `HOST=127.0.
 
 | Key | Default | Notes |
 |---|---|---|
-| `provider` | `claude` | `claude` · `codex` · `opencode` · `grok`. Global; switching resets bot models that don't exist on the new provider. |
+| `provider` | `claude` | `claude` · `codex` · `opencode` · `grok`, limited to `POCKETROCKET_PROVIDERS` (Claude only by default). Global; switching resets bot models that don't exist on the new provider. |
 | `defaultModel` | `claude-sonnet-5` | Model for new bots; must belong to `provider`. |
 | `userName` | OS username | How bots address you. |
 | `sounds` | `true` | UI sound cues. |
 | `onboarded` | `false` | Set to `true` by the wizard; `false` shows it again. |
 | `theme` | `system` | `system` · `light` · `dark`. |
+| `approvals` | `ask` | `ask` · `bypass`. Read at the start of every turn, so a change applies from the next turn without a restart. Only `PUT /api/settings` writes it; no bot tool can. `POCKETROCKET_BYPASS_PERMISSIONS` overrides and locks it (`PUT` then answers 409); `GET /api/health` reports the mode in force as `approvals` and the lock as `approvalsLocked`. |
 
 ## 3. Secrets (`<data>/secrets.json`, `GET/PUT /api/secrets`)
 

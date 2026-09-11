@@ -59,10 +59,16 @@ export class PermissionBroker {
   /** `<botId>:<toolName>` the user chose "always" for, for the life of this hub process. */
   private alwaysAllowed = new Set<string>();
   /**
-   * `bypass`: allow every tool call, every `request_approval` and every fleet change without a card
-   * (BYPASS_PERMISSIONS). Nothing raises an approval card at all.
+   * `bypass`: when it returns true, allow every tool call, every `request_approval` and every fleet change
+   * without a card. Nothing raises an approval card at all. A function, not a flag, so it follows the
+   * approvals setting live (the hub passes `settings.approvals() === 'bypass'`).
    */
-  constructor(private repos: Repos, private opts: { bypass?: boolean } = {}) {}
+  constructor(private repos: Repos, private opts: { bypass?: () => boolean } = {}) {}
+
+  /** Whether approvals are bypassed right now. BotRunner reads it once per turn to set up the provider. */
+  get bypassed(): boolean {
+    return !!this.opts.bypass?.();
+  }
 
   async decide(
     ctx: PermCtx,
@@ -70,7 +76,7 @@ export class PermissionBroker {
     input: Record<string, unknown>,
     opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; blockedPath?: string },
   ): Promise<PermissionResult> {
-    if (this.opts.bypass) return { behavior: 'allow' };
+    if (this.bypassed) return { behavior: 'allow' };
     const roots = [WORKSPACE_DIR, botHome(ctx.bot.id)];
     let reason = '';
     let danger = false;
@@ -113,7 +119,7 @@ export class PermissionBroker {
     req: { action: string; command?: string; paths?: string[]; reason?: string },
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
-    if (this.opts.bypass) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const danger = req.command ? classifyBash(req.command, [WORKSPACE_DIR, botHome(ctx.bot.id)]).danger : false;
     const { decision, approvalId } = await this.prompt(
       ctx, 'request_approval',
@@ -161,7 +167,7 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
-    if (this.opts.bypass) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const key = ctx.bot.id + ':' + toolName;
     if (this.alwaysAllowed.has(key)) return { allowed: true, message: 'Previously approved for this session.' };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });

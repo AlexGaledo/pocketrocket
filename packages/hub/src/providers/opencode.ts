@@ -180,7 +180,7 @@ export class OpenCodeProvider implements AgentProvider {
 
     let server;
     try {
-      server = await this.server.ensure(ctx.mcp.url);
+      server = await this.server.ensure(ctx.mcp.url, !!ctx.bypassPermissions);
     } catch (e) {
       return fail('could not start `opencode serve`: ' + String((e as Error).message ?? e));
     }

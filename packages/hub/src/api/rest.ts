@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import {
   BotInputSchema, RoomInputSchema, RoutineInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  PROVIDER_IDS, type HealthInfo, type ProviderId,
+  type HealthInfo, type ProviderId,
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
@@ -28,7 +28,7 @@ import type { SkillService } from '../services/SkillService.js';
 import type { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import type { BotRunner } from '../agent/BotRunner.js';
-import type { SettingsStore } from '../services/SettingsStore.js';
+import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.js';
 import type { SecretsStore } from '../services/SecretsStore.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 
@@ -79,6 +79,7 @@ export function createRest(deps: RestDeps) {
       ok: chk.ok, claudeExe: CLAUDE_EXE, error: chk.error,
       apiKeySource: runner.lastInit.apiKeySource, subscriptionType: runner.lastInit.model,
       provider: settings.get().provider, version: VERSION,
+      approvals: settings.approvals(), approvalsLocked: settings.approvalsLocked,
     };
   });
   add('GET', '/api/debug/last-init', () => runner.lastInit);
@@ -97,14 +98,29 @@ export function createRest(deps: RestDeps) {
 
   // ---- settings / secrets / providers
   add('GET', '/api/settings', () => settings.get());
-  add('PUT', '/api/settings', ({ body }) => settings.patch(parsePatch(SettingsPatchSchema, body)));
+  // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
+  add('PUT', '/api/settings', ({ body }) => {
+    const patch = parsePatch(SettingsPatchSchema, body);
+    const before = settings.approvals();
+    try {
+      const next = settings.patch(patch);
+      if (before !== 'bypass' && settings.approvals() === 'bypass') {
+        console.warn('[pocketrocket] WARNING: approvals turned off in Settings — bots now run every action with no approval card');
+      }
+      return next;
+    } catch (e) {
+      if (e instanceof SettingsRejected) throw new HttpError(e.status, e.message);
+      throw e;
+    }
+  });
   // Only which keys are set is ever returned; values stay on disk / in the environment.
   add('GET', '/api/secrets', () => secrets.status());
   add('PUT', '/api/secrets', ({ body }) => secrets.set(parse(SecretsPatchSchema, body)));
   add('GET', '/api/providers', () => providers.response());
   add('POST', '/api/providers/:id/check', ({ params }) => {
     const id = params.id as ProviderId;
-    if (!(PROVIDER_IDS as readonly string[]).includes(id)) throw new HttpError(404, 'Unknown provider ' + params.id);
+    // A disabled provider is as unknown as a made-up one: nothing may spawn its CLI.
+    if (!providers.enabled.includes(id)) throw new HttpError(404, 'Unknown provider ' + params.id);
     return providers.check(id, true);
   });
 

@@ -1,12 +1,16 @@
 import {
-  DEFAULT_SETTINGS, SettingsSchema, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
+  DEFAULT_SETTINGS, SettingsSchema, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
 } from '@pocketrocket/shared';
-import { osUserName } from '../config.js';
+import { APPROVALS_ENV, ENABLED_PROVIDERS, osUserName } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 
 export interface SettingsDeps {
   repos: Repos;
+  /** Providers `provider` may name. Defaults to ENABLED_PROVIDERS; tests that switch providers pass them all. */
+  enabled?: readonly ProviderId[];
+  /** POCKETROCKET_BYPASS_PERMISSIONS, parsed. Non-null pins and locks `approvals`. Defaults to APPROVALS_ENV. */
+  approvalsEnv?: Approvals | null;
   /**
    * Model list for a provider, read synchronously from the registry cache. Used when the provider changes
    * to re-point bots whose model does not exist in the new provider. Omitted in tests that never switch.
@@ -25,14 +29,50 @@ export function defaultSettings(): Settings {
   return { ...DEFAULT_SETTINGS, userName: osUserName() };
 }
 
+/** A patch refused on policy rather than shape; rest.ts answers with `status`. */
+export class SettingsRejected extends Error {
+  constructor(message: string, readonly status: 400 | 409 = 400) {
+    super(message);
+  }
+}
+
 /**
  * Global hub settings, persisted one row per key in the `settings` table. Values are JSON so a key can
  * hold anything the schema allows; unknown/corrupt rows fall back to the schema default.
  */
 export class SettingsStore {
   private cache: Settings | null = null;
+  private enabled: readonly ProviderId[];
+  private approvalsEnv: Approvals | null;
 
-  constructor(private deps: SettingsDeps) {}
+  constructor(private deps: SettingsDeps) {
+    this.enabled = deps.enabled ?? ENABLED_PROVIDERS;
+    this.approvalsEnv = deps.approvalsEnv === undefined ? APPROVALS_ENV : deps.approvalsEnv;
+  }
+
+  /** The approvals mode in force right now: the server environment when it pins one, else the setting. */
+  approvals(): Approvals {
+    return this.approvalsEnv ?? this.get().approvals;
+  }
+
+  /** True when POCKETROCKET_BYPASS_PERMISSIONS pins `approvals`, so Settings cannot change it. */
+  get approvalsLocked(): boolean {
+    return this.approvalsEnv !== null;
+  }
+
+  /**
+   * Existing installs can have a provider stored that this build no longer offers (v1 ships Claude only).
+   * Switch them to Claude through the normal patch path, so bots on a model Claude lacks are repointed with
+   * the usual system message. Called once at hub start, after the provider registry exists.
+   */
+  ensureEnabledProvider(): void {
+    const s = this.get();
+    if (this.enabled.includes(s.provider)) return;
+    // The default model for new bots belonged to the old provider too; nothing else would ever fix it.
+    const models = this.deps.models?.('claude') ?? [];
+    const stale = models.length > 0 && !models.some((m) => m.id === s.defaultModel);
+    this.patch(stale ? { provider: 'claude', defaultModel: DEFAULT_SETTINGS.defaultModel } : { provider: 'claude' });
+  }
 
   get(): Settings {
     if (!this.cache) {
@@ -49,6 +89,12 @@ export class SettingsStore {
   patch(p: SettingsPatch): Settings {
     const prev = this.get();
     const next = SettingsSchema.parse({ ...prev, ...p });
+    if (p.provider !== undefined && !this.enabled.includes(p.provider)) {
+      throw new SettingsRejected('provider: ' + p.provider + ' is not enabled on this hub');
+    }
+    if (this.approvalsLocked && next.approvals !== prev.approvals) {
+      throw new SettingsRejected('approvals: set by the server environment (POCKETROCKET_BYPASS_PERMISSIONS)', 409);
+    }
     for (const [k, v] of Object.entries(next)) {
       if ((prev as Record<string, unknown>)[k] !== v || (p as Record<string, unknown>)[k] !== undefined) {
         this.deps.repos.setSetting(k, v);

@@ -1,3 +1,5 @@
+import type { Approvals } from './providers.js';
+
 export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done' | 'error';
 
 // 'Browser' and 'Desktop' are not Claude Code built-ins: Browser = Playwright MCP attached to the shared screen
@@ -137,4 +139,8 @@ export interface HealthInfo {
   accountEmail?: string;
   subscriptionType?: string;
   error?: string;
+  /** Approvals mode in force right now: `settings.approvals`, unless the server environment pins it. */
+  approvals: Approvals;
+  /** True when POCKETROCKET_BYPASS_PERMISSIONS pins `approvals`; Settings cannot change it (PUT answers 409). */
+  approvalsLocked: boolean;
 }

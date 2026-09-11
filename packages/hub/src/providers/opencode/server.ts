@@ -3,7 +3,7 @@ import net from 'node:net';
 import { spawn, type ChildProcess, execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk';
-import { BYPASS_PERMISSIONS, HOST, WORKSPACE_DIR } from '../../config.js';
+import { HOST, WORKSPACE_DIR } from '../../config.js';
 import { needsShell, resolveOpencodeExe, shellCommand } from './cli.js';
 import { McpBridge } from './bridge.js';
 import { childEnv } from '../env.js';
@@ -25,7 +25,7 @@ export const BASIC_USER = 'opencode';
 export interface ServerConfigInput {
   mcpUrl: string;
   mcpToken: string;
-  /** BYPASS_PERMISSIONS: every permission `allow`, so OpenCode never emits a `permission.asked`. */
+  /** Approvals bypassed: every permission `allow`, so OpenCode never emits a `permission.asked`. */
   bypass?: boolean;
 }
 
@@ -140,11 +140,15 @@ export class OpenCodeServer {
     return 'Basic ' + Buffer.from(BASIC_USER + ':' + this.password).toString('base64');
   }
 
-  /** Idempotent; concurrent callers share one boot. `hubMcpUrl` is `TurnContext.mcp.url`. */
-  async ensure(hubMcpUrl: string): Promise<StartedServer> {
+  /**
+   * Idempotent; concurrent callers share one boot. `hubMcpUrl` is `TurnContext.mcp.url`, `bypass` its
+   * `bypassPermissions`. The permission config is baked in at spawn, so a later change to the approvals
+   * setting only reaches OpenCode after a hub restart (fine while OpenCode is disabled for v1).
+   */
+  async ensure(hubMcpUrl: string, bypass = false): Promise<StartedServer> {
     if (this.started) return this.started;
     if (!this.starting) {
-      this.starting = this.boot(hubMcpUrl).catch((e) => {
+      this.starting = this.boot(hubMcpUrl, bypass).catch((e) => {
         this.starting = null;
         throw e;
       });
@@ -152,7 +156,7 @@ export class OpenCodeServer {
     return this.starting;
   }
 
-  private async boot(hubMcpUrl: string): Promise<StartedServer> {
+  private async boot(hubMcpUrl: string, bypass: boolean): Promise<StartedServer> {
     const bridge = new McpBridge(hubMcpUrl);
     const bridgeUrl = await bridge.start();
     const port = await freePort();
@@ -162,7 +166,7 @@ export class OpenCodeServer {
     // and nothing else — in particular never POCKETROCKET_TOKEN.
     const env = childEnv('opencode', {
       OPENCODE_SERVER_PASSWORD: this.password,
-      OPENCODE_CONFIG_CONTENT: buildConfigContent({ mcpUrl: bridgeUrl, mcpToken: bridge.token, bypass: BYPASS_PERMISSIONS }),
+      OPENCODE_CONFIG_CONTENT: buildConfigContent({ mcpUrl: bridgeUrl, mcpToken: bridge.token, bypass }),
       // Never let the child inherit a stale inline config path from the user's shell.
       OPENCODE_CONFIG: undefined,
     });

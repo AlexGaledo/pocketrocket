@@ -37,8 +37,8 @@ export interface ToolCtx {
   requestApproval?: (a: { action: string; command?: string; paths?: string[]; reason?: string }) => Promise<{ allowed: boolean; message: string; approvalId?: string }>;
   /**
    * Approval card for a fleet change (create/update/delete a bot, create/delete a room, add/remove a
-   * member). Wired by BotRunner for every provider; when absent (unit tests, or POCKETROCKET_BYPASS_PERMISSIONS)
-   * the change goes through unguarded. See audit 2026-09-09, B6/B14.
+   * member). Wired by BotRunner for every provider (the broker allows it without a card when approvals are
+   * bypassed); when absent (unit tests) the change goes through unguarded. See audit 2026-09-09, B6/B14.
    */
   confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown> }) => Promise<{ allowed: boolean; message: string }>;
 }

@@ -58,6 +58,14 @@ export interface ProvidersResponse {
 }
 
 // ---------- Settings (global, stored in the `settings` table) ----------
+/**
+ * 'ask' = the approval flow: anything outside the workspace, risky shell commands and fleet changes raise a
+ * card. 'bypass' = no cards at all. `POCKETROCKET_BYPASS_PERMISSIONS` on the hub overrides the stored value
+ * and locks it (GET /api/health → `approvalsLocked`).
+ */
+export const APPROVALS = ['ask', 'bypass'] as const;
+export type Approvals = (typeof APPROVALS)[number];
+
 export const SettingsSchema = z.object({
   provider: z.enum(PROVIDER_IDS).default('claude'),
   /** Default model id for new bots (must belong to `provider`). */
@@ -67,6 +75,8 @@ export const SettingsSchema = z.object({
   sounds: z.boolean().default(true),
   onboarded: z.boolean().default(false),
   theme: z.enum(['system', 'light', 'dark']).default('system'),
+  /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
+  approvals: z.enum(APPROVALS).default('ask'),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

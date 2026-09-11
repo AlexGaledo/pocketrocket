@@ -18,7 +18,7 @@ export interface PromptCtx {
   toolPrefix?: string;
   /** Provider has best-effort permissions: explain the request_approval tool. */
   requestApproval?: boolean;
-  /** Fleet/room changes still raise an approval card. False under POCKETROCKET_BYPASS_PERMISSIONS. */
+  /** Fleet/room changes still raise an approval card. False when approvals are bypassed. */
   fleetGate?: boolean;
 }
 

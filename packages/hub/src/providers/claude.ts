@@ -142,7 +142,7 @@ export class ClaudeProvider implements AgentProvider {
       settingSources: [],
       plugins: pluginDir ? [{ type: 'local', path: pluginDir }] : undefined,
       skills: pluginDir ? 'all' : [],
-      // BYPASS_PERMISSIONS: the SDK skips canUseTool entirely (and the out-of-workspace hook below is left
+      // Approvals bypassed: the SDK skips canUseTool entirely (and the out-of-workspace hook below is left
       // out, since an "ask" there would only route into a broker that allows everything).
       ...(ctx.bypassPermissions
         ? { permissionMode: 'bypassPermissions' as const, allowDangerouslySkipPermissions: true }

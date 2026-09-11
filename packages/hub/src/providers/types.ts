@@ -38,9 +38,9 @@ export interface TurnContext {
   /** Built-in tool names the bot may use: Read/Write/Edit/Glob/Grep/Bash/WebSearch/WebFetch/Browser/Desktop/... */
   allowedBuiltins: string[];
   /**
-   * BYPASS_PERMISSIONS: run with no permission checks at all — the adapter should put its CLI / SDK in its
-   * own "skip permissions" mode (bypassPermissions, danger-full-access, no sandbox, allow-all config) rather
-   * than routing asks through `permission`, which would allow them anyway.
+   * Approvals bypassed (read per turn): run with no permission checks at all — the adapter should put its
+   * CLI / SDK in its own "skip permissions" mode (bypassPermissions, danger-full-access, no sandbox,
+   * allow-all config) rather than routing asks through `permission`, which would allow them anyway.
    */
   bypassPermissions?: boolean;
   /** Route a tool call through the PermissionBroker (approval cards). */

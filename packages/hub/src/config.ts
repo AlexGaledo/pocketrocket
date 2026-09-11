@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { PROVIDER_IDS, type Approvals, type ProviderId } from '@pocketrocket/shared';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -148,12 +149,29 @@ export function osUserName(): string {
 
 export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 5);
 /**
- * Run every bot turn without approval cards: the PermissionBroker allows every tool call, the Claude SDK
- * runs in `bypassPermissions`, the `request_approval` tool is not offered, and the Codex / Grok / OpenCode
- * sandboxes are opened up. On by default; `POCKETROCKET_BYPASS_PERMISSIONS=0` restores the approval flow.
- * Fleet changes (create/update/delete a bot, room membership) still show a card either way.
+ * `POCKETROCKET_BYPASS_PERMISSIONS`, when set, pins the approvals setting and locks it in the UI:
+ * `1`/`true`/`yes`/`on` → 'bypass' (no approval cards: the PermissionBroker allows everything, the Claude SDK
+ * runs in `bypassPermissions`, `request_approval` is not offered, the Codex / Grok / OpenCode sandboxes open
+ * up), any other value → 'ask'. Unset or empty → null, and `settings.approvals` decides, per turn.
+ * Exported for tests.
  */
-export const BYPASS_PERMISSIONS = !['0', 'false', 'no', 'off'].includes(String(process.env.POCKETROCKET_BYPASS_PERMISSIONS ?? '1').toLowerCase());
+export function parseApprovalsEnv(raw: string | undefined): Approvals | null {
+  const v = String(raw ?? '').trim().toLowerCase();
+  if (!v) return null;
+  // Anything unrecognised fails closed: a typo must never be what turns the approval cards off.
+  return ['1', 'true', 'yes', 'on'].includes(v) ? 'bypass' : 'ask';
+}
+export const APPROVALS_ENV = parseApprovalsEnv(process.env.POCKETROCKET_BYPASS_PERMISSIONS);
+/**
+ * Providers this hub offers. v1 ships Claude only; the other adapters stay in the tree and come back for
+ * development with `POCKETROCKET_PROVIDERS=claude,opencode`. Claude is always on (it is the default and the
+ * fallback everything resolves to); unknown ids are ignored. Exported for tests.
+ */
+export function parseEnabledProviders(raw: string | undefined): ProviderId[] {
+  const wanted = new Set(String(raw ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+  return PROVIDER_IDS.filter((id) => id === 'claude' || wanted.has(id));
+}
+export const ENABLED_PROVIDERS: readonly ProviderId[] = parseEnabledProviders(process.env.POCKETROCKET_PROVIDERS);
 export const MAX_CONCURRENT_TURNS = Number(process.env.MAX_CONCURRENT_TURNS ?? 4);
 export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 export const CAUSE_COST_CAP_USD = Number(process.env.CAUSE_COST_CAP_USD ?? 5);

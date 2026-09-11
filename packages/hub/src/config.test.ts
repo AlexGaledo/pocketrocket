@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
-import { HUB_DIR, PLAYWRIGHT_MCP_CLI, VERSION, resolveHubDir, resolveVersion } from './config.js';
+import {
+  HUB_DIR, PLAYWRIGHT_MCP_CLI, VERSION, parseApprovalsEnv, parseEnabledProviders, resolveHubDir, resolveVersion,
+} from './config.js';
 
 // The bundle collapses src/ away: hub.mjs sits at <hub>/hub.mjs next to node_modules and
 // package.json, while the source lives at <hub>/src/config.ts. Both layouts have to resolve
@@ -67,6 +69,37 @@ describe('resolveVersion', () => {
         throw new Error('ENOENT');
       }),
     ).toBe('0.0.0-unknown');
+  });
+});
+
+describe('parseApprovalsEnv (POCKETROCKET_BYPASS_PERMISSIONS)', () => {
+  it('unset or empty leaves the Settings value in charge', () => {
+    expect(parseApprovalsEnv(undefined)).toBeNull();
+    expect(parseApprovalsEnv('')).toBeNull();
+    expect(parseApprovalsEnv('  ')).toBeNull();
+  });
+
+  it('1 pins bypass and 0 pins ask', () => {
+    for (const v of ['1', 'true', 'YES', ' on ']) expect(parseApprovalsEnv(v)).toBe('bypass');
+    for (const v of ['0', 'false', 'no', 'off']) expect(parseApprovalsEnv(v)).toBe('ask');
+  });
+
+  it('fails closed on anything it does not recognise', () => {
+    expect(parseApprovalsEnv('bypass-please')).toBe('ask');
+    expect(parseApprovalsEnv('2')).toBe('ask');
+  });
+});
+
+describe('parseEnabledProviders (POCKETROCKET_PROVIDERS)', () => {
+  it('defaults to Claude only', () => {
+    expect(parseEnabledProviders(undefined)).toEqual(['claude']);
+    expect(parseEnabledProviders('')).toEqual(['claude']);
+  });
+
+  it('re-enables adapters for development, in registry order, and always keeps Claude', () => {
+    expect(parseEnabledProviders('claude,opencode')).toEqual(['claude', 'opencode']);
+    expect(parseEnabledProviders(' Grok , codex ')).toEqual(['claude', 'codex', 'grok']);
+    expect(parseEnabledProviders('opencode,nope')).toEqual(['claude', 'opencode']);
   });
 });
 

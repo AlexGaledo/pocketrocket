@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import type { Bot, BotState, Room, ToolPayload } from '@pocketrocket/shared';
-import { BYPASS_PERMISSIONS, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome } from '../config.js';
+import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { MemoryService } from '../services/MemoryService.js';
@@ -93,8 +93,10 @@ export class BotRunner {
 
     const desktopOn = bot.allowedTools.includes('Desktop') && DESKTOP_AVAILABLE;
     const browserOn = bot.allowedTools.includes('Browser');
-    // With BYPASS_PERMISSIONS nothing asks, so the request_approval tool (and its prompt text) is dropped.
-    const bestEffort = provider.info.permissions === 'best-effort' && !BYPASS_PERMISSIONS;
+    // The approvals setting, read once per turn so a change in Settings applies from the next turn. Under
+    // bypass nothing asks, so the request_approval tool (and its prompt text) is dropped.
+    const bypass = this.broker.bypassed;
+    const bestEffort = provider.info.permissions === 'best-effort' && !bypass;
     const ac = new AbortController();
     const permCtx = { bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s) };
 
@@ -122,7 +124,7 @@ export class BotRunner {
         browser: browserOn, desktop: desktopOn,
         toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',
         requestApproval: bestEffort,
-        fleetGate: !BYPASS_PERMISSIONS,
+        fleetGate: !bypass,
       }),
       input: req.injected,
       resumeToken: session.sdkSessionId,
@@ -130,7 +132,7 @@ export class BotRunner {
       botHome: botHome(bot.id),
       tools,
       allowedBuiltins: bot.allowedTools,
-      bypassPermissions: BYPASS_PERMISSIONS,
+      bypassPermissions: bypass,
       permission: async (name, input, extra) => {
         const r = await this.broker.decide(permCtx, name, input, { signal: ac.signal, blockedPath: extra?.blockedPath });
         return r.behavior === 'allow' ? 'allow' : 'deny';

@@ -69,12 +69,15 @@ export function Onboarding() {
   const [name, setName] = useState(settings.userName === 'you' ? '' : settings.userName);
   const [busy, setBusy] = useState(false);
   const [botCreated, setBotCreated] = useState(false);
-  const step: Step = STEPS[stepIdx];
+  // With one provider (the v1 default: Claude only) there is nothing to choose, so that step is skipped.
+  const steps: readonly Step[] = providers && providers.providers.length <= 1 ? STEPS.filter((s) => s !== 'provider') : STEPS;
+  const idx = Math.min(stepIdx, steps.length - 1);
+  const step: Step = steps[idx];
 
   const chosenProvider = providers?.providers.find((p) => p.id === providerId);
   const providerReady = !!chosenProvider?.check.ok;
 
-  const goNext = () => setStepIdx((i) => Math.min(STEPS.length - 1, i + 1));
+  const goNext = () => setStepIdx((i) => Math.min(steps.length - 1, i + 1));
   const goBack = () => setStepIdx((i) => Math.max(0, i - 1));
 
   const finish = async () => {
@@ -197,8 +200,8 @@ export function Onboarding() {
         )}
 
         <div className="mt-6 flex items-center justify-center gap-1.5">
-          {STEPS.map((s, i) => (
-            <span key={s} className={cn('h-1.5 rounded-full transition-all', i === stepIdx ? 'w-5 bg-ink' : 'w-1.5 bg-line')} />
+          {steps.map((s, i) => (
+            <span key={s} className={cn('h-1.5 rounded-full transition-all', i === idx ? 'w-5 bg-ink' : 'w-1.5 bg-line')} />
           ))}
         </div>
       </div>
