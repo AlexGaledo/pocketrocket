@@ -5,6 +5,7 @@ data/
 !.env.example
 secrets.json
 auth.json
+account.json
 hub-token
 **/hub-token
 *.log

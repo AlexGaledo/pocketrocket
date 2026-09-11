@@ -5,7 +5,9 @@
 # - CDP on 127.0.0.1:9222 (Browser tool), xdotool/scrot on DISPLAY :99 (Desktop tool)
 # - noVNC on 127.0.0.1:6080, proxied by the hub at /screen/
 # Runs as the unprivileged `pocketrocket` user (see deploy/setup-vps.sh); everything above binds
-# 127.0.0.1 only, VNC requires the password in $DATA/vnc-passwd, and X requires the cookie below.
+# 127.0.0.1 only and X requires the cookie below. VNC itself has no password: the only way in is the
+# hub's /screen/ proxy, which already demands the hub token (a /screen-scoped httpOnly cookie), and a
+# second prompt for a VNC password on every Screen tab load added nothing but friction.
 set -euo pipefail
 export DISPLAY=:99
 DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket/data}"
@@ -15,7 +17,6 @@ WS="$DATA/workspace"
 W="${SCREEN_W:-1280}"; H="${SCREEN_H:-800}"
 CHROME="${CHROME_BIN:-$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1)}"
 if [ -z "$CHROME" ] || [ ! -x "$CHROME" ]; then echo "chromium not found; run deploy/setup-vps.sh" >&2; exit 1; fi
-if [ ! -f "$DATA/vnc-passwd" ]; then echo "vnc password not found; run deploy/setup-vps.sh" >&2; exit 1; fi
 
 mkdir -p "$PROFILE" "$WS/downloads" "$DHOME/.config/xfce4/xfconf/xfce-perchannel-xml" "$DHOME/.cache" "$DHOME/.local/share"
 # Desktop + Downloads + Documents all point into the shared workspace.
@@ -94,5 +95,5 @@ fi
   --user-data-dir="$PROFILE" --window-position=0,0 --window-size="$W,$((H-40))" \
   "https://www.google.com" >/dev/null 2>&1 &
 
-x11vnc -display :99 -localhost -rfbauth "$DATA/vnc-passwd" -forever -shared -noxdamage -rfbport 5900 -quiet >/dev/null 2>&1 &
+x11vnc -display :99 -localhost -nopw -forever -shared -noxdamage -rfbport 5900 -quiet >/dev/null 2>&1 &
 exec websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900

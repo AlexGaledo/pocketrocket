@@ -25,11 +25,12 @@ function setup(extra: Partial<ToolCtx> = {}) {
 const byName = (tools: ReturnType<typeof createHubTools>, name: string) => tools.find((t) => t.name === name)!;
 
 describe('createHubTools', () => {
-  it('returns the 12 hub tools and no request_approval for a full-permission provider', () => {
+  it('returns the 15 hub tools and no request_approval for a full-permission provider', () => {
     const { tools } = setup();
     expect(tools.map((t) => t.name)).toEqual([
       'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
-      'create_bot', 'add_to_room', 'update_bot', 'delete_bot', 'remove_from_room',
+      'list_rooms', 'create_bot', 'create_room', 'add_to_room', 'update_bot', 'delete_bot',
+      'remove_from_room', 'delete_room',
     ]);
   });
 

@@ -2,11 +2,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import {
   BotInputSchema, RoomInputSchema, RoutineInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  PROVIDER_IDS, type HealthInfo, type ProviderId,
+  type HealthInfo, type ProviderId,
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
-import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, VERSION } from '../config.js';
+import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
+import { openWorkspace } from './openWorkspace.js';
+import { SCREEN_VIEWER_PATH, type ScreenSessions } from './screenSession.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -26,20 +28,27 @@ import type { SkillService } from '../services/SkillService.js';
 import type { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import type { BotRunner } from '../agent/BotRunner.js';
-import type { SettingsStore } from '../services/SettingsStore.js';
+import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.js';
 import type { SecretsStore } from '../services/SecretsStore.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { AccountError, type AccountService } from '../services/AccountService.js';
+import { AUTH_CALLBACK_PATH } from './guard.js';
 
-type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown }) => unknown | Promise<unknown>;
+type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
 
 class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
+/** A handler returns this to answer 204 with no body. */
+const NO_CONTENT = Symbol('no content');
 
 export interface RestDeps {
   repos: Repos; memory: MemoryService; skills: SkillService; scheduler: RoutineScheduler; router: RoomRouter; runner: BotRunner;
   settings: SettingsStore; secrets: SecretsStore; providers: ProviderRegistry;
+  /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
+  screenSessions: ScreenSessions;
+  account: AccountService;
 }
 
 export function createRest(deps: RestDeps) {
@@ -49,7 +58,7 @@ export function createRest(deps: RestDeps) {
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '/?$');
     routes.push({ method, pattern, keys, handler });
   };
-  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers } = deps;
+  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account } = deps;
   const need = <T>(v: T | undefined, what: string): T => { if (!v) throw new HttpError(404, what + ' not found'); return v; };
   const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
     const r = schema.safeParse(body);
@@ -75,27 +84,68 @@ export function createRest(deps: RestDeps) {
       ok: chk.ok, claudeExe: CLAUDE_EXE, error: chk.error,
       apiKeySource: runner.lastInit.apiKeySource, subscriptionType: runner.lastInit.model,
       provider: settings.get().provider, version: VERSION,
+      approvals: settings.approvals(), approvalsLocked: settings.approvalsLocked,
     };
   });
   add('GET', '/api/debug/last-init', () => runner.lastInit);
   add('GET', '/api/screen', async () => {
     const [screen, cdp] = await Promise.all([probe(SCREEN_URL), probe(CDP_URL)]);
-    return { screen, cdp, url: '/screen/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=screen%2Fwebsockify' };
+    return { screen, cdp, url: SCREEN_VIEWER_PATH };
   });
+  // The web client cannot put the hub token in an iframe URL, so it spends the token here instead: one
+  // authenticated POST buys a ticket that `/screen/session` trades for a `/screen`-scoped httpOnly cookie.
+  add('POST', '/api/screen/ticket', () => ({ url: screenSessions.mintTicket().url }));
   add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR, version: VERSION }));
+  // Opens the workspace on the machine the HUB runs on, which is the only machine it exists on: the user's
+  // own PC for a local hub, the virtual desktop behind the Screen tab for a server one. The path is fixed,
+  // so the request carries nothing that reaches the shell.
+  add('POST', '/api/workspace/open', () => openWorkspace({ screen: DESKTOP_AVAILABLE }));
 
   // ---- settings / secrets / providers
   add('GET', '/api/settings', () => settings.get());
-  add('PUT', '/api/settings', ({ body }) => settings.patch(parsePatch(SettingsPatchSchema, body)));
+  // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
+  add('PUT', '/api/settings', ({ body }) => {
+    const patch = parsePatch(SettingsPatchSchema, body);
+    const before = settings.approvals();
+    try {
+      const next = settings.patch(patch);
+      if (before !== 'bypass' && settings.approvals() === 'bypass') {
+        console.warn('[pocketrocket] WARNING: approvals turned off in Settings — bots now run every action with no approval card');
+      }
+      return next;
+    } catch (e) {
+      if (e instanceof SettingsRejected) throw new HttpError(e.status, e.message);
+      throw e;
+    }
+  });
   // Only which keys are set is ever returned; values stay on disk / in the environment.
   add('GET', '/api/secrets', () => secrets.status());
   add('PUT', '/api/secrets', ({ body }) => secrets.set(parse(SecretsPatchSchema, body)));
   add('GET', '/api/providers', () => providers.response());
   add('POST', '/api/providers/:id/check', ({ params }) => {
     const id = params.id as ProviderId;
-    if (!(PROVIDER_IDS as readonly string[]).includes(id)) throw new HttpError(404, 'Unknown provider ' + params.id);
+    // A disabled provider is as unknown as a made-up one: nothing may spawn its CLI.
+    if (!providers.enabled.includes(id)) throw new HttpError(404, 'Unknown provider ' + params.id);
     return providers.check(id, true);
   });
+
+  // ---- account (optional). Human-only: no bot tool or MCP route reaches the AccountService.
+  add('GET', '/api/account', () => account.state());
+  add('POST', '/api/account/magic-link', async ({ body, req }) => {
+    const { email } = parse(z.object({ email: z.string() }), body);
+    await account.sendMagicLink(email, callbackUrl(req));
+    return NO_CONTENT;
+  });
+  add('POST', '/api/account/verify', ({ body }) => {
+    const { email, code } = parse(z.object({ email: z.string(), code: z.string() }), body);
+    return account.verifyCode(email, code);
+  });
+  add('POST', '/api/account/oauth', async ({ body, req }) => {
+    const { provider } = parse(z.object({ provider: z.enum(['google', 'github']) }), body);
+    return { url: await account.oauthUrl(provider, callbackUrl(req)) };
+  });
+  add('POST', '/api/account/cancel', () => account.cancelPending());
+  add('POST', '/api/account/sign-out', () => account.signOut());
 
   // ---- bots
   add('GET', '/api/bots', () => repos.listBots());
@@ -253,16 +303,28 @@ export function createRest(deps: RestDeps) {
         try { body = raw ? JSON.parse(raw) : {}; } catch { return send(res, 400, { error: 'Invalid JSON' }); }
       }
       try {
-        const out = await r.handler({ params, query: url.searchParams, body });
+        const out = await r.handler({ params, query: url.searchParams, body, req });
+        if (out === NO_CONTENT) { res.writeHead(204); res.end(); return true; }
         return send(res, 200, out ?? { ok: true });
       } catch (e) {
-        const status = e instanceof HttpError ? e.status : 500;
+        const status = e instanceof HttpError || e instanceof AccountError ? e.status : 500;
         if (status === 500) console.error(e);
         return send(res, status, { error: (e as Error).message ?? String(e) });
       }
     }
     return send(res, 404, { error: 'Not found' });
   };
+}
+
+/**
+ * Where the sign-in link sends the browser: this request's own Host (guard.ts has already held it to a loopback
+ * name), so it lands on this hub whatever port the desktop picked or a tunnel forwards. Re-checked strictly
+ * here because it is about to leave the machine inside an email.
+ */
+function callbackUrl(req: IncomingMessage): string {
+  const host = String(req.headers.host ?? '');
+  if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/i.test(host)) throw new HttpError(400, 'Bad Host header: ' + host);
+  return 'http://' + host + AUTH_CALLBACK_PATH;
 }
 
 function send(res: ServerResponse, status: number, body: unknown): boolean {

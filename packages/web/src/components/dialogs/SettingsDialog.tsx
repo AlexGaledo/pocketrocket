@@ -1,162 +1,116 @@
-import { useEffect, useState } from 'react';
-import { MODELS } from '@pocketrocket/shared';
-import type { ProviderId, ProviderCheck, ModelInfo } from '@pocketrocket/shared';
+/**
+ * Settings: a wide dialog with a section list on the left (a tab strip across the top in a narrow
+ * window) — Account · Claude · Bots · Appearance · About. Each section lives in components/settings/.
+ * The list is Radix Tabs, which brings arrow-key navigation, aria-selected and the tab/tabpanel wiring.
+ * The last section opened is remembered until the page reloads.
+ */
+import { useCallback, useEffect, useState } from 'react';
+import * as TabsPrimitive from '@radix-ui/react-tabs';
+import { Info, Palette, ShieldCheck, Sparkles, UserRound, type LucideIcon } from 'lucide-react';
 import { useStore } from '../../store';
-import { api } from '../../lib/api';
-import { preview, type Cue } from '../../lib/sounds';
-import { Button, Dialog, Input, Label, Select } from '../ui';
-import { ProviderCard } from '../ProviderCard';
+import { api, type HealthResponse } from '../../lib/api';
+import { useMediaQuery } from '../../lib/useMediaQuery';
+import { DialogCloseButton, DialogShell, DialogTitle } from '../ui';
+import { AccountSection } from '../settings/AccountSection';
+import { ClaudeSection } from '../settings/ClaudeSection';
+import { BotsSection } from '../settings/BotsSection';
+import { AppearanceSection } from '../settings/AppearanceSection';
+import { AboutSection } from '../settings/AboutSection';
 
-const CUES: { id: Cue; label: string }[] = [
-  { id: 'send', label: 'Send' },
-  { id: 'receive', label: 'Reply arrives' },
-  { id: 'approvalRequest', label: 'Approval needed' },
-  { id: 'approve', label: 'Approve' },
-  { id: 'deny', label: 'Deny' },
-  { id: 'done', label: 'Turn done' },
-  { id: 'error', label: 'Turn error' },
-  { id: 'connected', label: 'Connected' },
+type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about';
+
+const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
+  { id: 'account', label: 'Account', icon: UserRound },
+  { id: 'claude', label: 'Claude', icon: Sparkles },
+  { id: 'bots', label: 'Bots', icon: ShieldCheck },
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'about', label: 'About', icon: Info },
 ];
 
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const settings = useStore((s) => s.settings);
-  const providers = useStore((s) => s.providers);
-  const updateSettings = useStore((s) => s.updateSettings);
-  const fetchProviders = useStore((s) => s.fetchProviders);
+/** Matches Tailwind's `sm` breakpoint, where the section list moves from the top to the left. */
+const SIDE_NAV_QUERY = '(min-width: 640px)';
 
-  const [pendingProvider, setPendingProvider] = useState<ProviderId | null>(null);
-  const [name, setName] = useState(settings.userName);
-  const [secretsStatus, setSecretsStatus] = useState<Record<string, boolean>>({});
-  const [secretDrafts, setSecretDrafts] = useState<Record<string, string>>({});
+// Module scope rather than component state: the dialog unmounts when it closes, and the choice should
+// outlive that. A reload starts again at Account, which is fine (no persistence wanted).
+let lastSection: SectionId = 'account';
 
-  useEffect(() => setName(settings.userName), [settings.userName]);
-  useEffect(() => {
-    api.secrets.get().then((r) => setSecretsStatus(r.keys)).catch(() => setSecretsStatus({}));
+/** GET /api/health, shared by Bots (approvals lock) and About. Refetched when approvals change. */
+function useHealth() {
+  const approvals = useStore((s) => s.settings.approvals);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const refresh = useCallback(() => {
+    api.health().then(setHealth).catch(() => setHealth(null));
   }, []);
+  useEffect(refresh, [refresh, approvals]);
+  return { health, refresh };
+}
 
-  const active = providers?.providers.find((p) => p.id === settings.provider) ?? providers?.providers[0];
-  const activeModels: ModelInfo[] = active?.models?.length ? active.models : MODELS.map((m) => ({ id: m.id, label: m.label }));
+export function SettingsDialog({ onClose }: { onClose: () => void }) {
+  const [section, setSection] = useState<SectionId>(lastSection);
+  const sideNav = useMediaQuery(SIDE_NAV_QUERY);
+  const { health, refresh: refreshHealth } = useHealth();
 
-  const patchCheck = (id: ProviderId, check: ProviderCheck) => {
-    void fetchProviders();
-    // optimistic local patch so the pill updates before the refetch lands
-    useStore.setState((s) => (s.providers ? { providers: { ...s.providers, providers: s.providers.providers.map((p) => (p.id === id ? { ...p, check } : p)) } } : {}));
-  };
+  // A small dot on "Claude" when it isn't ready, so the problem is visible from any section.
+  const providers = useStore((s) => s.providers);
+  const providerId = useStore((s) => s.settings.provider);
+  const list = providers?.providers ?? [];
+  const active = list.find((p) => p.id === providerId) ?? list[0];
+  const claudeNeedsAttention = !!active && !active.check.ok;
 
-  const chooseProvider = (id: ProviderId) => {
-    if (id === settings.provider) return;
-    setPendingProvider(id);
-  };
-  const confirmProvider = () => {
-    if (!pendingProvider) return;
-    void updateSettings({ provider: pendingProvider });
-    setPendingProvider(null);
-  };
-
-  const saveSecret = (key: string) => {
-    const value = secretDrafts[key] ?? '';
-    void api.secrets.update({ [key]: value }).then((r) => {
-      setSecretsStatus(r.keys);
-      setSecretDrafts((d) => ({ ...d, [key]: '' }));
-    });
-  };
-  const clearSecret = (key: string) => {
-    void api.secrets.update({ [key]: '' }).then((r) => setSecretsStatus(r.keys));
+  const select = (value: string) => {
+    lastSection = value as SectionId;
+    setSection(value as SectionId);
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title="Settings" wide>
-      <div className="flex flex-col gap-6">
-        <section>
-          <div className="mb-2 text-[12.5px] font-semibold text-fg">Provider</div>
-          <div className="flex flex-col gap-2" role="radiogroup">
-            {(providers?.providers ?? []).map((p) => (
-              <ProviderCard key={p.id} info={p} selected={p.id === settings.provider} onSelect={() => chooseProvider(p.id)} onChecked={(check) => patchCheck(p.id, check)} />
-            ))}
-            {!providers?.providers.length && <div className="text-[12.5px] text-muted">Loading providers…</div>}
+    <DialogShell open onOpenChange={(o) => !o && onClose()} className="flex h-[min(680px,calc(100dvh-1.5rem))] w-[880px] flex-col overflow-hidden">
+      <TabsPrimitive.Root
+        value={section}
+        onValueChange={select}
+        orientation={sideNav ? 'vertical' : 'horizontal'}
+        className="flex min-h-0 flex-1 flex-col sm:flex-row"
+      >
+        <aside className="flex shrink-0 flex-col px-3 pt-4 sm:w-52 sm:border-r sm:border-line sm:bg-card2/30 sm:pb-3 sm:pt-6">
+          <div className="flex items-center justify-between px-2 pb-2 sm:pb-4">
+            <DialogTitle>Settings</DialogTitle>
+            <div className="sm:hidden"><DialogCloseButton /></div>
           </div>
-          {pendingProvider && (
-            <div className="mt-2 flex items-center justify-between rounded-xl bg-warn/10 px-3 py-2 text-[12.5px]">
-              <span>
-                Bots will switch to <strong>{providers?.providers.find((p) => p.id === pendingProvider)?.label}</strong>; models not available there reset to the default.
-              </span>
-              <div className="flex shrink-0 gap-1.5 pl-3">
-                <Button size="sm" variant="ghost" onClick={() => setPendingProvider(null)}>Cancel</Button>
-                <Button size="sm" variant="primary" onClick={confirmProvider}>Switch</Button>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section>
-          <Label hint="used for new bots">Default model</Label>
-          <Select value={settings.defaultModel} onChange={(e) => void updateSettings({ defaultModel: e.target.value })}>
-            {activeModels.map((m) => (
-              <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>
-            ))}
-          </Select>
-        </section>
-
-        {active && active.secretKeys.length > 0 && (
-          <section>
-            <div className="mb-2 text-[12.5px] font-semibold text-fg">API keys</div>
-            <div className="flex flex-col gap-2">
-              {active.secretKeys.map((key) => (
-                <div key={key} className="flex items-center gap-2">
-                  <span className="w-40 shrink-0 font-mono text-[12.5px] text-fg">{key}</span>
-                  <Input
-                    type="password"
-                    placeholder={secretsStatus[key] ? 'Set — enter a new value to replace' : 'Not set'}
-                    value={secretDrafts[key] ?? ''}
-                    onChange={(e) => setSecretDrafts((d) => ({ ...d, [key]: e.target.value }))}
-                  />
-                  <Button size="sm" onClick={() => saveSecret(key)} disabled={!secretDrafts[key]}>Save</Button>
-                  {secretsStatus[key] && <Button size="sm" variant="ghost" onClick={() => clearSecret(key)}>Clear</Button>}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <section>
-          <Label>You</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name.trim() && name !== settings.userName && void updateSettings({ userName: name.trim() })} placeholder="Your name" />
-        </section>
-
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[12.5px] font-semibold text-fg">Sounds</span>
-            <button
-              className={`relative h-6 w-10 rounded-full transition-colors ${settings.sounds ? 'bg-ink' : 'bg-card2'}`}
-              role="switch"
-              aria-checked={settings.sounds}
-              onClick={() => void updateSettings({ sounds: !settings.sounds })}
-            >
-              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-panel shadow transition-transform ${settings.sounds ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {CUES.map((c) => (
-              <Button key={c.id} size="sm" onClick={() => preview(c.id)}>{c.label}</Button>
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <Label>Theme</Label>
-          <div className="flex gap-0.5 rounded-full bg-card2 p-0.5">
-            {(['system', 'light', 'dark'] as const).map((t) => (
-              <button
-                key={t}
-                className={`flex-1 rounded-full py-1.5 text-[12.5px] font-medium capitalize ${settings.theme === t ? 'bg-panel text-fg shadow-[var(--shadow)]' : 'text-muted hover:text-fg'}`}
-                onClick={() => void updateSettings({ theme: t })}
+          <TabsPrimitive.List aria-label="Settings sections" className="-mx-3 flex gap-1 overflow-x-auto px-3 py-1 sm:mx-0 sm:flex-col sm:overflow-visible sm:px-0">
+            {SECTIONS.map(({ id, label, icon: Icon }) => (
+              <TabsPrimitive.Trigger
+                key={id}
+                value={id}
+                className="flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] font-medium text-muted hover:bg-card2/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 data-[state=active]:bg-card2 data-[state=active]:text-fg sm:gap-2.5 sm:px-3 sm:py-2 sm:data-[state=active]:bg-panel sm:data-[state=active]:shadow-[var(--shadow)]"
               >
-                {t}
-              </button>
+                {/* Icons only in the side list; the top strip needs the room to fit all five names. */}
+                <Icon size={15} aria-hidden className="hidden shrink-0 sm:block" />
+                {id === 'claude' && list.length > 1 ? 'Connection' : label}
+                {id === 'claude' && claudeNeedsAttention && (
+                  <>
+                    <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn sm:ml-auto" />
+                    <span className="sr-only">(needs attention)</span>
+                  </>
+                )}
+              </TabsPrimitive.Trigger>
             ))}
+          </TabsPrimitive.List>
+        </aside>
+
+        <div className="relative min-h-0 flex-1 border-t border-line sm:border-t-0">
+          <div className="absolute right-4 top-4 z-10 hidden sm:block"><DialogCloseButton /></div>
+          <div className="h-full overflow-y-auto">
+            {/* tabIndex -1: every panel has its own controls to Tab into, so the panel itself needn't be a stop. */}
+            <TabsPrimitive.Content value="account" tabIndex={-1} className={PANEL}><AccountSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="claude" tabIndex={-1} className={PANEL}><ClaudeSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="bots" tabIndex={-1} className={PANEL}><BotsSection health={health} onHealthStale={refreshHealth} /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
           </div>
-        </section>
-      </div>
-    </Dialog>
+        </div>
+      </TabsPrimitive.Root>
+    </DialogShell>
   );
 }
+
+/** Panel padding: roomier beside the side list, tighter under the top strip. */
+const PANEL = 'px-5 py-5 focus:outline-none sm:px-8 sm:py-7';

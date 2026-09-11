@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse } from '@pocketrocket/shared';
-import { DEFAULT_SETTINGS, MODELS } from '@pocketrocket/shared';
-import { api } from './lib/api';
+import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState } from '@pocketrocket/shared';
+import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
+import { api, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { applyTheme, watchSystemTheme } from './lib/theme';
@@ -22,6 +22,7 @@ const FALLBACK_PROVIDERS: ProvidersResponse = {
       authModes: ['subscription', 'apiKey'],
       secretKeys: [],
       permissions: 'full',
+      maturity: 'verified',
       check: { ok: true, auth: 'unknown' },
       models: MODELS.map((m) => ({ id: m.id, label: m.label })),
     },
@@ -30,6 +31,17 @@ const FALLBACK_PROVIDERS: ProvidersResponse = {
 
 // turnId -> last time a 'receive' sound fired for that turn, so turn.end doesn't double it with 'done'.
 const recentReceive = new Map<string, number>();
+
+/** True when a response body is a full AccountState rather than a bare `{ ok }`. */
+function isAccountState(v: unknown): v is AccountState {
+  return typeof v === 'object' && v !== null && 'enabled' in v && 'signedIn' in v;
+}
+
+/** The parts of Settings that live outside React: the sound engine and the `dark` class on <html>. */
+function applyLocalSettings(s: Settings) {
+  setSoundsEnabled(s.sounds);
+  applyTheme(s.theme);
+}
 
 interface State {
   connected: boolean;
@@ -44,18 +56,29 @@ interface State {
   usage: Record<string, UsageTotals>;
   memory: Record<string, string>;
   panelOpen: boolean;
+  /** Left sidebar. Same treatment as panelOpen: remembered per browser so a narrow screen stays narrow. */
+  sidebarOpen: boolean;
   panelTab: PanelTab;
   panelBotId: string | null;
   dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'settings' } | null;
   toasts: { id: number; text: string; bad?: boolean }[];
   settings: Settings;
   providers: ProvidersResponse | null;
+  /** Optional sign-in. SIGNED_OUT (enabled: false) until GET /api/account answers, and if it never does. */
+  account: AccountState;
   helloReceived: boolean;
   _playedConnectedSound: boolean;
 
   setConnected: (v: boolean) => void;
-  updateSettings: (patch: SettingsPatch) => Promise<void>;
+  /**
+   * Applies the patch at once, then saves it. If the save fails the touched keys go back to what they
+   * were and a toast says why. Resolves true when the hub accepted the change.
+   */
+  updateSettings: (patch: SettingsPatch) => Promise<boolean>;
   fetchProviders: () => Promise<void>;
+  fetchAccount: () => Promise<void>;
+  /** Takes the answer of an account POST: a full AccountState is used as is, anything else triggers a refetch. */
+  applyAccountResponse: (res: AccountActionResponse) => void;
   applyEvent: (ev: ServerEvent) => void;
   setActiveRoom: (id: string | null) => void;
   loadMessages: (roomId: string) => Promise<void>;
@@ -63,6 +86,7 @@ interface State {
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
   openPanel: (tab: PanelTab, botId?: string | null) => void;
+  toggleSidebar: () => void;
   closePanel: () => void;
   openDialog: (d: State['dialog']) => void;
   toast: (text: string, bad?: boolean) => void;
@@ -84,12 +108,14 @@ export const useStore = create<State>((set, get) => ({
   usage: {},
   memory: {},
   panelOpen: localStorage.getItem('pocketrocket.panel') !== '0',
+  sidebarOpen: localStorage.getItem('pocketrocket.sidebar') !== '0',
   panelTab: 'memory',
   panelBotId: null,
   dialog: null,
   toasts: [],
   settings: DEFAULT_SETTINGS,
   providers: null,
+  account: SIGNED_OUT,
   helloReceived: false,
   _playedConnectedSound: false,
 
@@ -108,24 +134,26 @@ export const useStore = create<State>((set, get) => ({
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
         set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true });
-        setSoundsEnabled(settings.sounds);
-        applyTheme(settings.theme);
+        applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
+        void get().fetchAccount();
         const active = s.activeRoomId && ev.rooms.some((r) => r.id === s.activeRoomId) ? s.activeRoomId : (ev.rooms[0]?.id ?? null);
         get().setActiveRoom(active);
         return;
       }
       case 'settings.changed': {
         set({ settings: ev.settings });
-        setSoundsEnabled(ev.settings.sounds);
-        applyTheme(ev.settings.theme);
+        applyLocalSettings(ev.settings);
         return;
       }
       case 'providers.changed': {
         void get().fetchProviders();
         return;
       }
+      case 'account.changed':
+        set({ account: ev.account });
+        return;
       case 'bots.changed':
         set({ bots: ev.bots });
         return;
@@ -244,6 +272,11 @@ export const useStore = create<State>((set, get) => ({
     localStorage.setItem('pocketrocket.panel', '0');
     set({ panelOpen: false });
   },
+  toggleSidebar: () => {
+    const open = !get().sidebarOpen;
+    localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
+    set({ sidebarOpen: open });
+  },
   openDialog: (dialog) => set({ dialog }),
   toast: (text, bad) => {
     const id = ++toastSeq;
@@ -257,19 +290,27 @@ export const useStore = create<State>((set, get) => ({
 
   updateSettings: async (patch) => {
     const prev = get().settings;
-    const next = { ...prev, ...patch };
-    set({ settings: next });
-    setSoundsEnabled(next.sounds);
-    if (patch.theme) applyTheme(next.theme);
+    // Optimistic: the control flips immediately instead of waiting a round trip.
+    set({ settings: { ...prev, ...patch } });
+    applyLocalSettings(get().settings);
     try {
       const saved = await api.settings.update(patch);
       set({ settings: saved });
-      setSoundsEnabled(saved.sounds);
-      applyTheme(saved.theme);
+      applyLocalSettings(saved);
+      return true;
     } catch (e) {
-      // Hub may not have the settings endpoint yet (parallel work-in-progress) — keep the
-      // optimistic value locally rather than bouncing the UI back, but let the user know.
-      console.warn('settings update did not persist:', (e as Error).message);
+      // Roll back only the keys this call changed, and only if they still hold our optimistic value:
+      // a `settings.changed` from another window may have landed meanwhile and must not be undone.
+      const current = get().settings;
+      const undo = Object.fromEntries(
+        (Object.keys(patch) as (keyof Settings)[])
+          .filter((key) => current[key] === patch[key])
+          .map((key) => [key, prev[key]]),
+      ) as Partial<Settings>;
+      set({ settings: { ...current, ...undo } });
+      applyLocalSettings(get().settings);
+      get().toast("Couldn't save that change: " + (e as Error).message, true);
+      return false;
     }
   },
 
@@ -280,6 +321,22 @@ export const useStore = create<State>((set, get) => ({
     } catch {
       set({ providers: get().providers ?? FALLBACK_PROVIDERS });
     }
+  },
+
+  fetchAccount: async () => {
+    try {
+      const account = await api.account.get();
+      set({ account: isAccountState(account) ? account : SIGNED_OUT });
+    } catch {
+      // No account endpoint on this hub (older build, or the backend is not wired up yet) or it errored:
+      // behave exactly like a hub without accounts rather than showing a broken section.
+      set({ account: SIGNED_OUT });
+    }
+  },
+
+  applyAccountResponse: (res) => {
+    if (isAccountState(res)) set({ account: res });
+    else void get().fetchAccount();
   },
 }));
 

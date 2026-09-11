@@ -15,6 +15,7 @@ export const GROK_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['XAI_API_KEY'],
   permissions: 'best-effort',
+  maturity: 'untested',
 };
 
 /** Fallback list (docs.x.ai/docs/models). `models()` prefers whatever the installed CLI reports. */
@@ -173,6 +174,8 @@ export class GrokProvider implements AgentProvider {
       maxTurns: ctx.maxTurns,
       resumeToken: ctx.resumeToken,
       allowedBuiltins: ctx.allowedBuiltins,
+      // Approvals bypassed: no filesystem sandbox (the --deny rules for tools the bot lacks still apply).
+      ...(ctx.bypassPermissions ? { sandbox: null } : {}),
     });
 
     addSecret(ctx.mcp.token);

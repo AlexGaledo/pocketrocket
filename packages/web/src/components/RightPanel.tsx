@@ -3,7 +3,6 @@ import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from '
 import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
-import { getToken } from '../lib/auth';
 import { Avatar, Badge, Button, Input, Label, Select, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
 
 export function RightPanel() {
@@ -55,6 +54,7 @@ export function RightPanel() {
 
 function ScreenTab() {
   const [st, setSt] = useState<{ screen: boolean; cdp: boolean; url: string } | null>(null);
+  const [src, setSrc] = useState('');
   const [nonce, setNonce] = useState(0);
   const [wide, setWide] = useState(false);
   useEffect(() => {
@@ -64,18 +64,21 @@ function ScreenTab() {
     const id = setInterval(tick, 10000);
     return () => { alive = false; clearInterval(id); };
   }, []);
-  // /screen/* sits behind the hub token, and an iframe cannot send an Authorization header, so the token
-  // rides the query string: once for vnc.html itself, once inside `path` for the websockify upgrade.
-  const withToken = (url: string) => {
-    const token = getToken();
-    if (!token) return url;
-    const u = new URL(url, window.location.origin);
-    u.searchParams.set('token', token);
-    const p = u.searchParams.get('path');
-    if (p) u.searchParams.set('path', p + (p.includes('?') ? '&' : '?') + 'token=' + token);
-    return u.pathname + u.search;
+  // An iframe cannot send an Authorization header, so the hub token used to ride this URL. Instead each
+  // viewer load spends the token on a single-use ticket, which /screen/session trades for an httpOnly
+  // cookie scoped to /screen — the token never enters an iframe src or a popup URL.
+  useEffect(() => {
+    if (!st?.screen) { setSrc(''); return; }
+    let alive = true;
+    api.screenTicket().then((t) => alive && setSrc(t.url)).catch(() => alive && setSrc(''));
+    return () => { alive = false; };
+  }, [st?.screen, nonce]);
+  const popOut = async () => {
+    // Ticket first, then open: the desktop app hands new windows to the default browser by URL, so a blank
+    // window that is pointed somewhere afterwards never gets anywhere. The click's user activation outlives
+    // the round-trip in browsers, so the popup is still allowed.
+    try { window.open((await api.screenTicket()).url, '_blank', 'width=1320,height=880'); } catch { /* hub unreachable */ }
   };
-  const src = st?.url ? withToken(st.url) + '&n=' + nonce : '';
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-3 py-2 text-xs">
@@ -83,11 +86,11 @@ function ScreenTab() {
         <span className="flex-1 text-muted">{st === null ? 'checking…' : st.screen ? 'Computer screen live' + (st.cdp ? ' · bots can drive it' : ' · CDP down') : 'Screen not running'}</span>
         <Button size="sm" variant="ghost" title="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={13} /></Button>
         <Button size="sm" variant="ghost" title="Bigger" onClick={() => setWide(!wide)}>{wide ? 'Fit' : 'Wide'}</Button>
-        {st?.screen && <Button size="sm" onClick={() => window.open(withToken(st.url), '_blank', 'width=1320,height=880')}>Pop out</Button>}
+        {st?.screen && <Button size="sm" onClick={popOut}>Pop out</Button>}
       </div>
       {st?.screen ? (
         <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>
-          <iframe key={nonce} title="Computer screen" src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />
+          {src && <iframe key={nonce} title="Computer screen" src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />}
         </div>
       ) : (
         <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">

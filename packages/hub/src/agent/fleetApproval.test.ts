@@ -152,3 +152,52 @@ describe('fleet changes go through an approval card', () => {
     expect(s.cards).toHaveLength(0);
   });
 });
+
+describe('create_room', () => {
+  it('asks first, and creates nothing when declined', async () => {
+    const s = setup('deny');
+    const out = await s.tool('create_room').handler({ name: 'launch-plan', handles: ['nova'] });
+    expect(s.cards.some((c) => c.toolName === 'create_room')).toBe(true);
+    expect(out.isError).toBe(true);
+    expect(s.repos.listRooms().some((r) => r.name === 'launch-plan')).toBe(false);
+    s.off();
+  });
+
+  it('creates a group with the caller included and the caller as default coordinator', async () => {
+    const s = setup('allow');
+    await s.tool('create_room').handler({ name: 'launch-plan', handles: ['nova'] });
+    const room = s.repos.listRooms().find((r) => r.name === 'launch-plan')!;
+    expect(room.kind).toBe('group');
+    // The caller is added automatically; it should not have to name itself.
+    expect(room.memberIds).toContain(s.bot.id);
+    expect(room.memberIds).toContain(s.other.id);
+    expect(room.coordinatorBotId).toBe(s.bot.id);
+    s.off();
+  });
+
+  it('honours an explicit coordinator and rejects one who is not a member', async () => {
+    const s = setup('allow');
+    await s.tool('create_room').handler({ name: 'r1', handles: ['nova'], coordinator: '@nova' });
+    expect(s.repos.listRooms().find((r) => r.name === 'r1')!.coordinatorBotId).toBe(s.other.id);
+
+    const out = await s.tool('create_room').handler({ name: 'r2', handles: ['nova'], coordinator: '@ghost' });
+    expect(out.isError).toBe(true);
+    expect(s.repos.listRooms().some((r) => r.name === 'r2')).toBe(false);
+    s.off();
+  });
+
+  it('rejects an unknown handle before showing a card', async () => {
+    const s = setup('allow');
+    const out = await s.tool('create_room').handler({ name: 'r', handles: ['nope'] });
+    expect(out.isError).toBe(true);
+    expect(s.cards.some((c) => c.toolName === 'create_room')).toBe(false);
+    s.off();
+  });
+
+  it('refuses a room with nobody else in it', async () => {
+    const s = setup('allow');
+    const out = await s.tool('create_room').handler({ name: 'solo', handles: [] });
+    expect(out.isError).toBe(true);
+    s.off();
+  });
+});

@@ -39,7 +39,7 @@ const HUB_PREFIX = 'mcp__pocketrocket__';
 /** Hub tools that never need a card: read-only, or already visible to the user as a room message. */
 const SILENT_HUB_TOOLS = new Set([
   'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
-  'request_approval', ...DESKTOP_TOOL_NAMES,
+  'list_rooms', 'request_approval', ...DESKTOP_TOOL_NAMES,
 ]);
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
@@ -47,7 +47,7 @@ const SILENT_HUB_TOOLS = new Set([
  * touch `decide()`, are gated identically. Before the audit every `mcp__pocketrocket__*` call was allowed
  * unconditionally and a Read-only bot could grant itself Bash (audit 2026-09-09, B6).
  */
-const GATED_HUB_TOOLS = new Set(['create_bot', 'update_bot', 'delete_bot', 'add_to_room', 'remove_from_room']);
+const GATED_HUB_TOOLS = new Set(['create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room']);
 
 /** How long a `request_approval` grant stays valid. */
 export const GRANT_TTL_MS = 10 * 60 * 1000;
@@ -58,7 +58,17 @@ export class PermissionBroker {
   private grants = new Map<string, ApprovalGrant>();
   /** `<botId>:<toolName>` the user chose "always" for, for the life of this hub process. */
   private alwaysAllowed = new Set<string>();
-  constructor(private repos: Repos) {}
+  /**
+   * `bypass`: when it returns true, allow every tool call, every `request_approval` and every fleet change
+   * without a card. Nothing raises an approval card at all. A function, not a flag, so it follows the
+   * approvals setting live (the hub passes `settings.approvals() === 'bypass'`).
+   */
+  constructor(private repos: Repos, private opts: { bypass?: () => boolean } = {}) {}
+
+  /** Whether approvals are bypassed right now. BotRunner reads it once per turn to set up the provider. */
+  get bypassed(): boolean {
+    return !!this.opts.bypass?.();
+  }
 
   async decide(
     ctx: PermCtx,
@@ -66,6 +76,7 @@ export class PermissionBroker {
     input: Record<string, unknown>,
     opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; blockedPath?: string },
   ): Promise<PermissionResult> {
+    if (this.bypassed) return { behavior: 'allow' };
     const roots = [WORKSPACE_DIR, botHome(ctx.bot.id)];
     let reason = '';
     let danger = false;
@@ -108,6 +119,7 @@ export class PermissionBroker {
     req: { action: string; command?: string; paths?: string[]; reason?: string },
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
+    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const danger = req.command ? classifyBash(req.command, [WORKSPACE_DIR, botHome(ctx.bot.id)]).danger : false;
     const { decision, approvalId } = await this.prompt(
       ctx, 'request_approval',
@@ -155,6 +167,7 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
+    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const key = ctx.bot.id + ':' + toolName;
     if (this.alwaysAllowed.has(key)) return { allowed: true, message: 'Previously approved for this session.' };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });

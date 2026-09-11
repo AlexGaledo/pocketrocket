@@ -60,6 +60,13 @@ describe('childEnv', () => {
     expect(e.POCKETROCKET_DATA).toBeUndefined();
   });
 
+  it('forwards nothing Supabase to any provider', () => {
+    const src = { ...SOURCE, POCKETROCKET_SUPABASE_URL: 'https://proj.supabase.co', POCKETROCKET_SUPABASE_KEY: 'sb_publishable_x', SUPABASE_ACCESS_TOKEN: 'sbp_x' };
+    for (const p of ['claude', 'codex', 'opencode', 'grok'] as const) {
+      expect(Object.keys(childEnv(p, {}, src)).filter((k) => /supabase/i.test(k)), p).toEqual([]);
+    }
+  });
+
   it('gives each provider only its own keys', () => {
     const claude = childEnv('claude', {}, SOURCE);
     expect(claude.ANTHROPIC_API_KEY).toBe('sk-ant-key');

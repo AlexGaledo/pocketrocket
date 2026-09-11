@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IncomingMessage } from 'node:http';
-import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, tokenMatches } from './guard.js';
+import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, cookieValue, tokenMatches } from './guard.js';
 
 const PORT = 7788;
 function req(over: Partial<IncomingMessage> & { headers?: Record<string, string> } = {}): IncomingMessage {
@@ -63,6 +63,43 @@ describe('checkToken as an allowlist (audit B2)', () => {
 
   it('is a no-op when no token is configured', () => {
     expect(checkToken(req(), url('/api/bots'), null)).toBe(true);
+  });
+});
+
+describe('checkToken on /screen/*', () => {
+  const T = 'tok';
+  const yes = () => true;
+  const no = () => false;
+
+  it('hands /screen/* to screenAuth and refuses it outright when nothing is wired up', () => {
+    expect(checkToken(req(), url('/screen/vnc.html'), T)).toBe(false);
+    expect(checkToken(req(), url('/screen/websockify'), T, { screenAuth: no })).toBe(false);
+    expect(checkToken(req(), url('/screen/websockify'), T, { screenAuth: yes })).toBe(true);
+  });
+
+  it('no longer accepts ?token= there, however the hub token is spelled', () => {
+    expect(checkToken(req(), url('/screen/vnc.html?token=tok'), T, { screenAuth: no })).toBe(false);
+    expect(checkToken(req({ headers: { host: '127.0.0.1', authorization: 'Bearer tok' } }), url('/screen/vnc.html'), T, { screenAuth: no })).toBe(false);
+  });
+
+  it('sits above the public-asset check, so no WEB_DIST layout can widen it', () => {
+    expect(checkToken(req(), url('/screen/vnc.html'), T, { isPublicAsset: () => true, screenAuth: no })).toBe(false);
+    // Everything outside /screen/ is untouched by the branch.
+    expect(checkToken(req(), url('/assets/app.js'), T, { isPublicAsset: () => true, screenAuth: no })).toBe(true);
+    expect(checkToken(req(), url('/ws?token=tok'), T, { screenAuth: no })).toBe(true);
+  });
+});
+
+describe('cookieValue', () => {
+  it('picks one cookie out of the header and ignores lookalikes', () => {
+    const c = (cookie: string) => cookieValue(req({ headers: { host: '127.0.0.1', cookie } }), 'pr_screen');
+    expect(c('pr_screen=abc')).toBe('abc');
+    expect(c('a=1; pr_screen=abc; b=2')).toBe('abc');
+    expect(c(' pr_screen = abc ')).toBe('abc');
+    expect(c('xpr_screen=abc')).toBeNull();
+    expect(c('pr_screen_other=abc')).toBeNull();
+    expect(c('a=1')).toBeNull();
+    expect(cookieValue(req(), 'pr_screen')).toBeNull();
   });
 });
 

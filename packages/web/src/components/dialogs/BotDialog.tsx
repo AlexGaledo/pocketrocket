@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, type Bot, type BotInput } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
-import { Button, Dialog, Input, Label, Select, Textarea, cn } from '../ui';
+import { Button, Dialog, Field, Input, Label, Select, Textarea, cn } from '../ui';
 
 const PRESETS: { label: string; v: Partial<BotInput> }[] = [
   { label: 'Chief of staff', v: { name: 'Chief', handle: 'chief', title: 'Chief of staff / coordinator', avatar: '🧭', description: 'You coordinate the other bots. Break requests into tasks, hand them off with @handle or the handoff tool, then summarize results for Alex. If a needed role is missing, create it with create_bot (focused role, clear instructions) or add an existing bot with add_to_room. Do not do specialist work yourself when a specialist is in the room.' } },
@@ -47,27 +47,28 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
         </div>
       )}
       <div className="grid grid-cols-[64px_1fr_1fr] gap-3">
-        <div><Label>Avatar</Label><Input value={f.avatar} onChange={(e) => set({ avatar: e.target.value })} className="text-center text-lg" maxLength={4} /></div>
-        <div><Label>Name</Label><Input value={f.name} onChange={(e) => set({ name: e.target.value, handle: bot ? f.handle : autoHandle(e.target.value) })} placeholder="Researcher" autoFocus /></div>
-        <div><Label hint="mention as @handle">Handle</Label><Input value={f.handle} onChange={(e) => set({ handle: e.target.value.toLowerCase() })} placeholder="researcher" className="font-mono" /></div>
+        <Field><Label>Avatar</Label><Input value={f.avatar} onChange={(e) => set({ avatar: e.target.value })} className="text-center text-lg" maxLength={4} /></Field>
+        <Field><Label>Name</Label><Input value={f.name} onChange={(e) => set({ name: e.target.value, handle: bot ? f.handle : autoHandle(e.target.value) })} placeholder="Researcher" autoFocus /></Field>
+        <Field><Label hint="mention as @handle">Handle</Label><Input value={f.handle} onChange={(e) => set({ handle: e.target.value.toLowerCase() })} placeholder="researcher" className="font-mono" /></Field>
       </div>
-      <div className="mt-3"><Label>Title</Label><Input value={f.title} onChange={(e) => set({ title: e.target.value })} placeholder="Web research & summaries" /></div>
-      <div className="mt-3">
+      <Field className="mt-3"><Label>Title</Label><Input value={f.title} onChange={(e) => set({ title: e.target.value })} placeholder="Web research & summaries" /></Field>
+      <Field className="mt-3">
         <Label hint="becomes the bot's identity (CLAUDE.md)">Role description</Label>
         <Textarea rows={5} value={f.description} onChange={(e) => set({ description: e.target.value })} placeholder="What this bot is responsible for, how it should work, what it should avoid." />
-      </div>
+      </Field>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        <div><Label>Model</Label><Select value={f.model} onChange={(e) => set({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>)}</Select></div>
-        <div><Label hint="stops a runaway turn">Budget per turn (USD)</Label><Input type="number" step="0.5" min="0.05" value={f.maxBudgetUsd} onChange={(e) => set({ maxBudgetUsd: Number(e.target.value) })} /></div>
+        <Field><Label>Model</Label><Select value={f.model} onChange={(e) => set({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>)}</Select></Field>
+        <Field><Label hint="stops a runaway turn">Budget per turn (USD)</Label><Input type="number" step="0.5" min="0.05" value={f.maxBudgetUsd} onChange={(e) => set({ maxBudgetUsd: Number(e.target.value) })} /></Field>
       </div>
       <div className="mt-3">
-        <Label hint="Browser = shared logged-in Chrome · Desktop = see/click the whole screen">Tools</Label>
-        <div className="flex flex-wrap gap-1.5">
+        {/* Toggle buttons, not a form control: the caption names the group and each button reports its own state. */}
+        <Label id="bot-tools-label" hint="Browser = shared logged-in Chrome · Desktop = see/click the whole screen">Tools</Label>
+        <div role="group" aria-labelledby="bot-tools-label" className="flex flex-wrap gap-1.5">
           {BUILTIN_TOOLS.filter((t) => t !== 'Skill' && t !== 'MultiEdit' && t !== 'NotebookEdit').map((t) => {
             const on = f.allowedTools.includes(t);
             return (
-              <button key={t} type="button" onClick={() => set({ allowedTools: on ? f.allowedTools.filter((x) => x !== t) : [...f.allowedTools, t] })}
-                className={cn('rounded-md border px-2 py-1 text-xs font-mono', on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-line bg-card text-muted')}>{t}</button>
+              <button key={t} type="button" aria-pressed={on} onClick={() => set({ allowedTools: on ? f.allowedTools.filter((x) => x !== t) : [...f.allowedTools, t] })}
+                className={cn('rounded-md border px-2 py-1 text-xs font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60', on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-line bg-card text-muted')}>{t}</button>
             );
           })}
         </div>

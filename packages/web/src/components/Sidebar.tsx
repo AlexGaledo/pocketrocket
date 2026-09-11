@@ -1,8 +1,10 @@
-import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3 } from 'lucide-react';
+import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3, PanelLeftClose, FolderOpen } from 'lucide-react';
 import { MODELS } from '@pocketrocket/shared';
 import { useStore, botById } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
+import { BotGroupHeader, useBotGroups } from './BotGroups';
 import { resolveDark } from '../lib/theme';
+import { api } from '../lib/api';
 import type { Bot, Message, Room } from '@pocketrocket/shared';
 
 /** What a bot is doing right now, from its latest unfinished tool call in any loaded room. */
@@ -34,8 +36,30 @@ export function Sidebar() {
   const settings = useStore((s) => s.settings);
   const providers = useStore((s) => s.providers);
   const updateSettings = useStore((s) => s.updateSettings);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const toast = useStore((s) => s.toast);
   const dark = resolveDark(settings.theme);
   const toggleTheme = () => void updateSettings({ theme: dark ? 'light' : 'dark' });
+  /**
+   * The workspace lives on whatever computer the hub runs on, so the hub is what opens it. On a server hub
+   * that is the virtual desktop, and the toast says so rather than leaving the user staring at their own
+   * unchanged screen waiting for a window that was never going to appear here.
+   */
+  const openWorkspace = async () => {
+    try {
+      const r = await api.openWorkspace();
+      if (!r.ok) return toast(r.error ? 'Could not open the workspace: ' + r.error : 'Could not open the workspace', true);
+      const WHERE: Record<string, string> = {
+        explorer: 'Workspace opened in File Explorer',
+        finder: 'Workspace opened in Finder',
+        screen: 'Workspace opened on the virtual desktop — see the Screen tab',
+        'file-manager': 'Workspace opened in your file manager',
+      };
+      toast(WHERE[r.where] ?? 'Workspace opened');
+    } catch (e) {
+      toast('Could not open the workspace: ' + (e as Error).message, true);
+    }
+  };
 
   const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
   const modelLabel = activeProvider?.models.find((m) => m.id === settings.defaultModel)?.label
@@ -46,6 +70,8 @@ export function Sidebar() {
   const groups = rooms.filter((r) => r.kind === 'group');
   const dmFor = (botId: string) => dms.find((r) => r.memberIds[0] === botId);
   const busy = bots.filter((b) => ['thinking', 'working', 'blocked', 'waiting'].includes(botStates[b.id] ?? 'idle')).length;
+
+  const { sections, collapsed, toggle, move } = useBotGroups(bots, groups);
 
   const openDm = async (botId: string) => {
     const existing = dmFor(botId);
@@ -63,7 +89,17 @@ export function Sidebar() {
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[12px] text-ink-fg">⚡</span>
           PocketRocket
         </div>
-        <span className="text-[11.5px] text-dim">{busy ? busy + ' working' : ''}</span>
+        <div className="flex items-center gap-1">
+          <span className="text-[11.5px] text-dim">{busy ? busy + ' working' : ''}</span>
+          <button
+            className="flex h-7 w-7 items-center justify-center rounded-full text-dim hover:bg-panel/70 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            title="Hide bots (Ctrl+B)"
+            aria-label="Hide bots"
+            onClick={toggleSidebar}
+          >
+            <PanelLeftClose size={15} />
+          </button>
+        </div>
       </div>
       <button
         className="mx-3 mb-1 flex items-center gap-1.5 self-start rounded-full bg-card2 px-2.5 py-1 text-[11.5px] text-muted hover:text-fg"
@@ -75,9 +111,23 @@ export function Sidebar() {
       </button>
 
       <div className="flex-1 overflow-y-auto px-1 pb-2">
-        <SectionHeader label="Team" onAdd={() => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
-        <ul className="mb-3 space-y-0.5">
-          {bots.map((b) => {
+        <SectionHeader label="Bots" onAdd={() => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
+        <div className="mb-3">
+          {sections.map((section, i) => (
+            <div key={section.key}>
+              <BotGroupHeader
+                group={section}
+                index={i}
+                count={section.bots.length}
+                isCollapsed={collapsed.includes(section.key)}
+                onToggle={() => toggle(section.key)}
+                onMove={move}
+              />
+              {!collapsed.includes(section.key) && (
+                // Indented past the header's chevron: without this the rows start left of their own
+                // heading and the grouping reads as flat.
+                <ul className="ml-2 space-y-0.5 border-l border-line/60 pl-1">
+                  {section.bots.map((b) => {
             const dm = dmFor(b.id);
             const active = dm && dm.id === activeRoomId;
             const n = dm ? unread[dm.id] ?? 0 : 0;
@@ -108,9 +158,13 @@ export function Sidebar() {
                 </div>
               </li>
             );
-          })}
-          {!bots.length && <li className="px-3 py-2 text-[12.5px] text-muted">No teammates yet.</li>}
-        </ul>
+                  })}
+                </ul>
+              )}
+            </div>
+          ))}
+          {!bots.length && <div className="px-3 py-2 text-[12.5px] text-muted">No bots yet.</div>}
+        </div>
 
         <SectionHeader label="Group chats" onAdd={() => openDialog({ kind: 'room', room: null })} addTitle="New group chat" />
         <ul className="space-y-0.5">
@@ -124,6 +178,9 @@ export function Sidebar() {
       <div className="flex items-center gap-1 px-2 pb-1">
         <button className="flex h-8 flex-1 items-center gap-2 rounded-full px-3 text-[12.5px] text-muted hover:bg-panel/70 hover:text-fg" onClick={() => openPanel('usage')}>
           <BarChart3 size={14} /> Usage
+        </button>
+        <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Open the shared workspace folder" onClick={() => void openWorkspace()}>
+          <FolderOpen size={15} />
         </button>
         <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Settings" onClick={() => openDialog({ kind: 'settings' })}>
           <Settings size={15} />

@@ -9,45 +9,42 @@ body:
         Thanks for taking the time to report a bug. Please fill in as much as you can.
 
   - type: dropdown
-    id: provider
-    attributes:
-      label: Provider
-      description: Which provider was the hub set to when this happened?
-      options:
-        - Claude
-        - OpenAI Codex
-        - OpenCode
-        - Grok
-        - Not provider-related
-    validations:
-      required: true
-
-  - type: dropdown
     id: run-mode
     attributes:
-      label: How are you running PocketRocket?
+      label: Local or server mode?
       options:
-        - Windows installer (desktop app)
-        - From source (pnpm dev)
-        - From source (pnpm build && pnpm start)
-        - VPS / systemd
-    validations:
-      required: true
-
-  - type: input
-    id: os
-    attributes:
-      label: Operating system
-      placeholder: e.g. Windows 11 24H2, Ubuntu 24.04
+        - Local — Windows installer (desktop app)
+        - Local — from source (pnpm dev)
+        - Local — from source (pnpm build && pnpm start)
+        - Server mode — VPS / systemd
+        - Desktop app connected to a server-mode hub (SSH tunnel)
     validations:
       required: true
 
   - type: input
     id: version
     attributes:
-      label: PocketRocket version
-      description: From Help → About, or the version in package.json / the installer filename
-      placeholder: e.g. 0.1.0
+      label: PocketRocket app version
+      description: From Settings → About (desktop app), or the version in package.json / the installer filename
+      placeholder: e.g. 0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Only if running the desktop app or installer. Leave blank for a Linux/macOS server hub.
+      placeholder: e.g. Windows 11 24H2
+    validations:
+      required: false
+
+  - type: input
+    id: claude-code-version
+    attributes:
+      label: Claude Code CLI version
+      description: Output of `claude --version`
+      placeholder: e.g. 2.x.x
     validations:
       required: true
 

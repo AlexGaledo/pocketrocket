@@ -19,7 +19,8 @@ const ALL_BUILTINS = ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bas
 
 const MODELS: ModelInfo[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'balanced, default', default: true },
-  { id: 'claude-opus-5', label: 'Opus 5', note: 'strongest, priciest' },
+  { id: 'claude-opus-5', label: 'Opus 5', note: 'strong, pricey' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'most capable, 2x Opus price' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', note: 'cheapest, fastest' },
 ];
 
@@ -30,6 +31,7 @@ export const CLAUDE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['ANTHROPIC_API_KEY'],
   permissions: 'full',
+  maturity: 'verified',
 };
 
 /** Wrap provider-agnostic hub tools as an in-process SDK MCP server named `pocketrocket`. */
@@ -46,6 +48,24 @@ function toolServer(tools: HubTool[]) {
   );
   // alwaysLoad: keep these schemas in the prompt so bots don't spend a ToolSearch roundtrip every turn.
   return createSdkMcpServer({ name: 'pocketrocket', version: VERSION, alwaysLoad: true, tools: wrapped });
+}
+
+/** `claude auth status` as JSON, or undefined when the CLI is too old, times out, or prints something else. */
+function authStatus(): Promise<{ loggedIn?: boolean; email?: string } | undefined> {
+  return new Promise((resolve) => {
+    const child = execFile(CLAUDE_EXE, ['auth', 'status'], { timeout: 5000, windowsHide: true }, (_err, stdout) => {
+      // A signed-out CLI may exit non-zero and still print the JSON, so the error alone decides nothing.
+      try {
+        const parsed = JSON.parse(String(stdout)) as { loggedIn?: unknown; email?: unknown };
+        resolve(typeof parsed.loggedIn === 'boolean'
+          ? { loggedIn: parsed.loggedIn, email: typeof parsed.email === 'string' ? parsed.email : undefined }
+          : undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+    child.on('error', () => resolve(undefined));
+  });
 }
 
 export class ClaudeProvider implements AgentProvider {
@@ -77,14 +97,19 @@ export class ClaudeProvider implements AgentProvider {
       child.on('error', () => resolve(undefined));
     });
     if (!version) return { ok: false, auth: 'unknown', version, error: 'claude --version did not answer within 2s', hint };
-    // `claude -p` under an OAuth login reports apiKeySource 'none' on the init message; that is the
-    // expected value for a subscription, not an error.
-    const auth = process.env.ANTHROPIC_API_KEY
-      ? 'apiKey'
-      : this.lastInit.apiKeySource === undefined || this.lastInit.apiKeySource === 'none'
-        ? 'subscription'
-        : 'unknown';
-    return { ok: true, version, auth, hint };
+    if (process.env.ANTHROPIC_API_KEY) return { ok: true, version, auth: 'apiKey', hint };
+    // `claude auth status` prints JSON ({ loggedIn, email, subscriptionType, ... }); without it a CLI that was
+    // installed but never signed in looked ready and every turn then failed.
+    const status = await authStatus();
+    if (status?.loggedIn === false) {
+      return { ok: false, version, auth: 'none', error: 'Claude Code is installed but not signed in.', hint };
+    }
+    // Older CLIs have no `auth status`: fall back to the init message, where an OAuth login reports
+    // apiKeySource 'none' (the expected value for a subscription, not an error).
+    const auth = status?.loggedIn || this.lastInit.apiKeySource === undefined || this.lastInit.apiKeySource === 'none'
+      ? 'subscription'
+      : 'unknown';
+    return { ok: true, version, auth, account: status?.email, hint };
   }
 
   interrupt(turnId: string): boolean {
@@ -140,7 +165,11 @@ export class ClaudeProvider implements AgentProvider {
       settingSources: [],
       plugins: pluginDir ? [{ type: 'local', path: pluginDir }] : undefined,
       skills: pluginDir ? 'all' : [],
-      permissionMode: 'acceptEdits',
+      // Approvals bypassed: the SDK skips canUseTool entirely (and the out-of-workspace hook below is left
+      // out, since an "ask" there would only route into a broker that allows everything).
+      ...(ctx.bypassPermissions
+        ? { permissionMode: 'bypassPermissions' as const, allowDangerouslySkipPermissions: true }
+        : { permissionMode: 'acceptEdits' as const }),
       // Availability: only the bot's built-ins (+ Skill when a plugin is attached) exist in context.
       // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
       tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)), ...(pluginDir ? ['Skill'] : [])],
@@ -151,7 +180,7 @@ export class ClaudeProvider implements AgentProvider {
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
       // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
       // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: {
+      hooks: ctx.bypassPermissions ? undefined : {
         PreToolUse: [
           {
             matcher: 'Read|Glob|Grep|NotebookEdit',

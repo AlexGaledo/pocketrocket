@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Bot, BotState, Message, Room, UsageTotals, ApprovalPayload } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
+import type { AccountState } from './account.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -21,6 +22,7 @@ export type ServerEvent =
   | { type: 'memory.updated'; botId: string; text: string }
   | { type: 'routine.fired'; routineId: string; runId: string; botId: string; roomId: string }
   | { type: 'usage.updated'; botId: string; roomId: string; totals: UsageTotals }
+  | { type: 'account.changed'; account: AccountState }
   | { type: 'error'; message: string; context?: string };
 
 // ---------- client -> server ----------

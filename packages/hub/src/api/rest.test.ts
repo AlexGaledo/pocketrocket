@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Bot, ProvidersResponse, SecretsStatus, Settings } from '@pocketrocket/shared';
+import type { Bot, HealthInfo, ProvidersResponse, SecretsStatus, Settings } from '@pocketrocket/shared';
+import { APPROVALS_ENV, ENABLED_PROVIDERS } from '../config.js';
 import { createHub, type Hub } from '../hub.js';
 
 let hub: Hub;
@@ -59,15 +60,39 @@ describe('settings / secrets / providers REST', () => {
     expect(JSON.stringify(status)).not.toContain('sk-');
   });
 
+  it.skipIf(ENABLED_PROVIDERS.includes('opencode'))('rejects switching to a disabled provider with 400 and will not check one', async () => {
+    const r = await api<{ error: string }>('PUT', '/api/settings', { provider: 'opencode' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('not enabled');
+    expect((await api<Settings>('GET', '/api/settings')).body.provider).toBe('claude');
+    expect((await api('POST', '/api/providers/opencode/check')).status).toBe(404);
+  });
+
+  it.skipIf(APPROVALS_ENV !== null)('approvals default to ask and a Settings toggle is live and reported by health', async () => {
+    expect((await api<Settings>('GET', '/api/settings')).body.approvals).toBe('ask');
+    expect((await api<HealthInfo>('GET', '/api/health')).body).toMatchObject({ approvals: 'ask', approvalsLocked: false });
+
+    const on = await api<Settings>('PUT', '/api/settings', { approvals: 'bypass' });
+    expect(on.body.approvals).toBe('bypass');
+    expect(hub.runner['broker'].bypassed).toBe(true);
+    expect((await api<HealthInfo>('GET', '/api/health')).body.approvals).toBe('bypass');
+
+    await api('PUT', '/api/settings', { approvals: 'ask' });
+    expect(hub.runner['broker'].bypassed).toBe(false);
+    expect((await api('PUT', '/api/settings', { approvals: 'sometimes' })).status).toBe(400);
+  });
+
   it('lists providers with checks and models', async () => {
     const res = (await api<ProvidersResponse>('GET', '/api/providers')).body;
     expect(res.active).toBe('claude');
-    expect(res.providers).toHaveLength(4);
+    expect(res.providers.map((p) => p.id)).toEqual(ENABLED_PROVIDERS);
     // Every provider reports a real check now (P2A/P2B/P2C landed), so assert the shape rather than a
     // value that depends on which CLIs happen to be installed on the machine running the tests.
     for (const p of res.providers) {
       expect(typeof p.check.ok).toBe('boolean');
       expect(p.check.hint).toBeTruthy();
     }
-  });
+    // GET /api/providers probes every enabled CLI by spawning it, which lands within a few hundred ms of the
+    // 5s default on its own and tips over when the suite runs it in parallel. Slow test, not a slow assert.
+  }, 30_000);
 });

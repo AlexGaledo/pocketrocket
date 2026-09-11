@@ -10,13 +10,13 @@
   --card2: #f0f1f3;       /* soft fills: user bubble, chips hover, inputs */
   --line: #e6e7ea;        /* hairlines, used sparingly */
   --fg: #111214;
-  --muted: #6e7681;
-  --dim: #a0a7b1;
-  --accent: #4f7df3;      /* one soft signal color: links, focus, thinking ring */
-  --accent2: #3b69e0;
-  --ok: #1f9d6a;
-  --warn: #e8842f;
-  --bad: #de4747;
+  --muted: #5c636d;      /* AA on --card2, the lowest-contrast surface text sits on */
+  --dim: #676d75;         /* AA too: quieter than --muted, but still readable */
+  --accent: #3f66c9;      /* one soft signal color: links, focus, thinking ring */
+  --accent2: #2f52ab;
+  --ok: #177a52;
+  --warn: #9c5a20;
+  --bad: #c23c3c;
   --user: #eef0f3;
   --ink: #111214;         /* primary actions are black, like a native app */
   --ink-fg: #ffffff;
@@ -35,7 +35,7 @@
   --line: #262a31;
   --fg: #f2f3f5;
   --muted: #9aa3ae;
-  --dim: #666d77;
+  --dim: #868d98;         /* AA on --card2 */
   --accent: #7ea1ff;
   --accent2: #5f88f2;
   --ok: #38c48a;
@@ -84,8 +84,13 @@ body {
   background-attachment: fixed;
 }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-textarea, input, select { outline: none; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+/* In the base layer so a component's own focus style (`focus-visible:outline-none` + a ring, a Tailwind
+   utility) wins; unlayered, this outline beat every utility and stacked on top of the rings. Anything
+   without its own focus style still gets this outline. */
+@layer base {
+  textarea, input, select { outline: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+}
 button { font-family: inherit; }
 .panel { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow); }
 

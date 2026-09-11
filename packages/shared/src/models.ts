@@ -1,3 +1,5 @@
+import type { Approvals } from './providers.js';
+
 export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done' | 'error';
 
 // 'Browser' and 'Desktop' are not Claude Code built-ins: Browser = Playwright MCP attached to the shared screen
@@ -10,6 +12,7 @@ export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 export const MODELS = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5 (default)' },
   { id: 'claude-opus-5', label: 'Opus 5' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ] as const;
 export const DEFAULT_MODEL = 'claude-sonnet-5';
@@ -136,4 +139,8 @@ export interface HealthInfo {
   accountEmail?: string;
   subscriptionType?: string;
   error?: string;
+  /** Approvals mode in force right now: `settings.approvals`, unless the server environment pins it. */
+  approvals: Approvals;
+  /** True when POCKETROCKET_BYPASS_PERMISSIONS pins `approvals`; Settings cannot change it (PUT answers 409). */
+  approvalsLocked: boolean;
 }

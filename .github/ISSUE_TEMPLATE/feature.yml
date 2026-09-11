@@ -6,20 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the suggestion. If this is about a new or changed provider adapter, please say so below — those need a design discussion before implementation.
-
-  - type: dropdown
-    id: provider
-    attributes:
-      label: Provider (if relevant)
-      options:
-        - Claude
-        - OpenAI Codex
-        - OpenCode
-        - Grok
-        - Not provider-related
-    validations:
-      required: false
+        Thanks for the suggestion. PocketRocket ships with Claude only in v1; if this is a request
+        for another provider, or a new/changed provider adapter, please say so below — those need
+        a design discussion before implementation (see CONTRIBUTING.md).
 
   - type: textarea
     id: problem

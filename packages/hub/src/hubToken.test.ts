@@ -49,11 +49,28 @@ describe('ensureHubToken', () => {
     }
   });
 
-  it('mints a fresh token on every start', async () => {
+  it('reuses the stored token on the next start, so a restart does not lock the open UI out', async () => {
     const a = await probe({ POCKETROCKET_TOKEN: '' });
     const b = await probe({ POCKETROCKET_TOKEN: '' });
+    expect(b.token).toBe(a.token);
+    expect(fs.readFileSync(b.file, 'utf8')).toBe(a.token);
+  });
+
+  it('mints a fresh token every start when POCKETROCKET_ROTATE_TOKEN=1', async () => {
+    const dir = path.join(tmp, 'rotate-data');
+    const a = await probe({ POCKETROCKET_TOKEN: '', POCKETROCKET_ROTATE_TOKEN: '1', POCKETROCKET_DATA: dir });
+    const b = await probe({ POCKETROCKET_TOKEN: '', POCKETROCKET_ROTATE_TOKEN: '1', POCKETROCKET_DATA: dir });
     expect(a.token).not.toBe(b.token);
     expect(fs.readFileSync(b.file, 'utf8')).toBe(b.token);
+  });
+
+  it('replaces a corrupt or truncated token file instead of trusting it', async () => {
+    const dir = path.join(tmp, 'corrupt-data');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'hub-token'), 'not-a-token\n');
+    const r = await probe({ POCKETROCKET_TOKEN: '', POCKETROCKET_DATA: dir });
+    expect(r.token).toMatch(/^[0-9a-f]{32}$/);
+    expect(fs.readFileSync(r.file, 'utf8')).toBe(r.token);
   });
 
   it('uses POCKETROCKET_TOKEN verbatim when it is set, and writes no file', async () => {

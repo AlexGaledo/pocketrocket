@@ -28,8 +28,8 @@ export function TokenPrompt() {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-ink/60 backdrop-blur-sm">
-      <div className="w-[380px] rounded-2xl bg-card p-5 text-[13px] shadow-[var(--shadow-lg)]">
-        <div className="mb-1 text-[15px] font-semibold">Paste the hub token</div>
+      <div role="dialog" aria-modal="true" aria-labelledby="token-prompt-title" className="w-[380px] rounded-2xl bg-card p-5 text-[13px] shadow-[var(--shadow-lg)]">
+        <div id="token-prompt-title" className="mb-1 text-[15px] font-semibold">Paste the hub token</div>
         <p className="mb-3 text-muted">
           The hub prints this as part of a URL like{' '}
           <span className="font-mono">http://127.0.0.1:7788/#token=&hellip;</span> when it starts, and stores the
@@ -37,6 +37,7 @@ export function TokenPrompt() {
         </p>
         <Input
           autoFocus
+          aria-label="Hub token"
           placeholder="hub token"
           value={value}
           onChange={(e) => setValue(e.target.value)}

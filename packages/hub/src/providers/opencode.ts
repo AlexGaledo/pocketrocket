@@ -40,6 +40,7 @@ export const OPENCODE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   authModes: ['subscription', 'apiKey'],
   secretKeys: [],
   permissions: 'best-effort',
+  maturity: 'verified',
 };
 
 // Empty on purpose: OpenCode model ids depend on which providers the user is logged into, so they are read
@@ -84,6 +85,10 @@ export class OpenCodeProvider implements AgentProvider {
 
   modelsSync(): ModelInfo[] {
     return this.modelCache.models;
+  }
+
+  modelsAwaited(): Promise<ModelInfo[]> {
+    return this.modelList();
   }
 
   private refreshModels(): Promise<ModelInfo[]> {
@@ -175,7 +180,7 @@ export class OpenCodeProvider implements AgentProvider {
 
     let server;
     try {
-      server = await this.server.ensure(ctx.mcp.url);
+      server = await this.server.ensure(ctx.mcp.url, !!ctx.bypassPermissions);
     } catch (e) {
       return fail('could not start `opencode serve`: ' + String((e as Error).message ?? e));
     }

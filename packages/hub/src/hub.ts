@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
-  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR,
+  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS,
   ensureDirs, ensureHubToken, migrateLegacyDb,
 } from './config.js';
 import { Db } from './db/db.js';
@@ -13,6 +13,7 @@ import { SkillService } from './services/SkillService.js';
 import { UsageTracker } from './services/UsageTracker.js';
 import { SettingsStore, installSettings } from './services/SettingsStore.js';
 import { SecretsStore } from './services/SecretsStore.js';
+import { AccountService } from './services/AccountService.js';
 import { PermissionBroker } from './permissions/PermissionBroker.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
@@ -21,8 +22,10 @@ import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
-import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, clientIp } from './api/guard.js';
+import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, tokenMatches } from './api/guard.js';
+import { SCREEN_COOKIE, SCREEN_VIEWER_PATH, ScreenSessions } from './api/screenSession.js';
 import { readBody } from './api/body.js';
+import { handleAuthCallback } from './api/authCallback.js';
 import { addSecret } from './providers/redact.js';
 
 export interface HubOptions {
@@ -33,6 +36,8 @@ export interface HubOptions {
   dbFile?: string;
   /** Skip directory creation + legacy db copy (tests). */
   skipBootstrap?: boolean;
+  /** Account service; tests hand in one over a fake Supabase client. */
+  account?: AccountService;
 }
 
 export interface Hub {
@@ -41,6 +46,7 @@ export interface Hub {
   repos: Repos;
   settings: SettingsStore;
   secrets: SecretsStore;
+  account: AccountService;
   providers: ReturnType<typeof createProviders>;
   turns: TurnRegistry;
   runner: BotRunner;
@@ -63,10 +69,18 @@ export function createHub(opts: HubOptions = {}): Hub {
   const skills = new SkillService(repos);
   const usage = new UsageTracker(repos);
   const secrets = new SecretsStore();
-  const settings = new SettingsStore({ repos, models: (p) => providers.modelsSync(p) });
+  const account = opts.account ?? new AccountService();
+  const settings = new SettingsStore({
+    repos,
+    enabled: ENABLED_PROVIDERS,
+    models: (p) => providers.modelsSync(p),
+    modelsAsync: (p) => providers.modelsAwaited(p),
+  });
   installSettings(settings);
-  const providers = createProviders({ settings });
-  const broker = new PermissionBroker(repos);
+  const providers = createProviders({ settings, enabled: ENABLED_PROVIDERS });
+  settings.ensureEnabledProvider();
+  // Live, not a constant: toggling approvals in Settings reaches the very next tool call and turn.
+  const broker = new PermissionBroker(repos, { bypass: () => settings.approvals() === 'bypass' });
   const router = new RoomRouter(repos, usage);
   const turns = new TurnRegistry();
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
@@ -76,7 +90,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.runner = runner;
   const scheduler = new RoutineScheduler(repos, router);
 
-  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers });
+  const screenSessions = new ScreenSessions();
+  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account });
   const handleMcp = createMcpHandler(turns);
 
   const MIME: Record<string, string> = {
@@ -86,8 +101,8 @@ export function createHub(opts: HubOptions = {}): Hub {
 
   // /screen/* -> noVNC (websockify) on the computer. Same-origin, so the SSH tunnel / Tailscale covers it.
   const screenProxy = httpProxy.createProxyServer({ target: SCREEN_URL, ws: true, changeOrigin: true });
-  // The noVNC iframe carries the hub token in its query string (an iframe cannot send headers), so make
-  // sure nothing loaded under /screen/ can leak that URL through a Referer header, and keep it out of caches.
+  // Nothing secret rides these URLs any more, but the noVNC page is a live view of a real desktop: keep it
+  // out of caches, out of Referer headers, and out of anyone else's frame.
   screenProxy.on('proxyRes', (proxyRes) => {
     proxyRes.headers['referrer-policy'] = 'no-referrer';
     proxyRes.headers['cache-control'] = 'no-store';
@@ -117,6 +132,15 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   };
 
+  /**
+   * `/screen/*` is the one place a browser cannot set a header — it is an iframe and then a websocket — so the
+   * hub token used to ride the query string. It now presents the httpOnly cookie that `/screen/session` handed
+   * out in exchange for a ticket. A bearer header still works for scripts and curl; `?token=` no longer does,
+   * which is the whole point: the hub token can never end up in a URL, a history entry or a DOM attribute.
+   */
+  const screenAuth = (req: http.IncomingMessage): boolean =>
+    screenSessions.valid(cookieValue(req, SCREEN_COOKIE)) || (token !== null && tokenMatches(bearerToken(req), token));
+
   const limiter = new AuthRateLimiter();
 
   const server = http.createServer(async (req, res) => {
@@ -134,10 +158,35 @@ export function createHub(opts: HubOptions = {}): Hub {
         res.end(JSON.stringify({ error: 'Too many failed authentication attempts; try again in a minute' }));
         return;
       }
-      if (!checkToken(req, url, token, { isPublicAsset })) {
+      // The screen handshake authenticates with a one-shot ticket rather than the hub token, so it answers
+      // ahead of the general check — but a bad ticket is a failed auth like any other and feeds the limiter.
+      if (url.pathname === '/screen/session' && (req.method ?? 'GET') === 'GET') {
+        const cookie = screenSessions.redeem(url.searchParams.get('ticket'));
+        if (!cookie) {
+          limiter.fail(ip);
+          res.writeHead(401, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid or expired screen ticket' }));
+          return;
+        }
+        limiter.succeed(ip);
+        res.writeHead(302, {
+          'set-cookie': cookie,
+          location: SCREEN_VIEWER_PATH,
+          'cache-control': 'no-store',
+          'referrer-policy': 'no-referrer',
+        });
+        res.end();
+        return;
+      }
+      if (!checkToken(req, url, token, { isPublicAsset, screenAuth })) {
         limiter.fail(ip);
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Missing or invalid hub token' }));
+        return;
+      }
+      // Token-exempt, so reaching it proves nothing: it must not clear the limiter, and it feeds it on failure.
+      if (url.pathname === AUTH_CALLBACK_PATH && (req.method ?? 'GET') === 'GET') {
+        await handleAuthCallback(req, res, url, { account, limiter });
         return;
       }
       limiter.succeed(ip);
@@ -201,7 +250,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       return;
     }
     // Applies to /screen/* too: the noVNC proxy used to be exempt (audit 2026-09-09, B2).
-    if (!checkToken(req, url, token, { isPublicAsset })) {
+    if (!checkToken(req, url, token, { isPublicAsset, screenAuth })) {
       limiter.fail(ip);
       socket.destroy();
       return;
@@ -218,19 +267,27 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, providers, turns, runner,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, HOST, () => {
           port = (server.address() as { port: number }).port;
           scheduler.start();
+          // Async on purpose: an offline start must not hold the hub up (see AccountService).
+          void account.start();
           console.log(
             'PocketRocket hub v' + VERSION + ' · node ' + process.versions.node +
             ' · provider ' + settings.get().provider + ' · data ' + DATA_DIR +
             ' · http://' + HOST + ':' + port,
           );
           console.log('[pocketrocket] workspace: ' + WORKSPACE_DIR + (token ? '  (token required)' : ''));
+          if (settings.approvals() === 'bypass') {
+            console.warn(
+              '[pocketrocket] WARNING: permissions bypassed — bots run every shell/file/web action with no approval card (' +
+              (settings.approvalsLocked ? 'set by POCKETROCKET_BYPASS_PERMISSIONS; =0 to restore' : 'turn approvals back on in Settings') + ')',
+            );
+          }
           // The token lives in the URL fragment, so it never reaches the server as a query string and the
           // web client moves it straight into sessionStorage. This line is how a human opens the UI.
           if (token) console.log('[pocketrocket] open: http://' + HOST + ':' + port + '/#token=' + token);
@@ -239,6 +296,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       }),
     async shutdown() {
       scheduler.stop();
+      account.stop();
       runner.interruptAll();
       await providers.shutdown();
       for (const c of wss.clients) c.terminate();

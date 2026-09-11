@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script>document.documentElement.classList.add("js");</script>
 <link rel="stylesheet" href="/styles.css" />
 
 <a class="skip-link" href="#main">Skip to content</a>
@@ -26,10 +27,17 @@
       <img src="/assets/rocket.svg" alt="" width="28" height="28" />
       PocketRocket
     </a>
+    <button
+      class="nav-toggle"
+      type="button"
+      aria-label="Menu"
+      aria-expanded="false"
+      aria-controls="nav-links"
+    ><span></span></button>
     <nav aria-label="Primary">
-      <ul class="nav-links">
+      <ul class="nav-links" id="nav-links">
         <li><a href="#features">Features</a></li>
-        <li><a href="#providers">Providers</a></li>
+        <li><a href="#claude">Claude</a></li>
         <li><a href="#server">Run on a server</a></li>
         <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
       </ul>
@@ -69,40 +77,26 @@
       </div>
     </section>
 
-    <section id="providers" aria-labelledby="providers-h">
-      <div class="section-head">
-        <h2 id="providers-h">Bring your own agent</h2>
-        <p>One provider at a time for the whole fleet; pick a model per bot.</p>
+    <section id="claude" aria-labelledby="claude-h">
+      <div class="section-head" data-reveal>
+        <h2 id="claude-h">Built on Claude</h2>
+        <p>PocketRocket drives your own Claude Code login and subscription — no separate API key required, though one works too.</p>
       </div>
-      <div class="grid-4">
-        <div class="card">
-          <div class="mark">C</div>
-          <h3>Claude</h3>
-          <p>Claude Code login or API key. Subscription or API key.</p>
-        </div>
-        <div class="card">
-          <div class="mark">X</div>
-          <h3>OpenAI Codex</h3>
-          <p>ChatGPT login or API key. Subscription or API key.</p>
-        </div>
-        <div class="card">
-          <div class="mark">O</div>
-          <h3>OpenCode</h3>
-          <p>Its own logins: Claude Pro/Max, ChatGPT, GitHub Copilot, SuperGrok, or any API key.</p>
-        </div>
-        <div class="card">
-          <div class="mark">G</div>
-          <h3>Grok</h3>
-          <p>Grok Build login or xAI API key. Subscription or API key.</p>
+      <div class="server-panel" data-reveal>
+        <div>
+          <p><strong>Your subscription.</strong> Drives your own Claude Code CLI login, or an <code>ANTHROPIC_API_KEY</code>. Pick Sonnet 5 (default), Opus 5, Fable 5.1, or Haiku 4.5 per bot.</p>
+          <p><strong>Approvals by default.</strong> Bots ask before shell commands, edits outside the workspace, or fleet changes. Switch to bypass mode in Settings if you want them to run unattended.</p>
+          <p><strong>Optional account.</strong> Sign in with GitHub to unlock paid plans later — everything works signed out, and your bots' conversations, files and keys stay on your machine.</p>
         </div>
       </div>
+      <p class="footnote">More providers are planned.</p>
     </section>
 
     <section id="features" aria-labelledby="features-h">
-      <div class="section-head">
+      <div class="section-head" data-reveal>
         <h2 id="features-h">Everything a fleet needs</h2>
       </div>
-      <div class="grid-6">
+      <div class="grid-6" data-reveal-group>
         <div class="tile">
           <h3>Persistent bots with memory</h3>
           <p>Each bot keeps its own identity and private memory across every session.</p>
@@ -131,10 +125,10 @@
     </section>
 
     <section id="how" aria-labelledby="how-h">
-      <div class="section-head">
+      <div class="section-head" data-reveal>
         <h2 id="how-h">How it works</h2>
       </div>
-      <div class="steps">
+      <div class="steps" data-reveal-group>
         <div class="step">
           <div class="num">1</div>
           <h3>Install</h3>
@@ -145,8 +139,8 @@
         </div>
         <div class="step">
           <div class="num">2</div>
-          <h3>Pick a provider you're already logged into</h3>
-          <p>Claude, Codex, OpenCode, or Grok — subscription or API key.</p>
+          <h3>Sign in to Claude Code</h3>
+          <p>Run <code>claude</code> once to log in with your subscription, or set an API key.</p>
         </div>
         <div class="step">
           <div class="num">3</div>
@@ -157,27 +151,31 @@
     </section>
 
     <section id="server" aria-labelledby="server-h">
-      <div class="section-head">
+      <div class="section-head" data-reveal>
         <h2 id="server-h">Run on a server</h2>
       </div>
-      <div class="server-panel">
+      <div class="server-panel" data-reveal>
         <p>Run the hub on a Linux box as a systemd service with a virtual desktop, so routines fire while your laptop is closed and bots get Browser and Desktop tools. Reach it over an SSH tunnel — the hub never needs to be exposed to the internet.</p>
         <a class="btn btn-secondary" href="https://github.com/AlexGaledo/pocketrocket#run-on-a-server">See the README</a>
       </div>
     </section>
 
     <section id="faq" aria-labelledby="faq-h">
-      <div class="section-head">
+      <div class="section-head" data-reveal>
         <h2 id="faq-h">Frequently asked</h2>
       </div>
-      <div class="faq">
+      <div class="faq" data-reveal-group>
         <details>
           <summary>Is it free?</summary>
-          <div class="answer">Yes. PocketRocket itself is free and open source; you pay your provider (Claude, OpenAI, OpenCode's own billing, or xAI) for the model usage.</div>
+          <div class="answer">Yes. PocketRocket itself is free and open source; you pay for Claude usage through your existing subscription or an API key.</div>
+        </details>
+        <details>
+          <summary>Do I need to create an account?</summary>
+          <div class="answer">No. Everything works fully signed out. Signing in from Settings → Account is optional and only used for account features, like paid plans later.</div>
         </details>
         <details>
           <summary>Does it phone home?</summary>
-          <div class="answer">No. The hub runs on your machine and only talks to the provider you configured. No telemetry, no accounts.</div>
+          <div class="answer">The hub runs on your machine and only talks to Claude and the GitHub releases page. If you choose to sign in, your email goes to Supabase (our auth provider) to complete the sign-in — nothing else, and bot conversations, files and keys never leave your machine. No telemetry.</div>
         </details>
         <details>
           <summary>Windows SmartScreen warning?</summary>
@@ -185,7 +183,7 @@
         </details>
         <details>
           <summary>Which model is cheapest?</summary>
-          <div class="answer">Depends on the provider: fast/mini tiers (e.g. a small Claude model, GPT-5 mini-class, Grok's fast tier) are cheapest per bot. Check each provider's pricing page for current rates.</div>
+          <div class="answer">Haiku 4.5 is the fastest and cheapest; Sonnet 5 is the default balance of quality and cost; Opus 5 and Fable 5.1 cost more. Set the model per bot in the bot dialog.</div>
         </details>
       </div>
     </section>

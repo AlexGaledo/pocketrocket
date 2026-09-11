@@ -40,6 +40,7 @@ export const CODEX_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['OPENAI_API_KEY'],
   permissions: 'best-effort',
+  maturity: 'untested',
 };
 
 /**
@@ -167,6 +168,8 @@ export interface CodexArgsInput {
   resumeToken: string | null;
   /** The bot has no Bash: drop the sandbox to read-only so it cannot shell out at all. */
   readOnly: boolean;
+  /** Approvals bypassed: `--sandbox danger-full-access` (unless readOnly, which still wins). */
+  fullAccess?: boolean;
 }
 
 /**
@@ -184,7 +187,7 @@ export function buildCodexArgs(i: CodexArgsInput): string[] {
     '-m',
     i.model,
     '--sandbox',
-    i.readOnly ? 'read-only' : 'workspace-write',
+    i.readOnly ? 'read-only' : i.fullAccess ? 'danger-full-access' : 'workspace-write',
     '--ask-for-approval',
     'never',
     '-c',
@@ -193,7 +196,7 @@ export function buildCodexArgs(i: CodexArgsInput): string[] {
     'mcp_servers.pocketrocket.bearer_token_env_var="POCKETROCKET_MCP_TOKEN"',
   );
   // Only meaningful under workspace-write; the bot's private home lives outside the shared workspace.
-  if (!i.readOnly) args.push('-c', 'sandbox_workspace_write.writable_roots=[' + JSON.stringify(i.botHome) + ']');
+  if (!i.readOnly && !i.fullAccess) args.push('-c', 'sandbox_workspace_write.writable_roots=[' + JSON.stringify(i.botHome) + ']');
   args.push('-'); // read the prompt from stdin
   return args;
 }
@@ -300,6 +303,7 @@ export class CodexProvider implements AgentProvider {
       mcpUrl: ctx.mcp.url,
       resumeToken: ctx.resumeToken,
       readOnly: !ctx.allowedBuiltins.includes('Bash'),
+      fullAccess: !!ctx.bypassPermissions,
     });
 
     // Allowlisted env only (audit 2026-09-09, B7): OPENAI_API_KEY, CODEX_HOME and the per-turn MCP token,

@@ -1,16 +1,16 @@
-/* ---- tokens: mirrors packages/web/src/index.css ---- */
+/* ---- tokens: mirrors packages/web/src/index.css, incl. its WCAG-AA text colors ---- */
 :root {
   --bg: #f7f7f8;
   --panel: #ffffff;
   --card2: #f0f1f3;
   --line: #e6e7ea;
   --fg: #111214;
-  --muted: #6e7681;
-  --dim: #a0a7b1;
-  --accent: #4f7df3;
-  --accent2: #3b69e0;
-  --ok: #1f9d6a;
-  --warn: #e8842f;
+  --muted: #5c636d;
+  --dim: #676d75;
+  --accent: #3f66c9;
+  --accent2: #2f52ab;
+  --ok: #177a52;
+  --warn: #9c5a20;
   --ink: #111214;
   --ink-fg: #ffffff;
   --shadow: 0 1px 2px rgba(17, 18, 20, 0.04), 0 8px 24px rgba(17, 18, 20, 0.06);
@@ -28,7 +28,7 @@
     --line: #262a31;
     --fg: #f2f3f5;
     --muted: #9aa3ae;
-    --dim: #666d77;
+    --dim: #868d98;
     --accent: #7ea1ff;
     --accent2: #5f88f2;
     --ok: #38c48a;
@@ -78,7 +78,13 @@ header.site-nav {
   z-index: 20;
   backdrop-filter: blur(10px);
   background: color-mix(in oklab, var(--bg) 82%, transparent);
+  /* The hairline only appears once the page has scrolled under the bar. */
   border-bottom: 1px solid transparent;
+  transition: border-color 0.25s ease, background-color 0.25s ease;
+}
+header.site-nav.is-scrolled {
+  border-bottom-color: var(--line);
+  background: color-mix(in oklab, var(--bg) 92%, transparent);
 }
 .nav-row {
   display: flex;
@@ -108,11 +114,101 @@ header.site-nav {
   color: var(--muted);
   font-size: 14px;
 }
+.nav-links a {
+  position: relative;
+  transition: color 0.18s ease;
+}
+.nav-links a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--fg);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
 .nav-links a:hover { color: var(--fg); }
-.nav-toggle { display: none; }
+.nav-links a:hover::after { transform: scaleX(1); }
+
+/* Hamburger. Hidden on desktop; below 720px it is the only way to reach the nav. */
+.nav-toggle {
+  display: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+.nav-toggle span {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease;
+}
+.nav-toggle span::before,
+.nav-toggle span::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 16px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nav-toggle span::before { transform: translateY(-5px); }
+.nav-toggle span::after { transform: translateY(5px); }
+.nav-toggle[aria-expanded="true"] span { transform: rotate(45deg); }
+.nav-toggle[aria-expanded="true"] span::before { transform: rotate(90deg); }
+.nav-toggle[aria-expanded="true"] span::after { transform: translateY(0) rotate(90deg); opacity: 0; }
 
 @media (max-width: 720px) {
-  .nav-links { display: none; }
+  .nav-toggle { display: inline-flex; }
+  .nav-row { position: relative; }
+  .nav-links {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    left: 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    border-radius: 18px;
+    background: var(--panel);
+    box-shadow: var(--shadow-lg);
+    /* Collapsed by default; the toggle swaps these three properties. */
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    transform-origin: top right;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .nav-links a {
+    display: block;
+    padding: 11px 12px;
+    border-radius: 12px;
+    font-size: 15px;
+    color: var(--fg);
+  }
+  .nav-links a::after { display: none; }
+  .nav-links a:hover { background: var(--card2); }
+  header.site-nav.is-nav-open .nav-links {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
 }
 
 /* ---- buttons ---- */
@@ -129,13 +225,14 @@ header.site-nav {
   border: 1px solid transparent;
   cursor: pointer;
   font-family: inherit;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease, box-shadow 0.2s ease;
 }
+.btn:hover { transform: translateY(-1px); }
 .btn:active { transform: scale(0.98); }
 .btn-primary { background: var(--ink); color: var(--ink-fg); }
-.btn-primary:hover { opacity: 0.88; }
+.btn-primary:hover { opacity: 0.9; box-shadow: var(--shadow-lg); }
 .btn-secondary { background: var(--panel); color: var(--fg); border-color: var(--line); box-shadow: var(--shadow); }
-.btn-secondary:hover { opacity: 0.88; }
+.btn-secondary:hover { opacity: 1; box-shadow: var(--shadow-lg); }
 .btn small { font-weight: 400; opacity: 0.75; }
 
 /* ---- panel ---- */
@@ -178,15 +275,25 @@ header.site-nav {
   font-size: 13px;
   color: var(--dim);
 }
-.hero-visual {
-  animation: fade-in 0.6s ease both;
+/* Hero entrance. Everything rides one keyframe with a per-element delay, so the copy lands
+   before the screenshot rather than the whole block appearing at once. */
+.hero-visual,
+.hero h1,
+.hero p.sub,
+.hero-actions,
+.hero-foot {
+  animation: rise-in 0.62s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--delay, 0s);
 }
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hero-visual { animation: none; }
+.hero h1 { --delay: 0.02s; }
+.hero p.sub { --delay: 0.09s; }
+.hero-actions { --delay: 0.16s; }
+.hero-foot { --delay: 0.22s; }
+.hero-visual { --delay: 0.12s; }
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
 }
 /* The hero screenshot. width/height on the <img> give it the 8:5 aspect ratio, so `height: auto`
    is all that is needed to keep it responsive without reserving the wrong box on load. */
@@ -197,8 +304,24 @@ header.site-nav {
   border-radius: 16px;
   border: 1px solid var(--line);
   box-shadow: var(--shadow-lg);
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.hero-visual:hover .shot { transform: translateY(-4px) scale(1.006); }
 
+
+/* ---- scroll reveal ----
+   `.js` is set by an inline script in <head>, so without JS nothing is ever hidden. Sections start
+   offset and settle as they enter the viewport; children stagger off --i set in the markup. */
+.js [data-reveal] {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--i, 0) * 60ms);
+}
+.js [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+}
 
 /* ---- section headings ---- */
 section { padding: 56px 0; }
@@ -214,32 +337,6 @@ section { padding: 56px 0; }
   margin: 0 auto;
 }
 
-/* ---- providers grid ---- */
-.grid-4 {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-@media (max-width: 900px) {
-  .grid-4 { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 560px) {
-  .grid-4 { grid-template-columns: 1fr; }
-}
-.card {
-  padding: 22px;
-  border-radius: 20px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-}
-.card h3 { margin: 12px 0 6px; font-size: 16px; }
-.card p { margin: 0; color: var(--muted); font-size: 13.5px; }
-.card .mark {
-  width: 36px; height: 36px; border-radius: 10px;
-  background: var(--card2);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px; font-weight: 700;
-}
 .footnote {
   text-align: center;
   color: var(--dim);
@@ -264,7 +361,9 @@ section { padding: 56px 0; }
   border-radius: 20px;
   background: var(--panel);
   box-shadow: var(--shadow);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.24s ease;
 }
+.tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 .tile h3 { font-size: 15px; margin: 0 0 6px; }
 .tile p { margin: 0; color: var(--muted); font-size: 13.5px; }
 
@@ -282,7 +381,9 @@ section { padding: 56px 0; }
   border-radius: 20px;
   background: var(--panel);
   box-shadow: var(--shadow);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.24s ease;
 }
+.step:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 .step .num {
   width: 28px; height: 28px; border-radius: 50%;
   background: var(--ink); color: var(--ink-fg);
@@ -378,3 +479,28 @@ footer.site-foot a:hover { color: var(--fg); }
   z-index: 50;
 }
 .skip-link:focus { left: 0; }
+
+/* ---- reduced motion ----
+   One blanket rather than a per-rule opt-out, so anything added later is covered by default.
+   Reveals must still end up visible: the transition is removed, not the end state. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .js [data-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+  .card:hover,
+  .tile:hover,
+  .step:hover,
+  .btn:hover,
+  .hero-visual:hover .shot {
+    transform: none;
+  }
+}
