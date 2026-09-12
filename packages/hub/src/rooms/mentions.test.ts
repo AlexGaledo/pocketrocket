@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseMentions } from './mentions.js';
 import type { Bot } from '@pocketrocket/shared';
 
-const bot = (id: string, handle: string): Bot => ({ id, handle, name: handle, title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1, createdAt: 0 });
+const bot = (id: string, handle: string): Bot => ({ id, handle, name: handle, title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1, autoMemory: true, autoMemoryEvery: 10, createdAt: 0 });
 const members = [bot('1', 'planner'), bot('2', 'coder'), bot('3', 'code-review')];
 
 describe('parseMentions', () => {

@@ -119,6 +119,13 @@ in a group chat of its own making, retune them, and retire them ("create a resea
 writer, start a room with them, then draft the post"). Limits: 50 bots per account, 6 per room.
 The system prompt tells bots not to delete or rewrite a bot unless you asked.
 
+**Auto-memory.** Bots don't have to remember to call `update_memory`: every 10 completed turns of a
+bot in a room (per bot, 3–100, or off — Settings → Bots), a background pass on Haiku 4.5 reads the
+messages since the last pass and appends new lasting facts (your preferences, decisions, ongoing
+work, names/IDs) to `memory.md` under an `## Auto-saved <date>` heading. It is append-only, runs
+separately from the bot's session without holding up the room, skips secrets, posts "*Bot* saved N
+notes to memory" when it saved anything, and its cost shows up in usage. Claude provider only.
+
 Models: **Sonnet 5** (default), **Opus 5**, **Fable 5.1**, **Haiku 4.5** — picked per bot in the
 bot dialog.
 

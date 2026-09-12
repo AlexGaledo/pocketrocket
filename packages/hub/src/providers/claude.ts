@@ -6,6 +6,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
 import { CDP_URL, CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
@@ -120,6 +121,27 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
+    const first = await this.runOnce(ctx, sink);
+    // A model newer than the installed CLI fails on the first request, before any tool runs. Update the CLI
+    // and replay the turn once instead of sending the user to a terminal. Only replayed when no tool was
+    // called, so nothing runs twice.
+    if (!first.outdatedCli || first.usedTools || ctx.signal.aborted) return first.outcome;
+    sink.onState('working');
+    const update = await updateClaudeCli();
+    if (!update.ok) {
+      const detail = update.output.split('\n').filter((l) => l.trim()).pop();
+      return {
+        ...first.outcome,
+        error: first.outcome.error + ' Automatic `claude update` failed' + (detail ? ' (' + detail + ')' : '') +
+          '. Run `claude update` in a terminal, then try again.',
+      };
+    }
+    if (ctx.signal.aborted) return first.outcome;
+    sink.onState('thinking');
+    return (await this.runOnce(ctx, sink)).outcome;
+  }
+
+  private async runOnce(ctx: TurnContext, sink: TurnSink): Promise<{ outcome: TurnOutcome; outdatedCli: boolean; usedTools: boolean }> {
     const started = Date.now();
     const bot = ctx.bot;
     const pluginDir = ctx.pluginDir ?? null;
@@ -219,6 +241,8 @@ export class ClaudeProvider implements AgentProvider {
     let usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
     let modelUsage: unknown;
     let durationMs = 0;
+    let outdatedCli: string | undefined;
+    let usedTools = false;
 
     const q = query({ prompt: prompt(), options });
     this.active.set(ctx.turnId, q);
@@ -241,8 +265,12 @@ export class ClaudeProvider implements AgentProvider {
         if (m.type === 'assistant') {
           if (m.parent_tool_use_id) continue;
           for (const block of m.message.content) {
-            if (block.type === 'text' && block.text.trim()) sink.onText(block.text);
-            else if (block.type === 'tool_use') {
+            if (block.type === 'text' && block.text.trim()) {
+              // Held back rather than shown: runTurn updates the CLI and replays, or reports it as the turn error.
+              if (isOutdatedCliError(block.text)) outdatedCli = block.text.trim();
+              else sink.onText(block.text);
+            } else if (block.type === 'tool_use') {
+              usedTools = true;
               sink.onToolUse(block.id, block.name, block.input);
               sink.onState('working');
             }
@@ -267,6 +295,9 @@ export class ClaudeProvider implements AgentProvider {
           costUsd = m.total_cost_usd ?? 0;
           ok = m.subtype === 'success';
           if (!ok) error = m.subtype + ((m as { errors?: string[] }).errors?.length ? ': ' + (m as { errors?: string[] }).errors!.join('; ') : '');
+          const resultText = (m as { result?: string }).result;
+          if (!outdatedCli && isOutdatedCliError(resultText)) outdatedCli = resultText!.trim();
+          if (!outdatedCli && error && isOutdatedCliError(error)) outdatedCli = error;
           const u = m.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
           usage = {
             inputTokens: u?.input_tokens ?? 0, outputTokens: u?.output_tokens ?? 0,
@@ -280,16 +311,23 @@ export class ClaudeProvider implements AgentProvider {
       }
     } catch (e) {
       error = error ?? String((e as Error).message ?? e);
+      if (!outdatedCli && isOutdatedCliError(error)) outdatedCli = error;
     } finally {
       resolveDone();
       ctx.signal.removeEventListener('abort', onAbort);
       this.active.delete(ctx.turnId);
     }
+    // The CLI reports this API error as a "successful" result, so the turn is marked failed here.
+    if (outdatedCli) {
+      ok = false;
+      error = outdatedCli;
+    }
 
-    return {
+    const outcome: TurnOutcome = {
       ok, error, costUsd,
       usage: { costUsd, ...usage, modelUsage, durationMs: durationMs || Date.now() - started },
       durationMs: durationMs || Date.now() - started,
     };
+    return { outcome, outdatedCli: !!outdatedCli, usedTools };
   }
 }

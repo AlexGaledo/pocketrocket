@@ -2,7 +2,8 @@ export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS bots (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, handle TEXT UNIQUE NOT NULL, title TEXT DEFAULT '',
   description TEXT DEFAULT '', avatar TEXT DEFAULT '', model TEXT NOT NULL,
-  allowed_tools TEXT NOT NULL DEFAULT '[]', max_budget_usd REAL NOT NULL DEFAULT 2.0, created_at INTEGER NOT NULL
+  allowed_tools TEXT NOT NULL DEFAULT '[]', max_budget_usd REAL NOT NULL DEFAULT 2.0, created_at INTEGER NOT NULL,
+  auto_memory INTEGER NOT NULL DEFAULT 1, auto_memory_every INTEGER NOT NULL DEFAULT 10
 );
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('dm','group')), name TEXT NOT NULL,
@@ -21,6 +22,12 @@ CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, seq);
 CREATE TABLE IF NOT EXISTS sessions (
   bot_id TEXT NOT NULL, room_id TEXT NOT NULL, sdk_session_id TEXT, last_seen_seq INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER, provider TEXT, PRIMARY KEY (bot_id, room_id)
+);
+-- Auto-memory progress per (bot, room): turns since the last pass, the last message seq it covered, and the
+-- turn count before which a failed pass is not retried.
+CREATE TABLE IF NOT EXISTS auto_memory (
+  bot_id TEXT NOT NULL, room_id TEXT NOT NULL, turns_since INTEGER NOT NULL DEFAULT 0, last_seq INTEGER NOT NULL DEFAULT 0,
+  retry_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (bot_id, room_id)
 );
 -- Global settings (see @pocketrocket/shared SettingsSchema); value holds JSON.
 CREATE TABLE IF NOT EXISTS settings (

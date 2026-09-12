@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
-import type {
-  Bot, Room, Message, Routine, RoutineRun, Skill, UsageTotals, UsageRow, MessageKind, AuthorType,
+import {
+  AUTO_MEMORY_EVERY,
+  type Bot, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
 } from '@pocketrocket/shared';
 import type { Db, Row } from './db.js';
 
@@ -25,6 +26,8 @@ export class Repos {
       model: r.model as string,
       allowedTools: JSON.parse((r.allowed_tools as string) || '[]'),
       maxBudgetUsd: r.max_budget_usd as number,
+      autoMemory: !!(r.auto_memory as number),
+      autoMemoryEvery: (r.auto_memory_every as number) ?? AUTO_MEMORY_EVERY.default,
       createdAt: r.created_at as number,
     };
   }
@@ -39,12 +42,13 @@ export class Repos {
     const r = this.db.get('SELECT * FROM bots WHERE handle=?', handle);
     return r && this.rowToBot(r);
   }
-  createBot(b: Omit<Bot, 'id' | 'createdAt'>): Bot {
-    const bot: Bot = { ...b, id: nanoid(10), createdAt: now() };
+  /** The auto-memory fields are optional here and default to on, every {@link AUTO_MEMORY_EVERY}.default turns. */
+  createBot(b: Omit<Bot, 'id' | 'createdAt' | 'autoMemory' | 'autoMemoryEvery'> & Partial<Pick<Bot, 'autoMemory' | 'autoMemoryEvery'>>): Bot {
+    const bot: Bot = { ...b, autoMemory: b.autoMemory ?? true, autoMemoryEvery: b.autoMemoryEvery ?? AUTO_MEMORY_EVERY.default, id: nanoid(10), createdAt: now() };
     this.db.run(
-      'INSERT INTO bots (id,name,handle,title,description,avatar,model,allowed_tools,max_budget_usd,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO bots (id,name,handle,title,description,avatar,model,allowed_tools,max_budget_usd,auto_memory,auto_memory_every,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       bot.id, bot.name, bot.handle, bot.title, bot.description, bot.avatar, bot.model,
-      JSON.stringify(bot.allowedTools), bot.maxBudgetUsd, bot.createdAt,
+      JSON.stringify(bot.allowedTools), bot.maxBudgetUsd, bot.autoMemory ? 1 : 0, bot.autoMemoryEvery, bot.createdAt,
     );
     return bot;
   }
@@ -53,8 +57,9 @@ export class Repos {
     if (!cur) return undefined;
     const b = { ...cur, ...patch };
     this.db.run(
-      'UPDATE bots SET name=?,handle=?,title=?,description=?,avatar=?,model=?,allowed_tools=?,max_budget_usd=? WHERE id=?',
-      b.name, b.handle, b.title, b.description, b.avatar, b.model, JSON.stringify(b.allowedTools), b.maxBudgetUsd, id,
+      'UPDATE bots SET name=?,handle=?,title=?,description=?,avatar=?,model=?,allowed_tools=?,max_budget_usd=?,auto_memory=?,auto_memory_every=? WHERE id=?',
+      b.name, b.handle, b.title, b.description, b.avatar, b.model, JSON.stringify(b.allowedTools), b.maxBudgetUsd,
+      b.autoMemory ? 1 : 0, b.autoMemoryEvery, id,
     );
     return b;
   }
@@ -63,6 +68,7 @@ export class Repos {
       this.db.run('DELETE FROM bots WHERE id=?', id);
       this.db.run('DELETE FROM room_members WHERE bot_id=?', id);
       this.db.run('DELETE FROM sessions WHERE bot_id=?', id);
+      this.db.run('DELETE FROM auto_memory WHERE bot_id=?', id);
       this.db.run('DELETE FROM bot_skills WHERE bot_id=?', id);
       this.db.run('DELETE FROM routines WHERE bot_id=?', id);
     });
@@ -123,6 +129,7 @@ export class Repos {
       this.db.run('DELETE FROM room_members WHERE room_id=?', id);
       this.db.run('DELETE FROM messages WHERE room_id=?', id);
       this.db.run('DELETE FROM sessions WHERE room_id=?', id);
+      this.db.run('DELETE FROM auto_memory WHERE room_id=?', id);
       this.db.run('DELETE FROM routines WHERE room_id=?', id);
       this.db.run('DELETE FROM approvals WHERE room_id=?', id);
     });
@@ -209,6 +216,21 @@ export class Repos {
         'ON CONFLICT(bot_id,room_id) DO UPDATE SET sdk_session_id=excluded.sdk_session_id,last_seen_seq=excluded.last_seen_seq,' +
         'updated_at=excluded.updated_at,provider=excluded.provider',
       botId, roomId, s.sdkSessionId, s.lastSeenSeq, now(), s.provider,
+    );
+  }
+
+  // ---------- auto-memory progress ----------
+  getAutoMemory(botId: string, roomId: string): { turnsSince: number; lastSeq: number; retryAt: number } {
+    const r = this.db.get('SELECT * FROM auto_memory WHERE bot_id=? AND room_id=?', botId, roomId);
+    if (!r) return { turnsSince: 0, lastSeq: 0, retryAt: 0 };
+    return { turnsSince: r.turns_since as number, lastSeq: r.last_seq as number, retryAt: r.retry_at as number };
+  }
+  saveAutoMemory(botId: string, roomId: string, patch: Partial<{ turnsSince: number; lastSeq: number; retryAt: number }>) {
+    const s = { ...this.getAutoMemory(botId, roomId), ...patch };
+    this.db.run(
+      'INSERT INTO auto_memory (bot_id,room_id,turns_since,last_seq,retry_at) VALUES (?,?,?,?,?) ' +
+        'ON CONFLICT(bot_id,room_id) DO UPDATE SET turns_since=excluded.turns_since,last_seq=excluded.last_seq,retry_at=excluded.retry_at',
+      botId, roomId, s.turnsSince, s.lastSeq, s.retryAt,
     );
   }
 

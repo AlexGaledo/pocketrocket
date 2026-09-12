@@ -11,6 +11,7 @@ import { Repos } from './db/repos.js';
 import { MemoryService } from './services/MemoryService.js';
 import { SkillService } from './services/SkillService.js';
 import { UsageTracker } from './services/UsageTracker.js';
+import { AutoMemory } from './services/AutoMemory.js';
 import { SettingsStore, installSettings } from './services/SettingsStore.js';
 import { SecretsStore } from './services/SecretsStore.js';
 import { AccountService } from './services/AccountService.js';
@@ -88,6 +89,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
   }, providers, turns);
   router.runner = runner;
+  router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
   const scheduler = new RoutineScheduler(repos, router);
 
   const screenSessions = new ScreenSessions();

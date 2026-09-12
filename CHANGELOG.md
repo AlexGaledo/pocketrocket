@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Auto-memory: every 10 completed turns of a bot in a room, a background pass on Haiku 4.5 appends
+  new lasting facts from the conversation (preferences, decisions, ongoing work, names/IDs) to the
+  bot's `memory.md`, so bots remember more than what they chose to `update_memory`. Append-only,
+  never delays the room, costs are tracked in usage, and the room gets a short "saved N notes"
+  line when anything was saved. On by default; per-bot toggle and interval (3–100 turns) in
+  Settings → Bots. Claude provider only.
+
+### Fixed
+
+- Bots no longer fail with "Claude Code X does not support this model; version Y or newer is
+  required" when a new model needs a newer CLI: the hub runs `claude update` and replays the turn
+  once (only when no tool had run yet). If the update fails, the turn error says so and asks for a
+  manual `claude update`.
+- Server mode: the service user's Claude Code CLI is also kept current by an hourly cron job
+  (`deploy/claude-update.sh`, installed by `setup-vps.sh`).
+
 ## [0.2.0] - 2026-09-12
 
 First public release. (`0.1.0` was the internal Claudebot-era version, so the first release under

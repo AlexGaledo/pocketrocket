@@ -5,6 +5,7 @@ import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { BotRunner, TurnRequest, TurnResult } from '../agent/BotRunner.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
+import type { AutoMemory } from '../services/AutoMemory.js';
 import { parseMentions } from './mentions.js';
 
 interface LaneItem {
@@ -20,12 +21,29 @@ interface Lane {
 
 const STATE_RANK: Record<BotState, number> = { idle: 0, done: 1, thinking: 2, working: 3, waiting: 4, blocked: 5, error: 6 };
 
+/** Messages a bot is shown as conversation: text, handoffs and routine prompts (not tool chips or system notes). */
+export function isConversation(m: Message): boolean {
+  return m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine';
+}
+/** One transcript line as bots see it: `#seq [author]: text`. */
+export function formatMessage(repos: Repos, m: Message, text: string = m.text): string {
+  let who: string;
+  if (m.authorType === 'user') who = settings.get().userName;
+  else if (m.authorType === 'system') who = m.kind === 'routine' ? 'routine' : 'system';
+  else {
+    const b = repos.getBot(m.authorId ?? '');
+    who = b ? '@' + b.handle : 'bot';
+  }
+  return '#' + m.seq + ' [' + who + ']: ' + text;
+}
+
 export class RoomRouter {
   private lanes = new Map<string, Lane>();
   private states = new Map<string, Map<string, BotState>>(); // botId -> roomId -> state
   private runningTurns = 0;
   private waiters: (() => void)[] = [];
   runner!: BotRunner;
+  autoMemory?: AutoMemory;
 
   constructor(private repos: Repos, private usage: UsageTracker) {}
 
@@ -159,6 +177,8 @@ export class RoomRouter {
           this.release();
         }
         this.repos.saveSession(bot.id, room.id, { lastSeenSeq: startSeq });
+        // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
+        this.autoMemory?.afterTurn(bot.id, room.id, result);
         for (const i of items) i.onDone?.(result);
         if (result.ok && result.finalText) {
           // re-read members: the turn may have created or added bots
@@ -177,14 +197,8 @@ export class RoomRouter {
   private buildInjected(bot: Bot, room: Room, lastSeenSeq: number, triggerSeqs: number[]): string {
     const msgs = this.repos
       .messagesAfter(room.id, lastSeenSeq)
-      .filter((m) => (m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine') && m.authorId !== bot.id);
-    const who = (m: Message) => {
-      if (m.authorType === 'user') return settings.get().userName;
-      if (m.authorType === 'system') return m.kind === 'routine' ? 'routine' : 'system';
-      const b = this.repos.getBot(m.authorId ?? '');
-      return b ? '@' + b.handle : 'bot';
-    };
-    const lines = msgs.map((m) => '#' + m.seq + ' [' + who(m) + ']: ' + m.text);
+      .filter((m) => isConversation(m) && m.authorId !== bot.id);
+    const lines = msgs.map((m) => formatMessage(this.repos, m));
     const trig = triggerSeqs.length ? '\n\n(Message' + (triggerSeqs.length > 1 ? 's' : '') + ' that triggered you: ' + triggerSeqs.map((s) => '#' + s).join(', ') + '.' : '(';
     const reminder = room.kind === 'group'
       ? ' Reply NO_REPLY if you have nothing new to add, if your part depends on another bot that has not finished, or if this was already handled.)'

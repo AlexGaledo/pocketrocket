@@ -3,14 +3,16 @@
  * Turning approvals off takes an explicit second step with a plain warning. When the server's
  * environment pins the value (GET /api/health → approvalsLocked) the control shows the value in force,
  * is read-only, and says where it is set; the hub would answer 409 to any change anyway.
+ *
+ * Below it, per bot: auto-memory on/off and how many turns in a room between passes (PATCH /api/bots/:id).
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { Lock, ShieldAlert } from 'lucide-react';
-import type { Approvals } from '@pocketrocket/shared';
+import { AUTO_MEMORY_EVERY, type Approvals, type Bot, type BotInput } from '@pocketrocket/shared';
 import { useStore } from '../../store';
-import type { HealthResponse } from '../../lib/api';
-import { Badge, Button, RadioCard } from '../ui';
-import { Group, SectionHeader } from './parts';
+import { api, type HealthResponse } from '../../lib/api';
+import { Avatar, Badge, Button, Input, RadioCard, Switch } from '../ui';
+import { Card, Group, SectionHeader } from './parts';
 
 export function BotsSection({ health, onHealthStale }: {
   /** Latest GET /api/health, or null while loading / if it failed (then we assume "not locked"). */
@@ -19,10 +21,12 @@ export function BotsSection({ health, onHealthStale }: {
   onHealthStale: () => void;
 }) {
   const stored = useStore((s) => s.settings.approvals);
+  const bots = useStore((s) => s.bots);
   const updateSettings = useStore((s) => s.updateSettings);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const titleId = useId();
+  const memoryHintId = useId();
 
   const locked = !!health?.approvalsLocked;
   const inForce: Approvals = locked && health ? health.approvals : stored;
@@ -70,7 +74,63 @@ export function BotsSection({ health, onHealthStale }: {
           <p className="mt-3 text-[12px] text-muted">A change applies from each bot's next reply.</p>
         )}
       </Group>
+
+      <Group title="Auto-memory">
+        <p id={memoryHintId} className="mb-2 text-[12px] leading-snug text-muted">
+          Every few turns in a room, a quick pass on Haiku (the cheapest model) saves lasting facts to the bot's memory:
+          your preferences, decisions, ongoing work. It only adds notes and never rewrites what is there.
+        </p>
+        <Card className="py-1">
+          {bots.length
+            ? <div className="divide-y divide-line">{bots.map((b) => <AutoMemoryRow key={b.id} bot={b} describedBy={memoryHintId} />)}</div>
+            : <p className="py-2 text-[12.5px] text-muted">No bots yet.</p>}
+        </Card>
+      </Group>
     </>
+  );
+}
+
+/** One bot's auto-memory controls. The switch flips at once and snaps back if the hub refuses the change. */
+function AutoMemoryRow({ bot, describedBy }: { bot: Bot; describedBy: string }) {
+  const toast = useStore((s) => s.toast);
+  const [on, setOn] = useState(bot.autoMemory);
+  const [every, setEvery] = useState(String(bot.autoMemoryEvery));
+  useEffect(() => setOn(bot.autoMemory), [bot.autoMemory]);
+  useEffect(() => setEvery(String(bot.autoMemoryEvery)), [bot.autoMemoryEvery]);
+
+  const save = async (patch: Partial<BotInput>) => {
+    try {
+      await api.bots.update(bot.id, patch);
+    } catch (e) {
+      setOn(bot.autoMemory);
+      setEvery(String(bot.autoMemoryEvery));
+      toast("Couldn't save that change: " + (e as Error).message, true);
+    }
+  };
+  const commitEvery = () => {
+    const n = Math.round(Number(every));
+    const next = every.trim() && Number.isFinite(n) ? Math.min(AUTO_MEMORY_EVERY.max, Math.max(AUTO_MEMORY_EVERY.min, n)) : bot.autoMemoryEvery;
+    setEvery(String(next));
+    if (next !== bot.autoMemoryEvery) void save({ autoMemoryEvery: next });
+  };
+
+  return (
+    <div className="flex items-center gap-3 py-2.5">
+      <Avatar bot={bot} size={28} />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{bot.name}</span>
+      <span className="flex items-center gap-1.5 text-[12px] text-muted">
+        every
+        <Input
+          type="number" inputMode="numeric" min={AUTO_MEMORY_EVERY.min} max={AUTO_MEMORY_EVERY.max} step={1}
+          value={every} disabled={!on} aria-label={'Turns between auto-memory passes for ' + bot.name}
+          onChange={(e) => setEvery(e.target.value)} onBlur={commitEvery}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          className="h-7 w-14 px-2 text-center disabled:opacity-40"
+        />
+        turns
+      </span>
+      <Switch checked={on} aria-label={'Auto-memory for ' + bot.name} aria-describedby={describedBy} onChange={(next) => { setOn(next); void save({ autoMemory: next }); }} />
+    </div>
   );
 }
 

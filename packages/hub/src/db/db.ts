@@ -21,6 +21,9 @@ export class Db {
     const cols = (table: string) =>
       (this.raw.prepare('PRAGMA table_info(' + table + ')').all() as { name: string }[]).map((c) => c.name);
     if (!cols('sessions').includes('provider')) this.raw.exec('ALTER TABLE sessions ADD COLUMN provider TEXT');
+    const botCols = cols('bots');
+    if (!botCols.includes('auto_memory')) this.raw.exec('ALTER TABLE bots ADD COLUMN auto_memory INTEGER NOT NULL DEFAULT 1');
+    if (!botCols.includes('auto_memory_every')) this.raw.exec('ALTER TABLE bots ADD COLUMN auto_memory_every INTEGER NOT NULL DEFAULT 10');
   }
   run(sql: string, ...params: unknown[]) {
     return this.raw.prepare(sql).run(...(params as never[]));

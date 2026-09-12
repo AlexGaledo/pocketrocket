@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-time (idempotent) VPS setup for PocketRocket's screen: creates the unprivileged service
-# user, X virtual display, VNC, noVNC, Chromium, the daily backup cron job, and the screen unit.
+# user, X virtual display, VNC, noVNC, Chromium, the daily backup and hourly Claude CLI update
+# cron jobs, and the screen unit.
 #
 # Security model: the hub (127.0.0.1:7788), noVNC (127.0.0.1:6080), the VNC server
 # (127.0.0.1:5900) and Chromium's CDP (127.0.0.1:9222) all bind loopback only. Nothing here opens
@@ -58,6 +59,10 @@ rm -f "$DATA_DIR/vnc-passwd" "$DATA_DIR/vnc-passwd.txt"
 
 echo "==> daily backup of data/ (keeps 7; copied, not symlinked, so a bot can't rewrite root's cron job)"
 install -m 755 -o root -g root deploy/backup.sh /etc/cron.daily/pocketrocket-backup
+
+echo "==> hourly Claude Code CLI update (new models need a minimum CLI version)"
+install -m 755 -o root -g root deploy/claude-update.sh /etc/cron.hourly/pocketrocket-claude-update
+/etc/cron.hourly/pocketrocket-claude-update || echo "   (claude update failed; see: journalctl -t pocketrocket-claude-update)"
 
 echo "==> installing pocketrocket.service (hub unit; scripts/deploy.sh restarts it after each deploy)"
 cp deploy/pocketrocket.service /etc/systemd/system/pocketrocket.service

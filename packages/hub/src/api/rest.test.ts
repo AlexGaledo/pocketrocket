@@ -54,6 +54,17 @@ describe('settings / secrets / providers REST', () => {
     });
   });
 
+  it('defaults auto-memory on (every 10) and patches it within bounds', async () => {
+    const bot = (await api<Bot>('POST', '/api/bots', { name: 'Memo', handle: 'memo' })).body;
+    expect(bot).toMatchObject({ autoMemory: true, autoMemoryEvery: 10 });
+    const off = (await api<Bot>('PATCH', '/api/bots/' + bot.id, { autoMemory: false, autoMemoryEvery: 25 })).body;
+    expect(off).toMatchObject({ autoMemory: false, autoMemoryEvery: 25, name: 'Memo' });
+    expect((await api('PATCH', '/api/bots/' + bot.id, { autoMemoryEvery: 2 })).status).toBe(400);
+    expect((await api('PATCH', '/api/bots/' + bot.id, { autoMemoryEvery: 101 })).status).toBe(400);
+    // An edit that leaves the fields out (the bot dialog) keeps them.
+    expect((await api<Bot>('PATCH', '/api/bots/' + bot.id, { title: 'x' })).body).toMatchObject({ autoMemory: false, autoMemoryEvery: 25 });
+  });
+
   it('reports secret keys without ever returning values', async () => {
     const status = (await api<SecretsStatus>('GET', '/api/secrets')).body;
     expect(status.keys).toHaveProperty('XAI_API_KEY');

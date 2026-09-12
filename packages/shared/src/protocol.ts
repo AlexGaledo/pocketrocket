@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Bot, BotState, Message, Room, UsageTotals, ApprovalPayload } from './models.js';
+import { AUTO_MEMORY_EVERY, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
 
@@ -47,6 +47,10 @@ export const BotInputSchema = z.object({
   model: z.string().default('claude-sonnet-5'),
   allowedTools: z.array(z.string()).default(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch']),
   maxBudgetUsd: z.number().min(0.05).max(50).default(2),
+  // Optional rather than defaulted: the hub fills them in (on, every 10), so existing clients and
+  // templates need not send them.
+  autoMemory: z.boolean().optional(),
+  autoMemoryEvery: z.number().int().min(AUTO_MEMORY_EVERY.min).max(AUTO_MEMORY_EVERY.max).optional(),
 });
 export type BotInput = z.infer<typeof BotInputSchema>;
 
