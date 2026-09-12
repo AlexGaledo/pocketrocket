@@ -4,7 +4,7 @@ import { buildSystemPrompt } from './PromptBuilder.js';
 
 const bot: Bot = {
   id: 'b1', name: 'Scout', handle: 'scout', title: 'Researcher', description: 'You research things.',
-  avatar: '🔎', model: 'claude-sonnet-5', allowedTools: ['Read'], maxBudgetUsd: 2, createdAt: 0,
+  avatar: '🔎', model: 'claude-sonnet-5', allowedTools: ['Read'], maxBudgetUsd: 2, autoMemory: true, autoMemoryEvery: 10, createdAt: 0,
 };
 const room: Room = { id: 'r1', kind: 'dm', name: 'DM', memberIds: ['b1'], coordinatorBotId: null, createdAt: 0 };
 const base = { bot, room, members: [bot], hop: 0, memory: '', identity: '' };

@@ -27,8 +27,13 @@ export interface Bot {
   model: string;
   allowedTools: string[];
   maxBudgetUsd: number; // per turn
+  /** Background pass that saves lasting facts from the room to memory.md every `autoMemoryEvery` turns. */
+  autoMemory: boolean;
+  autoMemoryEvery: number; // completed turns per (bot, room) between passes
   createdAt: number;
 }
+/** Bounds and default for `Bot.autoMemoryEvery`. */
+export const AUTO_MEMORY_EVERY = { default: 10, min: 3, max: 100 } as const;
 
 export type RoomKind = 'dm' | 'group';
 export interface Room {
