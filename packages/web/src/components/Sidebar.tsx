@@ -3,6 +3,7 @@ import { MODELS } from '@pocketrocket/shared';
 import { useStore, botById } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
 import { BotGroupHeader, useBotGroups } from './BotGroups';
+import { RocketMark } from './RocketMark';
 import { resolveDark } from '../lib/theme';
 import { api } from '../lib/api';
 import type { Bot, Message, Room } from '@pocketrocket/shared';
@@ -86,7 +87,7 @@ export function Sidebar() {
     <aside className="flex w-[236px] shrink-0 flex-col">
       <div className="flex h-11 items-center justify-between px-3">
         <div className="flex items-center gap-2 text-[14px] font-semibold tracking-tight">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ink text-[12px] text-ink-fg">⚡</span>
+          <RocketMark size={24} />
           PocketRocket
         </div>
         <div className="flex items-center gap-1">

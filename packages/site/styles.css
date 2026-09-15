@@ -357,6 +357,14 @@ header.site-nav.is-scrolled {
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; padding-top: 40px; }
 }
+.hero-mark {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 0 0 22px;
+  border-radius: 50%;
+  box-shadow: var(--shadow-lg);
+}
 .hero h1 {
   font-size: clamp(34px, 5vw, 52px);
   line-height: 1.08;
@@ -382,6 +390,7 @@ header.site-nav.is-scrolled {
 /* Hero entrance. Everything rides one keyframe with a per-element delay, so the copy lands
    before the screenshot rather than the whole block appearing at once. */
 .hero-visual,
+.hero-mark,
 .hero h1,
 .hero p.sub,
 .hero-actions,
@@ -783,6 +792,8 @@ footer.site-foot {
   align-items: center;
   justify-content: space-between;
 }
+.foot-brand { display: inline-flex; align-items: center; gap: 8px; }
+.foot-brand img { width: 20px; height: 20px; border-radius: 50%; }
 footer.site-foot a { color: var(--muted); text-decoration: none; transition: color 0.18s ease; }
 @media (hover: hover) {
   footer.site-foot a:hover { color: var(--fg); }
