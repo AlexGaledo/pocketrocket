@@ -24,6 +24,22 @@ export interface ProviderCheck {
   auth: ProviderAuth;
   /** Logged-in account, when the provider exposes it. */
   account?: string;
+  /**
+   * Subscription plan behind the login, ready to show ("Max", "Pro", "Team"). The desktop app reads this exact
+   * field from POST /api/providers/claude/check, so it keeps this name.
+   */
+  plan?: string;
+  /** How the CLI says it signed in ("claude.ai", "console"), when it says. */
+  authMethod?: string;
+  /** Organization the login belongs to, when the provider exposes it. */
+  orgName?: string;
+  /** The CLI binary the check looked for, so a "not found" message can say where it looked. */
+  exePath?: string;
+  /**
+   * The binary exists but did not answer in time (a cold start, an antivirus scan, a busy disk). It is
+   * installed, so the fix is to check again, not to reinstall.
+   */
+  unresponsive?: boolean;
   /** Why the check failed (missing CLI, not logged in, no API key). */
   error?: string;
   /** What the user should do next: install command, login command, where to get a key. Markdown, 1-3 lines. */

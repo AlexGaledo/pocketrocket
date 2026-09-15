@@ -3,17 +3,33 @@
  * (installed? version? subscription or API key?), says it in plain words, and when something is wrong
  * shows the steps to fix it plus a "Check again" button that re-runs the check.
  */
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { CircleCheck, TriangleAlert } from 'lucide-react';
 import type { ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
 import { Badge, Button, cn } from '../ui';
 import { useRecheck } from '../ProviderCard';
 
-/** Terminal command that installs Claude Code, split where it may wrap; shown in the fix-it steps. */
-const INSTALL_COMMAND_PARTS = ['npm install -g', '@anthropic-ai/claude-code'] as const;
+/**
+ * Anthropic's native installer, per platform. Not `npm install -g`: that leaves a claude.cmd shim in
+ * %APPDATA%\npm, while the hub looks for the native binary in ~/.local/bin, which is where this installs it.
+ */
+const INSTALL_COMMANDS = [
+  { id: 'windows', label: 'Windows (PowerShell)', command: 'irm https://claude.ai/install.ps1 | iex' },
+  { id: 'unix', label: 'macOS or Linux (Terminal)', command: 'curl -fsSL https://claude.ai/install.sh | bash' },
+] as const;
+
+/** This browser's platform first. Usually the hub runs on the same computer, so that is the one they need. */
+function installCommands() {
+  const windows = /Windows/i.test(navigator.userAgent);
+  return windows ? INSTALL_COMMANDS : [...INSTALL_COMMANDS].reverse();
+}
+
+type Tone = 'ok' | 'warn';
 
 interface Summary {
   ok: boolean;
+  tone: Tone;
   badge: string;
   headline: string;
   /** Short facts under the headline: version, how it signs in. */
@@ -25,32 +41,67 @@ function cleanVersion(version: string) {
   return version.replace(/\s*\(.*\)\s*$/, '');
 }
 
+/** "Using your Claude Max subscription", "Using your API key", or null when the check does not say. */
+export function authPhrase(check: ProviderCheck): string | null {
+  if (check.auth === 'subscription') return check.plan ? 'Using your Claude ' + check.plan + ' subscription' : 'Using your Claude subscription';
+  if (check.auth === 'apiKey') return 'Using your API key';
+  return null;
+}
+
 function summarize(info: ProviderInfo): Summary {
   const { check } = info;
   const app = info.id === 'claude' ? 'Claude Code' : info.label;
   const facts: string[] = [];
   if (check.version) facts.push('Version ' + cleanVersion(check.version));
   if (check.ok) {
-    if (check.auth === 'subscription') facts.push('Using your Claude subscription');
-    if (check.auth === 'apiKey') facts.push('Using your API key');
+    const how = authPhrase(check);
+    if (how) facts.push(how);
     if (check.account) facts.push(check.account);
-    return { ok: true, badge: 'Ready', headline: app + ' is connected', facts };
+    return { ok: true, tone: 'ok', badge: 'Ready', headline: app + ' is connected', facts };
   }
+  // The binary is there but did not answer: an install prompt would send the user to reinstall something
+  // that is already installed, when checking again after it warms up is all it takes.
+  if (check.unresponsive) return { ok: false, tone: 'warn', badge: "Didn't respond", headline: 'Found ' + app + " but it didn't respond", facts };
   // A version without ok means the app answered but is not signed in.
-  if (check.version) return { ok: false, badge: 'Not signed in', headline: app + ' needs you to sign in', facts };
-  return { ok: false, badge: 'Not found', headline: app + " isn't set up on this computer yet", facts };
+  if (check.version) return { ok: false, tone: 'warn', badge: 'Not signed in', headline: app + ' needs you to sign in', facts };
+  return { ok: false, tone: 'warn', badge: 'Not found', headline: app + " isn't set up on this computer yet", facts };
 }
 
-export function ConnectionStatus({ info, onChecked, hasKeyField }: {
+export function ConnectionStatus({ info, onChecked, hasKeyField, autoRecheckMs }: {
   info: ProviderInfo;
   /** Gets the fresh check after "Check again". */
   onChecked: (check: ProviderCheck) => void;
   /** Whether an API key field sits below, so the fix-it text can point to it. */
   hasKeyField: boolean;
+  /**
+   * Check once on mount, then again this often for as long as the check is failing, so a user following
+   * the steps in a terminal sees the card turn green without pressing anything. Off when omitted.
+   */
+  autoRecheckMs?: number;
 }) {
   const { checking, recheck } = useRecheck(info.id, onChecked);
   const summary = summarize(info);
   const Icon = summary.ok ? CircleCheck : TriangleAlert;
+
+  // The latest recheck in a ref, so the timers below do not restart on every render.
+  const recheckRef = useRef(recheck);
+  recheckRef.current = recheck;
+  // Bumped when a timer fires while the window is hidden, so the next one gets scheduled anyway.
+  const [skipped, setSkipped] = useState(0);
+  useEffect(() => {
+    if (autoRecheckMs) void recheckRef.current();
+  }, [autoRecheckMs]);
+  useEffect(() => {
+    // Chained rather than an interval: a check can take up to 10s when the CLI is slow, and overlapping
+    // ones would only pile more `claude` processes onto a machine that is already struggling.
+    if (!autoRecheckMs || summary.ok || checking) return;
+    const timer = setTimeout(() => {
+      if (document.visibilityState === 'visible') void recheckRef.current();
+      else setSkipped((n) => n + 1);
+    }, autoRecheckMs);
+    return () => clearTimeout(timer);
+  }, [autoRecheckMs, summary.ok, checking, info.check, skipped]);
+
   const checkButton = (className: string) => (
     <Button size="sm" className={className} onClick={() => void recheck()} disabled={checking}>
       {checking ? 'Checking…' : 'Check again'}
@@ -64,7 +115,7 @@ export function ConnectionStatus({ info, onChecked, hasKeyField }: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-[13.5px] font-medium">{summary.headline}</span>
-            <Badge tone={summary.ok ? 'ok' : 'warn'}>{summary.badge}</Badge>
+            <Badge tone={summary.tone}>{summary.badge}</Badge>
           </div>
           {summary.facts.length > 0 && <div className="mt-0.5 text-[12.5px] text-muted">{summary.facts.join(' · ')}</div>}
           {!summary.ok && <FixSteps info={info} check={info.check} hasKeyField={hasKeyField} />}
@@ -78,22 +129,35 @@ export function ConnectionStatus({ info, onChecked, hasKeyField }: {
   );
 }
 
+const codeLine = 'mt-1 block w-fit max-w-full select-all break-all rounded-md bg-card2 px-2 py-1 font-mono text-[12px]';
+
 function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: ProviderCheck; hasKeyField: boolean }) {
-  const installed = !!check.version;
+  const installed = !!check.version || !!check.unresponsive;
   const hasTechnical = !!(check.error || check.hint);
   return (
     <div className="mt-3 text-[12.5px] leading-relaxed text-fg">
-      {info.id === 'claude' ? (
+      {info.id === 'claude' && check.unresponsive ? (
+        <p>
+          It can take a while to start the first time, or while antivirus scans it. Wait a moment and press Check again.
+          {check.exePath && <span className="mt-1 block break-all text-muted">Found at <span className="font-mono">{check.exePath}</span></span>}
+        </p>
+      ) : info.id === 'claude' ? (
         <ol className="list-decimal space-y-1 pl-5">
           {!installed && (
             <li>
-              Install Claude Code. Open PowerShell or Terminal and run:
-              {/* Its own line, and one click selects all of it for copying. Each half is unbreakable, so a narrow
-                  window wraps it only at the space, never inside "@anthropic-ai". */}
-              <code className="mt-1 block w-fit max-w-full select-all rounded-md bg-card2 px-2 py-1 font-mono text-[12px]">
-                <span className="whitespace-nowrap">{INSTALL_COMMAND_PARTS[0]}</span>{' '}
-                <span className="whitespace-nowrap">{INSTALL_COMMAND_PARTS[1]}</span>
-              </code>
+              Install Claude Code. Open a terminal and run the command for your computer:
+              {installCommands().map((c) => (
+                <div key={c.id} className="mt-1.5">
+                  <span className="text-muted">{c.label}</span>
+                  {/* Its own line, and one click selects all of it for copying. */}
+                  <code className={codeLine}>{c.command}</code>
+                </div>
+              ))}
+              {check.exePath && (
+                <span className="mt-1.5 block text-muted">
+                  PocketRocket looked for it at <span className="break-all font-mono">{check.exePath}</span>
+                </span>
+              )}
             </li>
           )}
           <li>
@@ -104,7 +168,7 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
       ) : (
         check.hint && <div className="md"><ReactMarkdown>{check.hint}</ReactMarkdown></div>
       )}
-      {hasKeyField && info.id === 'claude' && (
+      {hasKeyField && info.id === 'claude' && !check.unresponsive && (
         <p className="mt-2 text-muted">No Claude subscription? Add an API key below instead.</p>
       )}
       {hasTechnical && info.id === 'claude' && (

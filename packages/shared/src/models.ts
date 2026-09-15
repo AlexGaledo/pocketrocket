@@ -141,8 +141,8 @@ export interface HealthInfo {
   ok: boolean;
   claudeExe: string;
   apiKeySource?: string;
-  accountEmail?: string;
-  subscriptionType?: string;
+  // No account email or plan here: GET /api/health answers without the hub token. Both live on the
+  // provider check (GET /api/providers, POST /api/providers/:id/check), which needs it.
   error?: string;
   /** Approvals mode in force right now: `settings.approvals`, unless the server environment pins it. */
   approvals: Approvals;
