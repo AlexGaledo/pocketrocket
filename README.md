@@ -170,6 +170,11 @@ from its **Connection** menu:
 | **VPS over SSH tunnel** | Opens an SSH tunnel to the hub on your server itself, waits for it, and respawns the tunnel if it drops. Gets the virtual desktop/screen. | on the VPS |
 | **Attach** | Connects to a hub you already run (`pnpm dev` / `pnpm start`). | wherever that hub points |
 
+On first run, the app can scan the servers in your `~/.ssh/config` and offer to connect to the
+ones you tick — key auth only, it never tries a password; an unknown host key is shown for you to
+confirm, and a changed host key is refused. Onboarding also shows your local Claude account and
+plan.
+
 Node runtime: the desktop app looks for a system Node ≥ 22.13 on `PATH` first; if none is found,
 it falls back to a Node 24 LTS binary bundled with the installer, so the app works out of the box
 even with no Node installed.
@@ -186,10 +191,11 @@ Apps & features → PocketRocket → Uninstall. The installer is per-user and in
 app folder and its shortcuts: no Windows service, no scheduled task, no autostart entry, nothing
 outside your own user profile.
 
-**Your data is deliberately left behind.** Uninstalling removes the program, not
+**Your data is kept by default.** Uninstalling removes the program, not
 `%APPDATA%\com.pocketrocket.app\` — the SQLite database, every bot's memory and skills, the shared
 workspace, `hub-token`, and `hub.log`. Reinstalling picks up exactly where you left off. To erase
-it too, delete that folder by hand after uninstalling.
+it too, tick **"Also delete all bots, conversations and settings"** in the uninstaller (unchecked
+by default).
 
 ## Run on a server
 
