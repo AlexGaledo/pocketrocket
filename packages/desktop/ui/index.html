@@ -15,7 +15,7 @@
     --dim: #a0a7b1;
     --accent: #4f7df3;
     --ok: #1f9d6a;
-    --warn: #e8842f;
+    --warn: #c96a17;
     --bad: #de4747;
     --ink: #111214;
     --ink-fg: #ffffff;
@@ -45,7 +45,8 @@
     }
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  html, body { min-height: 100%; margin: 0; }
+  html { height: 100%; }
   body {
     color: var(--fg);
     font: 14px/1.5 "Geist", "Inter", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
@@ -55,9 +56,10 @@
       var(--bg);
     background-attachment: fixed;
   }
+  [hidden] { display: none !important; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
-  .wrap { height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
-  .card { width: 460px; max-width: 100%; padding: 26px; border-radius: 24px; background: var(--panel); box-shadow: var(--shadow-lg); }
+  .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .card { width: 500px; max-width: 100%; padding: 26px; border-radius: 24px; background: var(--panel); box-shadow: var(--shadow-lg); }
 
   /* ---- header ---- */
   .head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
@@ -67,16 +69,22 @@
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--warn); animation: blink 1s ease-in-out infinite; }
   .dot.ok { background: var(--ok); animation: none; }
   .dot.bad { background: var(--bad); animation: none; }
+  .dot.idle { background: var(--dim); animation: none; }
   @keyframes blink { 50% { opacity: .3; } }
   @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
 
   /* ---- error panel ---- */
   .err-panel { margin: 0 0 16px; padding: 12px 14px; border-radius: 14px; background: color-mix(in oklab, var(--bad) 12%, var(--panel)); color: var(--bad); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
   .err-panel code { display: block; margin-top: 8px; padding: 5px 9px; border-radius: 8px; background: var(--card2); color: var(--fg); font-size: 11.5px; word-break: break-all; white-space: normal; font-family: "Geist Mono", ui-monospace, Consolas, monospace; }
+  .err-actions { display: flex; gap: 8px; margin-top: 10px; white-space: normal; }
+
+  .intro { margin: -4px 0 16px; font-size: 13px; color: var(--muted); }
 
   /* ---- section ---- */
-  .section-title { font-size: 12.5px; font-weight: 600; color: var(--fg); margin: 0 0 8px; }
+  .section-title { font-size: 12.5px; font-weight: 600; color: var(--fg); margin: 0 0 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .section-title .hint { font-weight: 400; color: var(--dim); font-size: 11.5px; }
   .radios { display: flex; flex-direction: column; gap: 8px; }
+  .advanced-label { margin: 6px 0 -2px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
 
   .mode-card { position: relative; cursor: pointer; border-radius: 16px; padding: 12px 14px; background: var(--card2); box-shadow: inset 0 0 0 1px var(--line); transition: background .15s ease, box-shadow .15s ease; }
   .mode-card:hover { background: color-mix(in oklab, var(--card2), var(--fg) 4%); }
@@ -86,26 +94,58 @@
   .mode-indicator { display: flex; align-items: center; gap: 6px; min-height: 18px; flex: none; }
   .mode-blurb { margin-top: 3px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
   .mode-blurb code { font-family: "Geist Mono", ui-monospace, Consolas, monospace; font-size: 11.5px; background: color-mix(in oklab, var(--card2), var(--fg) 6%); padding: 1px 4px; border-radius: 5px; }
+  .claude-line { margin-top: 5px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .claude-line .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); flex: none; }
+  .claude-line.ok .pip { background: var(--ok); }
+  .claude-line.warn .pip { background: var(--warn); }
 
   .check-badge { width: 18px; height: 18px; border-radius: 50%; background: var(--ink); color: var(--ink-fg); font-size: 11px; line-height: 1; display: flex; align-items: center; justify-content: center; flex: none; }
   .pill-active { font-size: 10.5px; font-weight: 600; color: var(--fg); background: var(--panel); padding: 2.5px 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
   .ring-badge { width: 15px; height: 15px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--accent); flex: none; }
 
+  /* ---- discovery ---- */
+  .discover { margin: 0 0 18px; padding: 14px; border-radius: 16px; background: var(--card2); box-shadow: inset 0 0 0 1px var(--line); }
+  .discover p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
+  .hosts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+  .host { padding: 8px 10px; border-radius: 12px; background: var(--panel); }
+  .host-row { display: flex; align-items: center; gap: 10px; }
+  .host-row input[type=checkbox] { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--accent); }
+  .host-row label { margin: 0; flex: 1; min-width: 0; display: block; cursor: pointer; }
+  .host-name { font-size: 13px; font-weight: 600; }
+  .host-meta { font-size: 11.5px; color: var(--dim); font-family: "Geist Mono", ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .result { margin: 6px 0 0 26px; font-size: 12px; color: var(--muted); }
+  .badge { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-right: 6px; background: color-mix(in oklab, var(--dim) 20%, var(--panel)); color: var(--muted); }
+  .badge.ok { background: color-mix(in oklab, var(--ok) 16%, var(--panel)); color: var(--ok); }
+  .badge.warn { background: color-mix(in oklab, var(--warn) 16%, var(--panel)); color: var(--warn); }
+  .badge.bad { background: color-mix(in oklab, var(--bad) 16%, var(--panel)); color: var(--bad); }
+  .result.bad { color: var(--bad); }
+  .result-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .fp { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--card2); }
+  .fp code { display: block; font-family: "Geist Mono", ui-monospace, Consolas, monospace; font-size: 11px; word-break: break-all; color: var(--fg); }
+  .scan-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+  .scan-bar .note { font-size: 11.5px; color: var(--dim); }
+
   /* ---- fields ---- */
   .fields { margin-top: 14px; }
   label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 500; margin: 0 0 4px; }
   label .hint { font-weight: 400; color: var(--dim); font-size: 11.5px; }
-  input { width: 100%; height: 36px; padding: 0 12px; border-radius: 12px; border: 0; background: var(--card2); color: inherit; font-size: 14px; font-family: inherit; }
+  input:not([type=checkbox]) { width: 100%; height: 36px; padding: 0 12px; border-radius: 12px; border: 0; background: var(--card2); color: inherit; font-size: 14px; font-family: inherit; }
   input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[aria-invalid=true] { box-shadow: inset 0 0 0 1.5px var(--bad); }
+  .field-error { margin-top: 4px; font-size: 12px; color: var(--bad); }
   .field + .field { margin-top: 12px; }
   .info-line { margin-top: 10px; font-size: 12px; color: var(--dim); }
   .info-line code { font-family: "Geist Mono", ui-monospace, Consolas, monospace; word-break: break-all; }
 
   /* ---- buttons ---- */
-  .btns { display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; justify-content: flex-end; align-items: center; }
+  .btns .spacer { flex: 1; }
   .btn { height: 36px; padding: 0 16px; border-radius: 999px; border: 0; background: var(--card2); color: var(--fg); cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; }
+  .btn.small { height: 28px; padding: 0 12px; font-size: 12px; }
+  .discover .btn:not(.primary) { background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); }
   .btn:hover { filter: brightness(.96); }
   .btn.primary { background: var(--ink); color: var(--ink-fg); }
+  .btn.danger { color: var(--bad); }
   .btn:disabled { opacity: .4; cursor: default; pointer-events: none; }
 </style>
 </head>
@@ -129,11 +169,32 @@
       </span>
       <div class="head-text">
         <h1>PocketRocket</h1>
-        <div class="status-line"><span class="dot" id="dot"></span><span id="status-text">Starting…</span></div>
+        <div class="status-line" role="status"><span class="dot" id="dot"></span><span id="status-text">Starting…</span></div>
       </div>
     </header>
 
-    <div class="err-panel" id="err-panel" hidden><span id="err-text"></span></div>
+    <div class="err-panel" id="err-panel" role="alert" hidden>
+      <span id="err-text"></span>
+      <div class="err-actions" id="err-actions" hidden>
+        <button class="btn small" id="err-attach" hidden>Attach to it</button>
+        <button class="btn small" id="err-log" hidden>Open log</button>
+      </div>
+    </div>
+
+    <p class="intro" id="intro" hidden>Welcome. Pick where your bots run. If you already deployed PocketRocket to a server, find it below.</p>
+
+    <section class="discover" id="discover" aria-labelledby="discover-title" hidden>
+      <div class="section-title"><span id="discover-title">Find my servers</span><span class="hint">from ~/.ssh/config</span></div>
+      <p id="discover-note">Tick the servers to check, then Scan. Nothing connects until you do.</p>
+      <ul class="hosts" id="hosts" aria-live="polite"></ul>
+      <div class="scan-bar">
+        <span class="note" id="scan-note"></span>
+        <span>
+          <button class="btn small" id="discover-close">Close</button>
+          <button class="btn small primary" id="scan" disabled>Scan</button>
+        </span>
+      </div>
+    </section>
 
     <section>
       <div class="section-title">Where your bots run</div>
@@ -144,6 +205,7 @@
             <div class="mode-indicator"></div>
           </div>
           <div class="mode-blurb">Own database in the app folder. No network hop.</div>
+          <div class="claude-line" id="local-claude" hidden><span class="pip"></span><span></span></div>
         </div>
         <div class="mode-card" role="radio" tabindex="-1" data-mode="remote" id="card-remote">
           <div class="mode-top">
@@ -151,7 +213,9 @@
             <div class="mode-indicator"></div>
           </div>
           <div class="mode-blurb">Always-on hub on a VPS, with the virtual desktop.</div>
+          <div class="claude-line" id="remote-claude" hidden><span class="pip"></span><span></span></div>
         </div>
+        <div class="advanced-label" aria-hidden="true">Advanced</div>
         <div class="mode-card" role="radio" tabindex="-1" data-mode="attach" id="card-attach">
           <div class="mode-top">
             <div class="mode-title">Attach to a running hub</div>
@@ -165,28 +229,36 @@
     <section class="fields" id="fields-remote" hidden>
       <div class="field">
         <label for="host-input">SSH host <span class="hint">from ~/.ssh/config</span></label>
-        <input id="host-input" placeholder="my-server" autocomplete="off" spellcheck="false" />
+        <input id="host-input" placeholder="my-server" autocomplete="off" spellcheck="false" list="host-aliases" aria-describedby="host-error" />
+        <datalist id="host-aliases"></datalist>
+        <div class="field-error" id="host-error" hidden></div>
       </div>
     </section>
 
     <section class="fields">
       <div class="field">
-        <label for="port-input">Port</label>
-        <input id="port-input" type="number" value="7788" />
+        <label for="port-input">Port <span class="hint">1024–65535</span></label>
+        <input id="port-input" type="number" min="1024" max="65535" step="1" value="7788" aria-describedby="port-error" />
+        <div class="field-error" id="port-error" hidden></div>
       </div>
     </section>
 
     <div class="info-line" id="datadir-line" hidden>Data folder: <code id="datadir-value"></code></div>
     <div class="info-line" id="hubdir-line" hidden>Hub dir override: <code id="hubdir-value"></code></div>
+    <div class="field-error" id="action-error" role="alert" hidden></div>
 
     <div class="btns">
+      <button class="btn" id="find">Find my servers</button>
+      <span class="spacer"></span>
       <button class="btn" id="retry">Retry</button>
-      <button class="btn primary" id="save" disabled>Save and connect</button>
+      <button class="btn" id="save" disabled>Save and connect</button>
+      <button class="btn primary" id="back" hidden>Back to PocketRocket</button>
     </div>
   </div>
 </div>
 <script>
-  const invoke = (cmd, args) => window.__TAURI__ ? window.__TAURI__.core.invoke(cmd, args) : Promise.reject(new Error('not in tauri'));
+  const T = window.__TAURI__;
+  const invoke = (cmd, args) => T ? T.core.invoke(cmd, args) : Promise.reject(new Error('not in tauri'));
   const $ = (id) => document.getElementById(id);
   const MODES = ['local', 'remote', 'attach'];
   const cards = { local: $('card-local'), remote: $('card-remote'), attach: $('card-attach') };
@@ -194,22 +266,56 @@
   let cfg = { mode: 'local', sshHost: '', port: 7788, hubDir: null };
   let selectedMode = cfg.mode;
   let lastStatus = null;
+  let busy = false;
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function el(tag, props, children) {
+    const n = document.createElement(tag);
+    Object.assign(n, props || {});
+    for (const c of children || []) if (c != null) n.append(c);
+    return n;
+  }
+  function errText(e) { return (e && e.message) || String(e); }
+  function showActionError(msg) {
+    $('action-error').textContent = msg || '';
+    $('action-error').hidden = !msg;
+  }
+
+  // ---- validation ----
+  function portValue() {
+    const raw = $('port-input').value.trim();
+    const n = Number(raw);
+    return raw !== '' && Number.isInteger(n) ? n : NaN;
+  }
+  function portError() {
+    const n = portValue();
+    return n >= 1024 && n <= 65535 ? '' : 'Use a whole number from 1024 to 65535.';
+  }
+  function hostError(h) {
+    if (!h) return 'Enter the SSH host: a Host alias from ~/.ssh/config, or user@server.';
+    if (h.startsWith('-')) return 'An SSH host can’t start with "-".';
+    if (/\s/.test(h)) return 'An SSH host can’t contain spaces.';
+    return '';
+  }
+  function setFieldError(input, box, msg) {
+    box.textContent = msg;
+    box.hidden = !msg;
+    input.setAttribute('aria-invalid', msg ? 'true' : 'false');
   }
 
   function isDirty() {
     if (selectedMode !== cfg.mode) return true;
     if (selectedMode === 'remote' && $('host-input').value.trim() !== (cfg.sshHost || '')) return true;
-    const port = Number($('port-input').value) || 0;
-    if (port !== cfg.port) return true;
+    if (portValue() !== cfg.port) return true;
     return false;
   }
 
   function renderIndicator(mode) {
     const slot = cards[mode].querySelector('.mode-indicator');
-    if (mode === cfg.mode) {
+    const firstRun = lastStatus && lastStatus.firstRun;
+    if (mode === cfg.mode && !firstRun) {
       slot.innerHTML = '<span class="check-badge">✓</span><span class="pill-active">Active</span>';
     } else if (mode === selectedMode) {
       slot.innerHTML = '<span class="ring-badge"></span>';
@@ -219,6 +325,7 @@
   }
 
   function render() {
+    const s = lastStatus || {};
     for (const mode of MODES) {
       const card = cards[mode];
       const selected = mode === selectedMode;
@@ -228,16 +335,38 @@
       renderIndicator(mode);
     }
     $('fields-remote').hidden = selectedMode !== 'remote';
-    $('datadir-line').hidden = !(selectedMode === 'local' && lastStatus && lastStatus.dataDir);
-    if (lastStatus && lastStatus.dataDir) $('datadir-value').textContent = lastStatus.dataDir;
+    $('datadir-line').hidden = !(selectedMode === 'local' && s.dataDir);
+    if (s.dataDir) $('datadir-value').textContent = s.dataDir;
     $('hubdir-line').hidden = !cfg.hubDir;
     if (cfg.hubDir) $('hubdir-value').textContent = cfg.hubDir;
-    $('save').disabled = !isDirty();
+    $('intro').hidden = !s.firstRun;
+
+    const hostMsg = selectedMode === 'remote' ? hostError($('host-input').value.trim()) : '';
+    const portMsg = portError();
+    // only complain about a host once there is something typed, or on save
+    setFieldError($('host-input'), $('host-error'), $('host-input').dataset.touched ? hostMsg : '');
+    setFieldError($('port-input'), $('port-error'), portMsg);
+
+    const dirty = isDirty();
+    const connected = !!s.connected;
+    const save = $('save');
+    save.textContent = s.firstRun && !dirty ? 'Start' : 'Save and connect';
+    save.disabled = busy || !(dirty || s.firstRun) || !!hostMsg || !!portMsg;
+    save.hidden = connected && !dirty;
+    save.classList.toggle('primary', !(connected && !dirty));
+    $('back').hidden = !connected;
+    $('back').classList.toggle('primary', !dirty);
+
+    const retry = $('retry');
+    retry.hidden = !!s.firstRun;
+    retry.textContent = connected ? (s.mode === 'local' ? 'Restart hub' : 'Reconnect') : 'Retry';
+    $('find').hidden = !$('discover').hidden;
   }
 
   function selectMode(mode, focus) {
     selectedMode = mode;
     render();
+    if (mode === 'remote') loadHosts();
     if (focus) cards[mode].focus();
   }
 
@@ -251,7 +380,7 @@
       else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectMode(mode, false); }
     });
   }
-  $('host-input').addEventListener('input', render);
+  $('host-input').addEventListener('input', () => { $('host-input').dataset.touched = '1'; render(); });
   $('port-input').addEventListener('input', render);
 
   async function loadCfg() {
@@ -264,12 +393,53 @@
   }
 
   function statusMessage(s) {
-    if (s.connected) return 'Connected, opening';
+    if (s.connected) return 'Connected';
     if (s.error) return 'Could not connect';
+    if (s.firstRun) return 'Not started yet';
     const base = s.mode === 'local' ? (s.childRunning ? 'Starting the hub' : 'Launching')
       : s.mode === 'remote' ? (s.childRunning ? 'Tunnel up, waiting for the hub' : 'Opening tunnel')
       : 'Looking for a hub';
-    return [base, s.runtime, s.attempts != null ? s.attempts + 's' : null].filter(Boolean).join(' · ');
+    return [base, s.runtime, s.elapsedSecs != null ? s.elapsedSecs + 's' : null].filter(Boolean).join(' · ');
+  }
+
+  // ---- Claude account lines ----
+  const PLAN_NAMES = { max: 'Claude Max', pro: 'Claude Pro', team: 'Claude Team', enterprise: 'Claude Enterprise', free: 'Claude Free' };
+  function planName(p) {
+    if (!p) return 'Claude';
+    const k = String(p).toLowerCase();
+    return PLAN_NAMES[k] || ('Claude ' + k.charAt(0).toUpperCase() + k.slice(1));
+  }
+  function setClaudeLine(node, tone, text) {
+    node.hidden = !text;
+    node.className = 'claude-line' + (tone ? ' ' + tone : '');
+    node.lastElementChild.textContent = text || '';
+  }
+  let localClaudeAsked = false;
+  async function loadLocalClaude() {
+    if (localClaudeAsked) return;
+    localClaudeAsked = true;
+    try {
+      const c = await invoke('scan_local_claude');
+      if (!c.installed) setClaudeLine($('local-claude'), 'warn', 'Claude Code not installed');
+      else if (c.loggedIn === false) setClaudeLine($('local-claude'), 'warn', 'Claude Code installed, not signed in: run claude in a terminal');
+      else if (c.loggedIn) setClaudeLine($('local-claude'), 'ok', [planName(c.plan), c.email].filter(Boolean).join(' · '));
+      else setClaudeLine($('local-claude'), '', 'Claude Code ' + (c.version || 'installed'));
+    } catch { /* not in the app */ }
+  }
+  let remoteClaudeFor = null;
+  async function loadRemoteClaude(s) {
+    const key = s.sshHost + ':' + s.port;
+    if (remoteClaudeFor === key) return;
+    remoteClaudeFor = key;
+    try {
+      const c = await invoke('remote_claude_status');
+      if (!c) { remoteClaudeFor = null; return; }
+      const where = 'On ' + s.sshHost + ': ';
+      if (c.ok) setClaudeLine($('remote-claude'), 'ok', where + [planName(c.plan), c.account].filter(Boolean).join(' · '));
+      else setClaudeLine($('remote-claude'), 'warn', where + (c.error || 'Claude Code is not ready'));
+    } catch (e) {
+      setClaudeLine($('remote-claude'), 'warn', 'Couldn’t ask the server about Claude: ' + errText(e));
+    }
   }
 
   async function poll() {
@@ -277,16 +447,22 @@
       const s = await invoke('get_status');
       lastStatus = s;
       const dot = $('dot');
-      dot.className = 'dot' + (s.connected ? ' ok' : s.error ? ' bad' : '');
+      dot.className = 'dot' + (s.connected ? ' ok' : s.error ? ' bad' : s.firstRun ? ' idle' : '');
       $('status-text').textContent = statusMessage(s);
       if (s.error) {
         $('err-panel').hidden = false;
-        let html = escapeHtml(s.error);
-        if (s.mode === 'local' && s.logPath) html += '<code>' + escapeHtml(s.logPath) + '</code>';
-        $('err-text').innerHTML = html;
+        $('err-text').textContent = s.error;
+        const canLog = s.mode === 'local' && !s.portHasHub && s.errorKind == null;
+        $('err-log').hidden = !canLog;
+        $('err-attach').hidden = !s.portHasHub;
+        $('err-actions').hidden = !canLog && !s.portHasHub;
       } else {
         $('err-panel').hidden = true;
       }
+      if (s.firstRun || s.connected || s.error) loadLocalClaude();
+      if (s.firstRun && !discoverOpenedOnce) openDiscover();
+      if (s.connected && s.mode === 'remote') loadRemoteClaude(s);
+      else if (!s.connected) { remoteClaudeFor = null; setClaudeLine($('remote-claude'), '', ''); }
       render();
     } catch {
       $('dot').className = 'dot';
@@ -294,18 +470,220 @@
     }
   }
 
-  $('save').onclick = async () => {
-    const config = {
-      mode: selectedMode,
-      sshHost: $('host-input').value.trim(),
-      port: Number($('port-input').value) || 7788,
-      hubDir: cfg.hubDir || null,
-    };
-    $('save').disabled = true;
-    try { await invoke('save_config', { config }); await loadCfg(); }
-    finally { render(); }
+  // ---- actions ----
+  async function saveConfig(config) {
+    busy = true; render(); showActionError('');
+    try {
+      await invoke('save_config', { config });
+      $('host-input').dataset.touched = '';
+      closeDiscover();
+      await loadCfg();
+      await poll();
+    } catch (e) {
+      showActionError(errText(e));
+    } finally {
+      busy = false; render();
+    }
+  }
+
+  $('save').onclick = () => {
+    const sshHost = $('host-input').value.trim();
+    if (selectedMode === 'remote') {
+      $('host-input').dataset.touched = '1';
+      if (hostError(sshHost)) { render(); $('host-input').focus(); return; }
+    }
+    if (portError()) { render(); $('port-input').focus(); return; }
+    saveConfig({ mode: selectedMode, sshHost, port: portValue(), hubDir: cfg.hubDir || null });
   };
-  $('retry').onclick = () => { invoke('retry').catch(() => {}); };
+  $('retry').onclick = () => {
+    const s = lastStatus || {};
+    if (s.connected && s.mode === 'local' && !window.confirm('Restart the hub on this PC? Bots that are working right now will stop.')) return;
+    showActionError('');
+    invoke('retry').catch((e) => showActionError(errText(e)));
+  };
+  $('back').onclick = () => { invoke('open_hub').catch((e) => showActionError(errText(e))); };
+  $('err-log').onclick = () => { invoke('open_log').catch((e) => showActionError(errText(e))); };
+  $('err-attach').onclick = () => saveConfig({ mode: 'attach', sshHost: cfg.sshHost || '', port: cfg.port, hubDir: cfg.hubDir || null });
+
+  // ---- find my servers ----
+  let hostList = null;
+  let hostsPromise = null;
+  let discoverOpenedOnce = false;
+  const results = new Map(); // alias -> ScanResult
+  const pending = new Set(); // aliases being scanned
+  const fingerprints = new Map(); // alias -> { lines } | { error }
+
+  function loadHosts() {
+    if (!hostsPromise) {
+      hostsPromise = invoke('list_ssh_hosts').then((l) => {
+        hostList = l;
+        const dl = $('host-aliases');
+        dl.replaceChildren(...l.hosts.flatMap((h) => [h.alias, ...h.also]).map((a) => el('option', { value: a })));
+        renderHosts();
+        return l;
+      }).catch((e) => { hostList = { hosts: [], error: errText(e) }; renderHosts(); });
+    }
+    return hostsPromise;
+  }
+
+  function openDiscover() {
+    discoverOpenedOnce = true;
+    $('discover').hidden = false;
+    loadHosts();
+    loadLocalClaude();
+    renderHosts();
+    render();
+  }
+  function closeDiscover() {
+    $('discover').hidden = true;
+    render();
+  }
+  $('find').onclick = () => { openDiscover(); $('discover-title').scrollIntoView({ block: 'nearest' }); $('discover-close').focus(); };
+  $('discover-close').onclick = () => { closeDiscover(); $('find').focus(); };
+
+  const KIND = {
+    running: ['Running', 'ok'],
+    stopped: ['Installed, not running', 'warn'],
+    legacy: ['Old Claudebot', 'warn'],
+    none: ['No PocketRocket', ''],
+    hostKeyUnknown: ['New host key', 'warn'],
+    hostKeyChanged: ['Host key changed', 'bad'],
+    needsKey: ['Needs your SSH key', 'warn'],
+    unreachable: ['Unreachable', ''],
+  };
+
+  function checkedAliases() {
+    return [...document.querySelectorAll('#hosts input[type=checkbox]:checked')].map((c) => c.value);
+  }
+
+  function renderHosts() {
+    const ul = $('hosts');
+    const checked = new Set(checkedAliases());
+    const focusedId = document.activeElement && ul.contains(document.activeElement) ? document.activeElement.id : null;
+    ul.replaceChildren();
+    if (!hostList) {
+      ul.append(el('li', { className: 'result', textContent: 'Reading ~/.ssh/config…' }));
+    } else if (hostList.error) {
+      ul.append(el('li', { className: 'result bad', textContent: 'Couldn’t read your SSH config: ' + hostList.error }));
+    } else if (!hostList.hosts.length) {
+      ul.append(el('li', { className: 'result', textContent: hostList.configFound
+        ? 'No Host entries in ~/.ssh/config. Type a host under Server over SSH instead.'
+        : 'No ~/.ssh/config on this PC. Type a host under Server over SSH instead.' }));
+    }
+    for (const h of (hostList && hostList.hosts) || []) ul.append(renderHost(h, checked));
+    if (focusedId && $(focusedId)) $(focusedId).focus();
+    const n = checkedAliases().length;
+    $('scan').disabled = n === 0 || pending.size > 0;
+    $('scan').textContent = pending.size ? 'Scanning…' : n > 1 ? 'Scan ' + n : 'Scan';
+    $('scan-note').textContent = pending.size ? pending.size + ' left' : '';
+  }
+
+  function renderHost(h, checked) {
+    const id = 'host-' + h.alias.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const box = el('input', { type: 'checkbox', id, value: h.alias, checked: checked.has(h.alias) });
+    box.addEventListener('change', renderHosts);
+    const target = (h.user ? h.user + '@' : '') + h.hostname + (h.port !== 22 ? ':' + h.port : '');
+    const meta = [target, h.also.length ? 'also ' + h.also.join(', ') : null, h.proxy ? 'via jump host' : null].filter(Boolean).join(' · ');
+    const label = el('label', { htmlFor: id }, [
+      el('div', { className: 'host-name', textContent: h.alias }),
+      el('div', { className: 'host-meta', textContent: meta, title: meta }),
+    ]);
+    const li = el('li', { className: 'host' }, [el('div', { className: 'host-row' }, [box, label])]);
+    if (pending.has(h.alias)) {
+      li.append(el('div', { className: 'result', textContent: 'Checking…' }));
+    } else if (results.has(h.alias)) {
+      li.append(renderResult(results.get(h.alias)));
+    }
+    return li;
+  }
+
+  function renderResult(r) {
+    const [label, tone] = KIND[r.kind] || [r.kind, ''];
+    const wrap = el('div', { className: 'result' + (r.kind === 'hostKeyChanged' ? ' bad' : '') });
+    wrap.append(el('span', { className: 'badge ' + tone, textContent: label }), r.detail);
+    if (r.kind === 'running' && r.versionMatches === false) {
+      wrap.append(el('div', { textContent: 'Different version from this app: redeploy the server (scripts/deploy.sh) when you can.' }));
+    }
+    if (r.claude && (r.kind === 'running' || r.kind === 'stopped')) {
+      const c = r.claude;
+      wrap.append(el('div', { textContent: c.loggedIn === false
+        ? 'Claude on the server: not signed in'
+        : 'Claude on the server: ' + [planName(c.plan), c.email].filter(Boolean).join(' · ') }));
+    }
+    const actions = el('div', { className: 'result-actions' });
+    if (r.kind === 'running') {
+      actions.append(button('Use this server', true, () => saveConfig({ mode: 'remote', sshHost: r.alias, port: portError() ? 7788 : portValue(), hubDir: cfg.hubDir || null })));
+    }
+    if (r.kind === 'hostKeyUnknown') {
+      const fp = fingerprints.get(r.alias);
+      if (!fp) {
+        actions.append(button('Show fingerprint', false, () => showFingerprint(r.alias)));
+      } else if (fp.loading) {
+        actions.append(el('span', { textContent: 'Asking the server for its key…' }));
+      } else if (fp.error) {
+        wrap.append(el('div', { className: 'fp', textContent: fp.error }));
+      } else {
+        const box = el('div', { className: 'fp' }, [
+          el('div', { textContent: 'Compare with the fingerprint your hosting provider shows (or run ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub on the server). Only trust it if it matches.' }),
+          ...fp.lines.map((l) => el('code', { textContent: l })),
+        ]);
+        wrap.append(box);
+        actions.append(
+          button('It matches, trust and scan', true, () => { fingerprints.delete(r.alias); scan([r.alias], true); }),
+          button('Cancel', false, () => { fingerprints.delete(r.alias); renderHosts(); }),
+        );
+      }
+    }
+    if (r.kind === 'unreachable' || r.kind === 'needsKey' || r.kind === 'stopped') {
+      actions.append(button('Retry', false, () => scan([r.alias], false)));
+    }
+    if (actions.childElementCount) wrap.append(actions);
+    return wrap;
+  }
+
+  function button(text, primary, onclick) {
+    const b = el('button', { className: 'btn small' + (primary ? ' primary' : ''), textContent: text, type: 'button' });
+    b.onclick = onclick;
+    return b;
+  }
+
+  async function showFingerprint(alias) {
+    fingerprints.set(alias, { loading: true });
+    renderHosts();
+    try {
+      const fp = await invoke('ssh_host_fingerprint', { alias });
+      fingerprints.set(alias, { lines: fp.lines });
+    } catch (e) {
+      fingerprints.set(alias, { error: errText(e) });
+    }
+    renderHosts();
+  }
+
+  async function scan(aliases, acceptNew) {
+    for (const a of aliases) { pending.add(a); results.delete(a); }
+    renderHosts();
+    try {
+      const all = await invoke('scan_ssh_hosts', { aliases, acceptNew: !!acceptNew });
+      for (const r of all) { results.set(r.alias, r); pending.delete(r.alias); }
+    } catch (e) {
+      for (const a of aliases) {
+        pending.delete(a);
+        results.set(a, { alias: a, kind: 'unreachable', detail: errText(e) });
+      }
+    }
+    renderHosts();
+  }
+  $('scan').onclick = () => scan(checkedAliases(), false);
+
+  if (T && T.event) {
+    T.event.listen('ssh-scan-result', (ev) => {
+      const r = ev.payload;
+      if (!r || !pending.has(r.alias)) return;
+      pending.delete(r.alias);
+      results.set(r.alias, r);
+      renderHosts();
+    });
+  }
 
   loadCfg();
   poll();
