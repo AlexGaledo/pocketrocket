@@ -1,6 +1,6 @@
 <title>PocketRocket</title>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="description" content="A local messenger for a pocket fleet of persistent AI agents. DM them, put them in group chats, give them memory, skills and routines. They run on your machine, on your subscription." />
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
 
@@ -16,10 +16,22 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<script>document.documentElement.classList.add("js");</script>
+<!-- Runs before the stylesheet: marks JS as available and applies a saved theme choice, so the page
+     never paints in the wrong theme first. Same snippet in 404.html. -->
+<script>
+  (function () {
+    var root = document.documentElement;
+    root.classList.add("js");
+    try {
+      var theme = localStorage.getItem("pr-theme");
+      if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
+    } catch (e) {}
+  })();
+</script>
 <link rel="stylesheet" href="/styles.css" />
 
 <a class="skip-link" href="#main">Skip to content</a>
+<div class="scroll-progress" aria-hidden="true"></div>
 
 <header class="site-nav">
   <div class="wrap nav-row">
@@ -28,7 +40,7 @@
       PocketRocket
     </a>
     <button
-      class="nav-toggle"
+      class="icon-btn nav-toggle"
       type="button"
       aria-label="Menu"
       aria-expanded="false"
@@ -42,10 +54,15 @@
         <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
       </ul>
     </nav>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Theme: System. Switch to Light." title="Theme: System">
+      <svg class="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+    </button>
   </div>
 </header>
 
-<main id="main">
+<main id="main" tabindex="-1">
   <div class="wrap">
     <section class="hero" id="top" aria-label="Introduction">
       <div>
@@ -62,7 +79,8 @@
       <div class="hero-visual">
         <!-- Real capture of the app (packages/site/assets/app.png), not a mock. Both themes ship
              so the shot matches the visitor's; width/height are the intrinsic 2x pixels, which
-             stops the hero reflowing while the image decodes. -->
+             stops the hero reflowing while the image decodes. main.js rewrites the source's media
+             when the theme toggle forces light or dark. -->
         <picture>
           <source srcset="assets/app-dark.png" media="(prefers-color-scheme: dark)" />
           <img
@@ -133,9 +151,7 @@
           <div class="num">1</div>
           <h3>Install</h3>
           <p>Download the Windows installer, or run from source on any OS.</p>
-          <p class="step-copy">
-            <button type="button" class="copy-btn" data-copy="pnpm install && pnpm dev">pnpm install &amp;&amp; pnpm dev</button>
-          </p>
+          <pre class="code"><code>pnpm install &amp;&amp; pnpm dev</code></pre>
         </div>
         <div class="step">
           <div class="num">2</div>
@@ -187,6 +203,55 @@
         </details>
       </div>
     </section>
+
+    <section id="newsletter" aria-labelledby="newsletter-h">
+      <div class="newsletter-panel" data-reveal>
+        <div class="newsletter-copy">
+          <h2 id="newsletter-h">Get release news</h2>
+          <p>One short email when a new version of PocketRocket ships.</p>
+        </div>
+        <div>
+          <!-- Needs JS (it posts to Supabase); without JS the fallback line below shows instead. -->
+          <form class="newsletter-form" id="newsletter-form" novalidate>
+            <label for="nl-email">Email address</label>
+            <div class="nl-row">
+              <input
+                id="nl-email"
+                name="email"
+                type="email"
+                required
+                maxlength="254"
+                autocomplete="email"
+                inputmode="email"
+                spellcheck="false"
+                placeholder="you@example.com"
+                aria-describedby="nl-note"
+              />
+              <button class="btn btn-primary nl-submit" type="submit">
+                <span class="nl-spinner" aria-hidden="true"></span>
+                <span class="nl-label">Subscribe</span>
+              </button>
+            </div>
+            <div class="nl-hp" aria-hidden="true">
+              <label for="nl-website">Leave this field empty</label>
+              <input id="nl-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+            </div>
+            <p class="nl-status" id="nl-status" role="status" aria-live="polite"></p>
+            <p class="nl-note" id="nl-note">Release news only, no spam. Your address is stored with Supabase and used for nothing else.</p>
+          </form>
+          <p class="nl-nojs">Prefer no email? <a href="https://github.com/AlexGaledo/pocketrocket/releases">Watch releases on GitHub</a>.</p>
+          <div class="nl-success" id="nl-success" tabindex="-1" hidden>
+            <span class="check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+            </span>
+            <div>
+              <p class="title">You're on the list</p>
+              <p class="detail">We'll email you when the next version ships.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -197,5 +262,15 @@
     <span>Made by Alex Galedo</span>
   </div>
 </footer>
+
+<div class="float-stack">
+  <button class="fab to-top" type="button" aria-label="Back to top">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+  </button>
+  <a class="fab fab-contact" href="https://github.com/AlexGaledo/pocketrocket/issues/new/choose" aria-label="Get help on GitHub">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9.5 9.5a2.5 2.5 0 0 1 4.9.7c0 1.6-2.4 2-2.4 3.3M12 16.5h.01"/></svg>
+    <span class="fab-text">Get help</span>
+  </a>
+</div>
 
 <script src="/main.js" defer></script>

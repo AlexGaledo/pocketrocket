@@ -1,9 +1,12 @@
-/* ---- tokens: mirrors packages/web/src/index.css, incl. its WCAG-AA text colors ---- */
+/* ---- tokens: mirrors packages/web/src/index.css, incl. its WCAG-AA text colors ----
+   Light is the base. Dark applies when the system asks for it (unless the visitor forced light with the
+   theme toggle) or when the visitor forced dark. Both dark blocks must stay identical. */
 :root {
   --bg: #f7f7f8;
   --panel: #ffffff;
   --card2: #f0f1f3;
   --line: #e6e7ea;
+  --line-strong: #cfd2d8;
   --fg: #111214;
   --muted: #5c636d;
   --dim: #676d75;
@@ -17,15 +20,17 @@
   --shadow-lg: 0 2px 4px rgba(17, 18, 20, 0.06), 0 24px 48px rgba(17, 18, 20, 0.12);
   --wash-a: rgba(79, 125, 243, 0.10);
   --wash-b: rgba(31, 157, 106, 0.08);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0b0c0f;
     --panel: #15171b;
     --card2: #1f2228;
     --line: #262a31;
+    --line-strong: #3a3f48;
     --fg: #f2f3f5;
     --muted: #9aa3ae;
     --dim: #868d98;
@@ -43,8 +48,37 @@
   }
 }
 
+:root[data-theme="dark"] {
+  --bg: #0b0c0f;
+  --panel: #15171b;
+  --card2: #1f2228;
+  --line: #262a31;
+  --line-strong: #3a3f48;
+  --fg: #f2f3f5;
+  --muted: #9aa3ae;
+  --dim: #868d98;
+  --accent: #7ea1ff;
+  --accent2: #5f88f2;
+  --ok: #38c48a;
+  --warn: #f0954a;
+  --ink: #f2f3f5;
+  --ink-fg: #0b0c0f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.55);
+  --wash-a: rgba(126, 161, 255, 0.10);
+  --wash-b: rgba(56, 196, 138, 0.07);
+  color-scheme: dark;
+}
+
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  /* Anchor targets land below the sticky nav instead of under it. */
+  scroll-padding-top: 88px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
 body {
   margin: 0;
   color: var(--fg);
@@ -60,9 +94,13 @@ body {
   overflow-x: hidden;
 }
 
+[hidden] { display: none !important; }
 img { max-width: 100%; }
 a { color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+/* Containers that only receive focus programmatically (skip link target, newsletter success) get no ring. */
+[tabindex="-1"]:focus,
+[tabindex="-1"]:focus-visible { outline: none; }
 
 .wrap {
   width: 100%;
@@ -71,12 +109,29 @@ a { color: inherit; }
   padding: 0 24px;
 }
 
+/* ---- scroll progress ----
+   Sits above the sticky nav. main.js drives scaleX from a rAF-throttled scroll listener. */
+.scroll-progress {
+  position: fixed;
+  top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  height: 3px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  pointer-events: none;
+  will-change: transform;
+}
+
 /* ---- nav ---- */
 header.site-nav {
   position: sticky;
-  top: 0;
+  top: env(safe-area-inset-top, 0px);
   z-index: 20;
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   background: color-mix(in oklab, var(--bg) 82%, transparent);
   /* The hairline only appears once the page has scrolled under the bar. */
   border-bottom: 1px solid transparent;
@@ -87,21 +142,29 @@ header.site-nav.is-scrolled {
   background: color-mix(in oklab, var(--bg) 92%, transparent);
 }
 .nav-row {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 0;
+  /* padding-block, not `padding: 16px 0`, which would wipe .wrap's side gutter (the brand touched the
+     screen edge on phones). */
+  padding-block: 16px;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-right: auto;
   font-weight: 600;
   font-size: 16px;
   text-decoration: none;
   color: var(--fg);
 }
-.brand img { width: 28px; height: 28px; border-radius: 8px; }
+.brand img {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  transition: transform 0.35s var(--ease-out);
+}
 .nav-links {
   display: flex;
   gap: 28px;
@@ -110,13 +173,11 @@ header.site-nav.is-scrolled {
   padding: 0;
 }
 .nav-links a {
+  position: relative;
   text-decoration: none;
   color: var(--muted);
   font-size: 14px;
-}
-.nav-links a {
-  position: relative;
-  transition: color 0.18s ease;
+  transition: color 0.18s ease, background-color 0.18s ease;
 }
 .nav-links a::after {
   content: "";
@@ -129,14 +190,14 @@ header.site-nav.is-scrolled {
   background: var(--fg);
   transform: scaleX(0);
   transform-origin: left;
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.22s var(--ease-out);
 }
-.nav-links a:hover { color: var(--fg); }
-.nav-links a:hover::after { transform: scaleX(1); }
 
-/* Hamburger. Hidden on desktop; below 720px it is the only way to reach the nav. */
-.nav-toggle {
-  display: none;
+/* Square icon buttons in the bar: theme toggle and hamburger share one look. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
   height: 40px;
   padding: 0;
@@ -145,9 +206,29 @@ header.site-nav.is-scrolled {
   background: var(--panel);
   color: var(--fg);
   cursor: pointer;
-  align-items: center;
-  justify-content: center;
+  font: inherit;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.2s var(--ease-out);
 }
+.icon-btn:active { transform: scale(0.94); }
+
+/* Theme toggle. Needs JS, so it only shows once the head script has set `.js`. The icon follows the
+   data-theme attribute directly, so it is right before main.js runs. */
+.theme-toggle { display: none; margin-left: 20px; }
+.js .theme-toggle { display: inline-flex; }
+.theme-toggle svg { display: none; width: 18px; height: 18px; }
+:root:not([data-theme]) .theme-toggle .i-system,
+:root[data-theme="light"] .theme-toggle .i-sun,
+:root[data-theme="dark"] .theme-toggle .i-moon {
+  display: block;
+  animation: icon-in 0.32s var(--ease-out);
+}
+@keyframes icon-in {
+  from { opacity: 0; transform: rotate(-40deg) scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Hamburger. Hidden on desktop; below 720px (with JS) it is the only way to reach the nav. */
+.nav-toggle { display: none; }
 .nav-toggle span {
   position: relative;
   display: block;
@@ -155,7 +236,7 @@ header.site-nav.is-scrolled {
   height: 1.5px;
   border-radius: 2px;
   background: currentColor;
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease;
+  transition: transform 0.24s var(--ease-out), opacity 0.16s ease;
 }
 .nav-toggle span::before,
 .nav-toggle span::after {
@@ -166,7 +247,7 @@ header.site-nav.is-scrolled {
   height: 1.5px;
   border-radius: 2px;
   background: currentColor;
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.24s var(--ease-out);
 }
 .nav-toggle span::before { transform: translateY(-5px); }
 .nav-toggle span::after { transform: translateY(5px); }
@@ -174,41 +255,60 @@ header.site-nav.is-scrolled {
 .nav-toggle[aria-expanded="true"] span::before { transform: rotate(90deg); }
 .nav-toggle[aria-expanded="true"] span::after { transform: translateY(0) rotate(90deg); opacity: 0; }
 
+@media (hover: hover) {
+  .brand:hover img { transform: rotate(-10deg) translateY(-1px); }
+  .nav-links a:hover { color: var(--fg); }
+  .nav-links a:hover::after { transform: scaleX(1); }
+  .icon-btn:hover { background: var(--card2); border-color: var(--line-strong); }
+}
+
 @media (max-width: 720px) {
-  .nav-toggle { display: inline-flex; }
-  .nav-row { position: relative; }
-  .nav-links {
+  /* Without JS the links simply wrap in the bar; the collapsed menu needs the toggle to open it. */
+  .nav-links { flex-wrap: wrap; justify-content: flex-end; gap: 6px 18px; }
+
+  .js .theme-toggle { order: 2; margin-left: 0; }
+  .js .nav-toggle { display: inline-flex; order: 3; margin-left: 8px; }
+  .js .site-nav nav { order: 4; }
+  .js .nav-links {
     position: absolute;
     top: calc(100% + 10px);
-    right: 0;
-    left: 0;
+    /* .nav-row's padding box includes the .wrap gutter, so inset by it to line up with the content. */
+    right: 24px;
+    left: 24px;
     flex-direction: column;
     gap: 2px;
     padding: 8px;
     border-radius: 18px;
     background: var(--panel);
     box-shadow: var(--shadow-lg);
-    /* Collapsed by default; the toggle swaps these three properties. */
+    /* Collapsed by default. visibility takes the links out of the tab order; it flips only after the
+       fade-out finishes, and immediately when opening, so both directions still animate. */
     opacity: 0;
+    visibility: hidden;
     transform: translateY(-6px) scale(0.98);
     transform-origin: top right;
-    pointer-events: none;
-    transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+      opacity 0.2s ease,
+      transform 0.24s var(--ease-out),
+      visibility 0s linear 0.24s;
   }
-  .nav-links a {
+  .js .nav-links a {
     display: block;
     padding: 11px 12px;
     border-radius: 12px;
     font-size: 15px;
     color: var(--fg);
   }
-  .nav-links a::after { display: none; }
-  .nav-links a:hover { background: var(--card2); }
-  header.site-nav.is-nav-open .nav-links {
+  .js .nav-links a::after { display: none; }
+  .js header.site-nav.is-nav-open .nav-links {
     opacity: 1;
+    visibility: visible;
     transform: none;
-    pointer-events: auto;
+    transition-delay: 0s;
   }
+}
+@media (max-width: 720px) and (hover: hover) {
+  .js .nav-links a:hover { background: var(--card2); }
 }
 
 /* ---- buttons ---- */
@@ -225,15 +325,19 @@ header.site-nav.is-scrolled {
   border: 1px solid transparent;
   cursor: pointer;
   font-family: inherit;
-  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s var(--ease-out), opacity 0.15s ease, box-shadow 0.2s ease, background-color 0.18s ease, border-color 0.18s ease;
 }
-.btn:hover { transform: translateY(-1px); }
 .btn:active { transform: scale(0.98); }
 .btn-primary { background: var(--ink); color: var(--ink-fg); }
-.btn-primary:hover { opacity: 0.9; box-shadow: var(--shadow-lg); }
 .btn-secondary { background: var(--panel); color: var(--fg); border-color: var(--line); box-shadow: var(--shadow); }
-.btn-secondary:hover { opacity: 1; box-shadow: var(--shadow-lg); }
 .btn small { font-weight: 400; opacity: 0.75; }
+.btn[aria-disabled="true"] { cursor: progress; opacity: 0.8; transform: none; }
+@media (hover: hover) {
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary:hover { opacity: 0.9; box-shadow: var(--shadow-lg); }
+  .btn-secondary:hover { border-color: var(--line-strong); box-shadow: var(--shadow-lg); }
+  .btn[aria-disabled="true"]:hover { transform: none; opacity: 0.8; box-shadow: none; }
+}
 
 /* ---- panel ---- */
 .panel {
@@ -282,7 +386,7 @@ header.site-nav.is-scrolled {
 .hero p.sub,
 .hero-actions,
 .hero-foot {
-  animation: rise-in 0.62s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rise-in 0.62s var(--ease-out) both;
   animation-delay: var(--delay, 0s);
 }
 .hero h1 { --delay: 0.02s; }
@@ -297,6 +401,7 @@ header.site-nav.is-scrolled {
 }
 /* The hero screenshot. width/height on the <img> give it the 8:5 aspect ratio, so `height: auto`
    is all that is needed to keep it responsive without reserving the wrong box on load. */
+.hero-visual { position: relative; }
 .hero-visual .shot {
   display: block;
   width: 100%;
@@ -304,9 +409,29 @@ header.site-nav.is-scrolled {
   border-radius: 16px;
   border: 1px solid var(--line);
   box-shadow: var(--shadow-lg);
-  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.5s var(--ease-out), opacity 0.45s ease;
 }
-.hero-visual:hover .shot { transform: translateY(-4px) scale(1.006); }
+@media (hover: hover) {
+  .hero-visual:hover .shot { transform: translateY(-4px) scale(1.006); }
+}
+
+/* Loading placeholder: main.js adds .is-loading only while the screenshot is still downloading (never
+   for a cached image, never with reduced motion). The shimmer fills the box the img already reserves. */
+.hero-visual.is-loading .shot { opacity: 0; }
+.hero-visual.is-loading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: linear-gradient(100deg, var(--card2) 30%, var(--panel) 50%, var(--card2) 70%);
+  background-size: 220% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 110% 0; }
+  to { background-position: -110% 0; }
+}
 
 
 /* ---- scroll reveal ----
@@ -315,7 +440,7 @@ header.site-nav.is-scrolled {
 .js [data-reveal] {
   opacity: 0;
   transform: translateY(18px);
-  transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.6s ease, transform 0.7s var(--ease-out);
   transition-delay: calc(var(--i, 0) * 60ms);
 }
 .js [data-reveal].is-in {
@@ -361,9 +486,8 @@ section { padding: 56px 0; }
   border-radius: 20px;
   background: var(--panel);
   box-shadow: var(--shadow);
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.24s ease;
+  transition: transform 0.24s var(--ease-out), box-shadow 0.24s ease;
 }
-.tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 .tile h3 { font-size: 15px; margin: 0 0 6px; }
 .tile p { margin: 0; color: var(--muted); font-size: 13.5px; }
 
@@ -377,13 +501,13 @@ section { padding: 56px 0; }
   .steps { grid-template-columns: 1fr; }
 }
 .step {
+  min-width: 0;
   padding: 22px;
   border-radius: 20px;
   background: var(--panel);
   box-shadow: var(--shadow);
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.24s ease;
+  transition: transform 0.24s var(--ease-out), box-shadow 0.24s ease;
 }
-.step:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
 .step .num {
   width: 28px; height: 28px; border-radius: 50%;
   background: var(--ink); color: var(--ink-fg);
@@ -392,6 +516,76 @@ section { padding: 56px 0; }
 }
 .step h3 { margin: 0 0 6px; font-size: 15px; }
 .step p { margin: 0; color: var(--muted); font-size: 13.5px; }
+@media (hover: hover) {
+  .tile:hover,
+  .step:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+}
+
+/* ---- code blocks ----
+   main.js wraps every `pre > code` in .code-block and adds a copy button beside it. The code scrolls
+   sideways inside its own box when the column is narrow, so the button never covers it. */
+pre.code {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card2);
+  overflow-x: auto;
+}
+pre.code code,
+.code-block code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--fg);
+  white-space: pre;
+}
+.code-block {
+  display: flex;
+  align-items: stretch;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card2);
+  overflow: hidden;
+}
+.code-block pre.code {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  display: flex;
+  align-items: center;
+}
+.copy-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 76px;
+  padding: 6px 10px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.18s ease, background-color 0.18s ease;
+}
+.copy-btn svg { width: 14px; height: 14px; flex: none; }
+.copy-btn:active { background: var(--line); }
+.copy-btn:focus-visible { outline-offset: -2px; }
+.copy-btn.is-copied { color: var(--ok); }
+.copy-btn.is-failed { color: var(--warn); }
+@media (hover: hover) {
+  .copy-btn:hover { background: var(--panel); color: var(--fg); }
+  .copy-btn.is-copied:hover { color: var(--ok); }
+  .copy-btn.is-failed:hover { color: var(--warn); }
+}
 
 /* ---- server section ---- */
 .server-panel {
@@ -414,27 +608,169 @@ section { padding: 56px 0; }
   border-radius: 16px;
   box-shadow: var(--shadow);
   padding: 6px 20px;
+  transition: box-shadow 0.24s ease;
 }
 .faq summary {
+  position: relative;
   cursor: pointer;
-  padding: 14px 0;
+  padding: 14px 32px 14px 0;
   font-weight: 600;
   font-size: 14.5px;
   list-style: none;
+  transition: color 0.18s ease;
 }
 .faq summary::-webkit-details-marker { display: none; }
+/* Plus drawn from two bars; the vertical one turns flat when open, so + becomes − smoothly. */
+.faq summary::before,
 .faq summary::after {
-  content: "+";
-  float: right;
-  color: var(--dim);
-  font-weight: 400;
+  content: "";
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  width: 12px;
+  height: 1.5px;
+  margin-top: -0.75px;
+  border-radius: 2px;
+  background: var(--dim);
+  transition: transform 0.28s var(--ease-out), background-color 0.18s ease;
 }
-.faq details[open] summary::after { content: "\2212"; }
+.faq summary::after { transform: rotate(90deg); }
+.faq details[open] summary::after { transform: rotate(0deg); }
+.faq summary:focus-visible { outline-offset: 0; }
 .faq .answer { padding: 0 0 16px; color: var(--muted); font-size: 13.5px; }
+@media (hover: hover) {
+  .faq details:hover { box-shadow: var(--shadow-lg); }
+  .faq summary:hover { color: var(--accent); }
+  .faq summary:hover::before,
+  .faq summary:hover::after { background: var(--accent); }
+}
+/* Animated open/close where the browser can animate to `height: auto`; elsewhere details just snaps. */
+@supports (interpolate-size: allow-keywords) and selector(::details-content) {
+  .faq details { interpolate-size: allow-keywords; }
+  .faq details::details-content {
+    height: 0;
+    overflow: clip;
+    transition: height 0.32s var(--ease-out), content-visibility 0.32s allow-discrete;
+  }
+  .faq details[open]::details-content { height: auto; }
+}
+
+/* ---- newsletter ---- */
+.newsletter-panel {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 32px;
+  align-items: center;
+  padding: 32px;
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+@media (max-width: 760px) {
+  .newsletter-panel { grid-template-columns: 1fr; gap: 20px; padding: 24px; }
+}
+.newsletter-copy h2 {
+  font-size: clamp(22px, 3vw, 28px);
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+.newsletter-copy p { margin: 0; color: var(--muted); }
+
+.newsletter-form { display: none; }
+.js .newsletter-form { display: block; }
+.js .nl-nojs { display: none; }
+.nl-nojs { margin: 0; color: var(--muted); }
+.nl-nojs a { color: var(--accent); }
+
+.newsletter-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.nl-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.nl-row input {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  /* 16px keeps iOS Safari from zooming the page on focus. */
+  font: inherit;
+  font-size: 16px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.nl-row input::placeholder { color: var(--dim); opacity: 1; }
+.nl-row input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 28%, transparent);
+}
+.nl-row input[aria-invalid="true"] { border-color: var(--warn); }
+@media (hover: hover) {
+  .nl-row input:hover:not(:focus) { border-color: var(--dim); }
+}
+.nl-submit { min-height: 46px; flex: 0 0 auto; }
+.nl-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.nl-submit[aria-busy="true"] .nl-spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.nl-status { min-height: 1.4em; margin: 8px 0 0; font-size: 13.5px; color: var(--warn); }
+.nl-status:empty { min-height: 0; margin: 0; }
+.nl-note { margin: 8px 0 0; font-size: 13px; color: var(--dim); }
+
+/* Honeypot: off-screen rather than display:none, since some bots skip fields that are not rendered. */
+.nl-hp {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.nl-success {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  animation: rise-in 0.5s var(--ease-out) both;
+}
+.nl-success .check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+.nl-success .check svg { width: 18px; height: 18px; }
+.nl-success .check path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: draw 0.45s var(--ease-out) 0.15s forwards;
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.nl-success p { margin: 0; }
+.nl-success .title { font-weight: 600; font-size: 16px; }
+.nl-success .detail { color: var(--muted); font-size: 14px; }
 
 /* ---- footer ---- */
 footer.site-foot {
-  padding: 32px 0 56px;
+  /* Bottom padding clears the floating buttons, so they never sit on top of footer text. */
+  padding: 32px 0 calc(96px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--line);
   margin-top: 24px;
   color: var(--dim);
@@ -447,21 +783,62 @@ footer.site-foot {
   align-items: center;
   justify-content: space-between;
 }
-footer.site-foot a { color: var(--muted); text-decoration: none; }
-footer.site-foot a:hover { color: var(--fg); }
-
-.step-copy { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.copy-btn {
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  font-size: 12.5px;
-  background: var(--card2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-  color: var(--fg);
+footer.site-foot a { color: var(--muted); text-decoration: none; transition: color 0.18s ease; }
+@media (hover: hover) {
+  footer.site-foot a:hover { color: var(--fg); }
 }
-.copy-btn.copied { color: var(--ok); }
+
+/* ---- floating buttons ----
+   One bottom-right row, a single button tall so the footer padding clears it. Back-to-top sits left of
+   the contact button and always keeps its slot (just invisible until needed), so nothing jumps. */
+.float-stack {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+.fab {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: var(--shadow-lg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.24s var(--ease-out), opacity 0.2s ease, visibility 0s linear 0s, background-color 0.18s ease, border-color 0.18s ease;
+}
+.fab svg { width: 18px; height: 18px; flex: none; }
+.fab:active { transform: scale(0.95); }
+@media (hover: hover) {
+  .fab:hover { transform: translateY(-2px); background: var(--card2); border-color: var(--line-strong); }
+}
+.to-top { padding: 0; width: 44px; }
+.to-top:not(.is-visible) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: transform 0.24s var(--ease-out), opacity 0.2s ease, visibility 0s linear 0.24s;
+}
+@media (max-width: 560px) {
+  .fab-contact { width: 44px; padding: 0; }
+  .fab-contact .fab-text { display: none; }
+}
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -479,6 +856,71 @@ footer.site-foot a:hover { color: var(--fg); }
   z-index: 50;
 }
 .skip-link:focus { left: 0; }
+
+/* ---- 404 ---- */
+.lost {
+  min-height: calc(100vh - 260px);
+  display: grid;
+  place-items: center;
+  padding: 48px 0 32px;
+  text-align: center;
+}
+.lost-orbit {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  margin: 0 auto 28px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: 50%;
+}
+.lost-orbit img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 84px;
+  height: 84px;
+  margin: -42px 0 0 -42px;
+  border-radius: 50%;
+  box-shadow: var(--shadow-lg);
+  animation: drift 6s ease-in-out infinite;
+}
+.lost-orbit::after {
+  /* A small moon riding the orbit line. */
+  content: "";
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) rotate(-6deg); }
+  50% { transform: translate(8px, -10px) rotate(5deg); }
+}
+.lost .eyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.lost h1 {
+  font-size: clamp(28px, 4.4vw, 42px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+}
+.lost p.sub {
+  max-width: 44ch;
+  margin: 0 auto 28px;
+  color: var(--muted);
+}
+.lost .hero-actions { justify-content: center; }
+.lost > div { animation: rise-in 0.62s var(--ease-out) both; }
 
 /* ---- reduced motion ----
    One blanket rather than a per-rule opt-out, so anything added later is covered by default.
@@ -500,7 +942,96 @@ footer.site-foot a:hover { color: var(--fg); }
   .tile:hover,
   .step:hover,
   .btn:hover,
+  .fab:hover,
+  .brand:hover img,
   .hero-visual:hover .shot {
     transform: none;
   }
+}
+
+/* ---- print ----
+   Paper gets the content only: no chrome, no motion, light colors whatever the screen theme is. The
+   token override uses :root:not(...) so it outranks both dark blocks regardless of data-theme. */
+@media print {
+  :root:not([data-theme="print-never-set"]) {
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --card2: #f4f4f5;
+    --line: #d4d4d8;
+    --line-strong: #a1a1aa;
+    --fg: #000000;
+    --muted: #333333;
+    --dim: #444444;
+    --accent: #1d3f99;
+    --ok: #0b5d3b;
+    --warn: #7a4210;
+    --ink: #000000;
+    --ink-fg: #ffffff;
+    --shadow: none;
+    --shadow-lg: none;
+    color-scheme: light;
+  }
+  @page { margin: 16mm; }
+
+  html { scroll-padding-top: 0; }
+  body { background: #fff !important; color: #000; font-size: 11pt; }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .skip-link,
+  .scroll-progress,
+  .site-nav,
+  .theme-toggle,
+  .nav-toggle,
+  .float-stack,
+  #newsletter,
+  .copy-btn,
+  .hero-visual::before { display: none !important; }
+
+  /* Reveals that never scrolled into view would otherwise print as blank space. */
+  .js [data-reveal],
+  .hero-visual .shot { opacity: 1 !important; transform: none !important; }
+
+  .hero { grid-template-columns: 1fr; gap: 20px; padding: 0 0 16px; }
+  .hero-visual { max-width: 70%; }
+  section { padding: 20px 0; }
+  .grid-6 { grid-template-columns: repeat(2, 1fr); }
+  .steps { grid-template-columns: 1fr; }
+
+  .tile,
+  .step,
+  .server-panel,
+  .faq details,
+  .hero-visual,
+  .code-block { break-inside: avoid; page-break-inside: avoid; border: 1px solid var(--line); }
+  h1, h2, h3, summary { break-after: avoid; page-break-after: avoid; }
+
+  /* Buttons print as outlined text: printers drop backgrounds, which would leave white-on-white. */
+  .btn,
+  .step .num { background: none !important; color: #000 !important; border: 1px solid #000 !important; }
+  .code-block pre.code { overflow: visible; }
+  .code-block code { white-space: pre-wrap; }
+
+  /* Every FAQ answer prints open (main.js also opens them on beforeprint for other browsers). */
+  .faq summary::before,
+  .faq summary::after { display: none; }
+  @supports selector(::details-content) {
+    .faq details::details-content { height: auto !important; content-visibility: visible !important; }
+  }
+
+  a[href^="http"]:not(.btn):not(.brand)::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    font-weight: 400;
+    color: #444;
+    word-break: break-all;
+  }
+  footer.site-foot { padding-bottom: 0; }
 }
