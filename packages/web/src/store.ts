@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState } from '@pocketrocket/shared';
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
-import { api, type AccountActionResponse } from './lib/api';
+import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { applyTheme, watchSystemTheme } from './lib/theme';
@@ -31,6 +31,8 @@ const FALLBACK_PROVIDERS: ProvidersResponse = {
 
 // turnId -> last time a 'receive' sound fired for that turn, so turn.end doesn't double it with 'done'.
 const recentReceive = new Map<string, number>();
+// roomId -> when loadOlder may try again after a failed page fetch.
+const olderRetryAt = new Map<string, number>();
 
 /** True when a response body is a full AccountState rather than a bare `{ ok }`. */
 function isAccountState(v: unknown): v is AccountState {
@@ -94,6 +96,8 @@ interface State {
   activeRoomId: string | null;
   messages: Record<string, Message[]>;
   loaded: Record<string, boolean>;
+  /** Per room: an older page is being fetched, or the transcript already reaches the room's first message. */
+  history: Record<string, { loading: boolean; done: boolean }>;
   streaming: Record<string, Streaming>;
   unread: Record<string, number>;
   usage: Record<string, UsageTotals>;
@@ -130,6 +134,8 @@ interface State {
   applyEvent: (ev: ServerEvent) => void;
   setActiveRoom: (id: string | null) => void;
   loadMessages: (roomId: string) => Promise<void>;
+  /** Prepends the page just before the oldest loaded message. No-op while one is loading or none are left. */
+  loadOlder: (roomId: string) => Promise<void>;
   sendMessage: (text: string) => void;
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
@@ -156,6 +162,7 @@ export const useStore = create<State>((set, get) => ({
   activeRoomId: localStorage.getItem('pocketrocket.activeRoom'),
   messages: {},
   loaded: {},
+  history: {},
   streaming: {},
   unread: {},
   usage: {},
@@ -317,9 +324,36 @@ export const useStore = create<State>((set, get) => ({
       const existing = get().messages[roomId] ?? [];
       const ids = new Set(msgs.map((m) => m.id));
       const merged = [...msgs, ...existing.filter((m) => !ids.has(m.id))].sort((a, b) => a.seq - b.seq);
-      set({ messages: { ...get().messages, [roomId]: merged }, loaded: { ...get().loaded, [roomId]: true } });
+      // A reload after reconnect keeps older pages already fetched, so only a short newest page proves there is nothing more.
+      const done = msgs.length < MESSAGE_PAGE || !!get().history[roomId]?.done;
+      set({
+        messages: { ...get().messages, [roomId]: merged },
+        loaded: { ...get().loaded, [roomId]: true },
+        history: { ...get().history, [roomId]: { loading: false, done } },
+      });
     } catch (e) {
       get().toast('Failed to load messages: ' + (e as Error).message, true);
+    }
+  },
+
+  loadOlder: async (roomId) => {
+    const list = get().messages[roomId];
+    const h = get().history[roomId];
+    if (!get().loaded[roomId] || !list?.length || h?.loading || h?.done || Date.now() < (olderRetryAt.get(roomId) ?? 0)) return;
+    const setHistory = (v: { loading: boolean; done: boolean }) => set({ history: { ...get().history, [roomId]: v } });
+    setHistory({ loading: true, done: false });
+    try {
+      const older = await api.rooms.messages(roomId, list[0].seq);
+      const current = get().messages[roomId] ?? [];
+      const ids = new Set(current.map((m) => m.id));
+      const merged = [...older.filter((m) => !ids.has(m.id)), ...current].sort((a, b) => a.seq - b.seq);
+      set({ messages: { ...get().messages, [roomId]: merged } });
+      setHistory({ loading: false, done: older.length < MESSAGE_PAGE });
+    } catch (e) {
+      setHistory({ loading: false, done: false });
+      // Every scroll event near the top asks again, so hold off a few seconds instead of retrying (and toasting) at once.
+      olderRetryAt.set(roomId, Date.now() + 5000);
+      get().toast("Couldn't load earlier messages: " + (e as Error).message, true);
     }
   },
 

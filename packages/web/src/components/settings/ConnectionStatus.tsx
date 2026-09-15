@@ -4,10 +4,10 @@
  * shows the steps to fix it plus a "Check again" button that re-runs the check.
  */
 import { useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import { CircleCheck, TriangleAlert } from 'lucide-react';
 import type { ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
 import { Badge, Button, cn } from '../ui';
+import { Markdown } from '../Markdown';
 import { useRecheck } from '../ProviderCard';
 
 /**
@@ -168,7 +168,7 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
           <li>Come back here and press Check again.</li>
         </ol>
       ) : (
-        check.hint && <div className="md"><ReactMarkdown>{check.hint}</ReactMarkdown></div>
+        check.hint && <div className="md"><Markdown>{check.hint}</Markdown></div>
       )}
       {hasKeyField && info.id === 'claude' && !check.unresponsive && (
         <p className="mt-2 text-muted">No Claude subscription? Add an API key below instead.</p>
@@ -179,7 +179,7 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
           <div className="mt-1 space-y-1 text-[11.5px] text-dim">
             {/* The error can hold a Windows path; plain text keeps its backslashes intact. */}
             {check.error && <p className="break-all font-mono">{check.error}</p>}
-            {check.hint && <div className="md"><ReactMarkdown>{check.hint}</ReactMarkdown></div>}
+            {check.hint && <div className="md"><Markdown>{check.hint}</Markdown></div>}
           </div>
         </details>
       )}

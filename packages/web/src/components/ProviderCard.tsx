@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import type { ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
 import { api } from '../lib/api';
+import { Markdown } from './Markdown';
 import { Badge, Button, RadioDot, cn, radioKeyDown } from './ui';
 
 export function statusPill(check: ProviderCheck): { tone: 'ok' | 'warn' | 'muted'; text: string } {
@@ -82,7 +82,7 @@ export function ProviderCard({
       )}
       {!info.check.ok && info.check.hint && (
         <div className="md mt-1.5 pl-6 text-[11.5px] text-dim">
-          <ReactMarkdown>{info.check.hint}</ReactMarkdown>
+          <Markdown>{info.check.hint}</Markdown>
         </div>
       )}
       <div className="mt-2 pl-6">
