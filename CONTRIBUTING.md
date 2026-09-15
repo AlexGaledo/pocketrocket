@@ -8,7 +8,8 @@ pnpm dev      # hub (tsx watch) + Vite UI at http://127.0.0.1:5173
 pnpm test     # vitest, run before every PR
 ```
 
-Node ≥ 22.13 and pnpm are required (see the root [README](./README.md#install)).
+Node ≥ 22.13 and pnpm are required. Building the desktop app needs Rust and the Visual Studio
+Build Tools too — see [`docs/DESKTOP.md`](./docs/DESKTOP.md).
 
 ## Where things live
 
