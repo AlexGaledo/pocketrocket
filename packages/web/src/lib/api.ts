@@ -33,6 +33,9 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return j as T;
 }
 
+/** How many messages one transcript page holds. A page shorter than this means the room's start was reached. */
+export const MESSAGE_PAGE = 200;
+
 /** GET /api/health also carries the hub's version and active provider, which HealthInfo leaves out. */
 export type HealthResponse = HealthInfo & { version?: string; provider?: ProviderId };
 
@@ -66,7 +69,8 @@ export const api = {
     create: (r: RoomInput) => req<Room>('POST', '/api/rooms', r),
     update: (id: string, r: Partial<RoomInput>) => req<Room>('PATCH', '/api/rooms/' + id, r),
     remove: (id: string) => req<{ ok: true }>('DELETE', '/api/rooms/' + id),
-    messages: (id: string, before?: number) => req<Message[]>('GET', '/api/rooms/' + id + '/messages?limit=200' + (before ? '&before=' + before : '')),
+    // `before` is a message seq (exclusive): the hub returns the page of messages just older than it.
+    messages: (id: string, before?: number) => req<Message[]>('GET', '/api/rooms/' + id + '/messages?limit=' + MESSAGE_PAGE + (before ? '&before=' + before : '')),
   },
   skills: {
     list: () => req<Skill[]>('GET', '/api/skills'),
