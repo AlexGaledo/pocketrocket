@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IncomingMessage } from 'node:http';
-import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, cookieValue, tokenMatches } from './guard.js';
+import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, cookieValue, presentsHubToken, tokenMatches } from './guard.js';
 
 const PORT = 7788;
 function req(over: Partial<IncomingMessage> & { headers?: Record<string, string> } = {}): IncomingMessage {
@@ -142,5 +142,19 @@ describe('AuthRateLimiter (audit B15)', () => {
     now += 60_001;
     for (let i = 0; i < 9; i++) expect(rl.fail('a')).toBe(false);
     expect(rl.blocked('a')).toBe(false);
+  });
+});
+
+describe('presentsHubToken', () => {
+  const T = 'tok';
+  it('is true only when the request carries the token, not for token-exempt paths', () => {
+    // These pass checkToken without a token, so they must not count as a success that clears the limiter.
+    expect(checkToken(req(), url('/api/health'), T)).toBe(true);
+    expect(presentsHubToken(req(), url('/api/health'), T)).toBe(false);
+    expect(presentsHubToken(req(), url('/'), T)).toBe(false);
+    expect(presentsHubToken(req({ headers: { authorization: 'Bearer nope' } }), url('/api/bots'), T)).toBe(false);
+    expect(presentsHubToken(req({ headers: { authorization: 'Bearer tok' } }), url('/api/bots'), T)).toBe(true);
+    expect(presentsHubToken(req(), url('/ws?token=tok'), T)).toBe(true);
+    expect(presentsHubToken(req({ headers: { authorization: 'Bearer tok' } }), url('/api/bots'), null)).toBe(false);
   });
 });

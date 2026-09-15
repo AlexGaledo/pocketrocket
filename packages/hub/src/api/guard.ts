@@ -140,6 +140,15 @@ export function checkToken(req: IncomingMessage, url: URL, token: string | null,
 }
 
 /**
+ * Whether the request actually carried the hub token, as opposed to merely passing checkToken on a
+ * token-exempt path (/api/health, /, static assets, /mcp). Only this may clear the rate limiter: otherwise
+ * nine bad guesses, one GET /api/health, and nine more walks straight past the brake.
+ */
+export function presentsHubToken(req: IncomingMessage, url: URL, token: string | null): boolean {
+  return token !== null && tokenMatches(bearerToken(req) ?? url.searchParams.get('token'), token);
+}
+
+/**
  * In-memory brute-force brake (audit 2026-09-09, B15): 10 failed auths from one IP inside a minute lock that
  * IP out for a minute. Per hub process, deliberately tiny — the hub is loopback-only, so the population of
  * "IPs" is 127.0.0.1 plus whatever a tunnel presents, and the point is to make walking a token byte by byte
