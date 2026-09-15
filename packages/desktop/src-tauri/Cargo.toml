@@ -19,9 +19,14 @@ serde_json = "1"
 getrandom = "0.4"
 # hands links to the default browser; ShellExecuteExW on Windows, so no cmd.exe parsing of the URL
 open = { version = "5", features = ["shellexecute-on-windows"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
 
 [profile.release]
 opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
