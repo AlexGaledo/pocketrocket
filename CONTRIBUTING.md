@@ -8,7 +8,7 @@ pnpm dev      # hub (tsx watch) + Vite UI at http://127.0.0.1:5173
 pnpm test     # vitest, run before every PR
 ```
 
-Node ≥ 22.13 and pnpm are required (see the root [README](./README.md#install)).
+Node ≥ 22.13 and pnpm are required (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)).
 
 ## Where things live
 

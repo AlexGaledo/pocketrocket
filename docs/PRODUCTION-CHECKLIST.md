@@ -38,7 +38,7 @@ See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release a
 | `bashRules`/`pathRules` tightened: relative paths, interpreter flags, `isInside` AND-not-OR (audit B3–B5) | ◐ see SECURITY.md Threat model — best-effort against a cooperative model, not a hostile one | `permissions/rules.test.ts`, `permissions/pathRules.test.ts` |
 | Provider children get a per-provider env allowlist instead of the hub's full `process.env` (audit B7) | ☑ | inspect `claude.ts`/`codex.ts`/`grok.ts`/`opencode/server.ts` spawn options |
 | Secrets file permissions enforced on every write, not just creation (audit #17) | ☑ | `SecretsStore.test.ts` |
-| VPS docs say never expose the port; SSH tunnel / Tailscale only | ☑ | `SECURITY.md`, README |
+| VPS docs say never expose the port; SSH tunnel / Tailscale only | ☑ | `SECURITY.md`, `docs/SERVER.md` |
 | Screen tab (server mode): no VNC password prompt — `x11vnc -nopw` on loopback, hub's `/screen` cookie auth is the gate | ☑ | open the Screen tab through the tunnel, confirm no password prompt; `curl` `/screen/vnc.html` without the cookie → 401 |
 | CI: top-level `permissions: contents: read`, every third-party action SHA-pinned, Dependabot configured (audit #21) | ☑ | `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml` |
 | Screenshots/docs/fixtures redacted of the local username and SSH host alias (audit A) | ☑ | see this file's redaction grep in the audit report |
@@ -118,7 +118,7 @@ The accessibility pass covered, and fixed:
 | Download button resolves latest GitHub Release (falls back to Releases page) | ☑ code, ☐ no release yet |
 | Real screenshots in hero + README; OG image | ☑ |
 | Site deployed to Vercel production, URL in README | ☑ https://pocketrocket-chi.vercel.app |
-| README: download, quick start, features, how it works, permissions, server mode, development, roadmap | ☑ |
+| README: installer-only setup walkthrough (download → SmartScreen → where it runs → Connect Claude → wizard → first chat), updating, uninstalling, troubleshooting; the rest moved to `docs/GUIDE.md`, `docs/SERVER.md`, `docs/DEVELOPMENT.md` | ☐ verify wording against the final UI |
 | LICENSE (MIT), CONTRIBUTING, SECURITY, issue templates | ☑ |
 | Repo public (currently private by decision) | ☐ flip when ready |
 | Topics/description on GitHub, social preview image | ◐ description, homepage and 10 topics set (`gh repo view --json repositoryTopics,homepageUrl`); the social preview image can only be uploaded through repo Settings → General in a browser — use `packages/site/assets/og.png` |
