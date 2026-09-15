@@ -42,15 +42,16 @@ Start menu shortcut, and doesn't need administrator rights.
 
 ### 3. Choose where PocketRocket runs
 
-On first launch the app asks where the bots should live:
+On first launch the app shows **Where your bots run** and waits for you to pick:
 
 - **This PC** (recommended to start). Everything runs and stays on this computer.
-- **Your server.** If you already run PocketRocket on a Linux server, the app can look through the
-  servers in your `~/.ssh/config`. Tick the ones to check and it tells you which already run
-  PocketRocket, which are reachable without it, and which need attention. It only ever uses your
-  SSH key, never a password. If a server's key is new, you see its fingerprint and decide; if a
-  key has *changed*, the app refuses to connect. Setting up a server is covered in
-  [docs/SERVER.md](docs/SERVER.md).
+- **Server over SSH.** If you already run PocketRocket on a Linux server, press **Find my servers**:
+  the app lists the hosts in your `~/.ssh/config` without connecting to any of them. Tick the ones
+  to check and press **Scan**. Each shows **Running**, **Installed, not running**, **No
+  PocketRocket**, **Needs your SSH key**, **New host key**, **Host key changed** or
+  **Unreachable**. Pick a running one to connect. It only ever uses your SSH key, never a password.
+  A new host key shows its fingerprint for you to confirm; a changed key is refused. Setting up a
+  server is covered in [docs/SERVER.md](docs/SERVER.md).
 
 You can switch later from the **Connection** menu.
 
@@ -114,13 +115,14 @@ delete all bots, conversations and settings"** in the uninstaller (unchecked by 
 | You see | Do this |
 |---|---|
 | *"Windows protected your PC"* | **More info** → **Run anyway**. The installer is unsigned for now. |
-| *Claude Code isn't set up on this computer* | Run the PowerShell install command from step 4; the wizard picks it up by itself. |
+| *Claude Code isn't set up on this computer yet* | Run the PowerShell install command from step 4; the wizard picks it up by itself. |
 | *Found Claude Code but it didn't respond* | Wait a moment and choose **Check again**. The first start after installing can be slow. |
 | *Claude needs sign-in* in the sidebar | Run `claude` in a terminal and log in. |
 | *Can't reach the hub* | Choose **Retry**. If it keeps failing, **View → Open hub log** shows why. |
-| A server shows *needs your SSH key* | Start the **OpenSSH Authentication Agent** service and run `ssh-add`, then scan again. |
-| A server shows *new host key* | Compare the fingerprint with your server provider's, then confirm. Or run `ssh <host>` once in a terminal. |
-| A server shows *host key changed* | Don't connect. Check with whoever runs the server; this can mean someone is intercepting the connection. |
+| A server shows *Needs your SSH key* | Start the **OpenSSH Authentication Agent** service and run `ssh-add`, then scan again. |
+| A server shows *New host key* | Compare the fingerprint with the one your hosting provider shows, then confirm. |
+| A server shows *Host key changed* | Don't connect. Check with whoever runs the server; this can mean someone is intercepting the connection. |
+| Connection settings open while you're connected | Press **Back to PocketRocket**. |
 
 Still stuck? [Open an issue](https://github.com/AlexGaledo/pocketrocket/issues/new/choose).
 
