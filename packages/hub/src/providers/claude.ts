@@ -51,19 +51,62 @@ function toolServer(tools: HubTool[]) {
   return createSdkMcpServer({ name: 'pocketrocket', version: VERSION, alwaysLoad: true, tools: wrapped });
 }
 
+/**
+ * How long `claude --version` gets. The native binary can take several seconds on a cold start or while
+ * antivirus scans it; at the old 2s a perfectly good install was reported as missing.
+ */
+const VERSION_TIMEOUT_MS = 10_000;
+
+/**
+ * Install and sign-in instructions, Markdown. Anthropic's native installer puts the binary in ~/.local/bin,
+ * which is where CLAUDE_EXE looks; `npm install -g` puts a claude.cmd shim in %APPDATA%\npm that the hub
+ * would never find.
+ */
+const INSTALL_HINT =
+  'Install Claude Code with Anthropic\'s installer (Windows PowerShell: `irm https://claude.ai/install.ps1 | iex`; ' +
+  'macOS/Linux: `curl -fsSL https://claude.ai/install.sh | bash`) and sign in with `claude` (subscription), ' +
+  'or set ANTHROPIC_API_KEY. Point CLAUDE_EXE at the binary if it lives elsewhere.';
+
+export interface ClaudeAuthStatus {
+  loggedIn: boolean;
+  email?: string;
+  /** Raw plan id: "max", "pro", "team", "enterprise". */
+  subscriptionType?: string;
+  authMethod?: string;
+  orgName?: string;
+}
+
+/** Parses `claude auth status` output; undefined when it is not the JSON shape this expects. */
+export function parseAuthStatus(stdout: string): ClaudeAuthStatus | undefined {
+  try {
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    if (typeof parsed.loggedIn !== 'boolean') return undefined;
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+    return {
+      loggedIn: parsed.loggedIn,
+      email: str(parsed.email),
+      subscriptionType: str(parsed.subscriptionType),
+      authMethod: str(parsed.authMethod),
+      orgName: str(parsed.orgName),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** "max" -> "Max". Known plans get their product spelling; anything newer is just capitalized. */
+export function planLabel(subscriptionType: string | undefined): string | undefined {
+  if (!subscriptionType) return undefined;
+  const known: Record<string, string> = { max: 'Max', pro: 'Pro', team: 'Team', enterprise: 'Enterprise', free: 'Free' };
+  return known[subscriptionType.toLowerCase()] ?? subscriptionType.charAt(0).toUpperCase() + subscriptionType.slice(1);
+}
+
 /** `claude auth status` as JSON, or undefined when the CLI is too old, times out, or prints something else. */
-function authStatus(): Promise<{ loggedIn?: boolean; email?: string } | undefined> {
+function authStatus(): Promise<ClaudeAuthStatus | undefined> {
   return new Promise((resolve) => {
     const child = execFile(CLAUDE_EXE, ['auth', 'status'], { timeout: 5000, windowsHide: true }, (_err, stdout) => {
       // A signed-out CLI may exit non-zero and still print the JSON, so the error alone decides nothing.
-      try {
-        const parsed = JSON.parse(String(stdout)) as { loggedIn?: unknown; email?: unknown };
-        resolve(typeof parsed.loggedIn === 'boolean'
-          ? { loggedIn: parsed.loggedIn, email: typeof parsed.email === 'string' ? parsed.email : undefined }
-          : undefined);
-      } catch {
-        resolve(undefined);
-      }
+      resolve(parseAuthStatus(String(stdout)));
     });
     child.on('error', () => resolve(undefined));
   });
@@ -85,32 +128,45 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   async check(): Promise<ProviderCheck> {
-    const hint =
-      'Install Claude Code (`npm i -g @anthropic-ai/claude-code`) and sign in with `claude` (subscription), ' +
-      'or set ANTHROPIC_API_KEY. Point CLAUDE_EXE at the binary if it lives elsewhere.';
+    const hint = INSTALL_HINT;
+    const exePath = CLAUDE_EXE;
     if (!fs.existsSync(CLAUDE_EXE)) {
-      return { ok: false, auth: 'none', error: 'claude executable not found at ' + CLAUDE_EXE, hint };
+      return { ok: false, auth: 'none', exePath, error: 'claude executable not found at ' + CLAUDE_EXE, hint };
     }
-    const version = await new Promise<string | undefined>((resolve) => {
-      const child = execFile(CLAUDE_EXE, ['--version'], { timeout: 2000, windowsHide: true }, (err, stdout) => {
-        resolve(err ? undefined : String(stdout).trim().split('\n')[0]);
+    const answer = await new Promise<{ version?: string; timedOut: boolean }>((resolve) => {
+      const child = execFile(CLAUDE_EXE, ['--version'], { timeout: VERSION_TIMEOUT_MS, windowsHide: true }, (err, stdout) => {
+        if (err) resolve({ timedOut: !!(err as { killed?: boolean }).killed });
+        else resolve({ version: String(stdout).trim().split('\n')[0] || undefined, timedOut: false });
       });
-      child.on('error', () => resolve(undefined));
+      child.on('error', () => resolve({ timedOut: false }));
     });
-    if (!version) return { ok: false, auth: 'unknown', version, error: 'claude --version did not answer within 2s', hint };
-    if (process.env.ANTHROPIC_API_KEY) return { ok: true, version, auth: 'apiKey', hint };
+    const { version } = answer;
+    if (!version) {
+      // The file is there, so this is not an install problem: say it did not respond and let the user retry.
+      const error = answer.timedOut
+        ? 'claude --version did not answer within ' + VERSION_TIMEOUT_MS / 1000 + 's'
+        : 'claude --version failed to run';
+      return { ok: false, auth: 'unknown', exePath, unresponsive: true, error, hint };
+    }
+    if (process.env.ANTHROPIC_API_KEY) return { ok: true, version, auth: 'apiKey', exePath, hint };
     // `claude auth status` prints JSON ({ loggedIn, email, subscriptionType, ... }); without it a CLI that was
     // installed but never signed in looked ready and every turn then failed.
     const status = await authStatus();
     if (status?.loggedIn === false) {
-      return { ok: false, version, auth: 'none', error: 'Claude Code is installed but not signed in.', hint };
+      return { ok: false, version, auth: 'none', exePath, error: 'Claude Code is installed but not signed in.', hint };
     }
     // Older CLIs have no `auth status`: fall back to the init message, where an OAuth login reports
     // apiKeySource 'none' (the expected value for a subscription, not an error).
     const auth = status?.loggedIn || this.lastInit.apiKeySource === undefined || this.lastInit.apiKeySource === 'none'
       ? 'subscription'
       : 'unknown';
-    return { ok: true, version, auth, account: status?.email, hint };
+    return {
+      ok: true, version, auth, exePath, hint,
+      account: status?.email,
+      plan: planLabel(status?.subscriptionType),
+      authMethod: status?.authMethod,
+      orgName: status?.orgName,
+    };
   }
 
   interrupt(turnId: string): boolean {

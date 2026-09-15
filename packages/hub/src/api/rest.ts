@@ -77,12 +77,14 @@ export function createRest(deps: RestDeps) {
   };
 
   // ---- health
+  // Answers without the hub token (the desktop app polls it before it has one), so nothing about the
+  // signed-in account goes here; the account email and plan are on the provider check instead.
   add('GET', '/api/health', (): HealthInfo & { provider: ProviderId; version: string } => {
     const exe = runner.constructor as typeof BotRunner;
     const chk = exe.checkExe();
     return {
       ok: chk.ok, claudeExe: CLAUDE_EXE, error: chk.error,
-      apiKeySource: runner.lastInit.apiKeySource, subscriptionType: runner.lastInit.model,
+      apiKeySource: runner.lastInit.apiKeySource,
       provider: settings.get().provider, version: VERSION,
       approvals: settings.approvals(), approvalsLocked: settings.approvalsLocked,
     };

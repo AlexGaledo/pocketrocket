@@ -29,7 +29,19 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
   const save = async () => {
     setBusy(true);
     try {
-      if (bot) await api.bots.update(bot.id, f); else await api.bots.create(f);
+      if (bot) {
+        await api.bots.update(bot.id, f);
+      } else {
+        const created = await api.bots.create(f);
+        // A new bot opens straight into its chat, as in onboarding, rather than leaving the user to find it in
+        // the sidebar. The bot already exists by now, so a failed DM is a toast, not a failed create.
+        try {
+          const room = await api.rooms.create({ kind: 'dm', name: created.name, memberIds: [created.id], coordinatorBotId: null });
+          useStore.getState().setActiveRoom(room.id);
+        } catch (e) {
+          toast(created.name + ' was created, but its chat could not be opened: ' + (e as Error).message, true);
+        }
+      }
       onClose();
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   };

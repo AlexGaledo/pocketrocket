@@ -81,7 +81,11 @@ describe('settings / secrets / providers REST', () => {
 
   it.skipIf(APPROVALS_ENV !== null)('approvals default to ask and a Settings toggle is live and reported by health', async () => {
     expect((await api<Settings>('GET', '/api/settings')).body.approvals).toBe('ask');
-    expect((await api<HealthInfo>('GET', '/api/health')).body).toMatchObject({ approvals: 'ask', approvalsLocked: false });
+    const health = (await api<HealthInfo>('GET', '/api/health')).body;
+    expect(health).toMatchObject({ approvals: 'ask', approvalsLocked: false });
+    // Health answers without the token, so it must not carry who is signed in or on which plan.
+    expect(health).not.toHaveProperty('accountEmail');
+    expect(health).not.toHaveProperty('subscriptionType');
 
     const on = await api<Settings>('PUT', '/api/settings', { approvals: 'bypass' });
     expect(on.body.approvals).toBe('bypass');

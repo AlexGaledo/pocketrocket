@@ -37,6 +37,45 @@ function isAccountState(v: unknown): v is AccountState {
   return typeof v === 'object' && v !== null && 'enabled' in v && 'signedIn' in v;
 }
 
+/**
+ * Below these widths the side panels start closed, and opening or closing them is not remembered. The
+ * saved choice is a desktop preference: closing a drawer on a phone-sized window must not hide the panel
+ * the next time the app opens full screen. The panel query is wider than App's drawer breakpoint (lg)
+ * because between the two the chat is left too narrow to read with the 340px panel beside it.
+ */
+export const NARROW_PANEL_QUERY = '(max-width: 1099px)';
+export const NARROW_SIDEBAR_QUERY = '(max-width: 767px)';
+function matches(query: string): boolean {
+  try {
+    return window.matchMedia(query).matches;
+  } catch {
+    return false;
+  }
+}
+
+export interface Toast {
+  id: number;
+  text: string;
+  bad?: boolean;
+  /** Makes the text a button that runs this (and dismisses the toast). */
+  action?: { label: string; run: () => void };
+  /** Stays until dismissed or removed by `key`, instead of fading after a few seconds. */
+  sticky?: boolean;
+  /** Lets code remove the toast later (e.g. once an approval is answered). */
+  key?: string;
+}
+export type ToastOptions = Pick<Toast, 'action' | 'sticky' | 'key'>;
+
+/** Why the live connection is down, as far as lib/ws.ts could tell. */
+export type HubIssue =
+  | { kind: 'unreachable'; detail?: string }
+  | { kind: 'rateLimited'; retryInMs: number }
+  | { kind: 'auth' }
+  | { kind: 'refused' };
+
+/** Toast key for an approval card, so it can be found by room (on opening it) or by approval (once answered). */
+const approvalToastKey = (roomId: string, approvalId: string) => 'approval:' + roomId + ':' + approvalId;
+
 /** The parts of Settings that live outside React: the sound engine and the `dark` class on <html>. */
 function applyLocalSettings(s: Settings) {
   setSoundsEnabled(s.sounds);
@@ -45,6 +84,10 @@ function applyLocalSettings(s: Settings) {
 
 interface State {
   connected: boolean;
+  /** When the connection last went down (or the page loaded without one); null while connected. */
+  disconnectedAt: number | null;
+  /** The diagnosed cause while disconnected; null until a probe has said anything. */
+  hubIssue: HubIssue | null;
   bots: Bot[];
   rooms: Room[];
   botStates: Record<string, BotState>;
@@ -61,15 +104,20 @@ interface State {
   panelTab: PanelTab;
   panelBotId: string | null;
   dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'settings' } | null;
-  toasts: { id: number; text: string; bad?: boolean }[];
+  toasts: Toast[];
   settings: Settings;
   providers: ProvidersResponse | null;
   /** Optional sign-in. SIGNED_OUT (enabled: false) until GET /api/account answers, and if it never does. */
   account: AccountState;
+  /**
+   * True once the hub's first `hello` has arrived, and from then on. Until then `bots` and `rooms` are
+   * empty because nothing has loaded, not because there are none: gate every empty state on this.
+   */
   helloReceived: boolean;
   _playedConnectedSound: boolean;
 
   setConnected: (v: boolean) => void;
+  setHubIssue: (issue: HubIssue | null) => void;
   /**
    * Applies the patch at once, then saves it. If the save fails the touched keys go back to what they
    * were and a toast says why. Resolves true when the hub accepted the change.
@@ -87,9 +135,12 @@ interface State {
   interrupt: (turnId: string) => void;
   openPanel: (tab: PanelTab, botId?: string | null) => void;
   toggleSidebar: () => void;
+  setSidebarOpen: (open: boolean) => void;
   closePanel: () => void;
   openDialog: (d: State['dialog']) => void;
-  toast: (text: string, bad?: boolean) => void;
+  toast: (text: string, bad?: boolean, opts?: ToastOptions) => void;
+  /** Removes toasts by id, or every toast whose key starts with the given prefix. */
+  dismissToast: (which: { id: number } | { keyPrefix: string }) => void;
   refresh: () => Promise<void>;
 }
 
@@ -97,6 +148,8 @@ let toastSeq = 0;
 
 export const useStore = create<State>((set, get) => ({
   connected: false,
+  disconnectedAt: Date.now(),
+  hubIssue: null,
   bots: [],
   rooms: [],
   botStates: {},
@@ -107,8 +160,8 @@ export const useStore = create<State>((set, get) => ({
   unread: {},
   usage: {},
   memory: {},
-  panelOpen: localStorage.getItem('pocketrocket.panel') !== '0',
-  sidebarOpen: localStorage.getItem('pocketrocket.sidebar') !== '0',
+  panelOpen: !matches(NARROW_PANEL_QUERY) && localStorage.getItem('pocketrocket.panel') !== '0',
+  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('pocketrocket.sidebar') !== '0',
   panelTab: 'memory',
   panelBotId: null,
   dialog: null,
@@ -121,7 +174,8 @@ export const useStore = create<State>((set, get) => ({
 
   setConnected: (connected) => {
     const was = get().connected;
-    set({ connected });
+    if (connected) set({ connected, disconnectedAt: null, hubIssue: null });
+    else if (was) set({ connected, disconnectedAt: Date.now() });
     if (connected && !was && isDesktopMode() && !get()._playedConnectedSound) {
       set({ _playedConnectedSound: true });
       play('connected');
@@ -210,9 +264,25 @@ export const useStore = create<State>((set, get) => ({
       case 'bot.state':
         set({ botStates: { ...s.botStates, [ev.botId]: ev.state } });
         return;
-      case 'approval.request':
+      case 'approval.request': {
         play('approvalRequest');
-        if (ev.roomId !== s.activeRoomId) get().toast('Approval needed in another room', true);
+        if (ev.roomId === s.activeRoomId) return;
+        // Named and clickable, and it stays: a toast that fades after four seconds is easy to miss while a
+        // bot sits blocked in a room the user is not looking at.
+        const bot = botById(s.bots, ev.botId);
+        const room = s.rooms.find((r) => r.id === ev.roomId);
+        const who = bot?.name ?? 'A bot';
+        const where = room && room.kind === 'group' ? ' in ' + room.name : '';
+        get().toast(who + ' needs your approval' + where, true, {
+          sticky: true,
+          key: approvalToastKey(ev.roomId, ev.approval.approvalId),
+          action: { label: 'Open', run: () => get().setActiveRoom(ev.roomId) },
+        });
+        return;
+      }
+      case 'approval.resolved':
+        // Answered somewhere (another window, a timeout): the reminder has nothing left to point at.
+        set({ toasts: get().toasts.filter((t) => !t.key?.startsWith('approval:') || !t.key.endsWith(':' + ev.approvalId)) });
         return;
       case 'memory.updated':
         set({ memory: { ...s.memory, [ev.botId]: ev.text } });
@@ -233,6 +303,8 @@ export const useStore = create<State>((set, get) => ({
     const unread = { ...get().unread };
     if (id) delete unread[id];
     set({ activeRoomId: id, unread });
+    // The room is on screen now, approval card included, so its reminders are done.
+    if (id) get().dismissToast({ keyPrefix: 'approval:' + id + ':' });
     if (id && !get().loaded[id]) void get().loadMessages(id);
     const room = id ? get().rooms.find((r) => r.id === id) : null;
     if (room && room.kind === 'dm') set({ panelBotId: room.memberIds[0] });
@@ -265,24 +337,34 @@ export const useStore = create<State>((set, get) => ({
     wsSend({ type: 'turn.interrupt', turnId });
   },
   openPanel: (tab, botId) => {
-    localStorage.setItem('pocketrocket.panel', '1');
+    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('pocketrocket.panel', '1');
     set({ panelOpen: true, panelTab: tab, panelBotId: botId === undefined ? get().panelBotId : botId });
   },
   closePanel: () => {
-    localStorage.setItem('pocketrocket.panel', '0');
+    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('pocketrocket.panel', '0');
     set({ panelOpen: false });
   },
-  toggleSidebar: () => {
-    const open = !get().sidebarOpen;
-    localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
+  toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
+  setSidebarOpen: (open) => {
+    if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
     set({ sidebarOpen: open });
   },
   openDialog: (dialog) => set({ dialog }),
-  toast: (text, bad) => {
+  toast: (text, bad, opts) => {
+    // A keyed toast replaces its earlier copy rather than stacking a duplicate.
     const id = ++toastSeq;
-    set({ toasts: [...get().toasts, { id, text, bad }] });
-    setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== id) }), 4000);
+    const rest = opts?.key ? get().toasts.filter((t) => t.key !== opts.key) : get().toasts;
+    set({ toasts: [...rest, { id, text, bad, ...opts }] });
+    if (!opts?.sticky) setTimeout(() => get().dismissToast({ id }), 4000);
   },
+  dismissToast: (which) => {
+    const keep = 'id' in which
+      ? (t: Toast) => t.id !== which.id
+      : (t: Toast) => !t.key?.startsWith(which.keyPrefix);
+    const toasts = get().toasts.filter(keep);
+    if (toasts.length !== get().toasts.length) set({ toasts });
+  },
+  setHubIssue: (hubIssue) => set({ hubIssue }),
   refresh: async () => {
     const [bots, rooms] = await Promise.all([api.bots.list(), api.rooms.list()]);
     set({ bots, rooms });
