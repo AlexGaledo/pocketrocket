@@ -25,8 +25,14 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
   };
   const remove = async () => {
     if (!room || !confirm('Delete room "' + room.name + '" and its history?')) return;
-    await api.rooms.remove(room.id);
-    onClose();
+    setBusy(true);
+    try {
+      await api.rooms.remove(room.id);
+      onClose();
+    } catch (e) {
+      // The dialog stays open so the failure is visible next to the button that caused it.
+      toast("Couldn't delete the room: " + (e as Error).message, true);
+    } finally { setBusy(false); }
   };
 
   return (
@@ -54,7 +60,7 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
         </Select>
       </Field>
       <div className="mt-5 flex items-center justify-between">
-        <div>{room && <Button variant="danger" size="sm" onClick={remove}>Delete room</Button>}</div>
+        <div>{room && <Button variant="danger" size="sm" onClick={remove} disabled={busy}>Delete room</Button>}</div>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save} disabled={busy || !name.trim() || members.length < 1}>{room ? 'Save' : 'Create'}</Button>

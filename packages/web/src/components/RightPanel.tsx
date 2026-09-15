@@ -121,9 +121,14 @@ function MemoryTab({ botId }: { botId: string }) {
     if (live !== undefined && !dirty) setText(live);
   }, [live, dirty]);
   const save = async () => {
-    await api.bots.setMemory(botId, text);
-    setDirty(false);
-    toast('Memory saved');
+    // On failure the edit stays dirty, so nothing the user typed is lost and Save stays available.
+    try {
+      await api.bots.setMemory(botId, text);
+      setDirty(false);
+      toast('Memory saved');
+    } catch (e) {
+      toast("Couldn't save memory: " + (e as Error).message, true);
+    }
   };
   const reset = async () => {
     if (!room) return;
@@ -155,16 +160,27 @@ function SkillsTab({ botId }: { botId: string }) {
   const [nw, setNw] = useState({ name: '', description: '', markdown: '' });
 
   const load = async () => {
-    const [p, a, i] = await Promise.all([api.skills.list(), api.bots.skills(botId), api.skills.importable()]);
-    setPool(p); setAssigned(new Set(a)); setImportable(i);
+    try {
+      const [p, a, i] = await Promise.all([api.skills.list(), api.bots.skills(botId), api.skills.importable()]);
+      setPool(p); setAssigned(new Set(a)); setImportable(i);
+    } catch (e) {
+      toast("Couldn't load skills: " + (e as Error).message, true);
+    }
   };
   useEffect(() => { void load(); }, [botId]);
 
   const toggle = async (id: string) => {
+    const prev = assigned;
     const next = new Set(assigned);
     if (next.has(id)) next.delete(id); else next.add(id);
     setAssigned(next);
-    await api.bots.setSkills(botId, [...next]);
+    try {
+      await api.bots.setSkills(botId, [...next]);
+    } catch (e) {
+      // The checkbox flipped optimistically; put it back so it matches what the hub actually has.
+      setAssigned(prev);
+      toast("Couldn't update skills: " + (e as Error).message, true);
+    }
   };
   const doImport = async (names: string[]) => {
     await api.skills.import(names);
