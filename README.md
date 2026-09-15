@@ -1,3 +1,5 @@
+<p align="center"><img src="packages/site/assets/rocket.svg" alt="PocketRocket logo" width="96" height="96" /></p>
+
 # PocketRocket
 
 **Your pocket fleet of AI agents.**
