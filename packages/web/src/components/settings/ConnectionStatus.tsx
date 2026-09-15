@@ -129,7 +129,9 @@ export function ConnectionStatus({ info, onChecked, hasKeyField, autoRecheckMs }
   );
 }
 
-const codeLine = 'mt-1 block w-fit max-w-full select-all break-all rounded-md bg-card2 px-2 py-1 font-mono text-[12px]';
+// overflow-wrap:anywhere, not break-all: a narrow window wraps at the spaces first ("… install.ps1 | iex")
+// and only splits the URL itself when it cannot fit on a line at all.
+const codeLine = 'mt-1 block w-fit max-w-full select-all rounded-md bg-card2 px-2 py-1 font-mono text-[12px] [overflow-wrap:anywhere]';
 
 function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: ProviderCheck; hasKeyField: boolean }) {
   const installed = !!check.version || !!check.unresponsive;
