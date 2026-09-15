@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
   PanelRightOpen, Send, Square, Users, Settings2, Check, ShieldAlert, ArrowRightLeft, Clock, Info, Monitor,
   FileText, Pencil, Terminal, Globe, Search, Zap, MousePointer2, ChevronDown,
@@ -8,6 +6,7 @@ import {
 import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, ToolPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
+import { Markdown } from './Markdown';
 
 export function ChatPane() {
   const room = useStore(selectActiveRoom);
@@ -107,7 +106,7 @@ function Transcript({ roomId }: { roomId: string }) {
               <Avatar bot={bot} size={30} state="thinking" />
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex items-baseline gap-2"><span className="text-[13.5px] font-semibold">{bot.name}</span><span className="text-[11px] text-dim">typing</span></div>
-                <div className="md text-[14px] leading-relaxed text-fg/80"><Markdown text={s.text} bots={bots} /><span className="caret" /></div>
+                <div className="md text-[14px] leading-relaxed text-fg/80"><RichText text={s.text} bots={bots} /><span className="caret" /></div>
               </div>
             </div>
           ) : null;
@@ -153,7 +152,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
     return (
       <div className="flex flex-col items-end gap-1.5 pl-16">
         {group.items.map((m) => (
-          <div key={m.id} className="md max-w-[85%] rounded-[20px] rounded-br-md bg-user px-4 py-2.5 text-[14px] leading-relaxed"><Markdown text={m.text} bots={bots} /></div>
+          <div key={m.id} className="md max-w-[85%] rounded-[20px] rounded-br-md bg-user px-4 py-2.5 text-[14px] leading-relaxed"><RichText text={m.text} bots={bots} /></div>
         ))}
         <span className="pr-1 text-[11px] text-dim">{fmtTime(first.createdAt)}</span>
       </div>
@@ -182,7 +181,7 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
     case 'approval': return <ApprovalCard m={m} />;
     case 'handoff': return <HandoffCard m={m} bots={bots} />;
     default:
-      return <div className="md text-[14px] leading-relaxed"><Markdown text={m.text} bots={bots} /></div>;
+      return <div className="md text-[14px] leading-relaxed"><RichText text={m.text} bots={bots} /></div>;
   }
 }
 
@@ -194,7 +193,7 @@ function SystemLine({ m, bots }: { m: Message; bots: Bot[] }) {
       {isRoutine ? <Clock size={14} className="mt-0.5 shrink-0 text-accent" /> : <Info size={14} className="mt-0.5 shrink-0" />}
       <div className="min-w-0 flex-1">
         {isRoutine && p && <span className="mr-2 font-medium text-fg">Routine: {p.name}</span>}
-        <span className="whitespace-pre-wrap"><Markdown text={m.text} bots={bots} /></span>
+        <span className="whitespace-pre-wrap"><RichText text={m.text} bots={bots} /></span>
       </div>
       <span className="text-[11px] text-dim">{fmtTime(m.createdAt)}</span>
     </div>
@@ -327,16 +326,17 @@ function HandoffCard({ m, bots }: { m: Message; bots: Bot[] }) {
   return (
     <div className="max-w-[640px] rounded-2xl bg-accent/8 p-3.5 text-[13px]">
       <div className="mb-1 flex items-center gap-2 font-medium"><ArrowRightLeft size={14} className="text-accent" /> Handed to {to ? to.avatar + ' ' + to.name : p.toBotId}</div>
-      <div className="md"><Markdown text={p.task} bots={bots} /></div>
+      <div className="md"><RichText text={p.task} bots={bots} /></div>
       {p.context && <div className="mt-2 whitespace-pre-wrap pt-2 text-[12.5px] text-muted">{p.context}</div>}
     </div>
   );
 }
 
-function Markdown({ text, bots }: { text: string; bots: Bot[] }) {
+/** Chat markdown: @handles of known bots come out bold, links go through the shared safe renderer. */
+function RichText({ text, bots }: { text: string; bots: Bot[] }) {
   const handles = useMemo(() => new Set(bots.map((b) => b.handle.toLowerCase())), [bots]);
   const t = useMemo(() => text.replace(/(^|[^\w@])@([a-z0-9_-]{2,24})\b/gi, (all, pre, h) => (handles.has(h.toLowerCase()) ? pre + '**@' + h + '**' : all)), [text, handles]);
-  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{t}</ReactMarkdown>;
+  return <Markdown>{t}</Markdown>;
 }
 
 // ---------- composer: the floating pill ----------
