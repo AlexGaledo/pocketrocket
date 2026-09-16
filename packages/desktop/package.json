@@ -2,6 +2,7 @@
   "name": "@pocketrocket/desktop",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "description": "PocketRocket desktop app: native window + managed SSH tunnel to the hub",
   "scripts": {
     "dev": "cargo tauri dev",
