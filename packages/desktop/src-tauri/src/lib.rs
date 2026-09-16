@@ -9,7 +9,8 @@
 //! In local mode the hub runs from `resources/hub/hub.mjs` (built by `pnpm hub:bundle`), on the
 //! system Node when it is >= 22.13 and otherwise on the Node 24 sidecar installed as `node.exe`
 //! next to the app. `cargo tauri dev` copies the same resources, so to iterate on hub sources set
-//! `hubDir` in config.json to the repo root and the app runs `packages/hub/src/index.ts` via tsx.
+//! `hubDir` in config.json to the repo root (debug builds) or `POCKETROCKET_HUB_DIR` in the
+//! environment, and the app runs `packages/hub/src/index.ts` via tsx.
 
 mod proc;
 mod scan;
@@ -35,7 +36,7 @@ pub struct Config {
     pub mode: String,
     pub ssh_host: String,
     pub port: u16,
-    /// Repo root containing packages/hub (defaults to where this app was built from).
+    /// Repo root containing packages/hub, for development only; see [`hub_dir_override`].
     #[serde(default)]
     pub hub_dir: Option<String>,
 }
@@ -384,6 +385,31 @@ fn system_node(app: &AppHandle) -> Option<PathBuf> {
     None
 }
 
+/// The repo checkout to run the hub from, or None to run the hub that ships with the app.
+///
+/// `hubDir` names a directory we then execute code out of, so where it may come from matters. The
+/// config file sits in the app's config dir, one level above the workspace the bots can write to,
+/// and nothing about writing a JSON file there asks the person for approval — so a release build
+/// ignores the field and only honours `POCKETROCKET_HUB_DIR`, which takes a deliberate act to set.
+/// Debug builds still read the field: there the config file belongs to whoever is developing the app.
+fn hub_dir_override(from_config: Option<&str>, from_env: Option<&str>, debug_build: bool) -> Option<String> {
+    let clean = |s: &str| Some(s.trim()).filter(|s| !s.is_empty()).map(str::to_string);
+    if let Some(dir) = from_env.and_then(clean) {
+        return Some(dir);
+    }
+    let dir = from_config.and_then(clean)?;
+    if debug_build {
+        return Some(dir);
+    }
+    eprintln!("ignoring hubDir from config.json: a release build runs its own hub (set POCKETROCKET_HUB_DIR to override)");
+    None
+}
+
+fn configured_hub_dir(cfg: &Config) -> Option<String> {
+    let env = std::env::var("POCKETROCKET_HUB_DIR").ok();
+    hub_dir_override(cfg.hub_dir.as_deref(), env.as_deref(), cfg!(debug_assertions))
+}
+
 /// Command that runs the hub straight from a repo checkout through tsx (development).
 fn dev_hub_command(root: &std::path::Path) -> Result<(Command, PathBuf), String> {
     let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -391,7 +417,10 @@ fn dev_hub_command(root: &std::path::Path) -> Result<(Command, PathBuf), String>
     let tsx = hub.join("node_modules").join("tsx").join("dist").join("cli.mjs");
     let entry = hub.join("src").join("index.ts");
     if !entry.exists() {
-        return Err(format!("hub not found at {}. Set hubDir in config.json to the pocketrocket repo.", hub.display()));
+        return Err(format!(
+            "hub not found at {}. Point POCKETROCKET_HUB_DIR (or, in a debug build, hubDir in config.json) at the pocketrocket repo.",
+            hub.display()
+        ));
     }
     if !tsx.exists() {
         return Err(format!("dependencies missing: run `pnpm install` in {}", root.display()));
@@ -440,10 +469,13 @@ fn rotate_hub_log(dir: &std::path::Path) {
 }
 
 /// 32 hex chars. Falls back to a time/pid mix if the OS RNG is unavailable — the hub only ever
-/// listens on 127.0.0.1, the token is a second lock on top of that.
+/// listens on 127.0.0.1, the token is a second lock on top of that. The fallback is guessable by
+/// anything that knows roughly when the app started, so it says so in hub.log rather than passing
+/// itself off as a random token.
 fn random_token() -> String {
     let mut bytes = [0u8; 16];
-    if getrandom::fill(&mut bytes).is_err() {
+    if let Err(e) = getrandom::fill(&mut bytes) {
+        eprintln!("the OS random number generator is unavailable ({e}); falling back to a guessable hub token");
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
             ^ u128::from(std::process::id());
         bytes.copy_from_slice(&n.to_le_bytes());
@@ -457,8 +489,8 @@ fn random_token() -> String {
 fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, String), String> {
     let bundled = app.path().resource_dir().ok().map(|r| r.join("hub")).filter(|h| h.join("hub.mjs").exists());
 
-    let (mut cmd, runtime, cwd, web_dist) = if let Some(dir) = cfg.hub_dir.as_deref() {
-        let (cmd, hub) = dev_hub_command(std::path::Path::new(dir))?;
+    let (mut cmd, runtime, cwd, web_dist) = if let Some(dir) = configured_hub_dir(cfg) {
+        let (cmd, hub) = dev_hub_command(std::path::Path::new(&dir))?;
         (cmd, "dev (tsx)".to_string(), Some(hub), None)
     } else if let Some(hub) = bundled {
         let (cmd, runtime) = bundled_hub_command(app, &hub)?;
@@ -1268,6 +1300,20 @@ mod tests {
         assert!(validate_config(&Config { mode: "remote".into(), ssh_host: "-oProxyCommand=x".into(), ..Default::default() }).is_err());
         assert!(validate_config(&Config { mode: "remote".into(), ssh_host: "vps".into(), ..Default::default() }).is_ok());
         assert!(validate_config(&Config { mode: "nope".into(), ..Default::default() }).is_err());
+    }
+
+    #[test]
+    fn a_release_build_runs_the_hub_from_config_json_nowhere() {
+        // Debug builds are the development workflow, so the config file still points the app at a checkout.
+        assert_eq!(hub_dir_override(Some("C:\\repo"), None, true).as_deref(), Some("C:\\repo"));
+        // A release build ignores it: writing that file is not an act anyone approves.
+        assert_eq!(hub_dir_override(Some("C:\\evil"), None, false), None);
+        // The environment variable is deliberate enough to be honoured either way, and wins.
+        assert_eq!(hub_dir_override(Some("C:\\evil"), Some("C:\\repo"), false).as_deref(), Some("C:\\repo"));
+        assert_eq!(hub_dir_override(None, Some("C:\\repo"), false).as_deref(), Some("C:\\repo"));
+        // Blank is not a directory.
+        assert_eq!(hub_dir_override(Some("  "), Some(""), true), None);
+        assert_eq!(hub_dir_override(None, None, true), None);
     }
 
     #[test]
