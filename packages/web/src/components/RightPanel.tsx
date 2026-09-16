@@ -3,6 +3,7 @@ import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from '
 import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
+import { isDesktopMode } from '../lib/auth';
 import { Avatar, Badge, Button, Input, Label, Select, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
 
 export function RightPanel() {
@@ -21,7 +22,7 @@ export function RightPanel() {
         {bot ? (
           <>
             <Avatar bot={bot} state={botStates[bot.id]} size={28} />
-            <Select className="h-8 flex-1 text-[12.5px]" value={bot.id} onChange={(e) => openPanel(panelTab, e.target.value)}>
+            <Select aria-label="Bot shown in this panel" className="h-8 flex-1 text-[12.5px]" value={bot.id} onChange={(e) => openPanel(panelTab, e.target.value)}>
               {(room ? bots.filter((b) => room.memberIds.includes(b.id)).concat(bots.filter((b) => !room.memberIds.includes(b.id))) : bots).map((b) => (
                 <option key={b.id} value={b.id}>{b.avatar} {b.name}{room && !room.memberIds.includes(b.id) ? ' (not in room)' : ''}</option>
               ))}
@@ -79,11 +80,14 @@ function ScreenTab() {
     // the round-trip in browsers, so the popup is still allowed.
     try { window.open((await api.screenTicket()).url, '_blank', 'width=1320,height=880'); } catch { /* hub unreachable */ }
   };
+  // The desktop app always talks to a hub on this same computer, where no virtual screen exists by design.
+  // Server setup steps and a red "down" dot would read as a fault there, so it gets a neutral note instead.
+  const local = isDesktopMode();
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-3 py-2 text-xs">
-        <span className={cn('h-2 w-2 rounded-full', st?.screen ? 'bg-ok' : 'bg-bad')} />
-        <span className="flex-1 text-muted">{st === null ? 'checking…' : st.screen ? 'Computer screen live' + (st.cdp ? ' · bots can drive it' : ' · CDP down') : 'Screen not running'}</span>
+        <span className={cn('h-2 w-2 rounded-full', st?.screen ? 'bg-ok' : local ? 'bg-dim' : 'bg-bad')} />
+        <span className="flex-1 text-muted">{st === null ? 'checking…' : st.screen ? 'Computer screen live' + (st.cdp ? ' · bots can drive it' : ' · CDP down') : local ? 'No virtual screen' : 'Screen not running'}</span>
         <Button size="sm" variant="ghost" title="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={13} /></Button>
         <Button size="sm" variant="ghost" title="Bigger" onClick={() => setWide(!wide)}>{wide ? 'Fit' : 'Wide'}</Button>
         {st?.screen && <Button size="sm" onClick={popOut}>Pop out</Button>}
@@ -91,6 +95,11 @@ function ScreenTab() {
       {st?.screen ? (
         <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>
           {src && <iframe key={nonce} title="Computer screen" src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />}
+        </div>
+      ) : local ? (
+        <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
+          <p className="font-medium text-fg">Screen is available when PocketRocket runs on a server.</p>
+          <p>A server hub runs a live Chromium you can watch here: log into your accounts once, and bots with the <span className="font-mono">Browser</span> tool work inside that same logged-in browser.</p>
         </div>
       ) : (
         <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
@@ -121,9 +130,14 @@ function MemoryTab({ botId }: { botId: string }) {
     if (live !== undefined && !dirty) setText(live);
   }, [live, dirty]);
   const save = async () => {
-    await api.bots.setMemory(botId, text);
-    setDirty(false);
-    toast('Memory saved');
+    // On failure the edit stays dirty, so nothing the user typed is lost and Save stays available.
+    try {
+      await api.bots.setMemory(botId, text);
+      setDirty(false);
+      toast('Memory saved');
+    } catch (e) {
+      toast("Couldn't save memory: " + (e as Error).message, true);
+    }
   };
   const reset = async () => {
     if (!room) return;
@@ -155,16 +169,27 @@ function SkillsTab({ botId }: { botId: string }) {
   const [nw, setNw] = useState({ name: '', description: '', markdown: '' });
 
   const load = async () => {
-    const [p, a, i] = await Promise.all([api.skills.list(), api.bots.skills(botId), api.skills.importable()]);
-    setPool(p); setAssigned(new Set(a)); setImportable(i);
+    try {
+      const [p, a, i] = await Promise.all([api.skills.list(), api.bots.skills(botId), api.skills.importable()]);
+      setPool(p); setAssigned(new Set(a)); setImportable(i);
+    } catch (e) {
+      toast("Couldn't load skills: " + (e as Error).message, true);
+    }
   };
   useEffect(() => { void load(); }, [botId]);
 
   const toggle = async (id: string) => {
+    const prev = assigned;
     const next = new Set(assigned);
     if (next.has(id)) next.delete(id); else next.add(id);
     setAssigned(next);
-    await api.bots.setSkills(botId, [...next]);
+    try {
+      await api.bots.setSkills(botId, [...next]);
+    } catch (e) {
+      // The checkbox flipped optimistically; put it back so it matches what the hub actually has.
+      setAssigned(prev);
+      toast("Couldn't update skills: " + (e as Error).message, true);
+    }
   };
   const doImport = async (names: string[]) => {
     await api.skills.import(names);
@@ -213,7 +238,7 @@ function SkillsTab({ botId }: { botId: string }) {
         {pool.map((s) => (
           <li key={s.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', s.reviewStatus === 'pending' && 'border-warn/40')}>
             <div className="flex items-center gap-2">
-              <input type="checkbox" checked={assigned.has(s.id)} onChange={() => toggle(s.id)} disabled={s.reviewStatus === 'pending'} title={s.reviewStatus === 'pending' ? 'Approve first' : 'Assign to this bot'} />
+              <input type="checkbox" checked={assigned.has(s.id)} onChange={() => toggle(s.id)} disabled={s.reviewStatus === 'pending'} aria-label={'Assign ' + s.name + ' to this bot'} title={s.reviewStatus === 'pending' ? 'Approve first' : 'Assign to this bot'} />
               <button className="min-w-0 flex-1 text-left" onClick={async () => setView(await api.skills.get(s.id))}>
                 <div className="flex items-center gap-1.5"><span className="font-medium">{s.name}</span>
                   {s.source === 'bot' && <Badge tone={s.reviewStatus === 'pending' ? 'warn' : 'accent'}>{s.reviewStatus === 'pending' ? 'review' : 'by ' + (botById(bots, s.createdByBot)?.handle ?? 'bot')}</Badge>}
@@ -272,7 +297,7 @@ function RoutinesTab({ botId }: { botId: string | null }) {
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center justify-between">
-        <Label hint="cron, VPS local time">Routines</Label>
+        <Label hint="cron, the hub's local time">Routines</Label>
         <Button size="sm" variant="ghost" onClick={() => setForm({ ...form, open: !form.open, id: undefined, botId: botId ?? bots[0]?.id ?? '', roomId: room?.id ?? rooms[0]?.id ?? '' })}><Plus size={13} /> New</Button>
       </div>
       {form.open && (
@@ -294,7 +319,7 @@ function RoutinesTab({ botId }: { botId: string | null }) {
           return (
             <li key={r.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', !r.enabled && 'opacity-60')}>
               <div className="flex items-center gap-2">
-                <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} title="Enabled" />
+                <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} aria-label={'Routine ' + r.name + ' enabled'} title="Enabled" />
                 <button className="min-w-0 flex-1 text-left" onClick={() => setForm({ open: true, id: r.id, botId: r.botId, roomId: r.roomId, name: r.name, cron: r.cron, prompt: r.prompt })}>
                   <div className="font-medium">{r.name} <span className="font-mono text-muted">{r.cron}</span></div>
                   <div className="truncate text-muted">{b?.avatar} @{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + new Date(r.nextRunAt).toLocaleString() : ''}</div>
@@ -323,7 +348,7 @@ function UsageTab() {
   const rooms = useStore((s) => s.rooms);
   const live = useStore((s) => s.usage);
   const [rows, setRows] = useState<UsageRow[]>([]);
-  const [health, setHealth] = useState<{ apiKeySource?: string; claudeExe: string; ok: boolean; error?: string; version?: string } | null>(null);
+  const [health, setHealth] = useState<{ apiKeySource?: string; ok: boolean; error?: string; version?: string } | null>(null);
   useEffect(() => {
     api.usage().then((u) => setRows(u.rows));
     api.health().then(setHealth).catch(() => undefined);
@@ -355,7 +380,11 @@ function UsageTab() {
       {health && (
         <div className="rounded-2xl bg-card2/60 p-2 text-[11px] text-muted">
           <div className="mb-1 text-[12px] font-medium text-muted">Hub</div>
-          <div>claude: <span className="font-mono" title={health.claudeExe}>{health.claudeExe.split(/[\\/]/).pop()}{health.version ? ` · ${health.version}` : ''}</span> {health.ok ? <Badge tone="ok">found</Badge> : <Badge tone="bad">missing</Badge>}</div>
+          {/* Where the CLI lives is not on health any more (it spells out the home directory), and the
+              version this endpoint reports is the hub's, so it gets its own line rather than trailing
+              the CLI as if it were `claude --version`. */}
+          <div>claude: {health.ok ? <Badge tone="ok">found</Badge> : <Badge tone="bad">missing</Badge>}</div>
+          {health.version && <div>version: <span className="font-mono">{health.version}</span></div>}
           <div>auth: {health.apiKeySource ?? '(known after first turn)'}</div>
         </div>
       )}

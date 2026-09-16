@@ -60,23 +60,32 @@ jobs:
 
       - name: Extract CHANGELOG section
         id: changelog
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           node -e "
             const fs = require('fs');
+            const version = (process.env.GITHUB_REF_NAME || '').replace(/^v/, '');
+            const heading = '## [' + version + ']';
             const text = fs.readFileSync('CHANGELOG.md', 'utf8');
             const lines = text.split('\n');
             let start = -1, end = lines.length;
             for (let i = 0; i < lines.length; i++) {
-              if (/^## \[/.test(lines[i])) { start = i; break; }
+              if (lines[i].startsWith(heading)) { start = i; break; }
             }
-            if (start >= 0) {
-              for (let i = start + 1; i < lines.length; i++) {
-                if (/^## \[/.test(lines[i])) { end = i; break; }
-              }
+            if (start === -1) {
+              console.error('::error::CHANGELOG.md has no \'' + heading + '\' section for tag ' + process.env.GITHUB_REF_NAME);
+              process.exit(1);
             }
-            const body = start >= 0 ? lines.slice(start + 1, end).join('\n').trim() : '';
-            fs.writeFileSync(process.env.GITHUB_OUTPUT, 'body<<CHANGELOG_EOF\n' + (body || 'See CHANGELOG.md') + '\nCHANGELOG_EOF\n', { flag: 'a' });
+            for (let i = start + 1; i < lines.length; i++) {
+              if (/^## \[/.test(lines[i])) { end = i; break; }
+            }
+            const body = lines.slice(start + 1, end).join('\n').trim();
+            if (!body) {
+              console.error('::error::CHANGELOG.md \'' + heading + '\' section is empty');
+              process.exit(1);
+            }
+            fs.writeFileSync(process.env.GITHUB_OUTPUT, 'body<<CHANGELOG_EOF\n' + body + '\nCHANGELOG_EOF\n', { flag: 'a' });
           "
 
       - name: Build + publish release
@@ -92,6 +101,13 @@ jobs:
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: false
+
+      - name: Install tauri-cli (dispatch dry run only)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        # Pinned exactly: this job can write releases, so the CLI it runs is not allowed to change
+        # under it between runs. Bump it deliberately when the tauri crates move.
+        run: cargo install tauri-cli --locked --version 2.11.4
 
       - name: Build only (no publish)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}

@@ -7,126 +7,132 @@
 [**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/pocketrocket/releases/latest) · [Changelog](CHANGELOG.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![CI](https://github.com/AlexGaledo/pocketrocket/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexGaledo/pocketrocket/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket?include_prereleases&label=release)](https://github.com/AlexGaledo/pocketrocket/releases)
-![Node](https://img.shields.io/badge/node-%E2%89%A522.13-5fa04e)
 ![Desktop](https://img.shields.io/badge/desktop-Windows-blue)
 
-PocketRocket is a messenger for a fleet of persistent AI agents. Each bot has its own identity,
-memory, skills, and routines; bots share one workspace, talk in DMs or group chats, @mention and
-hand off work to each other, and ask you for approval before touching anything outside the
-workspace. It runs entirely on your machine — a local Node hub plus a React UI — driven by the
-[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) against your own Claude
-Code login (or an API key).
+PocketRocket is a messenger for a team of AI bots that run on your own computer with your Claude
+subscription. Each bot has its own name, memory, skills and routines. Message one directly, put a
+few in a group chat to hand work to each other, and approve anything risky before it happens.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/assets/app-dark.png" />
   <img alt="PocketRocket: a DM with a bot that writes a file in the workspace, showing the tool step inline, with the room's estimated usage in the right panel." src="packages/site/assets/app.png" />
 </picture>
 
-## Status
+## Install and set up
 
-Pre-release, becoming public at v0.2.0. Hub, rooms, memory, skills, routines and approvals are
-working and covered by unit tests — see [CI](https://github.com/AlexGaledo/pocketrocket/actions/workflows/ci.yml)
-for the current count. The Windows installer builds and installs but is **unsigned**, so
-SmartScreen warns. macOS and Linux run from source; there's no installer for them yet.
-Auto-update and code signing are deliberately out of scope for v1.
+From download to your first conversation, about five minutes.
 
-The hub always requires a token, binds loopback only, and checks `Origin`/`Host`. The pre-release
-audit and its remediation are in [`docs/AUDIT-2026-09-09.md`](docs/AUDIT-2026-09-09.md); the full
-threat model, and what the permission rules deliberately do *not* protect against, are in
-[SECURITY.md](SECURITY.md). Read that before giving a bot the Browser or Desktop tool.
+### What you need
 
-## Download
+- **Windows 10 or 11** (64-bit). Nothing else to install first: the installer brings its own Node
+  runtime and needs no admin rights.
+- **A Claude subscription** (Pro or Max), or an Anthropic API key.
 
-Latest Windows installer: [GitHub Releases](https://github.com/AlexGaledo/pocketrocket/releases/latest).
+### 1. Download
 
-The installer is **unsigned**, so Windows SmartScreen will warn "Windows protected your PC." Click
-**More info** → **Run anyway**. If you'd rather not click through that, build from source instead
-(see [CONTRIBUTING.md](./CONTRIBUTING.md)).
+Open the [latest release](https://github.com/AlexGaledo/pocketrocket/releases/latest) and download
+`PocketRocket_<version>_x64-setup.exe` from **Assets**.
 
-## Quick start
+### 2. Run the installer
 
-1. **Install Claude Code and sign in**, if you haven't already:
+Double-click the file. The installer isn't code-signed yet, so Windows SmartScreen says *"Windows
+protected your PC"*: click **More info** → **Run anyway**. It installs for your user only, adds a
+Start menu shortcut, and doesn't need administrator rights.
 
-   ```bash
-   curl -fsSL https://claude.ai/install.sh | bash
-   claude    # opens a browser to log in with your Claude subscription
-   ```
+### 3. Choose where PocketRocket runs
 
-   An `ANTHROPIC_API_KEY` works instead of a subscription login.
+On first launch the app shows **Where your bots run** and waits for you to pick:
 
-2. **Run the installer** from [Download](#download) above.
+- **This PC** (recommended to start). Everything runs and stays on this computer.
+- **Server over SSH.** If you already run PocketRocket on a Linux server, press **Find my servers**:
+  the app lists the hosts in your `~/.ssh/config` without connecting to any of them. Tick the ones
+  to check and press **Scan**. Each shows **Running**, **Installed, not running**, **No
+  PocketRocket**, **Needs your SSH key**, **New host key**, **Host key changed** or
+  **Unreachable**. Pick a running one to connect. It only ever uses your SSH key, never a password.
+  A new host key shows its fingerprint for you to confirm; a changed key is refused. Setting up a
+  server is covered in [docs/SERVER.md](docs/SERVER.md).
 
-3. **Onboarding** walks you through it on first launch: it checks your Claude login, asks your
-   name, and helps you create your first bot.
+You can switch later from the **Connection** menu.
 
-## Features
+### 4. Connect Claude
 
-- **Persistent bots** — identity, private memory and skills that survive restarts.
-- **DMs and group chats** — @mention and hand off work between bots in a shared room.
-- **Approval cards** — bots ask before shell commands, edits outside the workspace, or fleet/room
-  changes; on by default.
-- **Skills** — import from your provider's skill directory, author in the UI, or let a bot draft
-  one for review.
-- **Routines** — wake a bot on a cron schedule to check in or do recurring work.
-- **Cost tracking** — spend per bot and per room, with a budget cap per turn.
-- **Shared screen** (server mode) — a persistent virtual desktop and browser bots and you both use.
-- **Optional account** — sign in for paid plans later; everything works fully signed out.
+The setup wizard checks that Claude Code is installed and signed in, and re-checks by itself every
+few seconds while you fix anything, so there's nothing to restart.
 
-## Permissions & safety
+- **Not installed?** Open PowerShell and run:
 
-See [SECURITY.md](SECURITY.md) for the token model and the full threat model — treat every bot
-like a contractor with a shell on your machine, not a sandboxed toy.
+  ```powershell
+  irm https://claude.ai/install.ps1 | iex
+  ```
 
-**Approvals ask by default.** Bots ask before shell commands, edits outside the workspace, and any
-fleet or room change (creating/editing a bot, changing its tool grants, creating/deleting a room).
-Approval cards appear inline in chat:
+- **Not signed in?** Run `claude` in a new terminal and log in with your Claude account in the
+  browser window it opens.
 
-- `Read/Glob/Grep` inside `data/workspace/` or the bot's home: silent. Outside: an approval card.
-- `Write/Edit` inside the workspace: auto-accepted. Outside: approval card.
-- `Bash`: an allowlist of read-only/build commands runs silently; anything else asks, and
-  destructive patterns (`rm -rf`, `git push`, `curl | sh`, …) are flagged red. Absolute paths
-  outside the workspace always ask.
-- `WebSearch/WebFetch`: silent when enabled for the bot.
-- "Allow for this session" adds a permission rule for the rest of that session; unanswered
-  approvals time out as a deny after 10 minutes.
+When it's ready you'll see **Signed in as you@example.com · Claude Max** (or Pro). Using an API
+key instead? Choose **Skip for now** and add it later in **Settings → Claude**.
 
-Settings → Bots → **Approvals** can switch a bot to **bypass mode** — run every tool call with no
-approval cards — a clearly-labelled opt-in with no undo. Server operators can pin the whole hub to
-bypass mode with `POCKETROCKET_BYPASS_PERMISSIONS` (see
-[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)).
+### 5. Finish the wizard
 
-The hub always requires a bearer token — every run mode, no exceptions. It's minted on first
-start, stored in `<data>/hub-token`, and reused on later starts (so restarting the hub doesn't
-lock an open window out), printed as a URL (`http://127.0.0.1:7788/#token=…`); the desktop app and
-web UI consume that fragment automatically.
+1. **Your name**: what bots call you.
+2. **Account** (optional): a PocketRocket account is only for future paid plans. **Skip for now**
+   is fine; everything works signed out.
+3. **Your first bot**: pick **Assistant**, **Coder** or **Researcher**. You can rename and retune it
+   any time. Its chat opens straight away.
 
-## Docs
+### 6. Start chatting
 
-- [Architecture](docs/ARCHITECTURE.md) — how the hub works, the concepts (bots, rooms, sessions,
-  skills, routines), the tools every bot gets, and auto-memory.
-- [Desktop app](docs/DESKTOP.md) — the three connection modes, where your data lives, building it
-  yourself, and uninstalling.
-- [Run on a server](docs/SERVER.md) — deploy to a Linux box, and the persistent shared desktop
-  bots and you both use.
-- [Configuration](docs/CONFIGURATION.md) — every environment variable, setting and secret, with
-  defaults and precedence.
-- [Security](SECURITY.md) — threat model and what the permission rules do not protect against.
+- **Message a bot** from the sidebar. Create more with **+** next to *Bots*.
+- **Group chat**: create a room with up to 6 bots and @mention the one you want. Bots can @mention
+  and hand off to each other.
+- **Approvals**: before a bot runs a shell command, edits files outside its workspace, or changes
+  your team, an approval card appears in the chat. Allow once, allow for the session, or deny.
+- **Workspace**: files bots create live in a shared folder. The folder button in the sidebar opens
+  it.
+- **Right panel**: each bot's memory, skills, routines (scheduled check-ins) and usage.
 
-## Roadmap
+What bots can and can't do, and everything else PocketRocket offers, is in
+[docs/GUIDE.md](docs/GUIDE.md). Read [SECURITY.md](SECURITY.md) before giving a bot the Browser
+or Desktop tool.
 
-Short and honest:
+## Updating
 
-- **More providers.** Claude only, for now.
-- **Paid plans**, behind the optional PocketRocket account. Signing in does nothing else yet.
-- **Code signing and an auto-updater** are deliberately out of scope for v1; Help → Check for
-  updates just opens the Releases page.
-- **macOS / Linux installers.** Both run from source today; no packaged installer yet.
+There's no auto-updater yet. **Help → Check for updates** opens the releases page: download the
+newer installer and run it over the existing install. Your bots, chats and settings are kept.
 
-## Contributing
+## Uninstalling
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+**Settings → Apps → Installed apps → PocketRocket → Uninstall.** The installer only ever added the
+app folder and its shortcuts: no service, no scheduled task, no autostart entry.
+
+**Your data is kept by default.** Uninstalling removes the program, not
+`%APPDATA%\com.pocketrocket.app\`: the database, every bot's memory and skills, the shared
+workspace, and logs. Reinstalling picks up where you left off. To erase it too, tick **"Also
+delete all bots, conversations and settings"** in the uninstaller (unchecked by default).
+
+## Troubleshooting
+
+| You see | Do this |
+|---|---|
+| *"Windows protected your PC"* | **More info** → **Run anyway**. The installer is unsigned for now. |
+| *Claude Code isn't set up on this computer yet* | Run the PowerShell install command from step 4; the wizard picks it up by itself. |
+| *Found Claude Code but it didn't respond* | Wait a moment and choose **Check again**. The first start after installing can be slow. |
+| *Claude needs sign-in* in the sidebar | Run `claude` in a terminal and log in. |
+| *Can't reach the hub* | Choose **Retry**. If it keeps failing, **View → Open hub log** shows why. |
+| A server shows *Needs your SSH key* | Start the **OpenSSH Authentication Agent** service and run `ssh-add`, then scan again. |
+| A server shows *New host key* | Compare the fingerprint with the one your hosting provider shows, then confirm. |
+| A server shows *Host key changed* | Don't connect. Check with whoever runs the server; this can mean someone is intercepting the connection. |
+| Connection settings open while you're connected | Press **Back to PocketRocket**. |
+
+Still stuck? [Open an issue](https://github.com/AlexGaledo/pocketrocket/issues/new/choose).
+
+## More
+
+- [docs/GUIDE.md](docs/GUIDE.md): features, how bots, rooms, memory and approvals work
+- [docs/SERVER.md](docs/SERVER.md): run PocketRocket on a Linux server
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): run from source (macOS, Linux) and build the installer
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md): every setting and environment variable
+- [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## License
 

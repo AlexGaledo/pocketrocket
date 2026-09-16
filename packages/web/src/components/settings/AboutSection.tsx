@@ -1,11 +1,13 @@
 /**
- * Settings › About: version, a couple of facts from GET /api/health, and links out. Deliberately small.
+ * Settings › About: version, a couple of facts from GET /api/health and the Claude check, and links out. Deliberately small.
  * Links open with `target="_blank"`; the desktop app hands those to the default browser.
  */
 import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { HealthResponse } from '../../lib/api';
+import { useStore } from '../../store';
 import { RocketMark } from '../RocketMark';
+import { authPhrase, PrivateEmail } from './ConnectionStatus';
 import { Card, Group, SectionHeader } from './parts';
 
 const REPO_URL = 'https://github.com/AlexGaledo/pocketrocket';
@@ -16,7 +18,11 @@ const LINKS: { href: string; label: string }[] = [
 ];
 
 export function AboutSection({ health }: { health: HealthResponse | null }) {
-  const claudeFile = health?.claudeExe.split(/[\\/]/).pop();
+  // The account, plan and the path to the CLI come from the provider check, not health: health answers
+  // without the hub token, so the hub keeps who is signed in — and where their home directory is — off it.
+  const claudeCheck = useStore((s) => s.providers?.providers.find((p) => p.id === 'claude')?.check);
+  const signedIn = claudeCheck?.ok ? claudeCheck : undefined;
+  const how = signedIn ? authPhrase(signedIn) : null;
 
   return (
     <>
@@ -37,11 +43,13 @@ export function AboutSection({ health }: { health: HealthResponse | null }) {
         <Group>
           <Card className="py-3">
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-[12.5px]">
-              <Fact label="Claude Code">
-                {health.ok ? 'Found' : 'Not found'}
-                {claudeFile && <span className="text-muted" title={health.claudeExe}> · {claudeFile}</span>}
-              </Fact>
-              {health.accountEmail && <Fact label="Claude account">{health.accountEmail}</Fact>}
+              <Fact label="Claude Code">{health.ok ? 'Found' : 'Not found'}</Fact>
+              {(signedIn?.account || how) && (
+                <Fact label="Claude account">
+                  {signedIn?.account ? <PrivateEmail email={signedIn.account} /> : how}
+                  {signedIn?.account && how && <span className="text-muted"> · {how}</span>}
+                </Fact>
+              )}
               <Fact label="Approvals">
                 {health.approvals === 'ask' ? 'Ask before risky actions' : 'Run without asking'}
                 {health.approvalsLocked && <span className="text-muted"> · set by the server</span>}

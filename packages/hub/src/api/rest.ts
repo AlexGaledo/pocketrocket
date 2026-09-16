@@ -6,7 +6,7 @@ import {
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
-import { CLAUDE_EXE, WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
+import { WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
 import { openWorkspace } from './openWorkspace.js';
 import { SCREEN_VIEWER_PATH, type ScreenSessions } from './screenSession.js';
 
@@ -77,12 +77,16 @@ export function createRest(deps: RestDeps) {
   };
 
   // ---- health
+  // Answers without the hub token (the desktop app polls it before it has one), so nothing personal goes
+  // here: no account email or plan, and no path to the CLI either — CLAUDE_EXE holds the home directory,
+  // which is the machine's user name. `ok` already says whether the CLI was found; the authenticated
+  // provider check carries the path for the people who can already ask for it.
   add('GET', '/api/health', (): HealthInfo & { provider: ProviderId; version: string } => {
     const exe = runner.constructor as typeof BotRunner;
     const chk = exe.checkExe();
     return {
-      ok: chk.ok, claudeExe: CLAUDE_EXE, error: chk.error,
-      apiKeySource: runner.lastInit.apiKeySource, subscriptionType: runner.lastInit.model,
+      ok: chk.ok, error: chk.error,
+      apiKeySource: runner.lastInit.apiKeySource,
       provider: settings.get().provider, version: VERSION,
       approvals: settings.approvals(), approvalsLocked: settings.approvalsLocked,
     };

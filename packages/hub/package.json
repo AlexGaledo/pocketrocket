@@ -2,6 +2,7 @@
   "name": "@pocketrocket/hub",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx watch --clear-screen=false src/index.ts",
@@ -10,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.263",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.269",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@opencode-ai/sdk": "1.18.29",
     "@playwright/mcp": "^0.0.80",

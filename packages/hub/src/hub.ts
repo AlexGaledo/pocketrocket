@@ -23,7 +23,7 @@ import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
-import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, tokenMatches } from './api/guard.js';
+import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, presentsHubToken, tokenMatches } from './api/guard.js';
 import { SCREEN_COOKIE, SCREEN_VIEWER_PATH, ScreenSessions } from './api/screenSession.js';
 import { readBody } from './api/body.js';
 import { handleAuthCallback } from './api/authCallback.js';
@@ -191,7 +191,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleAuthCallback(req, res, url, { account, limiter });
         return;
       }
-      limiter.succeed(ip);
+      if (presentsHubToken(req, url, token)) limiter.succeed(ip);
       const ct = checkContentType(req, url);
       if (!ct.ok) {
         res.writeHead(ct.status, { 'content-type': 'application/json' });
@@ -257,7 +257,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       socket.destroy();
       return;
     }
-    limiter.succeed(ip);
+    if (presentsHubToken(req, url, token)) limiter.succeed(ip);
     if (url.pathname === '/ws') {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else if (url.pathname.startsWith('/screen/')) {

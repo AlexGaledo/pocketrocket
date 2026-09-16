@@ -1,7 +1,25 @@
-# Run on a server
+# Run PocketRocket on a server
 
 The hub is the shared computer: run it on a Linux box and every bot works there, routines fire
-while your laptop is closed, and a full Linux shell is available to bots.
+while your laptop is closed, and a full Linux shell is available to bots. The desktop app then
+connects to it over an SSH tunnel. Deploying needs a checkout of this repo; everyday use needs
+only the installer (see the [README](../README.md)).
+
+## Connection modes in the desktop app
+
+Switch from the **Connection** menu:
+
+| Mode | What happens | State lives in |
+|---|---|---|
+| **Local: this PC** (default) | The app starts its own hub as a child process and shuts it down on quit. No network hop. | `%APPDATA%\com.pocketrocket.app\data\` — SQLite db (WAL), bot memories, workspace, skills. `hub.log` next to it. |
+| **VPS over SSH tunnel** | Opens an SSH tunnel to the hub on your server itself, waits for it, and respawns the tunnel if it drops. Gets the virtual desktop/screen. | on the VPS |
+| **Attach** | Connects to a hub you already run (`pnpm dev` / `pnpm start`). | wherever that hub points |
+
+On first run the app can scan the servers in your `~/.ssh/config` and connect to the ones you
+tick — key auth only, it never tries a password; an unknown host key is shown for you to confirm,
+and a changed host key is refused.
+
+## Deploy
 
 ```bash
 # once, on the VPS: install Node 22.13+, pnpm, and the Claude CLI

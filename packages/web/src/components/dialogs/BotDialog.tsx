@@ -29,14 +29,32 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
   const save = async () => {
     setBusy(true);
     try {
-      if (bot) await api.bots.update(bot.id, f); else await api.bots.create(f);
+      if (bot) {
+        await api.bots.update(bot.id, f);
+      } else {
+        const created = await api.bots.create(f);
+        // A new bot opens straight into its chat, as in onboarding, rather than leaving the user to find it in
+        // the sidebar. The bot already exists by now, so a failed DM is a toast, not a failed create.
+        try {
+          const room = await api.rooms.create({ kind: 'dm', name: created.name, memberIds: [created.id], coordinatorBotId: null });
+          useStore.getState().setActiveRoom(room.id);
+        } catch (e) {
+          toast(created.name + ' was created, but its chat could not be opened: ' + (e as Error).message, true);
+        }
+      }
       onClose();
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   };
   const remove = async () => {
     if (!bot || !confirm('Delete ' + bot.name + '? Rooms keep their history; the bot is removed from them.')) return;
-    await api.bots.remove(bot.id);
-    onClose();
+    setBusy(true);
+    try {
+      await api.bots.remove(bot.id);
+      onClose();
+    } catch (e) {
+      // The dialog stays open so the failure is visible next to the button that caused it.
+      toast("Couldn't delete " + bot.name + ': ' + (e as Error).message, true);
+    } finally { setBusy(false); }
   };
 
   return (
@@ -74,7 +92,7 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
         </div>
       </div>
       <div className="mt-5 flex items-center justify-between">
-        <div>{bot && <Button variant="danger" size="sm" onClick={remove}>Delete bot</Button>}</div>
+        <div>{bot && <Button variant="danger" size="sm" onClick={remove} disabled={busy}>Delete bot</Button>}</div>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save} disabled={busy || !f.name || !/^[a-z0-9_-]{2,24}$/.test(f.handle)}>{bot ? 'Save' : 'Create bot'}</Button>

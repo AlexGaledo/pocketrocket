@@ -70,7 +70,7 @@ Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`. `GET` returns only `
 | `mode` | `local` | `local` (app spawns the hub) · `remote` (`ssh -N -L` tunnel) · `attach` (hub already on the port). |
 | `sshHost` | `""` | Host alias from `~/.ssh/config` for `remote`. |
 | `port` | `7788` | Hub port for all modes. |
-| `hubDir` | unset | Dev override: run the hub from a repo checkout with `tsx` instead of the bundled `hub/hub.mjs`. |
+| `hubDir` | unset | Dev override: run the hub from a repo checkout with `tsx` instead of the bundled `hub/hub.mjs`. **Debug builds only** — a released app ignores the key (it would be arbitrary code execution for anything that can write this file) and logs that it did. Set `POCKETROCKET_HUB_DIR` in the environment to point a released build at a checkout. |
 
 Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the app's own directory), else the bundled Node 24 next to the exe. Logs: `%APPDATA%\com.pocketrocket.app\hub.log` (rotated at 2 MB × 5).
 

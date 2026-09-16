@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Bot, HealthInfo, ProvidersResponse, SecretsStatus, Settings } from '@pocketrocket/shared';
 import { APPROVALS_ENV, ENABLED_PROVIDERS } from '../config.js';
@@ -81,7 +82,14 @@ describe('settings / secrets / providers REST', () => {
 
   it.skipIf(APPROVALS_ENV !== null)('approvals default to ask and a Settings toggle is live and reported by health', async () => {
     expect((await api<Settings>('GET', '/api/settings')).body.approvals).toBe('ask');
-    expect((await api<HealthInfo>('GET', '/api/health')).body).toMatchObject({ approvals: 'ask', approvalsLocked: false });
+    const health = (await api<HealthInfo>('GET', '/api/health')).body;
+    expect(health).toMatchObject({ approvals: 'ask', approvalsLocked: false });
+    // Health answers without the token, so it must not carry who is signed in, on which plan, or where
+    // their CLI lives — a path under the home directory is the machine's user name spelled out.
+    expect(health).not.toHaveProperty('accountEmail');
+    expect(health).not.toHaveProperty('subscriptionType');
+    expect(health).not.toHaveProperty('claudeExe');
+    expect(JSON.stringify(health)).not.toContain(os.homedir());
 
     const on = await api<Settings>('PUT', '/api/settings', { approvals: 'bypass' });
     expect(on.body.approvals).toBe('bypass');

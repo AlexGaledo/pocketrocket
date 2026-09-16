@@ -7,32 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Auto-memory: every 10 completed turns of a bot in a room, a background pass on Haiku 4.5 appends
-  new lasting facts from the conversation (preferences, decisions, ongoing work, names/IDs) to the
-  bot's `memory.md`, so bots remember more than what they chose to `update_memory`. Append-only,
-  never delays the room, costs are tracked in usage, and the room gets a short "saved N notes"
-  line when anything was saved. On by default; per-bot toggle and interval (3–100 turns) in
-  Settings → Bots. Claude provider only.
-
-### Fixed
-
-- Bots no longer fail with "Claude Code X does not support this model; version Y or newer is
-  required" when a new model needs a newer CLI: the hub runs `claude update` and replays the turn
-  once (only when no tool had run yet). If the update fails, the turn error says so and asks for a
-  manual `claude update`.
-- Server mode: the service user's Claude Code CLI is also kept current by an hourly cron job
-  (`deploy/claude-update.sh`, installed by `setup-vps.sh`).
-
-## [0.2.0] - 2026-09-12
+## [0.2.0] - 2026-09-16
 
 First public release. (`0.1.0` was the internal Claudebot-era version, so the first release under
 the PocketRocket name starts at 0.2.0.)
 
 ### Added
 
-- Desktop app (Windows) that bundles its own Node runtime, so it runs without a system Node install.
 - Sound cues (send, reply, approval request, approve/deny, turn done/error, desktop connected), on
   by default, respecting `prefers-reduced-motion`.
 - First-run onboarding wizard: detect the Claude CLI and login, name yourself, create a first bot.
@@ -62,9 +43,38 @@ the PocketRocket name starts at 0.2.0.)
   every later turn steadily more expensive. Older notes are dropped first, and `update_memory`
   tells the bot when that happened so it prunes deliberately instead of writing into a file that
   silently forgets.
+- Auto-memory: every 10 completed turns of a bot in a room, a background pass on Haiku 4.5 appends
+  new lasting facts from the conversation (preferences, decisions, ongoing work, names/IDs) to the
+  bot's `memory.md`, so bots remember more than what they chose to `update_memory`. Append-only,
+  never delays the room, costs are tracked in usage, and the room gets a short "saved N notes"
+  line when anything was saved. On by default; per-bot toggle and interval (3–100 turns) in
+  Settings → Bots. Claude provider only.
+- The layout adapts to narrow windows: the bot list and side panels become drawers instead of
+  being squeezed into the middle column.
+- First-run setup checks that Claude Code is installed and signed in, and shows your Claude plan.
+- Keyboard access to the bot list and room list, matching the onboarding cards' roving-tabindex
+  pattern.
+- A "Can't reach the hub" card with a retry button when the hub connection drops, and fewer false
+  "token expired" prompts around a reconnect.
+- Creating a new bot now opens its chat instead of leaving you on the list.
+- A "new messages" jump button when you've scrolled away from the bottom of a room, and older
+  messages now load automatically when you scroll to the top.
+- Desktop: on first run, the app can scan `~/.ssh/config` for servers and check the ones you tick
+  using your SSH key only — it never tries a password — and detects your local Claude account.
+- Desktop: a "Back to PocketRocket" link from the connection settings screen.
+- Desktop: hub and SSH tunnel failures that happen after a successful connect are now reported
+  instead of failing silently.
+- Desktop: the app now enforces a single running instance.
 
 ### Changed
 
+- Chat links now open in your default browser instead of navigating the app away from your bots.
+- Approval notices are clearer about what's being asked and why.
+- Setup errors (onboarding and Settings → Claude) are now shown inline on the step where they
+  happened instead of only in the console.
+- Desktop uninstaller's data-delete option is relabeled "Also delete all bots, conversations and
+  settings" and is unchecked by default, so a plain uninstall keeps your data and ticking the box
+  is an explicit, informed choice.
 - Renamed the project from Claudebot to **PocketRocket** across packages, env vars, data paths,
   systemd units, and the desktop app identifier.
 - **Claude only in this release.** v1 ships one provider — the Claude Agent SDK, driving your own
@@ -110,7 +120,7 @@ the PocketRocket name starts at 0.2.0.)
   `/screen/*` outright, and the cookie authenticates nothing else — presenting it to `/api/*` gets
   a 401.
 
-  Fixes from the pre-release audit ([`docs/AUDIT-2026-09-09.md`](docs/AUDIT-2026-09-09.md)):
+  Fixes from the pre-release security review (see [SECURITY.md](SECURITY.md) → Audits):
 
   - The hub token is now always on — there is no unauthenticated mode. It's auto-generated when
     `POCKETROCKET_TOKEN` is unset, written to `<data>/hub-token` (0600), and printed at startup as
@@ -171,6 +181,16 @@ the PocketRocket name starts at 0.2.0.)
 - The desktop app always ran the hub on its own bundled Node and reported it as "system node",
   because Windows resolves a bare `node` to the copy sitting next to the app before looking at
   your PATH. If you have Node 22.13+ installed, the app now uses it, as documented.
+- Bots no longer fail with "Claude Code X does not support this model; version Y or newer is
+  required" when a new model needs a newer CLI: the hub runs `claude update` and replays the turn
+  once (only when no tool had run yet). If the update fails, the turn error says so and asks for a
+  manual `claude update`.
+- Server mode: the service user's Claude Code CLI is also kept current by an hourly cron job
+  (`deploy/claude-update.sh`, installed by `setup-vps.sh`).
+- Desktop no longer freezes the whole UI while connecting over SSH.
+- Desktop: clearer SSH error messages (bad key, host unreachable, unknown or changed host key)
+  instead of a generic connection failure.
+- README's Quick start now gives the correct Claude Code install command (the native installer).
 
 ## [0.1.0]
 
