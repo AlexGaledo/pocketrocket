@@ -285,7 +285,8 @@ export class BotRunner {
     return { ok, turnId, finalText: texts.join('\n\n'), costUsd, error };
   }
 
+  /** Feeds GET /api/health, which answers without the hub token, so the error names no path. */
   static checkExe(): { ok: boolean; error?: string } {
-    return fs.existsSync(CLAUDE_EXE) ? { ok: true } : { ok: false, error: 'claude executable not found at ' + CLAUDE_EXE };
+    return fs.existsSync(CLAUDE_EXE) ? { ok: true } : { ok: false, error: 'claude executable not found' };
   }
 }

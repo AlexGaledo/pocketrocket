@@ -138,11 +138,12 @@ export interface UsageRow extends UsageTotals {
 }
 
 export interface HealthInfo {
+  /** Whether the active provider's CLI was found. Deliberately not where: see below. */
   ok: boolean;
-  claudeExe: string;
   apiKeySource?: string;
-  // No account email or plan here: GET /api/health answers without the hub token. Both live on the
-  // provider check (GET /api/providers, POST /api/providers/:id/check), which needs it.
+  // No account email, plan or path to the CLI here: GET /api/health answers without the hub token, and a
+  // path under the home directory spells out the machine's user name. All three live on the provider
+  // check (GET /api/providers, POST /api/providers/:id/check), which needs the token.
   error?: string;
   /** Approvals mode in force right now: `settings.approvals`, unless the server environment pins it. */
   approvals: Approvals;
