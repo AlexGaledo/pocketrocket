@@ -3,12 +3,13 @@
  * (installed? version? subscription or API key?), says it in plain words, and when something is wrong
  * shows the steps to fix it plus a "Check again" button that re-runs the check.
  */
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { CircleCheck, TriangleAlert } from 'lucide-react';
 import type { ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
 import { Badge, Button, cn } from '../ui';
 import { Markdown } from '../Markdown';
 import { useRecheck } from '../ProviderCard';
+import { Private, maskEmail, shortPath } from './parts';
 
 /**
  * Anthropic's native installer, per platform. Not `npm install -g`: that leaves a claude.cmd shim in
@@ -32,8 +33,18 @@ interface Summary {
   tone: Tone;
   badge: string;
   headline: string;
-  /** Short facts under the headline: version, how it signs in. */
-  facts: string[];
+  /** Short facts under the headline: version, how it signs in, which account. */
+  facts: ReactNode[];
+}
+
+/** The signed-in address, masked until asked for. Settings is a dialog people screen-share. */
+export function PrivateEmail({ email }: { email: string }) {
+  return <Private value={email} display={maskEmail(email)} label="email address" />;
+}
+
+/** Where the CLI was found, with the home directory folded to `~` so it carries no user name. */
+function PrivatePath({ path }: { path: string }) {
+  return <Private value={path} display={shortPath(path)} label="path" />;
 }
 
 /** `claude --version` prints "2.1.3 (Claude Code)"; the parenthetical adds nothing here. */
@@ -51,12 +62,12 @@ export function authPhrase(check: ProviderCheck): string | null {
 function summarize(info: ProviderInfo): Summary {
   const { check } = info;
   const app = info.id === 'claude' ? 'Claude Code' : info.label;
-  const facts: string[] = [];
+  const facts: ReactNode[] = [];
   if (check.version) facts.push('Version ' + cleanVersion(check.version));
   if (check.ok) {
     const how = authPhrase(check);
     if (how) facts.push(how);
-    if (check.account) facts.push(check.account);
+    if (check.account) facts.push(<PrivateEmail email={check.account} />);
     return { ok: true, tone: 'ok', badge: 'Ready', headline: app + ' is connected', facts };
   }
   // The binary is there but did not answer: an install prompt would send the user to reinstall something
@@ -117,7 +128,16 @@ export function ConnectionStatus({ info, onChecked, hasKeyField, autoRecheckMs }
             <span className="text-[13.5px] font-medium">{summary.headline}</span>
             <Badge tone={summary.tone}>{summary.badge}</Badge>
           </div>
-          {summary.facts.length > 0 && <div className="mt-0.5 text-[12.5px] text-muted">{summary.facts.join(' · ')}</div>}
+          {summary.facts.length > 0 && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] text-muted">
+              {summary.facts.map((fact, i) => (
+                <Fragment key={i}>
+                  {i > 0 && <span aria-hidden>·</span>}
+                  {fact}
+                </Fragment>
+              ))}
+            </div>
+          )}
           {!summary.ok && <FixSteps info={info} check={info.check} hasKeyField={hasKeyField} />}
           {/* Narrow window: the button goes under the text instead of squeezing it. */}
           {checkButton('mt-3 sm:hidden')}
@@ -141,7 +161,7 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
       {info.id === 'claude' && check.unresponsive ? (
         <p>
           It can take a while to start the first time, or while antivirus scans it. Wait a moment and press Check again.
-          {check.exePath && <span className="mt-1 block break-all text-muted">Found at <span className="font-mono">{check.exePath}</span></span>}
+          {check.exePath && <span className="mt-1 block text-muted">Found at <PrivatePath path={check.exePath} /></span>}
         </p>
       ) : info.id === 'claude' ? (
         <ol className="list-decimal space-y-1 pl-5">
@@ -157,7 +177,7 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
               ))}
               {check.exePath && (
                 <span className="mt-1.5 block text-muted">
-                  PocketRocket looked for it at <span className="break-all font-mono">{check.exePath}</span>
+                  PocketRocket looked for it at <PrivatePath path={check.exePath} />
                 </span>
               )}
             </li>
