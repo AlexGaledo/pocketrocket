@@ -105,7 +105,9 @@ jobs:
       - name: Install tauri-cli (dispatch dry run only)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         shell: bash
-        run: cargo install tauri-cli --locked --version "^2"
+        # Pinned exactly: this job can write releases, so the CLI it runs is not allowed to change
+        # under it between runs. Bump it deliberately when the tauri crates move.
+        run: cargo install tauri-cli --locked --version 2.11.4
 
       - name: Build only (no publish)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
