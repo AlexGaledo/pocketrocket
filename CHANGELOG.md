@@ -120,7 +120,7 @@ the PocketRocket name starts at 0.2.0.)
   `/screen/*` outright, and the cookie authenticates nothing else — presenting it to `/api/*` gets
   a 401.
 
-  Fixes from the pre-release audit ([`docs/AUDIT-2026-09-09.md`](docs/AUDIT-2026-09-09.md)):
+  Fixes from the pre-release security review (see [SECURITY.md](SECURITY.md) → Audits):
 
   - The hub token is now always on — there is no unauthenticated mode. It's auto-generated when
     `POCKETROCKET_TOKEN` is unset, written to `<data>/hub-token` (0600), and printed at startup as

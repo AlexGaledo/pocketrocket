@@ -54,6 +54,17 @@ Treat every bot — including one running a "trusted" model — like **a junior 
 
 **Never grant the Browser or Desktop tools to a bot that reads untrusted content** (web pages, emails, files from someone else, other bots' output). Those tools give it a real GUI session — enough to exfiltrate data, click through prompts, or drive whatever is logged into that session.
 
+## Audits
+
+PocketRocket had an internal security review before its first public release (2026-09-09), and a second
+one before v0.2.0 shipped. Between them they covered the hub's token guard and origin checks, the
+permission rules, bot-authored markdown, the desktop app's SSH handling and server scan, the Windows
+installer, and the CI workflows. Everything they found was fixed before release; the fixes are listed
+under **Security** in [CHANGELOG.md](CHANGELOG.md). The detailed reports are kept private, because they
+name specific files and lines and would mostly help someone attacking an installation that is behind on
+updates. If you are assessing PocketRocket for your own use and want more detail than the changelog
+gives, ask through the contact above.
+
 ## Scope
 
 This covers the hub, web UI, desktop app, and the deploy/screen scripts in this repository. Vulnerabilities in a provider's own CLI or service are out of scope here — report those upstream.

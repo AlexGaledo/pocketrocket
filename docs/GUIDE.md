@@ -92,7 +92,8 @@ start, stored in `<data>/hub-token`, and reused on later starts (so restarting t
 lock an open window out), printed as a URL (`http://127.0.0.1:7788/#token=…`); the desktop app and
 web UI consume that fragment automatically.
 
-The pre-release audit and its remediation are in [AUDIT-2026-09-09.md](AUDIT-2026-09-09.md).
+PocketRocket has had two internal security reviews; what they changed is under **Security** in
+[CHANGELOG.md](../CHANGELOG.md), and [SECURITY.md](../SECURITY.md) has the summary.
 
 ## Configuration
 

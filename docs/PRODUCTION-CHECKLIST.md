@@ -1,6 +1,6 @@
 # PocketRocket production checklist
 
-Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-16 (v0.2.0, pre-release). Security audit: `docs/AUDIT-2026-09-09.md`; remediation landed the same day (see CHANGELOG → Security). v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
+Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-16 (v0.2.0, pre-release). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
 
 ## 1. Build and quality gates
 
@@ -17,7 +17,7 @@ Use before every public release. Status column: ☑ done and verified · ☐ ope
 
 ## 2. Security
 
-See [`docs/AUDIT-2026-09-09.md`](AUDIT-2026-09-09.md) for the full pre-release audit this section tracks (leaks, vulnerabilities, verified-OK, and the action order in its section D).
+This section tracks the private pre-release audit report (leaks, vulnerabilities, verified-OK, and its action order).
 
 | Item | Status | How to verify |
 |---|---|---|
