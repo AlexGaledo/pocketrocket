@@ -15,6 +15,7 @@ use crate::proc::run_capture;
 use crate::ssh;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -169,11 +170,19 @@ fn glob_paths(p: &Path) -> Vec<PathBuf> {
     cur
 }
 
-fn include_paths(arg: &str, ctx: &Ctx) -> Vec<PathBuf> {
-    let path = if arg == "~" {
+/// The files one `Include` argument names, or None when the argument cannot be resolved here.
+///
+/// ssh expands `%d` (home), `%h`, `%u`, `%r`, `%C` … and `${ENV}` in Include paths. Only `%d` means
+/// the same thing before a connection exists, so the rest come back as None — and the caller then
+/// treats the whole config as unsafe to resolve. A file we cannot open is a file whose `Match exec`
+/// we cannot see, and `ssh -G` would run that command for us.
+fn include_paths(arg: &str, ctx: &Ctx) -> Option<Vec<PathBuf>> {
+    let path = if arg == "~" || arg == "%d" {
         ctx.home.to_path_buf()
-    } else if let Some(rest) = arg.strip_prefix("~/").or_else(|| arg.strip_prefix("~\\")) {
+    } else if let Some(rest) = strip_any_prefix(arg, &["~/", "~\\", "%d/", "%d\\"]) {
         ctx.home.join(rest)
+    } else if arg.contains('%') || arg.contains('$') {
+        return None;
     } else {
         let pb = PathBuf::from(arg);
         if pb.is_absolute() || arg.starts_with('/') || arg.starts_with('\\') {
@@ -182,7 +191,15 @@ fn include_paths(arg: &str, ctx: &Ctx) -> Vec<PathBuf> {
             ctx.base.join(pb)
         }
     };
-    glob_paths(&path)
+    // A token past the first path component is just as unresolvable as one at the start.
+    if path.to_string_lossy().contains(['%', '$']) {
+        return None;
+    }
+    Some(glob_paths(&path))
+}
+
+fn strip_any_prefix<'a>(s: &'a str, prefixes: &[&str]) -> Option<&'a str> {
+    prefixes.iter().find_map(|p| s.strip_prefix(p))
 }
 
 fn parse_file(path: &Path, ctx: &Ctx, depth: usize, out: &mut Parsed, block: &mut Vec<usize>) {
@@ -222,7 +239,13 @@ fn parse_file(path: &Path, ctx: &Ctx, depth: usize, out: &mut Parsed, block: &mu
             }
             "include" => {
                 for arg in &args {
-                    for p in include_paths(arg, ctx) {
+                    let Some(paths) = include_paths(arg, ctx) else {
+                        // We cannot read what this include pulls in, so we cannot promise there is no
+                        // `Match exec` in it. Say the config is unsafe to resolve instead of assuming.
+                        out.match_exec = true;
+                        continue;
+                    };
+                    for p in paths {
                         // Included lines before their own Host/Match belong to the enclosing block, and that
                         // block is back in force when the include returns (readconf.c restores it too).
                         let mut inner = block.clone();
@@ -612,39 +635,103 @@ fn sha256_tokens(text: &str) -> Vec<String> {
     text.split_whitespace().filter(|t| t.starts_with("SHA256:")).map(|t| clean(t, 80)).collect()
 }
 
-fn expand_home(p: &str) -> PathBuf {
-    match (p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\")), home_dir()) {
-        (Some(rest), Some(home)) => home.join(rest),
-        _ => PathBuf::from(p),
+/// One `UserKnownHostsFile` entry as a path we can read, or None when it cannot be resolved here.
+///
+/// Same tokens as an `Include` path, plus the relative form: ssh resolves a bare relative
+/// UserKnownHostsFile against its own working directory, which is not ours, so we do not guess.
+fn known_hosts_path(p: &str) -> Option<PathBuf> {
+    if let Some(rest) = strip_any_prefix(p, &["~/", "~\\", "%d/", "%d\\"]) {
+        let path = home_dir()?.join(rest);
+        return (!path.to_string_lossy().contains(['%', '$'])).then_some(path);
+    }
+    if p.contains('%') || p.contains('$') {
+        return None;
+    }
+    let pb = PathBuf::from(p);
+    (pb.is_absolute() || p.starts_with('/') || p.starts_with('\\')).then_some(pb)
+}
+
+/// What known_hosts says, read back after an accept-new scan stored a key.
+#[derive(Debug, PartialEq)]
+enum StoredKey {
+    /// One of the fingerprints the person was shown and confirmed.
+    Confirmed,
+    /// There is a key on file for this host and it is not one they confirmed.
+    Different,
+    /// Nothing could be read back, so there is nothing to compare the key against.
+    Unreadable,
+}
+
+fn judge_stored_key(expected: &[String], stored: &[String]) -> StoredKey {
+    if stored.is_empty() {
+        StoredKey::Unreadable
+    } else if stored.iter().any(|s| expected.contains(s)) {
+        StoredKey::Confirmed
+    } else {
+        StoredKey::Different
     }
 }
 
+/// Take a host key back out of a known_hosts file. True when ssh-keygen says it did.
+fn remove_host_key(spec: &str, file: &Path) -> bool {
+    let mut cmd = Command::new(ssh::tool("ssh-keygen"));
+    cmd.arg("-R").arg(spec).arg("-f").arg(file);
+    run_capture(cmd, Duration::from_secs(5), 8 * 1024, &|| false).ok().and_then(|c| c.status).is_some_and(|s| s.success())
+}
+
 /// After an accept-new scan: the key ssh stored must be one the person confirmed. Some(problem) if not.
+///
+/// Fails closed. Every step here can come up empty for a reason that has nothing to do with the server —
+/// `ssh -G` not running, a UserKnownHostsFile we cannot resolve, a host spec ssh keyed the entry under
+/// differently (CheckHostIP writes the address, not the name) — and in each of those cases we have not
+/// checked anything. Reporting that as "verified" would wave through exactly the key this check exists
+/// to catch, so anything short of a confirmed match is a failure with a reason.
 fn verify_accepted_key(alias: &str) -> Option<String> {
     let expected = shown_fingerprints().lock().unwrap_or_else(|e| e.into_inner()).get(alias).cloned()?;
-    let info = ssh_g(alias)?;
+    let Some(info) = ssh_g(alias) else {
+        return Some(format!(
+            "PocketRocket couldn't re-read the ssh settings for {alias} (`ssh -G {alias}` failed), so it can't tell whether the \
+             key that was just stored is the one you confirmed. Nothing was saved. Run `ssh {alias}` in a terminal instead."
+        ));
+    };
     let hostname = info.hostname.clone().unwrap_or_else(|| alias.to_string());
     let port = info.port.unwrap_or(22);
     let spec = info.host_key_alias.clone().unwrap_or_else(|| if port == 22 { hostname.clone() } else { format!("[{hostname}]:{port}") });
-    let mut stored = Vec::new();
+    // Keep the file each key came from: a key we refuse has to come back out of that same file.
+    let mut found: Vec<(PathBuf, Vec<String>)> = Vec::new();
     for file in &info.known_hosts {
-        let path = expand_home(file);
-        if !path.is_file() {
-            continue;
-        }
+        let Some(path) = known_hosts_path(file).filter(|p| p.is_file()) else { continue };
         let mut cmd = Command::new(ssh::tool("ssh-keygen"));
         cmd.arg("-l").arg("-F").arg(&spec).arg("-f").arg(&path);
-        if let Ok(c) = run_capture(cmd, Duration::from_secs(5), 64 * 1024, &|| false) {
-            stored.extend(sha256_tokens(&String::from_utf8_lossy(&c.stdout)));
+        let Ok(c) = run_capture(cmd, Duration::from_secs(5), 64 * 1024, &|| false) else { continue };
+        let keys = sha256_tokens(&String::from_utf8_lossy(&c.stdout));
+        if !keys.is_empty() {
+            found.push((path, keys));
         }
     }
-    if stored.is_empty() || stored.iter().any(|s| expected.contains(s)) {
-        None
-    } else {
-        Some(format!(
-            "The key {alias} presented doesn't match the fingerprint you confirmed, so PocketRocket won't use it. \
-             Remove the new entry with `ssh-keygen -R {spec}` and check the server."
-        ))
+    let stored: Vec<String> = found.iter().flat_map(|(_, keys)| keys.iter().cloned()).collect();
+    match judge_stored_key(&expected, &stored) {
+        StoredKey::Confirmed => None,
+        StoredKey::Unreadable => Some(format!(
+            "PocketRocket couldn't read back the host key that was just stored for {alias} (looked for {spec} in \
+             {}), so it can't confirm it's the one you approved. Nothing was saved. Run `ssh {alias}` in a terminal instead.",
+            if info.known_hosts.is_empty() { "no known_hosts file".to_string() } else { info.known_hosts.join(", ") }
+        )),
+        StoredKey::Different => {
+            // accept-new already wrote the key ssh was handed. Leaving it there would mean the next
+            // connection trusts it without asking anyone, so it goes back out before we report.
+            let removed: Vec<String> =
+                found.iter().filter(|(f, _)| remove_host_key(&spec, f)).map(|(f, _)| f.to_string_lossy().into_owned()).collect();
+            let cleanup = if removed.len() == found.len() {
+                format!("PocketRocket has removed it again from {}.", removed.join(", "))
+            } else {
+                format!("Remove it yourself with `ssh-keygen -R {spec}`.")
+            };
+            Some(format!(
+                "The key {alias} presented doesn't match the fingerprint you confirmed, so PocketRocket won't use it. \
+                 {cleanup} Check the server."
+            ))
+        }
     }
 }
 
@@ -694,10 +781,16 @@ pub fn fingerprint(alias: &str) -> Result<HostFingerprint, String> {
     if !keys.lines().any(|l| !l.trim().is_empty() && !l.starts_with('#')) {
         return Err(format!("{hostname} didn't send a host key. Is the server up?"));
     }
-    let mut rnd = [0u8; 8];
-    let _ = getrandom::fill(&mut rnd);
-    let tmp = std::env::temp_dir().join(format!("pocketrocket-keyscan-{}-{}.txt", std::process::id(), u64::from_le_bytes(rnd)));
-    std::fs::write(&tmp, &keys).map_err(|e| e.to_string())?;
+    // The temp dir is writable by everything on the machine, so this name has to be unguessable and the
+    // file has to be ours: create_new fails rather than following a symlink or reusing a planted file,
+    // and a CSPRNG that cannot produce a name is an error, not a reason to use eight zero bytes.
+    let mut rnd = [0u8; 16];
+    getrandom::fill(&mut rnd).map_err(|e| format!("Can't pick a temporary file name: {e}"))?;
+    let name: String = rnd.iter().map(|b| format!("{b:02x}")).collect();
+    let tmp = std::env::temp_dir().join(format!("pocketrocket-keyscan-{}-{name}.txt", std::process::id()));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp).map_err(|e| e.to_string())?;
+    file.write_all(keys.as_bytes()).map_err(|e| e.to_string())?;
+    drop(file);
     let mut keygen = Command::new(ssh::tool("ssh-keygen"));
     keygen.arg("-l").arg("-f").arg(&tmp);
     let listed = run_capture(keygen, Duration::from_secs(5), 32 * 1024, &|| false);
@@ -804,7 +897,7 @@ mod tests {
     impl Fixture {
         fn new(name: &str) -> Self {
             let mut rnd = [0u8; 8];
-            let _ = getrandom::fill(&mut rnd);
+            getrandom::fill(&mut rnd).unwrap();
             let dir = std::env::temp_dir().join(format!("pr-scan-{name}-{}", u64::from_le_bytes(rnd)));
             std::fs::create_dir_all(dir.join(".ssh")).unwrap();
             Fixture(dir)
@@ -889,6 +982,55 @@ mod tests {
         let p = g.parse();
         assert!(!p.match_exec);
         assert_eq!(names(&p), vec!["exec"]);
+    }
+
+    /// A `Match exec` can hide behind an Include we cannot expand, and `ssh -G` would be the thing that
+    /// finds it — by running it. An Include we cannot follow therefore counts as one.
+    #[test]
+    fn unexpandable_include_tokens_make_the_config_unsafe() {
+        let f = Fixture::new("percent");
+        f.write(".ssh/config", "Host a\n  HostName a.example\nInclude %h/ssh/config\n");
+        let p = f.parse();
+        assert!(p.match_exec);
+        assert_eq!(names(&p), vec!["a"]);
+
+        let d = Fixture::new("dollar");
+        d.write(".ssh/config", "Include ${HOME}/.ssh/conf.d/*\n");
+        assert!(d.parse().match_exec);
+
+        let tail = Fixture::new("percent-tail");
+        tail.write(".ssh/config", "Include ~/.ssh/%u.conf\n");
+        assert!(tail.parse().match_exec);
+
+        // %d is the home directory before a connection exists just as much as after, so it still resolves.
+        let home = Fixture::new("percent-d");
+        home.write(".ssh/config", "Include %d/.ssh/extra\n");
+        home.write(".ssh/extra", "Host beta\n");
+        let p = home.parse();
+        assert!(!p.match_exec);
+        assert_eq!(names(&p), vec!["beta"]);
+    }
+
+    #[test]
+    fn a_key_that_cannot_be_read_back_is_not_a_verified_key() {
+        let shown = vec!["SHA256:aaa".to_string(), "SHA256:bbb".to_string()];
+        assert_eq!(judge_stored_key(&shown, &["SHA256:bbb".to_string()]), StoredKey::Confirmed);
+        assert_eq!(judge_stored_key(&shown, &["SHA256:zzz".to_string()]), StoredKey::Different);
+        // The branch that used to report success: nothing was read, so nothing was checked.
+        assert_eq!(judge_stored_key(&shown, &[]), StoredKey::Unreadable);
+        assert_eq!(judge_stored_key(&[], &["SHA256:aaa".to_string()]), StoredKey::Different);
+    }
+
+    #[test]
+    fn known_hosts_paths_we_cannot_resolve_stay_unresolved() {
+        let home = home_dir().unwrap();
+        assert_eq!(known_hosts_path("~/.ssh/known_hosts"), Some(home.join(".ssh/known_hosts")));
+        assert_eq!(known_hosts_path("%d/.ssh/known_hosts"), Some(home.join(".ssh/known_hosts")));
+        assert_eq!(known_hosts_path("/etc/ssh/ssh_known_hosts").as_deref(), Some(Path::new("/etc/ssh/ssh_known_hosts")));
+        assert_eq!(known_hosts_path("%d/.ssh/%u_known_hosts"), None);
+        assert_eq!(known_hosts_path("${HOME}/.ssh/known_hosts"), None);
+        assert_eq!(known_hosts_path("known_hosts"), None); // relative to ssh's working directory, not ours
+        assert_eq!(known_hosts_path("none"), None);
     }
 
     #[test]
