@@ -21,6 +21,8 @@ import { BotRunner } from './agent/BotRunner.js';
 import { RoutineScheduler } from './services/RoutineScheduler.js';
 import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
+import { PeerClient, PeerHost, parsePeerEnv } from './services/PeerService.js';
+import { PEER_PREFIX, handlePeer } from './api/peer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
 import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, presentsHubToken, tokenMatches } from './api/guard.js';
@@ -84,10 +86,13 @@ export function createHub(opts: HubOptions = {}): Hub {
   const broker = new PermissionBroker(repos, { bypass: () => settings.approvals() === 'bypass' });
   const router = new RoomRouter(repos, usage);
   const turns = new TurnRegistry();
+  const peerCfg = parsePeerEnv();
+  const peerHost = new PeerHost(peerCfg);
+  const peerClient = new PeerClient(peerCfg);
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
     dispatchFromBot: (req, targets) => router.dispatchFromBot(req, targets),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
-  }, providers, turns);
+  }, providers, turns, peerClient);
   router.runner = runner;
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
   const scheduler = new RoutineScheduler(repos, router);
@@ -196,6 +201,19 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (!ct.ok) {
         res.writeHead(ct.status, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: ct.reason }));
+        return;
+      }
+      if (url.pathname.startsWith(PEER_PREFIX)) {
+        const buf = (req.method ?? 'GET') === 'POST' ? await readBody(req) : Buffer.alloc(0);
+        if (buf === null) {
+          res.writeHead(413, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request body too large' }));
+          return;
+        }
+        let body: unknown;
+        try { body = buf.length ? JSON.parse(buf.toString('utf8')) : undefined; } catch { body = undefined; }
+        // Token-exempt in checkToken, so a bad peer token must feed the limiter here.
+        if (!(await handlePeer(req, res, url, body, peerHost))) limiter.fail(ip);
         return;
       }
       if (url.pathname === '/mcp') {

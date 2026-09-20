@@ -53,8 +53,35 @@ Today the desktop app is in exactly one mode: `local`, `remote` (one `ssh -L` tu
   a card, everything else behind a card on the PC. It never gets the local hub token.
 - The threat model section and the production checklist need new rows before this ships.
 
-## Open questions for Alex
+## Decisions (Alex, 2026-09-20)
 
-1. Two windows (Phase 1) good enough to start, or is the merged sidebar the actual ask?
-2. Should a VPS bot read local files **outside** the local workspace at all (with a card), or workspace only?
-3. Is `peer_run` on the local PC wanted, or read-only access from the VPS side?
+1. **UI**: no second window and no merged sidebar. The Screen tab shows two monitors stacked, one above the
+   other, one per machine. The VPS monitor is the existing noVNC desktop. The local PC has no screen stream
+   today (Windows has no Xvfb/noVNC service), so until it does, its monitor shows that hub's live bot
+   activity: commands, output and approval cards. Open point: whether a real local screen capture is wanted.
+2. **Reads**: a VPS bot may read both environments. The owning machine still decides how far: the workspace
+   always, plus the folders listed in `POCKETROCKET_PEER_READ_ROOTS`.
+3. **Commands**: allowed, governed by configuration on both ends. The bot needs Bash among its own tools to
+   be offered `peer_run` at all, and the target machine must have `POCKETROCKET_PEER_RUN` on.
+
+## Implemented so far (hub side, branch `linked-hubs-design`)
+
+- `services/PeerService.ts`: `parsePeerEnv`, `PeerHost` (inbound: list, read, run, confined to shared
+  folders with symlink and `..` escapes refused, text only, size caps, run timeout) and `PeerClient` (outbound).
+- `api/peer.ts`: `POST /api/peer/{info,list,read,run}` behind the peer token only. 404 when no peer is
+  accepted; a bad token feeds the auth rate limiter. `checkToken` exempts the prefix because the hub token
+  is never shared with a peer.
+- `agent/peerTools.ts`: `peer_info`, `peer_list_dir`, `peer_read_file`, and `peer_run` for bots with Bash.
+  `BotRunner` adds them to every turn while a peer is linked.
+- Settings, all off by default: `POCKETROCKET_PEER_URL`, `POCKETROCKET_PEER_TOKEN`, `POCKETROCKET_PEER_NAME`
+  (outbound); `POCKETROCKET_PEER_ACCEPT_TOKEN`, `POCKETROCKET_PEER_READ_ROOTS`, `POCKETROCKET_PEER_RUN` (inbound).
+
+## Still to do
+
+- Desktop `both` mode: second tunnel port, the `-R` reverse forward, minting the two peer tokens and
+  passing the settings to each hub. Needs a Rust toolchain, so not buildable on the VPS.
+- Approval cards on the owning hub for reads outside the shared folders and for `peer_run`, instead of
+  the current flat refuse/allow switches. `peer_search`.
+- Stacked monitors in the Screen tab, the "Linked to <host>" indicator, a prompt line telling bots the
+  peer exists.
+- SECURITY.md threat model, CONFIGURATION.md and production checklist rows.
