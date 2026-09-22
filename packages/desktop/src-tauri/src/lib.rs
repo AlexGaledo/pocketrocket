@@ -25,10 +25,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewWindowBuilder};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -1023,17 +1022,10 @@ async fn remote_claude_status(state: State<'_, AppState>, refresh: Option<bool>)
     Ok(Some(check))
 }
 
-/// Keep the three `mode_*` radio checkmarks in the Connection menu matching `mode`, and the local-only
-/// View items honest about where the data and log are.
+/// Keep the local-only View items honest about where the data and log are. Switching modes lives on the
+/// Connection settings page only, so the menu has no mode checkmarks to keep in sync.
 fn sync_mode_menu(app: &AppHandle, mode: &str) {
     let Some(menu) = app.menu() else { return };
-    for (id, m) in [("mode_local", "local"), ("mode_remote", "remote"), ("mode_attach", "attach")] {
-        if let Some(item) = menu.get(id) {
-            if let Some(check) = item.as_check_menuitem() {
-                let _ = check.set_checked(m == mode);
-            }
-        }
-    }
     let local_only = mode != "remote";
     for (id, text, remote_text) in [
         ("open_data", "Open data folder", "Open data folder (on the server in server mode)"),
@@ -1046,53 +1038,6 @@ fn sync_mode_menu(app: &AppHandle, mode: &str) {
             }
         }
     }
-}
-
-fn set_mode(app: &AppHandle, state: &AppState, mode: &str) {
-    {
-        let mut inner = state.0.lock().unwrap();
-        inner.config.mode = mode.into();
-        inner.first_run = false;
-        save_config_file(app, &inner.config);
-    }
-    sync_mode_menu(app, mode);
-    // Through the splash: with no server configured yet the worker stops there and asks for one.
-    connect(app.clone(), state.clone(), true);
-}
-
-/// Mode switch from the menu. Switching away from a live hub stops what runs there (a local hub is shut
-/// down with its turns), so ask first.
-fn request_mode(app: &AppHandle, state: &AppState, mode: &str) {
-    let (connected, current) = {
-        let inner = state.0.lock().unwrap();
-        (inner.status.connected, inner.config.mode.clone())
-    };
-    if current == mode {
-        // clicking the checked item unchecks it; put the mark back
-        sync_mode_menu(app, &current);
-        return;
-    }
-    if !connected {
-        return set_mode(app, state, mode);
-    }
-    let what = if current == "local" {
-        "This shuts down the hub on this PC. Bots that are working right now will stop."
-    } else {
-        "This disconnects from the current hub. Bots on a server keep running there."
-    };
-    let (app2, state2, mode2) = (app.clone(), state.clone(), mode.to_string());
-    app.dialog()
-        .message(what)
-        .title("Switch where PocketRocket runs?")
-        .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom("Switch".into(), "Cancel".into()))
-        .show(move |ok| {
-            if ok {
-                set_mode(&app2, &state2, &mode2);
-            } else {
-                sync_mode_menu(&app2, &current);
-            }
-        });
 }
 
 pub fn run() {
@@ -1168,16 +1113,13 @@ pub fn run() {
                 })
                 .build()?;
 
-            let m_local = CheckMenuItem::with_id(app, "mode_local", "Local: this PC (own database)", true, initial_mode == "local", None::<&str>)?;
-            let m_remote = CheckMenuItem::with_id(app, "mode_remote", "VPS: over SSH tunnel", true, initial_mode == "remote", None::<&str>)?;
-            let m_attach = CheckMenuItem::with_id(app, "mode_attach", "Attach to a running local hub", true, initial_mode == "attach", None::<&str>)?;
             let m_reload = MenuItem::with_id(app, "reload", "Reload", true, Some("F5"))?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;
             let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
             let m_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
             let m_about = MenuItem::with_id(app, "about", "About PocketRocket", true, None::<&str>)?;
-            let conn = Submenu::with_items(app, "Connection", true, &[&m_local, &m_remote, &m_attach, &PredefinedMenuItem::separator(app)?, &m_settings])?;
+            let conn = Submenu::with_items(app, "Connection", true, &[&m_settings])?;
             let view = Submenu::with_items(app, "View", true, &[&m_reload, &m_data, &m_log, &PredefinedMenuItem::separator(app)?, &PredefinedMenuItem::quit(app, Some("Quit"))?])?;
             let help = Submenu::with_items(app, "Help", true, &[&m_updates, &m_about])?;
             let menu = Menu::with_items(app, &[&conn, &view, &help])?;
@@ -1193,9 +1135,6 @@ pub fn run() {
         .on_menu_event(move |app, event| {
             let st = menu_state.clone();
             match event.id().as_ref() {
-                "mode_local" => request_mode(app, &st, "local"),
-                "mode_remote" => request_mode(app, &st, "remote"),
-                "mode_attach" => request_mode(app, &st, "attach"),
                 "reload" => {
                     // A reload of a dead hub is a blank error page: reconnect through the splash instead.
                     let (app, st) = (app.clone(), st.clone());

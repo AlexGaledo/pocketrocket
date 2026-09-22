@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Desktop: once a connection is set up, the app stops offering the other modes. The Connection
+  menu no longer lists This PC / VPS / Attach, and Connection settings shows only the active mode
+  until you press **Change**. First run still shows every option.
+
 ## [0.2.0] - 2026-09-16
 
 First public release. (`0.1.0` was the internal Claudebot-era version, so the first release under
