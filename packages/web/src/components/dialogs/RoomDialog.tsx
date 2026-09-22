@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { MAX_ROOM_BOTS } from '@pocketrocket/shared';
 import type { Room } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
@@ -13,7 +14,7 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
   const [coord, setCoord] = useState<string>(room?.coordinatorBotId ?? '');
   const [busy, setBusy] = useState(false);
 
-  const toggle = (id: string) => setMembers(members.includes(id) ? members.filter((m) => m !== id) : members.length < 6 ? [...members, id] : members);
+  const toggle = (id: string) => setMembers(members.includes(id) ? members.filter((m) => m !== id) : members.length < MAX_ROOM_BOTS ? [...members, id] : members);
   const save = async () => {
     setBusy(true);
     try {
@@ -39,7 +40,7 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
     <Dialog open onOpenChange={(o) => !o && onClose()} title={room ? 'Edit room' : 'New group chat'}>
       <Field><Label>Room name</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="launch-plan" autoFocus /></Field>
       <div className="mt-3">
-        <Label id="room-members-label" hint={members.length + '/6'}>Members</Label>
+        <Label id="room-members-label" hint={members.length + '/' + MAX_ROOM_BOTS}>Members</Label>
         <div role="group" aria-labelledby="room-members-label" className="grid grid-cols-2 gap-1.5">
           {bots.map((b) => {
             const on = members.includes(b.id);
