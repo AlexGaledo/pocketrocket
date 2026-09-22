@@ -3,6 +3,7 @@ import {
   ArrowDown, PanelRightOpen, Send, Square, Users, Settings2, Check, ShieldAlert, ArrowRightLeft, Clock, Info, Monitor,
   FileText, Pencil, Terminal, Globe, Search, Zap, MousePointer2, ChevronDown,
 } from 'lucide-react';
+import { MAX_ROOM_BOTS } from '@pocketrocket/shared';
 import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, ToolPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
@@ -84,7 +85,7 @@ export function ChatPane() {
           </div>
         </div>
         <div className="flex -space-x-2">
-          {members.slice(0, 6).map((m) => <span key={m.id} className="rounded-full ring-2 ring-panel"><Avatar bot={m} state={botStates[m.id]} size={26} /></span>)}
+          {members.slice(0, MAX_ROOM_BOTS).map((m) => <span key={m.id} className="rounded-full ring-2 ring-panel"><Avatar bot={m} state={botStates[m.id]} size={26} /></span>)}
         </div>
         {room.kind === 'group' && (
           <Button variant="ghost" size="icon" title="Edit room" onClick={() => openDialog({ kind: 'room', room })}><Users size={16} /></Button>

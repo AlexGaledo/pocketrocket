@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_ROOM_BOTS } from '@pocketrocket/shared';
 import type { Bot, Room, HandoffPayload } from '@pocketrocket/shared';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
@@ -304,7 +305,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       let joined = false;
       if ((a.join_this_room ?? true) && ctx.room.kind === 'group') {
         const room = ctx.repos.getRoom(ctx.room.id);
-        if (room && room.memberIds.length < 6) {
+        if (room && room.memberIds.length < MAX_ROOM_BOTS) {
           ctx.repos.updateRoom(room.id, { memberIds: [...room.memberIds, bot.id] });
           ctx.members.push(bot);
           joined = true;
@@ -313,7 +314,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       }
       const note = ctx.repos.insertMessage({ roomId: ctx.room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' created bot ' + bot.avatar + ' ' + bot.name + ' (@' + bot.handle + ')' + (joined ? ' and added it to this room.' : '.'), payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
       events.emitEvent({ type: 'message.new', message: note });
-      return text('Created @' + bot.handle + ' (' + bot.name + ').' + (joined ? ' It is in this room; mention @' + bot.handle + ' to give it work.' : ctx.room.kind === 'group' ? ' Room is full (6), not added.' : ' This is a DM, so it was not added here; ' + userName + ' can open a DM or add it to a group chat.'));
+      return text('Created @' + bot.handle + ' (' + bot.name + ').' + (joined ? ' It is in this room; mention @' + bot.handle + ' to give it work.' : ctx.room.kind === 'group' ? ' Room is full (' + MAX_ROOM_BOTS + '), not added.' : ' This is a DM, so it was not added here; ' + userName + ' can open a DM or add it to a group chat.'));
     },
   );
 
@@ -329,7 +330,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       const b = ctx.repos.getBotByHandle(a.handle.replace(/^@/, '').toLowerCase());
       if (!b) return err('No bot with handle ' + a.handle + '. Existing: ' + ctx.repos.listBots().map((x) => '@' + x.handle).join(', '));
       if (room.memberIds.includes(b.id)) return text('@' + b.handle + ' is already in "' + room.name + '".');
-      if (room.memberIds.length >= 6) return err('"' + room.name + '" is full (6 bots).');
+      if (room.memberIds.length >= MAX_ROOM_BOTS) return err('"' + room.name + '" is full (' + MAX_ROOM_BOTS + ' bots).');
       const denied = await gate('add_to_room', 'Add @' + b.handle + ' (' + b.name + ') to "' + room.name + '"', a as unknown as Record<string, unknown>);
       if (denied) return denied;
       ctx.repos.updateRoom(room.id, { memberIds: [...room.memberIds, b.id] });
@@ -364,7 +365,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       const self = ctx.repos.getBot(ctx.bot.id)!;
       const members = [self, ...wanted];
       if (members.length < 2) return err('A group chat needs at least one other bot besides you.');
-      if (members.length > 6) return err('A room holds at most 6 bots; you asked for ' + members.length + '.');
+      if (members.length > MAX_ROOM_BOTS) return err('A room holds at most ' + MAX_ROOM_BOTS + ' bots; you asked for ' + members.length + '.');
 
       const coordRef = (a.coordinator ?? ctx.bot.handle).replace(/^@/, '').toLowerCase();
       const coord = members.find((m) => m.handle.toLowerCase() === coordRef);
