@@ -132,6 +132,7 @@ Still stuck? [Open an issue](https://github.com/AlexGaledo/pocketrocket/issues/n
 - [docs/SERVER.md](docs/SERVER.md): run PocketRocket on a Linux server
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): run from source (macOS, Linux) and build the installer
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): every setting and environment variable
+- [docs/MOBILE.md](docs/MOBILE.md): plan and design for reaching your bots from a phone
 - [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## License

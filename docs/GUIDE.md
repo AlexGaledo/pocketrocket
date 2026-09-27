@@ -110,3 +110,5 @@ Short and honest:
 - **Code signing and an auto-updater** are deliberately out of scope for v1; Help → Check for
   updates just opens the Releases page.
 - **macOS / Linux installers.** Both run from source today; no packaged installer yet.
+- **Phone access.** A messenger-style phone client of the same hub, planned in
+  [docs/MOBILE.md](MOBILE.md): home-screen web app first, native shell second.
