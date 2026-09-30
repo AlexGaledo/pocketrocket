@@ -1,3 +1,6 @@
+/** How many bots one room can hold. Rooms bigger than this get noisy and slow, and every mention fans out to all of them. */
+export const MAX_ROOM_BOTS = 10;
+
 import type { Approvals } from './providers.js';
 
 export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done' | 'error';
