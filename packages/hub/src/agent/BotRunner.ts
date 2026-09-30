@@ -1,3 +1,5 @@
+import { createPeerTools } from './peerTools.js';
+import type { PeerClient } from '../services/PeerService.js';
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import type { Bot, BotState, Room, ToolPayload } from '@pocketrocket/shared';
@@ -64,6 +66,7 @@ export class BotRunner {
     private hooks: RunnerHooks,
     private providers: ProviderRegistry,
     private turns: TurnRegistry,
+    private peer?: PeerClient,
   ) {}
 
   interrupt(turnId: string) {
@@ -112,6 +115,9 @@ export class BotRunner {
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
       confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
     });
+
+    // Linked hub: reading is for every bot, running only for bots that may already run commands here.
+    if (this.peer) tools.push(...createPeerTools(this.peer, { canRun: bot.allowedTools.includes('Bash') }));
 
     const mcpToken = this.turns.registerTurn(tools);
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it

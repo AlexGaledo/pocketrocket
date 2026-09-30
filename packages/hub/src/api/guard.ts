@@ -134,6 +134,8 @@ export function checkToken(req: IncomingMessage, url: URL, token: string | null,
   if (url.pathname === '/api/health' && method === 'GET') return true;
   if (url.pathname === AUTH_CALLBACK_PATH && method === 'GET') return true;
   if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return true;
+  // Linked hubs authenticate with the peer token inside handlePeer; the hub token is never shared with a peer.
+  if (url.pathname.startsWith('/api/peer/')) return true;
   if (url.pathname.startsWith('/screen/')) return opts.screenAuth?.(req) ?? false;
   if (method === 'GET' && (url.pathname === '/' || (opts.isPublicAsset?.(url.pathname) ?? false))) return true;
   return tokenMatches(bearerToken(req) ?? url.searchParams.get('token'), token);

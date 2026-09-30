@@ -38,6 +38,11 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `SCREEN_URL` | `http://127.0.0.1:6080` | noVNC endpoint proxied at `/screen/` (server mode). |
 | `CDP_URL` | `http://127.0.0.1:9222` | Chromium DevTools endpoint for the Browser tool (server mode). |
 | `SCREEN_DISPLAY` | `:99` | X display for the Desktop tool (Linux server mode). |
+| `POCKETROCKET_PEER_ACCEPT_TOKEN` | unset | Linked hubs, inbound (see `docs/proposals/linked-hubs.md`). Set, this hub answers `POST /api/peer/{info,list,read,run}` for a caller presenting this token. It is not the hub token and opens nothing else. Unset, the peer API answers 404. |
+| `POCKETROCKET_PEER_READ_ROOTS` | unset | Extra folders a linked peer may list and read, separated by the OS path delimiter (`:` or `;`). The workspace is always readable. Symlinks and `..` that leave these folders are refused. |
+| `POCKETROCKET_PEER_RUN` | unset | `1` = a linked peer may run shell commands here, inside the readable folders, with a 2 minute timeout. Off by default. |
+| `POCKETROCKET_PEER_URL` / `POCKETROCKET_PEER_TOKEN` | unset | Linked hubs, outbound: where the other hub listens (normally a loopback tunnel port) and the token it accepts. With both set, every bot gets `peer_info`, `peer_list_dir` and `peer_read_file`, and bots that hold Bash get `peer_run`. |
+| `POCKETROCKET_PEER_NAME` | `peer` | What bots are told the linked machine is called, e.g. `VPS` or `Alex's PC`. |
 
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 
