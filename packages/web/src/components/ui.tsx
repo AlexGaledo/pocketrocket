@@ -258,10 +258,12 @@ export function Avatar({ bot, state, size = 36 }: { bot: Pick<Bot, 'avatar' | 'n
   );
 }
 
-export function UserAvatar({ size = 36 }: { size?: number }) {
+/** The user's initial. Pass `settings.userName`; an empty name shows "Y" (you). */
+export function UserAvatar({ name, size = 36 }: { name: string; size?: number }) {
+  const initial = (Array.from(name.trim())[0] ?? 'Y').toUpperCase();
   return (
     <div aria-hidden className="flex shrink-0 items-center justify-center rounded-full bg-ink font-semibold text-ink-fg" style={{ width: size, height: size, fontSize: size * 0.4 }}>
-      A
+      {initial}
     </div>
   );
 }

@@ -4,8 +4,9 @@ import { api } from '../../lib/api';
 import { useStore } from '../../store';
 import { Button, Dialog, Field, Input, Label, Select, Textarea, cn } from '../ui';
 
-const PRESETS: { label: string; v: Partial<BotInput> }[] = [
-  { label: 'Chief of staff', v: { name: 'Chief', handle: 'chief', title: 'Chief of staff / coordinator', avatar: '🧭', description: 'You coordinate the other bots. Break requests into tasks, hand them off with @handle or the handoff tool, then summarize results for Alex. If a needed role is missing, create it with create_bot (focused role, clear instructions) or add an existing bot with add_to_room. Do not do specialist work yourself when a specialist is in the room.' } },
+/** Starter bots. `userName` is settings.userName, so the coordinator reports to whoever runs this hub. */
+const presets = (userName: string): { label: string; v: Partial<BotInput> }[] => [
+  { label: 'Chief of staff', v: { name: 'Chief', handle: 'chief', title: 'Chief of staff / coordinator', avatar: '🧭', description: 'You coordinate the other bots. Break requests into tasks, hand them off with @handle or the handoff tool, then summarize results for ' + (userName.trim() || 'the user') + '. If a needed role is missing, create it with create_bot (focused role, clear instructions) or add an existing bot with add_to_room. Do not do specialist work yourself when a specialist is in the room.' } },
   { label: 'Researcher', v: { name: 'Researcher', handle: 'researcher', title: 'Web research', avatar: '🔎', description: 'You research using WebSearch/WebFetch and write concise findings with sources into the shared workspace as markdown.', allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'] } },
   { label: 'Developer', v: { name: 'Dev', handle: 'dev', title: 'Software engineer', avatar: '🛠️', description: 'You implement and test code in the shared workspace. Prefer small verified changes; run tests with Bash before reporting done.' } },
   { label: 'Writer', v: { name: 'Writer', handle: 'writer', title: 'Copy & docs', avatar: '✍️', description: 'You write and edit prose: docs, emails, posts. Keep a consistent voice; ask for the audience if unclear.', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch'] } },
@@ -61,7 +62,7 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
     <Dialog open onOpenChange={(o) => !o && onClose()} title={bot ? 'Edit ' + bot.name : 'New bot'} wide>
       {!bot && (
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {PRESETS.map((p) => <Button key={p.label} size="sm" onClick={() => set({ ...p.v, allowedTools: p.v.allowedTools ?? DEFAULT_TOOLS })}>{p.v.avatar} {p.label}</Button>)}
+          {presets(settings.userName).map((p) => <Button key={p.label} size="sm" onClick={() => set({ ...p.v, allowedTools: p.v.allowedTools ?? DEFAULT_TOOLS })}>{p.v.avatar} {p.label}</Button>)}
         </div>
       )}
       <div className="grid grid-cols-[64px_1fr_1fr] gap-3">
