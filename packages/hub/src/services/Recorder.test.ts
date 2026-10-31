@@ -464,3 +464,20 @@ describe('the page script', () => {
     expect(isSecretField({ tag: 'button', secret: true })).toBe(true);
   });
 });
+
+describe('Recorder: finished recordings', () => {
+  it('lists a recording the hub went down in as interrupted (and usable), and deletes on request', () => {
+    const { rec } = recorder();
+    const id = '2026-10-31T23-00-00-000Z';
+    const dir = path.join(root, 'bot1', 'recordings', id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ id, botId: 'bot1', title: 't', startedAt: 5, endedAt: null, state: 'recording', events: 3, frames: 0, framesDropped: 0, bytes: 10, capped: [], skillId: null }));
+    fs.mkdirSync(path.join(root, 'bot1', 'recordings', 'not-a-recording'));
+    expect(rec.list('bot1')).toEqual([expect.objectContaining({ id, state: 'stopped', endedAt: 5, error: expect.stringMatching(/Interrupted/) })]);
+    expect(rec.get('bot1', '../../etc')).toBeNull();
+    rec.setSkill('bot1', id, 'sk1');
+    expect(rec.get('bot1', id)?.skillId).toBe('sk1');
+    expect(rec.remove('bot1', id)).toBe(true);
+    expect(rec.list('bot1')).toEqual([]);
+  });
+});

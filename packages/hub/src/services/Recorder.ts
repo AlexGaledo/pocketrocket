@@ -504,6 +504,10 @@ export class Recorder {
     if (live?.info.id === id) return { ...live.info, capped: [...live.capsHit] };
     try {
       const info = JSON.parse(fs.readFileSync(path.join(this.root(botId), id, 'meta.json'), 'utf8')) as RecordingInfo;
+      // Not live but never stopped: the hub went down mid-recording. What was written is still usable.
+      if (info.state === 'recording') {
+        return { ...info, id, botId, state: 'stopped', endedAt: info.endedAt ?? info.startedAt, error: info.error ?? 'Interrupted: the hub stopped while recording.' };
+      }
       return { ...info, id, botId };
     } catch {
       return null;
