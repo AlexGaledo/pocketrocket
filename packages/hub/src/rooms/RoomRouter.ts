@@ -68,6 +68,8 @@ export class RoomRouter {
    * or a parked approval, and every hop on the thread, stays inside the trigger's budget too.
    */
   triggerBudget?: (triggerId: string) => number | undefined;
+  /** P6: opt-in post-run skill reflection; counts skill runs and may propose a pending version. */
+  skillReflection?: { afterTurn(botId: string, roomId: string, result: TurnResult): unknown };
 
   constructor(private repos: Repos, private usage: UsageTracker) {}
 
@@ -240,6 +242,8 @@ export class RoomRouter {
         this.repos.saveSession(bot.id, room.id, { lastSeenSeq: startSeq });
         // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
         this.autoMemory?.afterTurn(bot.id, room.id, result);
+        // P6: same idea per skill, for bots that opted in; never awaited either.
+        try { this.skillReflection?.afterTurn(bot.id, room.id, result); } catch (e) { console.error('[skill-reflection]', e); }
         // P2: a parked turn is not finished; its routine run stays open until the resumed turn ends.
         for (const i of items) if (!(result.parked && i.runId)) i.onDone?.(result);
         if (result.ok && result.finalText) {

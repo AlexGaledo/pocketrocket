@@ -7,6 +7,7 @@ import type {
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
+import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -193,6 +194,26 @@ export const api = {
     /** From an answered card; `pattern` narrows or widens what it covers. */
     fromApproval: (approvalId: string, pattern?: string) => req<ApprovalPolicy>('POST', '/api/approval-policies', { approvalId, ...(pattern ? { pattern } : {}) }),
     revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/approval-policies/' + encodeURIComponent(id)),
+  },
+  // ---- P6: teach by demonstration, skill versions, reflection ----
+  teach: {
+    status: (botId: string) => req<RecorderStatus>('GET', '/api/computers/' + encodeURIComponent(botId) + '/recorder'),
+    start: (botId: string, title?: string) => req<RecorderStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/recorder/start', title ? { title } : {}),
+    stop: (botId: string) => req<{ recording: RecordingInfo | null; status: RecorderStatus }>('POST', '/api/computers/' + encodeURIComponent(botId) + '/recorder/stop', {}),
+    recordings: (botId: string) => req<RecordingInfo[]>('GET', '/api/computers/' + encodeURIComponent(botId) + '/recordings'),
+    remove: (botId: string, id: string) => req<{ ok: true }>('DELETE', '/api/computers/' + encodeURIComponent(botId) + '/recordings/' + encodeURIComponent(id)),
+    distill: (botId: string, id: string, o: { name?: string; hint?: string } = {}) =>
+      req<{ skill: Skill; version: SkillVersion | null }>('POST', '/api/computers/' + encodeURIComponent(botId) + '/recordings/' + encodeURIComponent(id) + '/distill', o),
+  },
+  skillVersions: {
+    list: (skillId: string) => req<SkillVersion[]>('GET', '/api/skills/' + encodeURIComponent(skillId) + '/versions'),
+    get: (skillId: string, id: string) => req<SkillVersionDetail>('GET', '/api/skills/' + encodeURIComponent(skillId) + '/versions/' + encodeURIComponent(id)),
+    decide: (skillId: string, id: string, decision: 'approve' | 'reject') =>
+      req<{ skill: Skill; version: SkillVersion }>('POST', '/api/skills/' + encodeURIComponent(skillId) + '/versions/' + encodeURIComponent(id), { decision }),
+    correct: (skillId: string, text: string) => req<SkillVersion>('POST', '/api/skills/' + encodeURIComponent(skillId) + '/corrections', { text }),
+    reflection: (botId: string) => req<SkillReflectionConfig>('GET', '/api/bots/' + encodeURIComponent(botId) + '/skill-reflection'),
+    setReflection: (botId: string, patch: Partial<Omit<SkillReflectionConfig, 'botId'>>) =>
+      req<SkillReflectionConfig>('PUT', '/api/bots/' + encodeURIComponent(botId) + '/skill-reflection', patch),
   },
 };
 

@@ -133,6 +133,13 @@ export interface Skill {
   source: SkillSource;
   reviewStatus: 'approved' | 'pending';
   createdByBot: string | null;
+  // ---- P6: skill refinement ----
+  /** The version now live (1 for a skill that was never revised). */
+  version?: number;
+  /** Always null for a pool skill; candidate versions are listed under GET /api/skills/:id/versions. */
+  parentId?: string | null;
+  /** Candidate versions waiting for review. */
+  pendingVersions?: number;
 }
 
 export interface UsageTotals {

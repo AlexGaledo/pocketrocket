@@ -8,3 +8,5 @@ export * from './schedule.js';
 export * from './integrations.js';
 // P5
 export * from './triggers.js';
+// P6
+export * from './teach.js';

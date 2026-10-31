@@ -6,6 +6,7 @@ import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
 import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './models.js';
+import type { RecorderStatus } from './teach.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -47,7 +48,12 @@ export type ServerEvent =
   /** Who drives a bot's computer changed (agent / user / paused), or its takeover request did. */
   | { type: 'computer.control'; status: ControlStatus }
   /** Approval rules changed (created or revoked); clients refetch GET /api/approval-policies. */
-  | { type: 'policies.changed'; policies: ApprovalPolicy[] };
+  | { type: 'policies.changed'; policies: ApprovalPolicy[] }
+  // ---- P6: teach by demonstration, skill versions ----
+  /** A recording started, stopped or grew (sent at most every few seconds while recording). */
+  | { type: 'recorder.state'; status: RecorderStatus }
+  /** The skill pool or a skill's versions changed; clients refetch GET /api/skills (and the open versions list). */
+  | { type: 'skills.changed'; skillId?: string };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [

@@ -10,6 +10,9 @@ import { VoicePanel } from './VoicePanel';
 import { SkillGitImport } from './SkillGitImport';
 import { TriggersSection } from './TriggersSection';
 import { ControlBar, useControl } from './ComputerControl';
+// P6: teach by demonstration, skill versions
+import { TeachBar } from './TeachControls';
+import { ReflectionSetting, SkillVersionsPanel } from './SkillVersions';
 
 export function RightPanel() {
   const bots = useStore((s) => s.bots);
@@ -168,6 +171,8 @@ function MemoryTab({ botId }: { botId: string }) {
 
 function SkillsTab({ botId }: { botId: string }) {
   const toast = useStore((s) => s.toast);
+  // P6: refetch when a version is proposed or decided (also from another window or a reflection pass).
+  const skillsRev = useStore((s) => s.skillsRev);
   const bots = useStore((s) => s.bots);
   const [pool, setPool] = useState<Skill[]>([]);
   const [assigned, setAssigned] = useState<Set<string>>(new Set());
@@ -186,7 +191,7 @@ function SkillsTab({ botId }: { botId: string }) {
       toast("Couldn't load skills: " + (e as Error).message, true);
     }
   };
-  useEffect(() => { void load(); }, [botId]);
+  useEffect(() => { void load(); }, [botId, skillsRev]);
 
   const toggle = async (id: string) => {
     const prev = assigned;
@@ -255,6 +260,7 @@ function SkillsTab({ botId }: { botId: string }) {
                 <div className="flex items-center gap-1.5"><span className="font-medium">{s.name}</span>
                   {s.source === 'bot' && <Badge tone={s.reviewStatus === 'pending' ? 'warn' : 'accent'}>{s.reviewStatus === 'pending' ? 'review' : 'by ' + (botById(bots, s.createdByBot)?.handle ?? 'bot')}</Badge>}
                   {s.source === 'imported' && (s.reviewStatus === 'pending' ? <Badge tone="warn">review</Badge> : <Badge>imported</Badge>)}
+                  {!!s.pendingVersions && <Badge tone="warn">{s.pendingVersions === 1 ? '1 version to review' : s.pendingVersions + ' versions to review'}</Badge>}
                 </div>
                 <div className="truncate text-muted">{s.description}</div>
               </button>
@@ -271,11 +277,15 @@ function SkillsTab({ botId }: { botId: string }) {
         ))}
         {!pool.length && <li className="py-4 text-center text-xs text-dim">Pool is empty. Import your skills or create one.</li>}
       </ul>
+      {/* P6: opt-in post-run reflection for this bot */}
+      <ReflectionSetting botId={botId} />
 
       {view && (
         <div className="rounded-2xl bg-card2/60 p-2">
           <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">{view.name}/SKILL.md</span><Button size="sm" variant="ghost" onClick={() => setView(null)}>Close</Button></div>
           <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted">{view.markdown}</pre>
+          {/* P6: versions with a diff, Approve / Reject, and corrections */}
+          <SkillVersionsPanel skill={view} onChanged={async () => { await load(); setView(await api.skills.get(view.id)); }} />
         </div>
       )}
     </div>
@@ -682,6 +692,8 @@ function BotScreen({ bot }: { bot: Bot }) {
         <Switch aria-labelledby="keep-awake-label" checked={!!c?.keepAwake} onChange={(on) => void setKeepAwake(on)} />
       </div>
       <div className="px-3 pb-2"><ControlBar bot={bot} /></div>
+      {/* P6: Teach / Done and the recordings list */}
+      <TeachBar bot={bot} />
       {live ? (
         <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>
           {src && <iframe key={nonce} title={bot.name + "'s computer screen"} src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />}

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checkout (P6 recorder fixture)</title></head>
+<body>
+  <!-- P6 redaction fixture: a login plus card form. Nothing typed into the password, card or code fields may reach a trace. -->
+  <form id="login" onsubmit="event.preventDefault()">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password">
+    <label for="cardnumber">Card number</label>
+    <input id="cardnumber" name="cardnumber" type="text" autocomplete="cc-number">
+    <label for="otp">Code from your app</label>
+    <input id="otp" name="code" type="text" inputmode="numeric" autocomplete="one-time-code">
+    <button id="pay" type="submit" data-testid="pay-button">Pay now</button>
+  </form>
+  <a id="receipt" href="#receipt">Download receipt</a>
+</body>
+</html>

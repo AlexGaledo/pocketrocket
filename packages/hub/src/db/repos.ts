@@ -334,10 +334,17 @@ export class Repos {
       source: r.source as Skill['source'],
       reviewStatus: r.review_status as Skill['reviewStatus'],
       createdByBot: (r.created_by_bot as string) ?? null,
+      // P6: the live version; candidate versions (parent_id set) never come out of listSkills.
+      version: (r.version as number) ?? 1,
+      parentId: (r.parent_id as string) ?? null,
+      ...(r.pending_versions !== undefined ? { pendingVersions: r.pending_versions as number } : {}),
     };
   }
   listSkills(): Skill[] {
-    return this.db.all('SELECT * FROM skills ORDER BY name').map((r) => this.rowToSkill(r));
+    // P6: candidate versions are rows with parent_id set; they are not pool skills.
+    return this.db
+      .all("SELECT s.*, (SELECT COUNT(*) FROM skills v WHERE v.parent_id=s.id AND v.review_status='pending') AS pending_versions FROM skills s WHERE s.parent_id IS NULL ORDER BY s.name")
+      .map((r) => this.rowToSkill(r));
   }
   getSkill(id: string): Skill | undefined {
     const r = this.db.get('SELECT * FROM skills WHERE id=?', id);
@@ -490,6 +497,14 @@ export class Repos {
   runningRuns(): { id: string; routineId: string }[] {
     return this.db.all<{ id: string; routine_id: string }>("SELECT id, routine_id FROM routine_runs WHERE status='running'")
       .map((r) => ({ id: r.id, routineId: r.routine_id }));
+  }
+
+  // ---------- P6: skill reflection ----------
+  /** Every message one turn wrote (text and tool calls), in order. */
+  messagesOfTurn(roomId: string, turnId: string): Message[] {
+    return this.db
+      .all('SELECT * FROM messages WHERE room_id=? AND turn_id=? ORDER BY seq', roomId, turnId)
+      .map((r) => this.rowToMessage(r));
   }
 }
 

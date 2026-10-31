@@ -278,3 +278,36 @@ registerMigrations([90, 99], [
     ),
   },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+// P6 (60–69): teach by demonstration and skill refinement (services/Recorder.ts, SkillDistiller.ts,
+// SkillReflection.ts, SkillService versions). A candidate version is a row in `skills` with `parent_id` set to
+// the pool skill it revises; `listSkills` leaves those rows out, so nothing else sees them.
+registerMigrations([60, 69], [
+  { version: 60, name: 'skills.version', up: (db) => addColumnIfMissing(db, 'skills', 'version', 'INTEGER NOT NULL DEFAULT 1') },
+  { version: 61, name: 'skills.parent_id', up: (db) => addColumnIfMissing(db, 'skills', 'parent_id', 'TEXT') },
+  {
+    version: 62,
+    name: 'skills version metadata',
+    up: (db) => {
+      addColumnIfMissing(db, 'skills', 'origin', 'TEXT');
+      addColumnIfMissing(db, 'skills', 'note', 'TEXT');
+      addColumnIfMissing(db, 'skills', 'created_at', 'INTEGER');
+      addColumnIfMissing(db, 'skills', 'decided_at', 'INTEGER');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_skills_parent ON skills(parent_id)');
+    },
+  },
+  {
+    version: 63,
+    name: 'skill reflection',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS skill_reflection (' +
+          'bot_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, every INTEGER NOT NULL DEFAULT 5, ' +
+          'daily_cap_usd REAL NOT NULL DEFAULT 0.25);' +
+          'CREATE TABLE IF NOT EXISTS skill_reflection_runs (' +
+          'bot_id TEXT NOT NULL, skill_id TEXT NOT NULL, runs_since INTEGER NOT NULL DEFAULT 0, ' +
+          'PRIMARY KEY (bot_id, skill_id))',
+      ),
+  },
+]);
