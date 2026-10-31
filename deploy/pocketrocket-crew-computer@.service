@@ -1,0 +1,20 @@
+# One bot's computer (Xvfb + XFCE + Chromium + noVNC). A systemd USER unit for the pocketrocket-crew account,
+# installed by deploy/setup-vps.sh into ~/.config/systemd/user/ with lingering enabled, so the hub starts and
+# stops it with `systemctl --user` and never needs root. The instance is "<slot>-<botId>"; see
+# deploy/computer.sh for the display and loopback ports a slot maps to.
+#
+# A unit rather than a hub child process so a hub restart does not kill every computer.
+# Not isolation: every computer runs as the same uid as the hub and the other computers.
+[Unit]
+Description=PocketRocket Crew computer %i (Xvfb + XFCE + Chromium + noVNC)
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=POCKETROCKET_DATA=%h/pocketrocket-crew/data
+ExecStart=/bin/bash %h/pocketrocket-crew/deploy/computer.sh %i
+# on-failure, not always: the hub's `systemctl --user stop` (idle, cap, delete) must stay stopped.
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+NoNewPrivileges=yes

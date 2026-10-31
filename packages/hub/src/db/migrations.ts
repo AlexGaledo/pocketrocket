@@ -64,35 +64,20 @@ registerMigrations([1, 9], [
 // or keep the list in its own file (importing only `type Migration` from here) and register it here.
 
 // ---------------------------------------------------------------------------------------------------
-// P8 (80–89): model router and usage. Which model ran each turn, why the router picked it, and what kind of
-// cause started it, on the usage row (for the Usage tab) and on the bot's messages (for the chat chip).
-registerMigrations([80, 89], [
-  { version: 80, name: 'usage.model', up: (db) => addColumnIfMissing(db, 'usage', 'model', 'TEXT') },
-  { version: 81, name: 'usage.route_reason', up: (db) => addColumnIfMissing(db, 'usage', 'route_reason', 'TEXT') },
+// P1 (10–19): per-bot computers (services/ComputerManager.ts, db/computers.ts).
+registerMigrations([10, 19], [
   {
-    version: 82,
-    name: 'usage.cause_kind',
-    up: (db) => {
-      addColumnIfMissing(db, 'usage', 'cause_kind', 'TEXT');
-      // Best-effort backfill so old spend shows up in the breakdown: memory passes have `mem-` turn ids, bot
-      // hops wrote messages with hop > 0, routines and user messages are told apart by the cause message.
-      db.exec(`UPDATE usage SET cause_kind = CASE
-        WHEN turn_id LIKE 'mem-%' THEN 'memory'
-        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.turn_id = usage.turn_id AND m.hop > 0) THEN 'bot'
-        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.kind = 'routine') THEN 'routine'
-        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.author_type = 'user') THEN 'user'
-      END WHERE cause_kind IS NULL`);
-      // And the model, from the provider's own per-model report: the one that cost the most.
-      db.exec(`UPDATE usage SET model = (
-        SELECT j.key FROM json_each(usage.model_usage) j
-        ORDER BY COALESCE(json_extract(j.value, '$.costUSD'), json_extract(j.value, '$.costUsd'), 0) DESC LIMIT 1
-      ) WHERE model IS NULL AND model_usage IS NOT NULL AND json_valid(model_usage) AND json_type(model_usage) = 'object'`);
-    },
+    version: 10,
+    name: 'computers table',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS computers (' +
+          'bot_id TEXT PRIMARY KEY, slot INTEGER UNIQUE NOT NULL, state TEXT NOT NULL DEFAULT \'asleep\', ' +
+          'last_used_at INTEGER, disk_bytes INTEGER NOT NULL DEFAULT 0, quota_bytes INTEGER NOT NULL, ' +
+          'keep_awake INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)',
+      ),
   },
-  { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
-  { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);
-
 // P3 (30–39): routines v2 and proactive follow-up.
 registerMigrations([30, 39], [
   // One-shot routines: epoch ms the routine fires at once; NULL for a cron routine.
@@ -130,4 +115,33 @@ registerMigrations([70, 79], [
       'CREATE INDEX IF NOT EXISTS idx_voice_proposals_bot ON voice_proposals(bot_id, created_at)',
     ),
   },
+]);
+
+// P8 (80–89): model router and usage. Which model ran each turn, why the router picked it, and what kind of
+// cause started it, on the usage row (for the Usage tab) and on the bot's messages (for the chat chip).
+registerMigrations([80, 89], [
+  { version: 80, name: 'usage.model', up: (db) => addColumnIfMissing(db, 'usage', 'model', 'TEXT') },
+  { version: 81, name: 'usage.route_reason', up: (db) => addColumnIfMissing(db, 'usage', 'route_reason', 'TEXT') },
+  {
+    version: 82,
+    name: 'usage.cause_kind',
+    up: (db) => {
+      addColumnIfMissing(db, 'usage', 'cause_kind', 'TEXT');
+      // Best-effort backfill so old spend shows up in the breakdown: memory passes have `mem-` turn ids, bot
+      // hops wrote messages with hop > 0, routines and user messages are told apart by the cause message.
+      db.exec(`UPDATE usage SET cause_kind = CASE
+        WHEN turn_id LIKE 'mem-%' THEN 'memory'
+        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.turn_id = usage.turn_id AND m.hop > 0) THEN 'bot'
+        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.kind = 'routine') THEN 'routine'
+        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.author_type = 'user') THEN 'user'
+      END WHERE cause_kind IS NULL`);
+      // And the model, from the provider's own per-model report: the one that cost the most.
+      db.exec(`UPDATE usage SET model = (
+        SELECT j.key FROM json_each(usage.model_usage) j
+        ORDER BY COALESCE(json_extract(j.value, '$.costUSD'), json_extract(j.value, '$.costUsd'), 0) DESC LIMIT 1
+      ) WHERE model IS NULL AND model_usage IS NOT NULL AND json_valid(model_usage) AND json_type(model_usage) = 'object'`);
+    },
+  },
+  { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
+  { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);

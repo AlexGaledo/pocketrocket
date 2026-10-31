@@ -7,6 +7,8 @@
 # - Desktop config/home persists in $DATA/desktop-home; Chromium profile in $DATA/browser-profile
 # - CDP on 127.0.0.1:9222 (Browser tool), xdotool/scrot on DISPLAY :99 (Desktop tool)
 # - noVNC on 127.0.0.1:6080, proxied by the hub at /screen/
+# deploy/computer.sh reuses this script for per-bot computers: it also sets SCREEN_HOME / SCREEN_PROFILE /
+# SCREEN_DESKTOP_DIR / SCREEN_DOWNLOAD_DIR (the defaults below keep the shared screen exactly as it was).
 # Runs as the unprivileged `pocketrocket-crew` user (see deploy/setup-vps.sh); everything above binds
 # 127.0.0.1 only and X requires the cookie below. VNC itself has no password: the only way in is the
 # hub's /screen/ proxy, which already demands the hub token (a /screen-scoped httpOnly cookie), and a
@@ -16,25 +18,33 @@ DISP="${SCREEN_DISPLAY:-:99}"
 CDP_PORT="${CDP_PORT:-9222}"; VNC_PORT="${VNC_PORT:-5900}"; NOVNC_PORT="${NOVNC_PORT:-6080}"
 export DISPLAY="$DISP"
 DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket-crew/data}"
-PROFILE="$DATA/browser-profile"
-DHOME="$DATA/desktop-home"
+PROFILE="${SCREEN_PROFILE:-$DATA/browser-profile}"
+DHOME="${SCREEN_HOME:-$DATA/desktop-home}"
 WS="$DATA/workspace"
+DESK="${SCREEN_DESKTOP_DIR:-$WS}"
+DL="${SCREEN_DOWNLOAD_DIR:-$WS/downloads}"
 W="${SCREEN_W:-1280}"; H="${SCREEN_H:-800}"
 CHROME="${CHROME_BIN:-$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1)}"
 if [ -z "$CHROME" ] || [ ! -x "$CHROME" ]; then echo "chromium not found; run deploy/setup-vps.sh" >&2; exit 1; fi
 
-mkdir -p "$PROFILE" "$WS/downloads" "$DHOME/.config/xfce4/xfconf/xfce-perchannel-xml" "$DHOME/.cache" "$DHOME/.local/share"
-# Desktop + Downloads + Documents all point into the shared workspace.
+mkdir -p "$PROFILE" "$WS" "$DESK" "$DL" "$DHOME/.config/xfce4/xfconf/xfce-perchannel-xml" "$DHOME/.cache" "$DHOME/.local/share"
+# Desktop + Downloads + Documents: the shared workspace on the shared screen, the bot's own disk on a per-bot one.
 cat > "$DHOME/.config/user-dirs.dirs" <<EOF
-XDG_DESKTOP_DIR="$WS"
-XDG_DOWNLOAD_DIR="$WS/downloads"
-XDG_DOCUMENTS_DIR="$WS"
+XDG_DESKTOP_DIR="$DESK"
+XDG_DOWNLOAD_DIR="$DL"
+XDG_DOCUMENTS_DIR="$DESK"
 EOF
-# Terminals open in the workspace (desktop folder), not in desktop-home.
+# A per-bot desktop links the shared team folder in as ~/Shared and onto the desktop.
+if [ "$DESK" != "$WS" ]; then
+  for link in "$DHOME/Shared" "$DESK/Shared"; do
+    if [ -L "$link" ] || [ ! -e "$link" ]; then ln -sfn "$WS" "$link"; fi
+  done
+fi
+# Terminals open in the desktop folder, not in the desktop home.
 mkdir -p "$DHOME/.config/xfce4/terminal"
 grep -q MiscDefaultWorkingDir "$DHOME/.config/xfce4/terminal/terminalrc" 2>/dev/null || cat > "$DHOME/.config/xfce4/terminal/terminalrc" <<EOF
 [Configuration]
-MiscDefaultWorkingDir=$WS
+MiscDefaultWorkingDir=$DESK
 MiscMenubarDefault=FALSE
 EOF
 # Seed the default panel layout once so XFCE does not show its first-run wizard.

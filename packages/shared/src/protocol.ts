@@ -3,6 +3,7 @@ import { AUTO_MEMORY_EVERY, MAX_ROOM_BOTS, type Bot, type BotState, type Message
 import type { KnowledgeStatus } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
+import type { ComputerStatus } from './models.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -31,7 +32,9 @@ export type ServerEvent =
   // ---- P7: knowledge repo, voice ----
   | { type: 'knowledge.status'; status: KnowledgeStatus }
   /** voice.md or its pending proposals changed; clients refetch GET /api/bots/:id/voice. */
-  | { type: 'voice.updated'; botId: string };
+  | { type: 'voice.updated'; botId: string }
+  // P1: a bot's computer changed state (asleep/starting/live), keep-awake or disk usage.
+  | { type: 'computer.state'; status: ComputerStatus };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [

@@ -1,6 +1,7 @@
 import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
+  ComputerStatus,
 } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
@@ -48,9 +49,17 @@ export type AccountActionResponse = AccountState | { ok: boolean } | Record<stri
 
 export const api = {
   health: () => req<HealthResponse>('GET', '/api/health'),
-  screen: () => req<{ screen: boolean; cdp: boolean; url: string }>('GET', '/api/screen'),
-  // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL.
-  screenTicket: () => req<{ url: string }>('POST', '/api/screen/ticket'),
+  // P1: with a botId, that bot's own computer (`computer` says whether this hub has per-bot computers at all).
+  screen: (botId?: string) =>
+    req<{ screen: boolean; cdp: boolean; url: string; computer?: ComputerStatus }>('GET', '/api/screen' + (botId ? '?botId=' + encodeURIComponent(botId) : '')),
+  // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL. With a botId
+  // the ticket opens that bot's screen only.
+  screenTicket: (botId?: string) => req<{ url: string }>('POST', '/api/screen/ticket', botId ? { botId } : undefined),
+  computers: {
+    get: (botId: string) => req<ComputerStatus>('GET', '/api/computers/' + encodeURIComponent(botId)),
+    wake: (botId: string) => req<ComputerStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/wake', {}),
+    keepAwake: (botId: string, on: boolean) => req<ComputerStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/keep-awake', { on }),
+  },
   config: () => req<{ workspaceDir: string; version: string }>('GET', '/api/config'),
   // Opens the shared workspace on whichever computer the hub runs on; `where` says which one it was.
   openWorkspace: () => req<{ ok: boolean; where: 'explorer' | 'finder' | 'screen' | 'file-manager'; path: string; error?: string }>('POST', '/api/workspace/open'),

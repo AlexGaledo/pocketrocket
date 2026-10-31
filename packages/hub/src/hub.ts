@@ -29,10 +29,13 @@ import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
 import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, presentsHubToken, tokenMatches } from './api/guard.js';
-import { SCREEN_COOKIE, SCREEN_VIEWER_PATH, ScreenSessions } from './api/screenSession.js';
+import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
 import { readBody } from './api/body.js';
 import { handleAuthCallback } from './api/authCallback.js';
 import { addSecret } from './providers/redact.js';
+import { ComputersRepo } from './db/computers.js';
+import { ComputerManager } from './services/ComputerManager.js';
+import { events } from './events.js';
 
 export interface HubOptions {
   port?: number;
@@ -44,6 +47,8 @@ export interface HubOptions {
   skipBootstrap?: boolean;
   /** Account service; tests hand in one over a fake Supabase client. */
   account?: AccountService;
+  /** Per-bot computers (P1); tests hand in one over a fake systemctl. Built from the environment otherwise. */
+  computers?: (db: Db) => ComputerManager;
 }
 
 export interface Hub {
@@ -56,6 +61,7 @@ export interface Hub {
   providers: ReturnType<typeof createProviders>;
   turns: TurnRegistry;
   runner: BotRunner;
+  computers: ComputerManager;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -98,11 +104,24 @@ export function createHub(opts: HubOptions = {}): Hub {
   if (expired.length) console.log('expired ' + expired.length + ' approval card(s) left open by the previous run');
   const router = new RoomRouter(repos, usage);
   const turns = new TurnRegistry();
+  // Per-bot computers (P1). Off unless POCKETROCKET_COMPUTERS=1 on Linux; then every call is the shared screen.
+  const computers = opts.computers
+    ? opts.computers(db)
+    : new ComputerManager(new ComputersRepo(db), {
+        routineDueSoon: (botId, withinMs) => {
+          const t = Date.now();
+          return repos.listRoutines().some((r) => r.botId === botId && r.enabled && r.nextRunAt !== null && r.nextRunAt - t <= withinMs);
+        },
+      });
+  // A deleted bot (REST or the delete_bot tool) takes its computer with it: unit stopped, folder erased.
+  const offComputers = events.onEvent((ev) => {
+    if (ev.type === 'bots.changed') void computers.prune(ev.bots.map((b) => b.id)).catch((e) => console.warn('[computers] ' + (e as Error).message));
+  });
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
     dispatchFromBot: (req, targets) => router.dispatchFromBot(req, targets),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
     routinesChanged: () => scheduler.reload(),
-  }, providers, turns, { knowledgeDir: () => knowledge.activeDir() });
+  }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir() });
   router.runner = runner;
   // P8: the optional classifier is a Haiku call through the Claude CLI, so it only runs while Claude is the
   // active provider (Q12: the router never reaches outside it) and only when switched on in Settings.
@@ -116,7 +135,9 @@ export function createHub(opts: HubOptions = {}): Hub {
   const followUp = new FollowUp({ repos, router });
 
   const screenSessions = new ScreenSessions();
-  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice });
+  const rest = createRest({
+    repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers,
+  });
   const handleMcp = createMcpHandler(turns);
 
   const MIME: Record<string, string> = {
@@ -163,8 +184,22 @@ export function createHub(opts: HubOptions = {}): Hub {
    * out in exchange for a ticket. A bearer header still works for scripts and curl; `?token=` no longer does,
    * which is the whole point: the hub token can never end up in a URL, a history entry or a DOM attribute.
    */
-  const screenAuth = (req: http.IncomingMessage): boolean =>
-    screenSessions.valid(cookieValue(req, SCREEN_COOKIE)) || (token !== null && tokenMatches(bearerToken(req), token));
+  const screenAuth = (req: http.IncomingMessage): boolean => {
+    const { scope } = screenRoute(new URL(req.url ?? '/', 'http://localhost').pathname);
+    return screenSessions.valid(cookieValue(req, screenCookieName(scope)), scope) || (token !== null && tokenMatches(bearerToken(req), token));
+  };
+
+  /**
+   * P1: `/screen/<botId>/*` is that bot's computer, `/screen/*` otherwise the shared screen. The scope decides
+   * both which cookie authenticates the request and where it is proxied, so a session for bot A never reaches
+   * bot B's screen. Only a bot that already has a computer slot is a scope; anything else is the shared screen.
+   */
+  function screenRoute(pathname: string): { scope: string | null; rest: string; target: string } {
+    const m = /^\/screen\/([^/]+)(\/.*)?$/.exec(pathname);
+    const ep = m ? computers.existingEndpoint(m[1]) : null;
+    if (m && ep) return { scope: m[1], rest: m[2] ?? '/', target: ep.screenUrl };
+    return { scope: null, rest: pathname.slice('/screen'.length), target: SCREEN_URL };
+  }
 
   const limiter = new AuthRateLimiter();
 
@@ -186,8 +221,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       // The screen handshake authenticates with a one-shot ticket rather than the hub token, so it answers
       // ahead of the general check — but a bad ticket is a failed auth like any other and feeds the limiter.
       if (url.pathname === '/screen/session' && (req.method ?? 'GET') === 'GET') {
-        const cookie = screenSessions.redeem(url.searchParams.get('ticket'));
-        if (!cookie) {
+        const redeemed = screenSessions.redeemScoped(url.searchParams.get('ticket'));
+        if (!redeemed) {
           limiter.fail(ip);
           res.writeHead(401, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid or expired screen ticket' }));
@@ -195,8 +230,8 @@ export function createHub(opts: HubOptions = {}): Hub {
         }
         limiter.succeed(ip);
         res.writeHead(302, {
-          'set-cookie': cookie,
-          location: SCREEN_VIEWER_PATH,
+          'set-cookie': redeemed.cookie,
+          location: screenViewerPath(redeemed.scope),
           'cache-control': 'no-store',
           'referrer-policy': 'no-referrer',
         });
@@ -238,8 +273,9 @@ export function createHub(opts: HubOptions = {}): Hub {
       }
       if (await rest(req, res)) return;
       if (url.pathname.startsWith('/screen/')) {
-        req.url = url.pathname.slice('/screen'.length) + url.search;
-        screenProxy.web(req, res);
+        const route = screenRoute(url.pathname);
+        req.url = route.rest + url.search;
+        screenProxy.web(req, res, { target: route.target });
         return;
       }
       // static web/dist (production)
@@ -284,15 +320,18 @@ export function createHub(opts: HubOptions = {}): Hub {
     if (url.pathname === '/ws') {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else if (url.pathname.startsWith('/screen/')) {
-      req.url = p.slice('/screen'.length);
-      screenProxy.ws(req, socket, head);
+      const route = screenRoute(url.pathname);
+      req.url = route.rest + url.search;
+      // An open viewer keeps the bot's computer from an idle stop until it disconnects.
+      if (route.scope) socket.once('close', computers.viewerOpened(route.scope));
+      screenProxy.ws(req, socket, head, { target: route.target });
     } else {
       socket.destroy();
     }
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -304,6 +343,8 @@ export function createHub(opts: HubOptions = {}): Hub {
           scheduler.start();
           // P7: sync the knowledge repo if its source changed, then pull it on a timer (never blocks start).
           knowledge.start(KNOWLEDGE_SYNC_MINUTES);
+          // Reconcile with systemd, prune deleted bots, move the shared screen's logins (once), start timers.
+          void computers.startBackground(repos.listBots()).catch((e) => console.warn('[computers] ' + (e as Error).message));
           // Async on purpose: an offline start must not hold the hub up (see AccountService).
           void account.start();
           console.log(
@@ -328,6 +369,9 @@ export function createHub(opts: HubOptions = {}): Hub {
       scheduler.stop();
       followUp.stop();
       knowledge.stop();
+      offComputers();
+      // Timers only: the computers are systemd units and keep running across a hub restart.
+      computers.stopBackground();
       account.stop();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).
       router.freeze();

@@ -68,6 +68,11 @@ export interface TurnContext {
   mcp: { url: string; token: string };
   /** P7: the knowledge repo folder, readable but never writable by the bot; null/absent when none is set up. */
   knowledgeDir?: string | null;
+  // P1: per-bot computers. Unset = the legacy shared screen (CDP_URL), exactly as before.
+  /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
+  cdpUrl?: string;
+  /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */
+  computerFilesDir?: string;
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */

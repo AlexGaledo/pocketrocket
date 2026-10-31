@@ -1,8 +1,9 @@
 [Unit]
 Description=PocketRocket Crew hub
 After=network.target
-Wants=pocketrocket-crew-screen.service
-After=pocketrocket-crew-screen.service
+# The shared screen (pocketrocket-crew-screen.service) is no longer pulled in here: with per-bot computers on
+# (POCKETROCKET_COMPUTERS=1, set by setup-vps.sh in a drop-in) each bot's computer is a user unit the hub
+# starts itself, and setup-vps.sh enables the shared screen only when they are off.
 
 [Service]
 Type=simple

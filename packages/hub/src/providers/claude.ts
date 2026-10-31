@@ -205,13 +205,14 @@ export class ClaudeProvider implements AgentProvider {
 
     const allowed = ctx.allowedBuiltins.filter((t) => AUTO_OK.has(t));
     const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t));
-    // "Browser" = Playwright MCP attached over CDP to the Chromium on the screen (shared, logged-in profile).
+    // "Browser" = Playwright MCP attached over CDP to the Chromium on the bot's own computer (its logged-in
+    // profile), or on the one shared screen when this hub has no per-bot computers.
     const browserOn = ctx.allowedBuiltins.includes('Browser') && fs.existsSync(PLAYWRIGHT_MCP_CLI);
     const mcpServers: NonNullable<Options['mcpServers']> = { pocketrocket: toolServer(ctx.tools) };
     if (browserOn) {
       mcpServers.browser = {
         type: 'stdio', command: process.execPath,
-        args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', CDP_URL, '--caps', 'vision'],
+        args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', ctx.cdpUrl ?? CDP_URL, '--caps', 'vision'],
       };
     }
 
@@ -253,8 +254,13 @@ export class ClaudeProvider implements AgentProvider {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
       spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
       cwd: ctx.workspaceDir,
-      // P7: the knowledge repo is readable like the bot's home; writes there are stopped by the hook below.
-      additionalDirectories: [ctx.botHome, ...(knowledgeDir ? [knowledgeDir] : [])],
+      // P1: the bot's own computer disk is a working root. P7: the knowledge repo is readable like the bot's
+      // home; writes there are stopped by the hook below.
+      additionalDirectories: [
+        ctx.botHome,
+        ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
+        ...(knowledgeDir ? [knowledgeDir] : []),
+      ],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: ctx.systemPrompt },
@@ -284,8 +290,14 @@ export class ClaudeProvider implements AgentProvider {
             hooks: [
               async (hookInput) => {
                 const i = hookInput as PreToolUseHookInput;
-                // NotebookEdit writes, so only the read tools see the read-only knowledge root (P7).
-                const roots = [ctx.workspaceDir, ctx.botHome, ...(knowledgeDir && i.tool_name !== 'NotebookEdit' ? [knowledgeDir] : [])];
+                // NotebookEdit writes, so only the read tools see the read-only knowledge root (P7). The bot's
+                // own computer disk (P1) is writable like its home.
+                const roots = [
+                  ctx.workspaceDir,
+                  ctx.botHome,
+                  ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
+                  ...(knowledgeDir && i.tool_name !== 'NotebookEdit' ? [knowledgeDir] : []),
+                ];
                 const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);
                 const outside = paths.filter((p) => !isInside(p, roots, ctx.workspaceDir));
                 if (process.env.POCKETROCKET_DEBUG) console.log('[hook PreToolUse]', i.tool_name, paths, outside.length ? 'ASK' : 'ok');

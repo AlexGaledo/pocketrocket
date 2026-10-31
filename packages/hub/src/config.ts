@@ -251,3 +251,38 @@ export function migrateLegacyDb() {
 export const KNOWLEDGE_DIR = path.join(DATA_DIR, 'knowledge');
 /** Minutes between background `git pull --ff-only` runs of the knowledge clone. 0 turns the timer off. */
 export const KNOWLEDGE_SYNC_MINUTES = Number(process.env.KNOWLEDGE_SYNC_MINUTES ?? 60);
+// ---------------------------------------------------------------------------------------------------
+// P1: per-bot computers (services/ComputerManager.ts). Each bot that uses Browser or Desktop gets its own
+// display, Chromium profile and CDP/VNC ports — same uid, so this is NOT isolation between bots.
+
+/** Root of every bot's computer: `<COMPUTERS_DIR>/<botId>/{home,browser,files,recordings}`. */
+export const COMPUTERS_DIR = path.join(DATA_DIR, 'computers');
+export function computerDir(botId: string) {
+  return path.join(COMPUTERS_DIR, botId);
+}
+/** The bot's own disk on its computer (Desktop, Downloads). `~/Shared` on that desktop is WORKSPACE_DIR. */
+export function computerFilesDir(botId: string) {
+  return path.join(computerDir(botId), 'files');
+}
+const truthy = (v: string | undefined) => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().toLowerCase());
+const posInt = (v: string | undefined, d: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : d;
+};
+/**
+ * Per-bot computers are opt-in by environment (`deploy/setup-vps.sh` sets `POCKETROCKET_COMPUTERS=1` in the
+ * hub unit) and Linux-only. Off, every bot shares the one legacy screen exactly as before.
+ */
+export const COMPUTERS_ENABLED = process.platform === 'linux' && truthy(process.env.POCKETROCKET_COMPUTERS);
+export const MAX_RUNNING_COMPUTERS = posInt(process.env.MAX_RUNNING_COMPUTERS, 3);
+export const COMPUTER_IDLE_MIN = posInt(process.env.COMPUTER_IDLE_MIN, 30);
+/** Soft disk quota per bot computer. Warned at 80%, refused to start at 100%. */
+export const COMPUTER_QUOTA_BYTES = posInt(process.env.COMPUTER_QUOTA_GB, 10) * 1024 ** 3;
+
+/**
+ * Folders a bot's file tools may touch without an approval card: the shared workspace, its private home and,
+ * when per-bot computers are on, its own computer disk (where its Chromium downloads land).
+ */
+export function botRoots(botId: string): string[] {
+  return [WORKSPACE_DIR, botHome(botId), ...(COMPUTERS_ENABLED ? [computerFilesDir(botId)] : [])];
+}

@@ -39,6 +39,10 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `CDP_URL` | `http://127.0.0.1:9222` | Chromium DevTools endpoint for the Browser tool (server mode). |
 | `SCREEN_DISPLAY` | `:99` | X display for the Desktop tool (Linux server mode). |
 | `KNOWLEDGE_SYNC_MINUTES` | `60` | Minutes between `git pull --ff-only` runs of the knowledge repo clone (P7). `0` turns the timer off; Settings › Knowledge › Sync now still works. |
+| `POCKETROCKET_COMPUTERS` | unset (off) | `1` gives every bot with Browser/Desktop its own computer (Linux server mode; `setup-vps.sh` sets it). Off, all bots share the one screen above. |
+| `MAX_RUNNING_COMPUTERS` | `3` | Per-bot computers running at once; the least recently used idle one is stopped to make room. |
+| `COMPUTER_IDLE_MIN` | `30` | Minutes without tool use, viewer, routine due or Keep awake before a computer is stopped (disk kept). |
+| `COMPUTER_QUOTA_GB` | `10` | Soft disk quota per computer: warned at 80%, not started at 100%. |
 
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 
