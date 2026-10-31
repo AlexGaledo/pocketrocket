@@ -8,6 +8,7 @@ import type { UsageTracker } from '../services/UsageTracker.js';
 import type { AutoMemory } from '../services/AutoMemory.js';
 import { parseMentions } from './mentions.js';
 import { triggerText } from './untrusted.js';
+import { logError } from '../providers/redact.js';
 
 interface LaneItem {
   causeId: string;
@@ -249,7 +250,7 @@ export class RoomRouter {
         }
       }
     } catch (e) {
-      console.error('[lane ' + key + ']', e);
+      logError('[lane ' + key + ']', e);
     } finally {
       lane.running = false;
     }

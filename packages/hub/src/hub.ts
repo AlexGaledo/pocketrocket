@@ -32,7 +32,7 @@ import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, che
 import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
 import { readBody } from './api/body.js';
 import { handleAuthCallback } from './api/authCallback.js';
-import { addSecret } from './providers/redact.js';
+import { addSecret, logError } from './providers/redact.js';
 import { ComputersRepo } from './db/computers.js';
 import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
@@ -440,7 +440,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       });
       fs.createReadStream(file).pipe(res);
     } catch (e) {
-      console.error(e);
+      logError('[static]', e);
       res.writeHead(500);
       res.end('error');
     }

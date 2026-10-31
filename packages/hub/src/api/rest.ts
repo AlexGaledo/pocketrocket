@@ -36,6 +36,7 @@ import { AccountError, type AccountService } from '../services/AccountService.js
 import { AUTH_CALLBACK_PATH, deviceIdOf } from './guard.js';
 import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
 import type { VoiceProposals } from '../services/VoiceProposals.js';
+import { logError } from '../providers/redact.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
@@ -406,7 +407,7 @@ export function createRest(deps: RestDeps) {
         return send(res, 200, out ?? { ok: true });
       } catch (e) {
         const status = e instanceof HttpError || e instanceof AccountError ? e.status : 500;
-        if (status === 500) console.error(e);
+        if (status === 500) logError('[rest]', e);
         return send(res, status, { error: (e as Error).message ?? String(e) });
       }
     }

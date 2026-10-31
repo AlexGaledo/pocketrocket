@@ -8,7 +8,7 @@ import { CLAUDE_EXE, VERSION } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import { childEnv } from '../providers/env.js';
-import { redact } from '../providers/redact.js';
+import { logError, redact } from '../providers/redact.js';
 import { formatMessage, isConversation } from '../rooms/RoomRouter.js';
 import type { MemoryService } from './MemoryService.js';
 import type { TurnUsage, UsageTracker } from './UsageTracker.js';
@@ -270,7 +270,7 @@ export class AutoMemory {
     if (turnsSince < bot.autoMemoryEvery || turnsSince < state.retryAt || this.inFlight.has(key)) return;
 
     const pass = this.pass(bot, roomId, turnsSince, state.lastSeq)
-      .catch((e) => console.error('[auto-memory ' + key + ']', e))
+      .catch((e) => logError('[auto-memory ' + key + ']', e))
       .finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, pass);
     return pass;
