@@ -19,6 +19,18 @@ pub fn no_window(cmd: &mut Command) {
     let _ = cmd;
 }
 
+/// Unix: make the child the leader of a new process group, so `kill_tree` can take its whole tree.
+/// Windows uses the Job Object instead; there this does nothing.
+pub fn own_process_group(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    #[cfg(not(unix))]
+    let _ = cmd;
+}
+
 /// The last `CAP` bytes written to a pipe. Cheap to clone; every clone sees the same buffer.
 #[derive(Clone, Default)]
 pub struct Tail(Arc<Mutex<VecDeque<u8>>>);
@@ -86,6 +98,18 @@ pub fn kill_tree(child: &mut Child) {
         tk.args(["/pid", &child.id().to_string(), "/t", "/f"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         no_window(&mut tk);
         let _ = tk.status();
+    }
+    // macOS / Linux have no Job Object. The hub is started as the leader of its own process group
+    // (`own_process_group`), so killing the group takes node and every claude turn under it. For a child
+    // that is not a group leader the group does not exist and this is a harmless no-op.
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", child.id())])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
     let _ = child.kill();
     let _ = child.wait();
