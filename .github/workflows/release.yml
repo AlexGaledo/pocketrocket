@@ -144,7 +144,7 @@ jobs:
               packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
               packages/desktop/src-tauri/target/release/bundle/deb/*.deb
           - name: macOS
-            os: macos-14
+            os: macos-15
             bundles: dmg
             artifact: pocketrocket-crew-macos
             paths: |
