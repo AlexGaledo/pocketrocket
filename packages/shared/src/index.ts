@@ -6,3 +6,5 @@ export * from './account.js';
 export * from './schedule.js';
 // P4
 export * from './integrations.js';
+// P5
+export * from './triggers.js';
