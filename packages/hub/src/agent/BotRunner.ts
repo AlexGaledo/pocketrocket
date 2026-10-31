@@ -24,6 +24,11 @@ export interface TurnRequest {
   injected: string;
   /** What is left of the cause's cost cap; the turn spends at most min(bot budget, this). */
   causeBudgetUsd?: number;
+  /**
+   * P3, decision Q6: the turn's cause was not the human (a routine; from P5 a trigger), so approvals apply
+   * even when the hub is in bypass mode. RoomRouter sets it from `requiresApprovals(causeId)`.
+   */
+  strictApprovals?: boolean;
 }
 export interface TurnResult {
   ok: boolean;
@@ -98,10 +103,14 @@ export class BotRunner {
     const browserOn = bot.allowedTools.includes('Browser');
     // The approvals setting, read once per turn so a change in Settings applies from the next turn. Under
     // bypass nothing asks, so the request_approval tool (and its prompt text) is dropped.
-    const bypass = this.broker.bypassed;
+    // A strict turn (routine, trigger) ignores bypass: the provider runs in ask mode and the broker cards.
+    const bypass = this.broker.bypassed && !req.strictApprovals;
     const bestEffort = provider.info.permissions === 'best-effort' && !bypass;
     const ac = new AbortController();
-    const permCtx = { bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s) };
+    const permCtx = {
+      bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s),
+      strictApprovals: !!req.strictApprovals,
+    };
 
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,

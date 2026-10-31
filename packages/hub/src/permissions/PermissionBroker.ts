@@ -15,6 +15,8 @@ export interface PermCtx {
   hop: number;
   causeId: string;
   setState: (s: 'blocked' | 'working') => void;
+  /** P3, decision Q6: a routine/trigger turn. Bypass does not apply to it; every gate still asks. */
+  strictApprovals?: boolean;
 }
 
 type Decision = ApprovalPayload['status'];
@@ -69,6 +71,10 @@ export class PermissionBroker {
   get bypassed(): boolean {
     return !!this.opts.bypass?.();
   }
+  /** Bypass for one turn: never for a strict (routine/trigger) turn, whatever the setting says. */
+  bypassedFor(ctx: Pick<PermCtx, 'strictApprovals'>): boolean {
+    return this.bypassed && !ctx.strictApprovals;
+  }
 
   async decide(
     ctx: PermCtx,
@@ -76,7 +82,7 @@ export class PermissionBroker {
     input: Record<string, unknown>,
     opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; blockedPath?: string },
   ): Promise<PermissionResult> {
-    if (this.bypassed) return { behavior: 'allow' };
+    if (this.bypassedFor(ctx)) return { behavior: 'allow' };
     const roots = [WORKSPACE_DIR, botHome(ctx.bot.id)];
     let reason = '';
     let danger = false;
@@ -119,7 +125,7 @@ export class PermissionBroker {
     req: { action: string; command?: string; paths?: string[]; reason?: string },
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
-    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    if (this.bypassedFor(ctx)) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const danger = req.command ? classifyBash(req.command, [WORKSPACE_DIR, botHome(ctx.bot.id)]).danger : false;
     const { decision, approvalId } = await this.prompt(
       ctx, 'request_approval',
@@ -167,7 +173,7 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
-    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    if (this.bypassedFor(ctx)) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const key = ctx.bot.id + ':' + toolName;
     if (this.alwaysAllowed.has(key)) return { allowed: true, message: 'Previously approved for this session.' };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });

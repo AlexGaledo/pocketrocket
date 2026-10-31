@@ -180,7 +180,10 @@ export class RoomRouter {
           startSeq = this.repos.maxSeq(room.id);
           const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq));
           const causeBudgetUsd = CAUSE_COST_CAP_USD - this.usage.causeCost(causeId);
-          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd };
+          // Decision Q6: a turn any of whose causes the human did not start (a routine, later a trigger)
+          // goes through approvals even when the hub runs in bypass mode.
+          const strictApprovals = items.some((i) => this.requiresApprovals(i.causeId));
+          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd, strictApprovals };
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
@@ -250,5 +253,15 @@ export class RoomRouter {
 
   interrupt(turnId: string) {
     return this.runner.interrupt(turnId);
+  }
+
+  // ---------- P3: approvals for non-user causes, resume and follow-up ----------
+  /**
+   * True when the thread `causeId` was not started by the human: its first message is a routine (or, from P5,
+   * a trigger) rather than a user message. Such turns ask for approvals even in bypass mode (decision Q6).
+   * An unknown cause counts as not-user, so the default is the safe answer.
+   */
+  requiresApprovals(causeId: string): boolean {
+    return this.repos.getMessage(causeId)?.authorType !== 'user';
   }
 }
