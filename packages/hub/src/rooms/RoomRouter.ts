@@ -55,6 +55,8 @@ export class RoomRouter {
   private waiters: (() => void)[] = [];
   runner!: BotRunner;
   autoMemory?: AutoMemory;
+  /** P2: computer control. A paused bot's lane waits; a hand-back note rides along with its next turn. */
+  control?: LaneControl;
 
   constructor(private repos: Repos, private usage: UsageTracker) {}
 
@@ -181,6 +183,13 @@ export class RoomRouter {
         const bot = this.repos.getBot(botId);
         const room = this.repos.getRoom(roomId);
         if (!bot || !room) break;
+        // P2: a paused bot starts nothing; its queued items wait here until it is resumed.
+        if (this.control?.isPaused(botId)) {
+          this.setState(botId, roomId, 'waiting', 'paused');
+          await this.control.waitUnpaused(botId);
+          this.setState(botId, roomId, 'idle');
+          continue;
+        }
         // A slot first, so a turn that queued behind others sees what they spent.
         await this.acquire();
         let items: LaneItem[];
@@ -198,6 +207,8 @@ export class RoomRouter {
           const session = this.repos.getSession(bot.id, room.id);
           startSeq = this.repos.maxSeq(room.id);
           const notes = [...new Set(items.map((i) => i.note).filter((n): n is string => !!n))];
+          const handBack = this.control?.takeNote(bot.id);
+          if (handBack) notes.push(handBackNote(handBack));
           const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq)) + (notes.length ? '\n\n' + notes.join('\n') : '');
           const causeBudgetUsd = CAUSE_COST_CAP_USD - this.usage.causeCost(causeId);
           // A person's message in the batch outranks automation, so a routine never drags a reply down to triage.
@@ -205,7 +216,7 @@ export class RoomRouter {
           // Decision Q6: a turn any of whose causes the human did not start (a routine, later a trigger)
           // goes through approvals even when the hub runs in bypass mode.
           const strictApprovals = items.some((i) => this.requiresApprovals(i.causeId));
-          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd, causeKind, strictApprovals };
+          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
@@ -217,7 +228,8 @@ export class RoomRouter {
         this.repos.saveSession(bot.id, room.id, { lastSeenSeq: startSeq });
         // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
         this.autoMemory?.afterTurn(bot.id, room.id, result);
-        for (const i of items) i.onDone?.(result);
+        // P2: a parked turn is not finished; its routine run stays open until the resumed turn ends.
+        for (const i of items) if (!(result.parked && i.runId)) i.onDone?.(result);
         if (result.ok && result.finalText) {
           // re-read members: the turn may have created or added bots
           const freshRoom = this.repos.getRoom(roomId) ?? room;
@@ -323,8 +335,42 @@ export class RoomRouter {
     this.enqueue(bot, room, { causeId: o.causeId, hop, triggerSeq: this.repos.maxSeq(room.id), note: o.note });
     return true;
   }
+  // ---------- P2: resume after a parked approval or takeover ----------
+  /**
+   * Queues the turn that picks up where a parked one stopped: same thread and hop, so the hop and cost caps
+   * still apply, and (for a routine) the same run, which this turn closes.
+   */
+  resumeParked(botId: string, roomId: string, o: { causeId: string; hop: number; runId: string | null; note: string }): boolean {
+    const bot = this.repos.getBot(botId);
+    const room = this.repos.getRoom(roomId);
+    if (!bot || !room || !room.memberIds.includes(bot.id)) {
+      if (o.runId) this.repos.finishRun(o.runId, 'error', null);
+      return false;
+    }
+    const runId = o.runId ?? undefined;
+    this.enqueue(bot, room, {
+      causeId: o.causeId, hop: o.hop, triggerSeq: this.repos.maxSeq(room.id), note: o.note, runId,
+      causeKind: this.requiresApprovals(o.causeId) ? 'routine' : 'user',
+      onDone: runId ? (r) => this.repos.finishRun(runId, r.ok ? 'success' : 'error', r.costUsd) : undefined,
+    });
+    return true;
+  }
+
   /** Posts a system note into a room (FollowUp says what it did). */
   systemNote(room: Room, text: string, causeId: string | null, hop: number) {
     this.note(room, text, causeId, hop);
   }
+}
+
+/** P2: what RoomRouter needs from ComputerControlService. */
+export interface LaneControl {
+  isPaused(botId: string): boolean;
+  waitUnpaused(botId: string): Promise<void>;
+  takeNote(botId: string): string | undefined;
+}
+
+/** The line a bot is given when the user hands its computer back with a note. */
+export function handBackNote(note: string): string {
+  return '(' + settings.get().userName + ' had control of your computer and handed it back with this note: "' + note +
+    '". Take a screenshot or a browser snapshot before you act; things may have changed.)';
 }

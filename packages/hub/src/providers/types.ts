@@ -73,6 +73,12 @@ export interface TurnContext {
   cdpUrl?: string;
   /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */
   computerFilesDir?: string;
+  // ---- P2 ----
+  /**
+   * Control interlock: why this bot's desktop/Browser tools must not act right now (the user has control, or
+   * the bot is paused), or null. Adapters must enforce it in bypass mode too; it is not an approval.
+   */
+  controlGuard?: () => string | null;
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */

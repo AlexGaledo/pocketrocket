@@ -20,6 +20,9 @@ import { desktopTools, sharedDesktop } from './desktopTools.js';
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
+import type { ComputerControlService } from '../services/ComputerControl.js';
+import { takeoverTool } from './takeoverTool.js';
+import { computerToolGuard } from '../permissions/controlInterlock.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -40,6 +43,8 @@ export interface TurnRequest {
    * even when the hub is in bypass mode. RoomRouter sets it from `requiresApprovals(causeId)`.
    */
   strictApprovals?: boolean;
+  /** P2: the routine run this turn belongs to, so a parked turn can still close it when it resumes. */
+  runId?: string;
 }
 export interface TurnResult {
   ok: boolean;
@@ -50,6 +55,11 @@ export interface TurnResult {
   /** P8: the model the turn ended on and the router's reason for it. */
   model?: string;
   modelReason?: string;
+  /**
+   * P2: the turn ended early because it is waiting on the user (a parked approval card, or a takeover not yet
+   * handed back). It is resumed by a new turn later; RoomRouter keeps its routine run open.
+   */
+  parked?: boolean;
 }
 /**
  * True when a provider refused to resume because the session it was handed no longer exists on disk.
@@ -81,6 +91,8 @@ export class BotRunner {
   router = new ModelRouter();
   /** P4: set by createHub. Adds the tools of the integrations this bot was granted to every turn. */
   integrations?: IntegrationService;
+  /** P2: computer control (take over / hand back / pause). Set by createHub; absent in most unit tests. */
+  control?: ComputerControlService;
 
   constructor(
     private repos: Repos,
@@ -161,9 +173,20 @@ export class BotRunner {
       this.usage.record(bot.id, room.id, 'cls-' + nanoid(8), req.causeId, cu, { model: 'claude-haiku-4-5-20251001', routeReason: 'classifier', causeKind });
     }
     const ac = new AbortController();
+    // P2: a turn that has to wait for the user (parked card, takeover not handed back) ends itself here; the
+    // abort comes a tick later so the tool result that says so is delivered first.
+    let parkedWhy: string | null = null;
+    const park = (why: string) => {
+      if (parkedWhy) return;
+      parkedWhy = why;
+      setTimeout(() => ac.abort(), 0);
+    };
+    // P2 control interlock: the user has control of this bot's computer, or paused it.
+    const controlBlocked = () => this.control?.blockedReason(bot.id) ?? null;
     const permCtx = {
       bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s),
       strictApprovals: !!req.strictApprovals,
+      runId: req.runId, park, controlBlocked,
     };
 
     const tools = createHubTools({
@@ -184,8 +207,15 @@ export class BotRunner {
 
     if (desktopOn) {
       tools.push(...desktopTools(computer?.perBot
-        ? { display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [] }
-        : sharedDesktop()));
+        ? { display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [], guard: controlBlocked }
+        : { ...sharedDesktop(), guard: controlBlocked }));
+    }
+    // P2: a bot with a computer can hand it to the user (log in, captcha) and wait for it back.
+    if ((desktopOn || browserOn) && this.control) {
+      tools.push(takeoverTool({
+        bot, room, turnId, hop: req.hop, causeId: req.causeId, runId: req.runId, repos: this.repos, control: this.control,
+        signal: ac.signal, setState: (s) => setState(s), park,
+      }));
     }
 
     // P4: integration tools, only for connections granted to this bot. Writes ask on every call (also under bypass).
@@ -194,7 +224,7 @@ export class BotRunner {
     }
 
     const knowledgeDir = this.p7.knowledgeDir?.() ?? null;
-    const mcpToken = this.turns.registerTurn(tools);
+    const mcpToken = this.turns.registerTurn(tools, computerToolGuard(controlBlocked));
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
     addSecret(mcpToken);
@@ -242,6 +272,7 @@ export class BotRunner {
       knowledgeDir,
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       computerFilesDir: computer?.filesDir ?? undefined,
+      controlGuard: controlBlocked,
     };
 
     events.emitEvent({ type: 'turn.start', turnId, botId: bot.id, roomId: room.id, causeId: req.causeId, hop: req.hop });
@@ -375,6 +406,18 @@ export class BotRunner {
       releaseComputer();
     }
 
+    if (parkedWhy) {
+      // Not a failure: the bot is waiting on the user, and a new turn picks it up with their answer.
+      const msg = this.repos.insertMessage({
+        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
+        text: bot.name + ' is ' + parkedWhy + ' and will continue after that.', payload: null,
+        causeId: req.causeId, hop: req.hop, turnId,
+      });
+      events.emitEvent({ type: 'message.new', message: msg });
+      events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd });
+      setState('done', 'parked');
+      return { ok: false, parked: true, turnId, finalText: texts.join('\n\n'), costUsd, model: route.model, modelReason: route.detail };
+    }
     if (!ok && !error) error = 'Turn ended without a result';
     if (error) error = redact(error);
     if (error) {
