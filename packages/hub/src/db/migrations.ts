@@ -62,3 +62,27 @@ registerMigrations([1, 9], [
 //   // P1 (10–19): per-bot computers
 //   registerMigrations([10, 19], [{ version: 10, name: 'computers table', up: (db) => db.exec('CREATE TABLE IF NOT EXISTS computers (...)') }]);
 // or keep the list in its own file (importing only `type Migration` from here) and register it here.
+
+// ---------------------------------------------------------------------------------------------------
+// P4 (40–49): integrations. Credentials are NOT here: they live encrypted in the IntegrationVault
+// (data/integrations.json + data/vault.key), keyed by `integrations.id`. These rows hold only what the UI
+// may see. `bot_integrations` is the per-bot grant (decision Q7): no row, no tools.
+registerMigrations([40, 49], [
+  {
+    version: 40,
+    name: 'integrations + bot_integrations',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS integrations (
+        id TEXT PRIMARY KEY, provider TEXT NOT NULL UNIQUE, method TEXT NOT NULL CHECK(method IN ('oauth','token')),
+        account_label TEXT NOT NULL DEFAULT '', scopes TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'connected',
+        last_error TEXT, warnings TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        last_checked_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS bot_integrations (
+        bot_id TEXT NOT NULL, integration_id TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL,
+        PRIMARY KEY (bot_id, integration_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_bot_integrations_integration ON bot_integrations(integration_id);
+    `),
+  },
+]);

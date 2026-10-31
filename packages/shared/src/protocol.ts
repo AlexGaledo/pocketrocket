@@ -23,7 +23,9 @@ export type ServerEvent =
   | { type: 'routine.fired'; routineId: string; runId: string; botId: string; roomId: string }
   | { type: 'usage.updated'; botId: string; roomId: string; totals: UsageTotals }
   | { type: 'account.changed'; account: AccountState }
-  | { type: 'error'; message: string; context?: string };
+  | { type: 'error'; message: string; context?: string }
+  // P4: integrations. A connection, grant, OAuth app or pending sign-in changed; clients refetch GET /api/integrations.
+  | { type: 'integrations.changed' };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
