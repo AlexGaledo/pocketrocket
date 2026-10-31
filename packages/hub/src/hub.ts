@@ -4,7 +4,7 @@ import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS,
-  ensureDirs, ensureHubToken, migrateLegacyDb,
+  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES,
 } from './config.js';
 import { Db } from './db/db.js';
 import { Repos } from './db/repos.js';
@@ -19,6 +19,8 @@ import { PermissionBroker } from './permissions/PermissionBroker.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
 import { RoutineScheduler } from './services/RoutineScheduler.js';
+import { KnowledgeRepo } from './services/KnowledgeRepo.js';
+import { VoiceProposals } from './services/VoiceProposals.js';
 import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
@@ -81,7 +83,13 @@ export function createHub(opts: HubOptions = {}): Hub {
   const providers = createProviders({ settings, enabled: ENABLED_PROVIDERS });
   settings.ensureEnabledProvider();
   // Live, not a constant: toggling approvals in Settings reaches the very next tool call and turn.
-  const broker = new PermissionBroker(repos, { bypass: () => settings.approvals() === 'bypass' });
+  // P7: the knowledge repo, read-only to every bot. Its folder is a read root only while it is synced.
+  const knowledge = new KnowledgeRepo({ repos, source: () => settings.get().knowledgeRepo });
+  const voice = new VoiceProposals(repos, memory);
+  const broker = new PermissionBroker(repos, {
+    bypass: () => settings.approvals() === 'bypass',
+    readOnlyRoots: () => { const d = knowledge.activeDir(); return d ? [d] : []; },
+  });
   // Cards left open by the previous process can never be answered (their turns are gone): show them as expired.
   const expired = repos.expirePendingApprovals();
   if (expired.length) console.log('expired ' + expired.length + ' approval card(s) left open by the previous run');
@@ -90,13 +98,13 @@ export function createHub(opts: HubOptions = {}): Hub {
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
     dispatchFromBot: (req, targets) => router.dispatchFromBot(req, targets),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
-  }, providers, turns);
+  }, providers, turns, { knowledgeDir: () => knowledge.activeDir() });
   router.runner = runner;
-  router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
+  router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
 
   const screenSessions = new ScreenSessions();
-  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account });
+  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice });
   const handleMcp = createMcpHandler(turns);
 
   const MIME: Record<string, string> = {
@@ -279,6 +287,8 @@ export function createHub(opts: HubOptions = {}): Hub {
         server.listen(port, HOST, () => {
           port = (server.address() as { port: number }).port;
           scheduler.start();
+          // P7: sync the knowledge repo if its source changed, then pull it on a timer (never blocks start).
+          knowledge.start(KNOWLEDGE_SYNC_MINUTES);
           // Async on purpose: an offline start must not hold the hub up (see AccountService).
           void account.start();
           console.log(
@@ -301,6 +311,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       }),
     async shutdown() {
       scheduler.stop();
+      knowledge.stop();
       account.stop();
       runner.interruptAll();
       await providers.shutdown();
