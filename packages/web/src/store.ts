@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState } from '@pocketrocket/shared';
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
+import type { ControlStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
@@ -127,6 +128,11 @@ interface State {
   knowledge: KnowledgeStatus | null;
   /** Bumped per bot on `voice.updated`, so the Memory tab refetches voice.md and its proposals. */
   voiceRev: Record<string, number>;
+  // ---- P2 ----
+  /** Who drives each bot's computer, from GET /api/control and `computer.control`. Missing = the bot (agent). */
+  control: Record<string, ControlStatus>;
+  /** Bumped on `policies.changed`, so the approval rule list refetches. */
+  policiesRev: number;
 
   setConnected: (v: boolean) => void;
   setHubIssue: (issue: HubIssue | null) => void;
@@ -189,6 +195,8 @@ export const useStore = create<State>((set, get) => ({
   _playedConnectedSound: false,
   knowledge: null,
   voiceRev: {},
+  control: {},
+  policiesRev: 0,
 
   setConnected: (connected) => {
     const was = get().connected;
@@ -210,6 +218,8 @@ export const useStore = create<State>((set, get) => ({
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
         void get().fetchAccount();
+        // P2: control states that are not the default (agent); older hubs answer 404, which leaves it empty.
+        void api.control.list().then((l) => set({ control: Object.fromEntries(l.map((c) => [c.botId, c])) })).catch(() => undefined);
         const active = s.activeRoomId && ev.rooms.some((r) => r.id === s.activeRoomId) ? s.activeRoomId : (ev.rooms[0]?.id ?? null);
         get().setActiveRoom(active);
         return;
@@ -239,7 +249,7 @@ export const useStore = create<State>((set, get) => ({
         const list = s.messages[m.roomId] ?? [];
         if (list.some((x) => x.id === m.id)) return;
         const unread = { ...s.unread };
-        if (m.roomId !== s.activeRoomId && m.authorType !== 'user' && (m.kind === 'text' || m.kind === 'approval')) unread[m.roomId] = (unread[m.roomId] ?? 0) + 1;
+        if (m.roomId !== s.activeRoomId && m.authorType !== 'user' && (m.kind === 'text' || m.kind === 'approval' || m.kind === 'takeover')) unread[m.roomId] = (unread[m.roomId] ?? 0) + 1;
         // a bot text message replaces its in-flight stream buffer for that turn
         const streaming = { ...s.streaming };
         if (m.turnId && m.kind === 'text' && streaming[m.turnId]) streaming[m.turnId] = { ...streaming[m.turnId], text: '' };
@@ -247,6 +257,16 @@ export const useStore = create<State>((set, get) => ({
         if (m.authorType === 'bot' && m.kind === 'text') {
           if (m.turnId) recentReceive.set(m.turnId, Date.now());
           play('receive', { roomActive: m.roomId === s.activeRoomId });
+        }
+        // P2: a bot asking for the user's hands is as urgent as an approval card.
+        if (m.kind === 'takeover') {
+          play('approvalRequest');
+          if (m.roomId !== s.activeRoomId) {
+            const bot = botById(s.bots, m.authorId);
+            get().toast((bot?.name ?? 'A bot') + ' needs you on its computer', true, {
+              sticky: true, key: 'takeover:' + m.id, action: { label: 'Open', run: () => get().setActiveRoom(m.roomId) },
+            });
+          }
         }
         return;
       }
@@ -322,6 +342,16 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'voice.updated':
         set({ voiceRev: { ...s.voiceRev, [ev.botId]: (s.voiceRev[ev.botId] ?? 0) + 1 } });
+        return;
+      // ---- P2 ----
+      case 'computer.control': {
+        const was = s.control[ev.status.botId]?.takeover?.messageId;
+        const toasts = was && !ev.status.takeover ? s.toasts.filter((t) => t.key !== 'takeover:' + was) : s.toasts;
+        set({ control: { ...s.control, [ev.status.botId]: ev.status }, toasts });
+        return;
+      }
+      case 'policies.changed':
+        set({ policiesRev: s.policiesRev + 1 });
         return;
       default:
         return;

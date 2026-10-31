@@ -8,6 +8,7 @@ import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, Too
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
 import { Markdown } from './Markdown';
+import { ControlBar, RuleOffer, TakeoverCard, hasComputer } from './ComputerControl';
 
 export function ChatPane() {
   const room = useStore(selectActiveRoom);
@@ -18,6 +19,7 @@ export function ChatPane() {
   const openDialog = useStore((s) => s.openDialog);
   const usage = useStore((s) => s.usage);
   const helloReceived = useStore((s) => s.helloReceived);
+  const control = useStore((s) => s.control);
 
   if (!room && !helloReceived) {
     // Until the hub's hello arrives there is no telling whether the team is empty, so claim nothing.
@@ -69,6 +71,8 @@ export function ChatPane() {
   const members = room.memberIds.map((id) => botById(bots, id)).filter((b): b is Bot => !!b);
   const roomCost = members.reduce((acc, b) => acc + (usage[b.id + ':' + room.id]?.costUsd ?? 0), 0);
   const working = members.filter((m) => ['thinking', 'working', 'blocked', 'waiting'].includes(botStates[m.id] ?? 'idle'));
+  // P2: in a group, say which bots' computers the user holds or paused; a DM gets the full control buttons.
+  const held = room.kind === 'group' ? members.filter((m) => (control[m.id]?.control ?? 'agent') !== 'agent') : [];
 
   return (
     <>
@@ -77,6 +81,7 @@ export function ChatPane() {
           <div className="flex items-center gap-2">
             <span className="truncate text-[15px] font-semibold tracking-tight">{room.kind === 'group' ? '# ' : ''}{room.name}</span>
             {room.coordinatorBotId && <Badge tone="accent">coordinator @{botById(bots, room.coordinatorBotId)?.handle}</Badge>}
+            {held.map((m) => <Badge key={m.id} tone="warn">@{m.handle} {control[m.id]?.control === 'paused' ? 'paused' : 'computer: you'}</Badge>)}
           </div>
           <div className="truncate text-[12px] text-muted">
             {room.kind === 'dm' ? members[0]?.title || '@' + members[0]?.handle : members.map((m) => '@' + m.handle).join('  ')}
@@ -90,6 +95,7 @@ export function ChatPane() {
         {room.kind === 'group' && (
           <Button variant="ghost" size="icon" title="Edit room" onClick={() => openDialog({ kind: 'room', room })}><Users size={16} /></Button>
         )}
+        {room.kind === 'dm' && hasComputer(members[0]) && <ControlBar bot={members[0]} compact />}
         {room.kind === 'dm' && members[0] && (
           <Button variant="ghost" size="icon" title="Bot settings" onClick={() => openDialog({ kind: 'bot', bot: members[0] })}><Settings2 size={16} /></Button>
         )}
@@ -282,6 +288,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
 function Item({ m, bots }: { m: Message; bots: Bot[] }) {
   switch (m.kind) {
     case 'approval': return <ApprovalCard m={m} />;
+    case 'takeover': return <TakeoverCard m={m} />;
     case 'handoff': return <HandoffCard m={m} bots={bots} />;
     default:
       return <div className="md text-[14px] leading-relaxed"><RichText text={m.text} bots={bots} /></div>;
@@ -402,6 +409,9 @@ function fmtInput(input: unknown): string {
 function ApprovalCard({ m }: { m: Message }) {
   const p = m.payload as ApprovalPayload;
   const decide = useStore((s) => s.decide);
+  const bots = useStore((s) => s.bots);
+  // P2: after "Allow for this session" the card offers to keep the answer as a rule.
+  const [offer, setOffer] = useState(false);
   const pending = p.status === 'pending';
   const outcome = p.status === 'allow' ? 'Allowed once' : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? 'Denied' : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired — the hub restarted. Ask the bot to retry.' : null;
   return (
@@ -413,14 +423,16 @@ function ApprovalCard({ m }: { m: Message }) {
         {outcome && <span className="ml-auto text-[12px] text-muted">{outcome}</span>}
       </div>
       <div className="px-4 py-1.5 text-[12.5px] text-muted">{p.reason}</div>
+      {pending && p.parked && <div className="px-4 pb-1.5 text-[12.5px] text-warn">Nobody answered in time, so this run is paused. It picks up again when you answer.</div>}
       <pre className="mx-4 mb-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-card2 p-2.5 font-mono text-[11.5px]">{fmtInput(p.toolInput)}</pre>
       {pending && (
         <div className="flex gap-2 px-4 pb-4">
           <Button size="sm" variant="primary" onClick={() => decide(p.approvalId, 'allow')}>Allow once</Button>
-          <Button size="sm" onClick={() => decide(p.approvalId, 'always')}>Allow for this session</Button>
+          <Button size="sm" onClick={() => { setOffer(true); decide(p.approvalId, 'always'); }}>Allow for this session</Button>
           <Button size="sm" variant="danger" onClick={() => decide(p.approvalId, 'deny')}>Deny</Button>
         </div>
       )}
+      {offer && p.status === 'always' && <RuleOffer p={p} botName={botById(bots, m.authorId)?.name ?? 'This bot'} />}
     </div>
   );
 }

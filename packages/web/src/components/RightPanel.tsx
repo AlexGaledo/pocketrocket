@@ -8,6 +8,7 @@ import { isDesktopMode } from '../lib/auth';
 import { Avatar, Badge, Button, Input, Label, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
 import { VoicePanel } from './VoicePanel';
 import { SkillGitImport } from './SkillGitImport';
+import { ControlBar, useControl } from './ComputerControl';
 
 export function RightPanel() {
   const bots = useStore((s) => s.bots);
@@ -56,8 +57,10 @@ export function RightPanel() {
   );
 }
 
-function ScreenTab() {
+function ScreenTab({ bot }: { bot?: Bot }) {
   const [st, setSt] = useState<{ screen: boolean; cdp: boolean; url: string } | null>(null);
+  // P2: a new ticket when control changes, so the viewer switches between view-only and interactive.
+  const ctl = useControl(bot?.id);
   const [src, setSrc] = useState('');
   const [nonce, setNonce] = useState(0);
   const [wide, setWide] = useState(false);
@@ -76,7 +79,7 @@ function ScreenTab() {
     let alive = true;
     api.screenTicket().then((t) => alive && setSrc(t.url)).catch(() => alive && setSrc(''));
     return () => { alive = false; };
-  }, [st?.screen, nonce]);
+  }, [st?.screen, nonce, ctl.control]);
   const popOut = async () => {
     // Ticket first, then open: the desktop app hands new windows to the default browser by URL, so a blank
     // window that is pointed somewhere afterwards never gets anywhere. The click's user activation outlives
@@ -95,6 +98,7 @@ function ScreenTab() {
         <Button size="sm" variant="ghost" title="Bigger" onClick={() => setWide(!wide)}>{wide ? 'Fit' : 'Wide'}</Button>
         {st?.screen && <Button size="sm" onClick={popOut}>Pop out</Button>}
       </div>
+      {st?.screen && bot && <div className="px-3 pb-2"><ControlBar bot={bot} /></div>}
       {st?.screen ? (
         <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>
           {src && <iframe key={nonce} title="Computer screen" src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />}
@@ -585,7 +589,7 @@ function ScreenPane({ bot }: { bot?: Bot }) {
     return () => { alive = false; };
   }, [bot]);
   if (perBot === null && bot) return <div className="px-3 py-2 text-xs text-muted">checking…</div>;
-  return perBot && bot ? <BotScreen key={bot.id} bot={bot} /> : <ScreenTab />;
+  return perBot && bot ? <BotScreen key={bot.id} bot={bot} /> : <ScreenTab bot={bot} />;
 }
 
 const gbText = (b: number) => (b / 1024 ** 3).toFixed(1) + ' GB';
@@ -600,6 +604,8 @@ function BotScreen({ bot }: { bot: Bot }) {
   const c = info?.computer;
   const state = waking && c?.state === 'asleep' ? 'starting' : c?.state;
   const live = state === 'live' && !!info?.screen;
+  // P2: a new ticket when control changes, so the viewer switches between view-only and interactive.
+  const ctl = useControl(bot.id);
 
   const refresh = useCallback(async () => {
     try {
@@ -619,7 +625,7 @@ function BotScreen({ bot }: { bot: Bot }) {
     let alive = true;
     api.screenTicket(bot.id).then((t) => alive && setSrc(t.url)).catch(() => alive && setSrc(''));
     return () => { alive = false; };
-  }, [live, nonce, bot.id]);
+  }, [live, nonce, bot.id, ctl.control]);
 
   const wake = async () => {
     setWaking(true);
@@ -673,6 +679,7 @@ function BotScreen({ bot }: { bot: Bot }) {
         <span id="keep-awake-label" className="ml-auto text-muted">Keep awake</span>
         <Switch aria-labelledby="keep-awake-label" checked={!!c?.keepAwake} onChange={(on) => void setKeepAwake(on)} />
       </div>
+      <div className="px-3 pb-2"><ControlBar bot={bot} /></div>
       {live ? (
         <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>
           {src && <iframe key={nonce} title={bot.name + "'s computer screen"} src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />}

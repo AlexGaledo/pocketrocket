@@ -5,6 +5,7 @@ import type {
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
+import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -156,5 +157,17 @@ export const api = {
     test: (id: string) => req<IntegrationInfo>('POST', '/api/integrations/' + id + '/test', {}),
     setGrants: (id: string, botIds: string[]) => req<IntegrationInfo>('PUT', '/api/integrations/' + id + '/grants', { botIds }),
     disconnect: (id: string) => req<{ ok: true }>('DELETE', '/api/integrations/' + id),
+  },
+  // ---- P2: take over / hand back / pause, approval rules ----
+  control: {
+    list: () => req<ControlStatus[]>('GET', '/api/control'),
+    set: (botId: string, control: ComputerControl, o: { holder?: string; note?: string } = {}) =>
+      req<ControlStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/control', { control, ...o }),
+  },
+  policies: {
+    list: (botId?: string) => req<ApprovalPolicy[]>('GET', '/api/approval-policies' + (botId ? '?botId=' + encodeURIComponent(botId) : '')),
+    /** From an answered card; `pattern` narrows or widens what it covers. */
+    fromApproval: (approvalId: string, pattern?: string) => req<ApprovalPolicy>('POST', '/api/approval-policies', { approvalId, ...(pattern ? { pattern } : {}) }),
+    revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/approval-policies/' + encodeURIComponent(id)),
   },
 };

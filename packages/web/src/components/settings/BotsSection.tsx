@@ -13,6 +13,7 @@ import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { Avatar, Badge, Button, Input, RadioCard, Switch } from '../ui';
 import { Card, Group, SectionHeader } from './parts';
+import { ApprovalRules } from './ApprovalRules';
 
 export function BotsSection({ health, onHealthStale }: {
   /** Latest GET /api/health, or null while loading / if it failed (then we assume "not locked"). */
@@ -86,6 +87,9 @@ export function BotsSection({ health, onHealthStale }: {
             : <p className="py-2 text-[12.5px] text-muted">No bots yet.</p>}
         </Card>
       </Group>
+
+      {/* P2 */}
+      <ApprovalRules />
     </>
   );
 }
