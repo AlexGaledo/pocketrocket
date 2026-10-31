@@ -62,3 +62,19 @@ registerMigrations([1, 9], [
 //   // P1 (10–19): per-bot computers
 //   registerMigrations([10, 19], [{ version: 10, name: 'computers table', up: (db) => db.exec('CREATE TABLE IF NOT EXISTS computers (...)') }]);
 // or keep the list in its own file (importing only `type Migration` from here) and register it here.
+
+// ---------------------------------------------------------------------------------------------------
+// P1 (10–19): per-bot computers (services/ComputerManager.ts, db/computers.ts).
+registerMigrations([10, 19], [
+  {
+    version: 10,
+    name: 'computers table',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS computers (' +
+          'bot_id TEXT PRIMARY KEY, slot INTEGER UNIQUE NOT NULL, state TEXT NOT NULL DEFAULT \'asleep\', ' +
+          'last_used_at INTEGER, disk_bytes INTEGER NOT NULL DEFAULT 0, quota_bytes INTEGER NOT NULL, ' +
+          'keep_awake INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)',
+      ),
+  },
+]);

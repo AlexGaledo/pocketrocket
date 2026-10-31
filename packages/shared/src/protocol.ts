@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AUTO_MEMORY_EVERY, MAX_ROOM_BOTS, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
+import type { ComputerStatus } from './models.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -23,7 +24,9 @@ export type ServerEvent =
   | { type: 'routine.fired'; routineId: string; runId: string; botId: string; roomId: string }
   | { type: 'usage.updated'; botId: string; roomId: string; totals: UsageTotals }
   | { type: 'account.changed'; account: AccountState }
-  | { type: 'error'; message: string; context?: string };
+  | { type: 'error'; message: string; context?: string }
+  // P1: a bot's computer changed state (asleep/starting/live), keep-awake or disk usage.
+  | { type: 'computer.state'; status: ComputerStatus };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [

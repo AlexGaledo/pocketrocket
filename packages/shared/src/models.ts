@@ -154,3 +154,26 @@ export interface HealthInfo {
   /** True when POCKETROCKET_BYPASS_PERMISSIONS pins `approvals`; Settings cannot change it (PUT answers 409). */
   approvalsLocked: boolean;
 }
+
+// ---------------------------------------------------------------------------------------------------
+// P1: per-bot computers. Each bot with Browser or Desktop gets its own display, Chromium profile and ports on
+// a server hub. They run as the same OS user, so this is separation, not isolation: never present it as such.
+
+/** asleep = stopped (disk kept); starting = unit started, waiting for Chromium; live = running. */
+export type ComputerState = 'asleep' | 'starting' | 'live';
+export interface ComputerStatus {
+  botId: string;
+  /** False when this hub has no per-bot computers (desktop app, or a server with them turned off). */
+  perBot: boolean;
+  state: ComputerState;
+  /** 1-based slot (display, ports) once assigned; null before the bot ever needed one. */
+  slot: number | null;
+  keepAwake: boolean;
+  /** Last `du` of the computer's folder (bytes), refreshed hourly. */
+  diskBytes: number;
+  /** Soft quota (bytes): warned at 80%, refused to start at 100%. */
+  quotaBytes: number;
+  lastUsedAt: number | null;
+  /** Why the last start failed (quota, every slot in use, ...), when it did. */
+  reason?: string;
+}
