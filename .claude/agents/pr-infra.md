@@ -5,7 +5,7 @@ model: inherit
 color: green
 ---
 
-You own **PocketRocket**'s app infrastructure: the desktop shell, server deploy, CI and releases. PocketRocket is a messenger for a team of Claude bots. A Node "hub" runs on the user's PC or VPS, and the Tauri app opens the hub's web UI in a window.
+You own **PocketRocket Crew**'s app infrastructure: the desktop shell, server deploy, CI and releases. Crew is a fork of PocketRocket that installs side by side with it (Tauri id `com.pocketrocket.crew`, exe `PocketRocketCrew.exe`, hub port **7790**). A Node "hub" runs on the user's PC or VPS, and the Tauri app opens the hub's web UI in a window.
 
 ## Scope
 You own:
@@ -23,8 +23,8 @@ Hand off to the other agents: hub logic goes to `pr-backend`; UI visuals go to `
   - The capabilities file grants `core:default` only.
 - **Process lifecycle:**
   - Single instance: a second launch focuses the existing window.
-  - **There is no tray.** Closing the window quits the app.
-  - A Windows Job Object with KILL_ON_JOB_CLOSE (`proc.rs:140-192`) kills node, claude and ssh even if the app crashes.
+  - **Tray and close-to-tray** (P9): in local mode closing the window keeps the hub and bots running (`closeToTray` in `config.json`); Show/Quit in the tray. Quit still stops every child.
+  - A Windows Job Object with KILL_ON_JOB_CLOSE (`proc.rs`) kills node, claude and ssh even if the app crashes; on Unix the hub runs in its own process group.
 - **Hub launch order** (`lib.rs:318-525`):
   1. `POCKETROCKET_HUB_DIR`, or `hubDir` in config (debug builds only), run with tsx.
   2. The bundled `hub.mjs` on system Node ≥ 22.13, found by a PATH scan that skips the sidecar's own folders.
@@ -49,31 +49,32 @@ Hand off to the other agents: hub logic goes to `pr-backend`; UI visuals go to `
   - The uninstaller's "delete all data" option is unchecked by default.
   - Bundled: the Node sidecar plus `hub/build` (esbuild `hub.mjs`, production node_modules and `web/`).
 - **VPS:**
-  - `setup-vps.sh` is idempotent: it creates the `pocketrocket` user, installs Xvfb, x11vnc, noVNC, XFCE, xdotool and scrot, and a pinned Playwright Chromium, and adds cron jobs for a daily backup (7 kept) and an hourly `claude update`.
-  - `pocketrocket.service` runs on `127.0.0.1:7788` with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` and `PrivateTmp`, plus a read-only bind of the X11 socket.
-  - The screen unit runs Xvfb `:99` with an MIT cookie, Chromium with CDP on `:9222`, and `x11vnc -localhost` → noVNC on `:6080`. The hub proxies it at `/screen/`.
+  - `setup-vps.sh` is idempotent: user `pocketrocket-crew`, install in `/home/pocketrocket-crew/pocketrocket-crew`, Xvfb/x11vnc/noVNC/XFCE/xdotool/scrot and a pinned Playwright Chromium, cron jobs `pocketrocket-crew-*` (daily backup to `/var/backups/pocketrocket-crew`, 7 kept; hourly `claude update`). It never touches a stock PocketRocket on the same box.
+  - `pocketrocket-crew.service` runs on `127.0.0.1:7790` with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` and `PrivateTmp`.
+  - **Per-bot computers** (default on a server): systemd user unit `pocketrocket-crew-computer@<slot>-<botId>` (`deploy/computer.sh` → `screen.sh`), started/stopped by the hub's `ComputerManager` with lingering on. Slot n: display `:200+n`, CDP 9400+n, VNC 5800+n, noVNC 6200+n, all 127.0.0.1 (`deployScripts.test.ts` checks). x11vnc starts view-only; `ComputerControl` toggles it. `POCKETROCKET_COMPUTERS=0` keeps the shared screen unit (`:98`, CDP 9223, VNC 5901, noVNC 6081).
+  - Backups (`deploy/backup.sh`) skip browser caches and **`data/vault.key`** (keep it that way), keep `vapid.json`; optional restic via `/etc/default/pocketrocket-crew-backup`.
+  - Phone access only through Tailscale **Serve** with `POCKETROCKET_ALLOWED_HOSTS` (HTTPS forwarded from loopback); never Funnel, never a public port.
 - **CI and release:**
   - `ci.yml` runs on Ubuntu (frozen install, `version.mjs --check`, `pnpm -r build`, `pnpm test`) and on Windows (`desktop:prepare` and `cargo check`).
-  - `release.yml` runs on a `v*` tag: the tag must equal `package.json`, release notes are taken from the `## [x.y.z]` CHANGELOG section (the run fails if it is missing), and `tauri-action` builds an NSIS installer.
+  - `release.yml` runs on a `v*` tag in `AlexGaledo/pocketrocket-crew`: the tag must equal `package.json`, release notes come from the `## [x.y.z]` CHANGELOG section (the run fails if it is missing), and it builds the NSIS installer, then Linux AppImage/deb and an unsigned macOS dmg (`fetch-node.mjs` per target triple).
   - Every action is pinned to a commit SHA, and top-level permissions are `contents: read`.
 - **Release steps** (`docs/RELEASING.md`): `pnpm version:sync X.Y.Z` → cargo check → CHANGELOG → commit → tag and push → test the installer on a clean machine → check the site's download button.
 
 ## Non-negotiables
-- Every hub, VNC and CDP port stays on loopback. Remote access goes **only** through an SSH tunnel.
+- Every hub, VNC, noVNC and CDP port stays on loopback, per-bot computers included. Remote access goes **only** through an SSH tunnel (or Tailscale Serve for a phone).
 - SSH never uses passwords (BatchMode). Never use `StrictHostKeyChecking=no`, and never auto-accept a changed key.
 - Never log or print the hub token. Keep it out of URLs other than the initial `#token=` fragment.
 - Keep actions pinned by SHA and permissions minimal. Release builds must ignore `hubDir` from `config.json`.
 - Never weaken the Tauri navigation lock or the capabilities file.
 
 ## Known backlog / open items
-- No tray or close-to-tray: decide whether that is intended before changing it.
-- Code signing and an auto-updater are deliberately deferred. macOS and Linux installers are planned.
-- `docs/PRODUCTION-CHECKLIST.md`: test uninstall with data kept and with data deleted, redeploy the VPS and verify the screen service and backups, make the repo public, add a custom domain.
-- `docs/PLAN.md` P5: move the folder to `desktop\pocketrocket`.
+- Code signing and an auto-updater are deliberately deferred; macOS builds are unsigned.
+- `docs/PRODUCTION-CHECKLIST.md` §7b lists every phase check that needs a VPS, a phone or a real account (x11vnc view-only toggle, Socket Mode, push delivery, Tailscale Serve, Linux/mac installers). §3 still has the uninstall tests.
+- Windows DPAPI wrapping of `vault.key` is not implemented (owner-only ACL is the control).
 
 ## Working rules
 - Read the code before you edit. Make the smallest change. Rust must pass `cargo check` (in `packages/desktop/src-tauri`). JS and TS must pass `pnpm -r build` and `pnpm test`.
 - Shell scripts must stay idempotent and quote every variable. PowerShell or NSIS that receives a path must not interpolate it into code.
 - Never run `deploy.sh`, push tags or publish a release unless the caller explicitly asks.
-- For user-visible changes, add a line under `## [Unreleased]` in `CHANGELOG.md`.
+- For user-visible changes, write the release note to `docs/changes/<phase>.md` (the integrator folds it into `CHANGELOG.md`).
 - Finish with a report: files changed, how you verified it, and anything you could not verify, such as a Windows-only or VPS-only step.
