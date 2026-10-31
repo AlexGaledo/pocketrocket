@@ -28,6 +28,11 @@ import { SCREEN_COOKIE, SCREEN_VIEWER_PATH, ScreenSessions } from './api/screenS
 import { readBody } from './api/body.js';
 import { handleAuthCallback } from './api/authCallback.js';
 import { addSecret } from './providers/redact.js';
+import { IntegrationService } from './services/IntegrationService.js';
+import { createIntegrationsApi } from './api/integrations.js';
+import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
+import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
+import { events } from './events.js';
 
 export interface HubOptions {
   port?: number;
@@ -39,6 +44,8 @@ export interface HubOptions {
   skipBootstrap?: boolean;
   /** Account service; tests hand in one over a fake Supabase client. */
   account?: AccountService;
+  /** P4 integrations, built on the hub's db; tests hand in a factory with a temp vault and a fake fetch. */
+  integrations?: (db: Db) => IntegrationService;
 }
 
 export interface Hub {
@@ -51,6 +58,7 @@ export interface Hub {
   providers: ReturnType<typeof createProviders>;
   turns: TurnRegistry;
   runner: BotRunner;
+  integrations: IntegrationService;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -94,6 +102,13 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.runner = runner;
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
   const scheduler = new RoutineScheduler(repos, router);
+
+  // P4: integrations. Shared connections, per-bot grants; grants of deleted bots are dropped as bots change.
+  const integrations = opts.integrations ? opts.integrations(db) : new IntegrationService({ db });
+  runner.integrations = integrations;
+  integrations.pruneGrants(repos.listBots().map((b) => b.id));
+  const offBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') integrations.pruneGrants(ev.bots.map((b) => b.id)); });
+  const integrationsApi = createIntegrationsApi({ integrations, repos });
 
   const screenSessions = new ScreenSessions();
   const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account });
@@ -194,6 +209,11 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleAuthCallback(req, res, url, { account, limiter });
         return;
       }
+      // P4: same footing as /auth/callback (token-exempt, feeds the limiter when nothing is pending).
+      if (url.pathname.startsWith(OAUTH_CALLBACK_PREFIX) && (req.method ?? 'GET') === 'GET') {
+        await handleOAuthCallback(req, res, url, { integrations, limiter });
+        return;
+      }
       if (presentsHubToken(req, url, token)) limiter.succeed(ip);
       const ct = checkContentType(req, url);
       if (!ct.ok) {
@@ -216,6 +236,11 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleMcp(req, res, body);
         return;
       }
+      if (url.pathname.startsWith(OAUTH_START_PREFIX)) {
+        await handleOAuthStart(req, res, url, { integrations });
+        return;
+      }
+      if (await integrationsApi(req, res)) return;
       if (await rest(req, res)) return;
       if (url.pathname.startsWith('/screen/')) {
         req.url = url.pathname.slice('/screen'.length) + url.search;
@@ -272,7 +297,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, integrations,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -302,6 +327,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     async shutdown() {
       scheduler.stop();
       account.stop();
+      offBots();
       runner.interruptAll();
       await providers.shutdown();
       for (const c of wss.clients) c.terminate();

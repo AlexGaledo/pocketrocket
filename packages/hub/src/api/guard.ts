@@ -116,6 +116,14 @@ export interface TokenOptions {
 export const AUTH_CALLBACK_PATH = '/auth/callback';
 
 /**
+ * P4: where a provider sends the browser back after an integration sign-in, `/oauth/callback/<provider>`.
+ * Token-exempt for the same reason as AUTH_CALLBACK_PATH. It is safe because the handler accepts it only
+ * for a `state` this hub minted moments ago (single use, 10 minutes) and exchanges the code together with
+ * the PKCE verifier only this hub holds; anything else counts as a failed auth for the rate limiter.
+ */
+export const OAUTH_CALLBACK_PREFIX = '/oauth/callback/';
+
+/**
  * Allowlist, not deny-list (audit 2026-09-09, B2). With a token configured EVERYTHING needs it except:
  * `GET /api/health` (the desktop app polls it before it has the token), `GET /` and the static web assets
  * under WEB_DIST (the shell that then asks for the token), `/mcp`, which carries its own per-turn bearer
@@ -133,6 +141,7 @@ export function checkToken(req: IncomingMessage, url: URL, token: string | null,
   const method = req.method ?? 'GET';
   if (url.pathname === '/api/health' && method === 'GET') return true;
   if (url.pathname === AUTH_CALLBACK_PATH && method === 'GET') return true;
+  if (url.pathname.startsWith(OAUTH_CALLBACK_PREFIX) && method === 'GET') return true;
   if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return true;
   if (url.pathname.startsWith('/screen/')) return opts.screenAuth?.(req) ?? false;
   if (method === 'GET' && (url.pathname === '/' || (opts.isPublicAsset?.(url.pathname) ?? false))) return true;

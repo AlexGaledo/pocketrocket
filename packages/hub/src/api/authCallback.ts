@@ -49,7 +49,8 @@ export function failurePage(message: string): string {
   );
 }
 
-function page(title: string, body: string, ok: boolean): string {
+/** Exported for the integrations OAuth callback (api/oauth.ts), so both pages look the same. */
+export function page(title: string, body: string, ok: boolean): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title} · PocketRocket Crew</title><style>
 :root{color-scheme:light dark;--bg:#f5f5f3;--card:#fff;--fg:#1b1b19;--muted:#63635e;--line:#e3e3de;--mark:${ok ? '#15803d' : '#b91c1c'}}
@@ -60,7 +61,7 @@ h1{font-size:1.15rem;margin:0 0 .4rem}p{margin:0;color:var(--muted);overflow-wra
 </style></head><body><main>${body}</main></body></html>`;
 }
 
-function send(res: ServerResponse, status: number, html: string): void {
+export function send(res: ServerResponse, status: number, html: string): void {
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
