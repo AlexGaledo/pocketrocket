@@ -264,6 +264,7 @@ export class Repos {
       enabled: !!(r.enabled as number),
       lastRunAt: (r.last_run_at as number) ?? null,
       nextRunAt: (r.next_run_at as number) ?? null,
+      onceAt: (r.once_at as number) ?? null,
     };
   }
   listRoutines(): Routine[] {
@@ -273,11 +274,11 @@ export class Repos {
     const r = this.db.get('SELECT * FROM routines WHERE id=?', id);
     return r && this.rowToRoutine(r);
   }
-  createRoutine(i: Omit<Routine, 'id' | 'lastRunAt' | 'nextRunAt'>): Routine {
+  createRoutine(i: Omit<Routine, 'id' | 'lastRunAt' | 'nextRunAt' | 'onceAt'> & { onceAt?: number | null }): Routine {
     const id = nanoid(10);
     this.db.run(
-      'INSERT INTO routines (id,bot_id,room_id,name,cron,prompt,enabled) VALUES (?,?,?,?,?,?,?)',
-      id, i.botId, i.roomId, i.name, i.cron, i.prompt, i.enabled ? 1 : 0,
+      'INSERT INTO routines (id,bot_id,room_id,name,cron,prompt,enabled,once_at) VALUES (?,?,?,?,?,?,?,?)',
+      id, i.botId, i.roomId, i.name, i.cron, i.prompt, i.enabled ? 1 : 0, i.onceAt ?? null,
     );
     return this.getRoutine(id)!;
   }
@@ -286,8 +287,8 @@ export class Repos {
     if (!cur) return undefined;
     const r = { ...cur, ...patch };
     this.db.run(
-      'UPDATE routines SET bot_id=?,room_id=?,name=?,cron=?,prompt=?,enabled=?,last_run_at=?,next_run_at=? WHERE id=?',
-      r.botId, r.roomId, r.name, r.cron, r.prompt, r.enabled ? 1 : 0, r.lastRunAt, r.nextRunAt, id,
+      'UPDATE routines SET bot_id=?,room_id=?,name=?,cron=?,prompt=?,enabled=?,last_run_at=?,next_run_at=?,once_at=? WHERE id=?',
+      r.botId, r.roomId, r.name, r.cron, r.prompt, r.enabled ? 1 : 0, r.lastRunAt, r.nextRunAt, r.onceAt, id,
     );
     return r;
   }

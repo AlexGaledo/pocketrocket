@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SETTINGS, SettingsSchema, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
+  DEFAULT_SETTINGS, SettingsSchema, isTimeZone, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
 } from '@pocketrocket/shared';
 import { APPROVALS_ENV, ENABLED_PROVIDERS, osUserName } from '../config.js';
 import type { Repos } from '../db/repos.js';
@@ -24,9 +24,15 @@ export interface SettingsDeps {
   modelsAsync?: (provider: ProviderId) => Promise<ModelInfo[]>;
 }
 
-/** Defaults with the OS account name filled in for `userName`. */
+/** Defaults with the OS account name filled in for `userName` and the system zone for `timezone`. */
 export function defaultSettings(): Settings {
-  return { ...DEFAULT_SETTINGS, userName: osUserName() };
+  return { ...DEFAULT_SETTINGS, userName: osUserName(), timezone: systemTimeZone() };
+}
+
+/** The hub machine's IANA time zone (`UTC` on most VPSes), or UTC when the runtime cannot tell. */
+export function systemTimeZone(): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return tz && isTimeZone(tz) ? tz : 'UTC';
 }
 
 /** A patch refused on policy rather than shape; rest.ts answers with `status`. */
@@ -81,6 +87,8 @@ export class SettingsStore {
       const base = parsed.success ? parsed.data : defaultSettings();
       // userName defaults to the OS account name rather than the schema's placeholder.
       this.cache = stored.userName === undefined ? { ...base, userName: osUserName() } : base;
+      // P3: likewise the time zone follows the system until the user picks one.
+      if (stored.timezone === undefined) this.cache = { ...this.cache, timezone: systemTimeZone() };
     }
     return this.cache;
   }

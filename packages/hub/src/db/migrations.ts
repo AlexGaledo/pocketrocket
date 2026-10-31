@@ -62,3 +62,10 @@ registerMigrations([1, 9], [
 //   // P1 (10–19): per-bot computers
 //   registerMigrations([10, 19], [{ version: 10, name: 'computers table', up: (db) => db.exec('CREATE TABLE IF NOT EXISTS computers (...)') }]);
 // or keep the list in its own file (importing only `type Migration` from here) and register it here.
+
+// ---------------------------------------------------------------------------------------------------
+// P3 (30–39): routines v2 and proactive follow-up.
+registerMigrations([30, 39], [
+  // One-shot routines: epoch ms the routine fires at once; NULL for a cron routine.
+  { version: 30, name: 'routines.once_at', up: (db) => addColumnIfMissing(db, 'routines', 'once_at', 'INTEGER') },
+]);

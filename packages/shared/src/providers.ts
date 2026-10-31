@@ -82,6 +82,17 @@ export interface ProvidersResponse {
 export const APPROVALS = ['ask', 'bypass'] as const;
 export type Approvals = (typeof APPROVALS)[number];
 
+/** True for a time zone this runtime knows (`Asia/Manila`, `UTC`, …). */
+export function isTimeZone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const SettingsSchema = z.object({
   provider: z.enum(PROVIDER_IDS).default('claude'),
   /** Default model id for new bots (must belong to `provider`). */
@@ -93,6 +104,12 @@ export const SettingsSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']).default('system'),
   /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
   approvals: z.enum(APPROVALS).default('ask'),
+  // ---- P3: routines v2 ----
+  /**
+   * IANA time zone routines are scheduled in (and the one the UI shows times in). The hub fills in the
+   * system zone until the user picks one, the way it fills in `userName`.
+   */
+  timezone: z.string().max(64).refine(isTimeZone, 'not a known IANA time zone').default('UTC'),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});
