@@ -8,6 +8,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { BookOpen, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon } from 'lucide-react';
+// P9
+import { Smartphone } from 'lucide-react';
+import { isDevice } from '../../lib/auth';
+import { DevicesSection } from '../settings/DevicesSection';
 import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { useMediaQuery } from '../../lib/useMediaQuery';
@@ -22,7 +26,9 @@ import { IntegrationsSection } from '../settings/IntegrationsSection';
 
 type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
   // P4
-  | 'integrations';
+  | 'integrations'
+  // P9
+  | 'devices';
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'account', label: 'Account', icon: UserRound },
@@ -34,7 +40,15 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'about', label: 'About', icon: Info },
+  // P9
+  { id: 'devices', label: 'Devices', icon: Smartphone },
 ];
+
+/**
+ * P9: what a paired phone sees. The hub refuses a device's settings writes, secrets, account and integrations
+ * (guard.ts deviceMayAccess), so those sections are left out rather than shown failing. Theme and sounds are hub settings too.
+ */
+const DEVICE_SECTIONS: readonly SectionId[] = ['devices', 'about'];
 
 /** Matches Tailwind's `sm` breakpoint, where the section list moves from the top to the left. */
 const SIDE_NAV_QUERY = '(min-width: 640px)';
@@ -55,7 +69,10 @@ function useHealth() {
 }
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const [section, setSection] = useState<SectionId>(lastSection);
+  // P9
+  const device = isDevice();
+  const sections = device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS;
+  const [section, setSection] = useState<SectionId>(device && !DEVICE_SECTIONS.includes(lastSection) ? 'devices' : lastSection);
   const sideNav = useMediaQuery(SIDE_NAV_QUERY);
   const { health, refresh: refreshHealth } = useHealth();
 
@@ -85,7 +102,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <div className="sm:hidden"><DialogCloseButton /></div>
           </div>
           <TabsPrimitive.List aria-label="Settings sections" className="-mx-3 flex gap-1 overflow-x-auto px-3 py-1 sm:mx-0 sm:flex-col sm:overflow-visible sm:px-0">
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
+            {sections.map(({ id, label, icon: Icon }) => (
               <TabsPrimitive.Trigger
                 key={id}
                 value={id}
@@ -118,6 +135,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <TabsPrimitive.Content value="knowledge" tabIndex={-1} className={PANEL}><KnowledgeSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
+            {/* P9 */}
+            <TabsPrimitive.Content value="devices" tabIndex={-1} className={PANEL}><DevicesSection /></TabsPrimitive.Content>
           </div>
         </div>
       </TabsPrimitive.Root>

@@ -8,6 +8,7 @@ import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, Too
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
 import { Markdown } from './Markdown';
+import { isDevice } from '../lib/auth';
 
 export function ChatPane() {
   const room = useStore(selectActiveRoom);
@@ -403,6 +404,7 @@ function ApprovalCard({ m }: { m: Message }) {
   const p = m.payload as ApprovalPayload;
   const decide = useStore((s) => s.decide);
   const pending = p.status === 'pending';
+  const device = isDevice();
   const outcome = p.status === 'allow' ? 'Allowed once' : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? 'Denied' : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired — the hub restarted. Ask the bot to retry.' : null;
   return (
     <div className={cn('max-w-[640px] overflow-hidden rounded-2xl bg-panel shadow-[var(--shadow-lg)] ring-1', p.danger ? 'ring-bad/40' : pending ? 'ring-warn/40' : 'ring-line')}>
@@ -415,10 +417,13 @@ function ApprovalCard({ m }: { m: Message }) {
       <div className="px-4 py-1.5 text-[12.5px] text-muted">{p.reason}</div>
       <pre className="mx-4 mb-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-card2 p-2.5 font-mono text-[11.5px]">{fmtInput(p.toolInput)}</pre>
       {pending && (
-        <div className="flex gap-2 px-4 pb-4">
-          <Button size="sm" variant="primary" onClick={() => decide(p.approvalId, 'allow')}>Allow once</Button>
-          <Button size="sm" onClick={() => decide(p.approvalId, 'always')}>Allow for this session</Button>
-          <Button size="sm" variant="danger" onClick={() => decide(p.approvalId, 'deny')}>Deny</Button>
+        // P9: wraps on a phone, and touch targets grow to 44px (`.touch-target` in index.css).
+        <div className="flex flex-wrap gap-2 px-4 pb-4">
+          <Button size="sm" variant="primary" className="touch-target" onClick={() => decide(p.approvalId, 'allow')}>Allow once</Button>
+          {/* A paired device answers once; the hub refuses a standing grant from one. */}
+          {!device && <Button size="sm" className="touch-target" onClick={() => decide(p.approvalId, 'always')}>Allow for this session</Button>}
+          <Button size="sm" variant="danger" className="touch-target" onClick={() => decide(p.approvalId, 'deny')}>Deny</Button>
+          {device && <span className="basis-full text-[11.5px] text-muted">"Allow for this session" is only on the desktop app.</span>}
         </div>
       )}
     </div>
@@ -495,10 +500,10 @@ function Composer({ members }: { members: Bot[] }) {
     : 'Message ' + (members[0]?.name ?? '');
 
   return (
-    <div className="relative shrink-0 px-6 pb-5 pt-2">
+    <div className="relative shrink-0 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 sm:px-6">
       <div className="relative mx-auto max-w-[760px]">
         {suggestions.length > 0 && (
-          <div className="absolute bottom-full left-0 mb-2 w-[320px] rounded-2xl bg-panel p-1.5 shadow-[var(--shadow-lg)]">
+          <div className="absolute bottom-full left-0 mb-2 w-[320px] max-w-full rounded-2xl bg-panel p-1.5 shadow-[var(--shadow-lg)]">
             {suggestions.map((b, i) => (
               <div key={b.id} className={cn('flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-1.5 text-[13px]', i === mentionIdx && 'bg-card2')} onMouseDown={(e) => { e.preventDefault(); insertMention(b); }}>
                 <span>{b.avatar}</span><span className="font-medium">@{b.handle}</span><span className="truncate text-[12px] text-muted">{b.title || b.name}</span>
@@ -506,7 +511,7 @@ function Composer({ members }: { members: Bot[] }) {
             ))}
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-[26px] bg-panel p-2 pl-5 shadow-[var(--shadow-lg)] ring-1 ring-line/60 focus-within:ring-accent/50">
+        <div className="flex items-end gap-2 rounded-[26px] bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow-lg)] ring-1 ring-line/60 focus-within:ring-accent/50">
           <textarea
             ref={ref}
             value={text}
@@ -515,7 +520,7 @@ function Composer({ members }: { members: Bot[] }) {
             rows={Math.min(8, Math.max(1, text.split('\n').length))}
             placeholder={hint}
             aria-label={room?.kind === 'group' ? 'Message #' + room.name : 'Message ' + (members[0]?.name ?? '')}
-            className="max-h-48 flex-1 resize-none bg-transparent py-2 text-[14.5px] placeholder:text-dim"
+            className="max-h-48 min-w-0 flex-1 resize-none bg-transparent py-2 text-[16px] placeholder:text-dim sm:text-[14.5px]"
           />
           {activeTurns.length > 0 && (
             <Button variant="ghost" size="icon" title="Stop running bots" onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
