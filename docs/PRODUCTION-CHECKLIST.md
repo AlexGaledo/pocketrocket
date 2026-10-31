@@ -21,12 +21,12 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 
 | Item | Status | How to verify |
 |---|---|---|
-| Hub binds `127.0.0.1` only | ☑ | `netstat -ano \| findstr 7788` |
-| Origin check on REST + WS + `/screen/` upgrade, including `Origin: null` | ☑ tests | `curl -H "Origin: null" http://127.0.0.1:7788/api/bots` → 403 |
+| Hub binds `127.0.0.1` only | ☑ | `netstat -ano \| findstr 7790` |
+| Origin check on REST + WS + `/screen/` upgrade, including `Origin: null` | ☑ tests | `curl -H "Origin: null" http://127.0.0.1:7790/api/bots` → 403 |
 | Host check (DNS rebinding) | ☑ tests | `curl -H "Host: evil.example" ...` → rejected |
 | Bearer token always required (audit B3/D3) — auto-generated to `<data>/hub-token` when `POCKETROCKET_TOKEN` unset, health stays open | ☑ | `/api/bots` 401 without token, `/api/health` 200 |
-| `/screen/*` behind the same token (audit B2) | ☑ | `curl http://127.0.0.1:7788/screen/vnc.html` → 401 without token |
-| `/screen/*` authenticated by a `/screen`-scoped httpOnly cookie, bought with a single-use ticket; no `?token=` there | ☑ tests | `curl 'http://127.0.0.1:7788/screen/vnc.html?token=<token>'` → 401; `screenTicket.test.ts` |
+| `/screen/*` behind the same token (audit B2) | ☑ | `curl http://127.0.0.1:7790/screen/vnc.html` → 401 without token |
+| `/screen/*` authenticated by a `/screen`-scoped httpOnly cookie, bought with a single-use ticket; no `?token=` there | ☑ tests | `curl 'http://127.0.0.1:7790/screen/vnc.html?token=<token>'` → 401; `screenTicket.test.ts` |
 | Per-turn MCP token on `/mcp`; tools scoped to that turn | ☑ tests | `mcp/httpServer.test.ts` |
 | Secrets file never returned by the API (`GET /api/secrets` = which keys set) | ☑ | `SecretsStore.test.ts` |
 | No telemetry / no outbound calls except Claude, the GitHub releases page, and Supabase auth (only when signed in) | ☐ | grep for `fetch(`/`https://` in hub; SECURITY.md |
@@ -53,7 +53,7 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | Installer builds locally (`pnpm desktop:build`) | ☑ release | `target/release/bundle/nsis/PocketRocket_<v>_x64-setup.exe` |
 | Installer size acceptable | ☑ 29.7 MB (unused vendored Claude CLI pruned) | `PocketRocket_0.2.0_x64-setup.exe` |
 | Runs with system Node ≥ 22.13 and with the bundled Node 24 sidecar | ☑ both | splash shows runtime; `hub.log` startup line |
-| First run: onboarding wizard appears, provider check works, first bot created | ☑ Playwright run | fresh `%APPDATA%\com.pocketrocket.app` |
+| First run: onboarding wizard appears, provider check works, first bot created | ☑ Playwright run | fresh `%APPDATA%\com.pocketrocket.crew` |
 | Legacy Claudebot data migrated on first launch | ☑ verified (config + db) | launch with old `com.claudebot.desktop` present |
 | Quit kills the hub + provider children (no orphan `node`/`opencode`) | ☑ (shutdown deadlock fixed) | `tasklist` after quit |
 | `hub.log` rotates (2 MB × 5) | ☑ code | fill the log |
@@ -62,8 +62,8 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | SmartScreen warning documented (unsigned) | ☑ | README, site FAQ |
 | Code signing certificate | ☐ deferred (decided) | — |
 | Auto-updater | ☐ deferred (decided) | — |
-| Uninstall leaves no service/task; data dir kept by default, deletable via checkbox (documented) | ☑ | No service, scheduled task or autostart entry (`grep -riE "schtasks\|autostart\|CurrentVersion.Run" packages/desktop/src-tauri/src` → nothing). The NSIS uninstaller deletes `$INSTDIR` + shortcuts, plus an opt-in "Also delete all bots, conversations and settings" checkbox (unchecked by default) that also removes `%APPDATA%\com.pocketrocket.app\`. Data retention documented in README → Uninstalling. |
-| Uninstall tested both ways: checkbox left unchecked (data dir survives) and checkbox ticked (data dir removed) | ☐ | uninstall once with the box unchecked, confirm `%APPDATA%\com.pocketrocket.app\` still exists; reinstall, uninstall again with the box ticked, confirm it's gone |
+| Uninstall leaves no service/task; data dir kept by default, deletable via checkbox (documented) | ☑ | No service, scheduled task or autostart entry (`grep -riE "schtasks\|autostart\|CurrentVersion.Run" packages/desktop/src-tauri/src` → nothing). The NSIS uninstaller deletes `$INSTDIR` + shortcuts, plus an opt-in "Also delete all bots, conversations and settings" checkbox (unchecked by default) that also removes `%APPDATA%\com.pocketrocket.crew\`. Data retention documented in README → Uninstalling. |
+| Uninstall tested both ways: checkbox left unchecked (data dir survives) and checkbox ticked (data dir removed) | ☐ | uninstall once with the box unchecked, confirm `%APPDATA%\com.pocketrocket.crew\` still exists; reinstall, uninstall again with the box ticked, confirm it's gone |
 
 ## 4. Providers
 

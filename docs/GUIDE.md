@@ -89,7 +89,7 @@ bypass mode with `POCKETROCKET_BYPASS_PERMISSIONS` (see [CONFIGURATION.md](CONFI
 
 The hub always requires a bearer token — every run mode, no exceptions. It's minted on first
 start, stored in `<data>/hub-token`, and reused on later starts (so restarting the hub doesn't
-lock an open window out), printed as a URL (`http://127.0.0.1:7788/#token=…`); the desktop app and
+lock an open window out), printed as a URL (`http://127.0.0.1:7790/#token=…`); the desktop app and
 web UI consume that fragment automatically.
 
 PocketRocket has had two internal security reviews; what they changed is under **Security** in

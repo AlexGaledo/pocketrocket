@@ -159,7 +159,7 @@ export const useStore = create<State>((set, get) => ({
   bots: [],
   rooms: [],
   botStates: {},
-  activeRoomId: localStorage.getItem('pocketrocket.activeRoom'),
+  activeRoomId: localStorage.getItem('prcrew.activeRoom'),
   messages: {},
   loaded: {},
   history: {},
@@ -167,8 +167,8 @@ export const useStore = create<State>((set, get) => ({
   unread: {},
   usage: {},
   memory: {},
-  panelOpen: !matches(NARROW_PANEL_QUERY) && localStorage.getItem('pocketrocket.panel') !== '0',
-  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('pocketrocket.sidebar') !== '0',
+  panelOpen: !matches(NARROW_PANEL_QUERY) && localStorage.getItem('prcrew.panel') !== '0',
+  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('prcrew.sidebar') !== '0',
   panelTab: 'memory',
   panelBotId: null,
   dialog: null,
@@ -306,7 +306,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setActiveRoom: (id) => {
-    if (id) localStorage.setItem('pocketrocket.activeRoom', id);
+    if (id) localStorage.setItem('prcrew.activeRoom', id);
     const unread = { ...get().unread };
     if (id) delete unread[id];
     set({ activeRoomId: id, unread });
@@ -371,16 +371,16 @@ export const useStore = create<State>((set, get) => ({
     wsSend({ type: 'turn.interrupt', turnId });
   },
   openPanel: (tab, botId) => {
-    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('pocketrocket.panel', '1');
+    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('prcrew.panel', '1');
     set({ panelOpen: true, panelTab: tab, panelBotId: botId === undefined ? get().panelBotId : botId });
   },
   closePanel: () => {
-    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('pocketrocket.panel', '0');
+    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('prcrew.panel', '0');
     set({ panelOpen: false });
   },
   toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
   setSidebarOpen: (open) => {
-    if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
+    if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('prcrew.sidebar', open ? '1' : '0');
     set({ sidebarOpen: open });
   },
   openDialog: (dialog) => set({ dialog }),

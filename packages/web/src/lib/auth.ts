@@ -1,14 +1,14 @@
 /**
  * Desktop auth bootstrap. When PocketRocket is launched by the desktop shell the URL is
- * http://127.0.0.1:7788/?desktop=1#token=<hex>. We stash the token + desktop flag in
+ * http://127.0.0.1:7790/?desktop=1#token=<hex>. We stash the token + desktop flag in
  * sessionStorage (survives reloads within the tab, not across tabs/restarts) and strip the
  * hash so it never ends up in history or gets shared accidentally.
  *
  * This runs once, as a side effect of importing this module. Import it before any fetch()
  * or WebSocket connection is made (lib/api.ts and lib/ws.ts both do).
  */
-const TOKEN_KEY = 'pocketrocket.token';
-const DESKTOP_KEY = 'pocketrocket.desktop';
+const TOKEN_KEY = 'prcrew.token';
+const DESKTOP_KEY = 'prcrew.desktop';
 
 function boot() {
   try {

@@ -40,7 +40,7 @@ export function ClaudeSection() {
     <>
       <SectionHeader
         title={multiple ? 'Connection' : 'Claude'}
-        description={multiple ? 'Which service your bots run on, and how it signs in.' : 'How PocketRocket reaches Claude.'}
+        description={multiple ? 'Which service your bots run on, and how it signs in.' : 'How PocketRocket Crew reaches Claude.'}
       />
 
       <Group>

@@ -45,7 +45,7 @@ export function TokenPrompt() {
         <div id="token-prompt-title" className="mb-1 text-[15px] font-semibold">Paste the hub token</div>
         <p className="mb-3 text-muted">
           The hub prints this as part of a URL like{' '}
-          <span className="font-mono">http://127.0.0.1:7788/#token=&hellip;</span> when it starts, and stores the
+          <span className="font-mono">http://127.0.0.1:7790/#token=&hellip;</span> when it starts, and stores the
           same value in <span className="font-mono">&lt;data&gt;/hub-token</span>.
         </p>
         <Input

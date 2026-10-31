@@ -11,7 +11,7 @@ Switch from the **Connection** menu:
 
 | Mode | What happens | State lives in |
 |---|---|---|
-| **Local: this PC** (default) | The app starts its own hub as a child process and shuts it down on quit. No network hop. | `%APPDATA%\com.pocketrocket.app\data\` — SQLite db (WAL), bot memories, workspace, skills. `hub.log` next to it. |
+| **Local: this PC** (default) | The app starts its own hub as a child process and shuts it down on quit. No network hop. | `%APPDATA%\com.pocketrocket.crew\data\` — SQLite db (WAL), bot memories, workspace, skills. `hub.log` next to it. |
 | **VPS over SSH tunnel** | Opens an SSH tunnel to the hub on your server itself, waits for it, and respawns the tunnel if it drops. Gets the virtual desktop/screen. | on the VPS |
 | **Attach** | Connects to a hub you already run (`pnpm dev` / `pnpm start`). | wherever that hub points |
 
@@ -23,31 +23,31 @@ and a changed host key is refused.
 
 ```bash
 # once, on the VPS: install Node 22.13+, pnpm, and the Claude CLI
-scripts/deploy.sh <host>            # creates the `pocketrocket` user, uploads, installs, builds, (re)starts both systemd units
-ssh -L 7788:127.0.0.1:7788 <host>   # then open the token URL printed by the hub (see below)
+scripts/deploy.sh <host>            # creates the `pocketrocket-crew` user, uploads, installs, builds, (re)starts both systemd units
+ssh -L 7790:127.0.0.1:7790 <host>   # then open the token URL printed by the hub (see below)
 ```
 
-Everything runs as an unprivileged `pocketrocket` system user, not root; `deploy/setup-vps.sh`
+Everything runs as an unprivileged `pocketrocket-crew` system user, not root; `deploy/setup-vps.sh`
 creates it the first time. Log the Claude CLI in **as that user**, since that is who runs it:
 
 ```bash
-sudo -u pocketrocket -H claude
+sudo -u pocketrocket-crew -H claude
 ```
 
-The service (`/etc/systemd/system/pocketrocket.service`) binds `127.0.0.1:7788` only and requires
+The service (`/etc/systemd/system/pocketrocket-crew.service`) binds `127.0.0.1:7790` only and requires
 the hub token like every other mode: read it with
-`sudo cat /home/pocketrocket/pocketrocket/data/hub-token` and open
-`http://127.0.0.1:7788/#token=<token>` through the tunnel. **Never expose the port directly**;
-reach it over an SSH tunnel or Tailscale. Data lives in `/home/pocketrocket/pocketrocket/data/` on
-the VPS. Logs: `journalctl -u pocketrocket -f`.
+`sudo cat /home/pocketrocket-crew/pocketrocket-crew/data/hub-token` and open
+`http://127.0.0.1:7790/#token=<token>` through the tunnel. **Never expose the port directly**;
+reach it over an SSH tunnel or Tailscale. Data lives in `/home/pocketrocket-crew/pocketrocket-crew/data/` on
+the VPS. Logs: `journalctl -u pocketrocket-crew -f`.
 
 ## Screen: a persistent desktop the bots and you share
 
 `deploy/setup-vps.sh` (run by `scripts/deploy.sh`) installs Xvfb + XFCE + x11vnc + noVNC +
-xdotool/scrot + a pinned Playwright Chromium, and starts `pocketrocket-screen.service`, also as
-`pocketrocket`, not root.
+xdotool/scrot + a pinned Playwright Chromium, and starts `pocketrocket-crew-screen.service`, also as
+`pocketrocket-crew`, not root.
 
-What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket`, 7 kept):
+What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket-crew`, 7 kept):
 
 - `data/workspace`: the desktop folder itself (Desktop/Downloads/Documents point here)
 - `data/desktop-home`: XFCE settings, panel layout, app config, and the X auth cookie
@@ -65,6 +65,6 @@ screenshot), so bots are told to prefer shell, file and Browser tools first. Nei
 through approval cards, so only give them to bots you trust with the logged-in sessions on that
 machine.
 
-Ops: `systemctl status pocketrocket-screen`, `journalctl -u pocketrocket-screen -f`. Restore a
-backup: stop both services, untar into `/home/pocketrocket/pocketrocket`, `chown -R
-pocketrocket:pocketrocket` it, start them again.
+Ops: `systemctl status pocketrocket-crew-screen`, `journalctl -u pocketrocket-crew-screen -f`. Restore a
+backup: stop both services, untar into `/home/pocketrocket-crew/pocketrocket-crew`, `chown -R
+pocketrocket-crew:pocketrocket-crew` it, start them again.

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 
-const HUB = process.env.HUB_URL ?? 'http://127.0.0.1:7788';
+const HUB = process.env.HUB_URL ?? 'http://127.0.0.1:7790';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

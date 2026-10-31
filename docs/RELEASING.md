@@ -6,7 +6,7 @@ the Releases page.
 
 ## Checklist
 
-1. **Close the running app.** `PocketRocket.exe` (and any `node.exe` sidecar it spawned) must not
+1. **Close the running app.** `PocketRocketCrew.exe` (and any `node.exe` sidecar it spawned) must not
    be running before a local build — Windows can't overwrite a binary that's in use, and the
    installer will silently fail or leave a half-written `target/` dir.
 
@@ -50,7 +50,7 @@ the Releases page.
 
 6. **Watch the workflow.** `gh run watch` or the Actions tab. It runs `pnpm test`, builds the hub
    bundle + web UI + fetches the Node sidecar (`pnpm desktop:prepare`), then
-   `tauri-apps/tauri-action` builds the NSIS installer and attaches `PocketRocket_x.y.z_x64-setup.exe`
+   `tauri-apps/tauri-action` builds the NSIS installer and attaches `PocketRocket Crew_x.y.z_x64-setup.exe`
    to the Release at tag `vx.y.z`.
 
 7. **Verify the installer.** Download it from the freshly created Release, run it on a clean (or
@@ -87,7 +87,7 @@ pnpm desktop:build
 This runs `pnpm desktop:prepare` (hub bundle + web build + Node sidecar fetch) followed by
 `cargo tauri build`. The installer lands at
 `packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe`. As in step 1 above, make sure
-`PocketRocket.exe` isn't running first.
+`PocketRocketCrew.exe` isn't running first.
 
 `node scripts/version.mjs --check` and `cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml`
 are both worth running before a local build too — they catch version drift and a stale

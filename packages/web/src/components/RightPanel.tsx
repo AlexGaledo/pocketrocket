@@ -98,13 +98,13 @@ function ScreenTab() {
         </div>
       ) : local ? (
         <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
-          <p className="font-medium text-fg">Screen is available when PocketRocket runs on a server.</p>
+          <p className="font-medium text-fg">Screen is available when PocketRocket Crew runs on a server.</p>
           <p>A server hub runs a live Chromium you can watch here: log into your accounts once, and bots with the <span className="font-mono">Browser</span> tool work inside that same logged-in browser.</p>
         </div>
       ) : (
         <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
           <p className="font-medium text-fg">No virtual screen on this computer.</p>
-          <p>On the VPS the screen is a service: <code className="font-mono">systemctl status pocketrocket-screen</code>. Set it up with <code className="font-mono">bash deploy/setup-vps.sh</code>.</p>
+          <p>On the VPS the screen is a service: <code className="font-mono">systemctl status pocketrocket-crew-screen</code>. Set it up with <code className="font-mono">bash deploy/setup-vps.sh</code>.</p>
           <p>When it runs you get a live Chromium here: log into your accounts once, then give bots the <span className="font-mono">Browser</span> tool and they work inside that same logged-in browser while you watch.</p>
         </div>
       )}

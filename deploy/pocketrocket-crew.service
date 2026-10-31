@@ -1,32 +1,37 @@
 [Unit]
-Description=PocketRocket hub
+Description=PocketRocket Crew hub
 After=network.target
-Wants=pocketrocket-screen.service
-After=pocketrocket-screen.service
+Wants=pocketrocket-crew-screen.service
+After=pocketrocket-crew-screen.service
 
 [Service]
 Type=simple
-User=pocketrocket
-Group=pocketrocket
-Environment=HOME=/home/pocketrocket
-Environment=PATH=/home/pocketrocket/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=POCKETROCKET_DATA=/home/pocketrocket/pocketrocket/data
-Environment=XAUTHORITY=/home/pocketrocket/pocketrocket/data/desktop-home/.Xauthority
-WorkingDirectory=/home/pocketrocket/pocketrocket/packages/hub
-ExecStart=/home/pocketrocket/pocketrocket/packages/hub/node_modules/.bin/tsx src/index.ts
+User=pocketrocket-crew
+Group=pocketrocket-crew
+Environment=HOME=/home/pocketrocket-crew
+Environment=PATH=/home/pocketrocket-crew/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=POCKETROCKET_DATA=/home/pocketrocket-crew/pocketrocket-crew/data
+Environment=XAUTHORITY=/home/pocketrocket-crew/pocketrocket-crew/data/desktop-home/.Xauthority
+# Ports and display differ from stock PocketRocket (7788, :99, 9222, 6080) so both can run on one VPS.
+Environment=PORT=7790
+Environment=SCREEN_DISPLAY=:98
+Environment=CDP_URL=http://127.0.0.1:9223
+Environment=SCREEN_URL=http://127.0.0.1:6081
+WorkingDirectory=/home/pocketrocket-crew/pocketrocket-crew/packages/hub
+ExecStart=/home/pocketrocket-crew/pocketrocket-crew/packages/hub/node_modules/.bin/tsx src/index.ts
 Restart=always
 RestartSec=3
 KillMode=control-group
 
 # Hardening. PrivateTmp isolates this unit's own /tmp; BindReadOnlyPaths punches through just far
 # enough to let the Desktop tool's xdotool/scrot (spawned in-process, see
-# packages/hub/src/agent/desktopTools.ts) reach the X11 socket that pocketrocket-screen.service
+# packages/hub/src/agent/desktopTools.ts) reach the X11 socket that pocketrocket-crew-screen.service
 # creates in the real /tmp. The "-" prefix means a missing source directory is skipped instead of
 # failing the unit (e.g. before the screen unit has ever started).
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/pocketrocket/pocketrocket/data /home/pocketrocket
+ReadWritePaths=/home/pocketrocket-crew/pocketrocket-crew/data /home/pocketrocket-crew
 PrivateTmp=yes
 BindReadOnlyPaths=-/tmp/.X11-unix
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

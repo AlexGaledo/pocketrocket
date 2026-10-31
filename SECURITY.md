@@ -7,8 +7,8 @@ Please report security issues via [GitHub private security advisories](https://g
 ## How PocketRocket is designed to be safe
 
 - The hub binds to `127.0.0.1` only, on every platform and in every run mode (local, VPS, screen). It is never meant to be reachable from another host directly.
-- **Never expose the hub's port (default `7788`) to the internet or a LAN.** Reach a remote hub over an SSH tunnel or a private overlay network (e.g. Tailscale) instead.
-- The hub always requires a bearer token — there is no unauthenticated mode. `POCKETROCKET_TOKEN` wins when set; otherwise a fresh token is minted on every start, written to `<data>/hub-token` (0600), and printed at startup as `http://127.0.0.1:7788/#token=…`. The desktop app and web UI both pick the token up from that URL fragment automatically; `pnpm start` users read it from the printed line or the file.
+- **Never expose the hub's port (default `7790`) to the internet or a LAN.** Reach a remote hub over an SSH tunnel or a private overlay network (e.g. Tailscale) instead.
+- The hub always requires a bearer token — there is no unauthenticated mode. `POCKETROCKET_TOKEN` wins when set; otherwise a fresh token is minted on every start, written to `<data>/hub-token` (0600), and printed at startup as `http://127.0.0.1:7790/#token=…`. The desktop app and web UI both pick the token up from that URL fragment automatically; `pnpm start` users read it from the printed line or the file.
 - REST/WS requests with an `Origin` header that isn't `http://127.0.0.1:<port>` or `http://localhost:<port>` are rejected — including `Origin: null` (e.g. a sandboxed iframe) — to block CSRF from arbitrary sites and DNS-rebinding attacks. `/screen/*` (the noVNC desktop bridge) requires the same token as every other route.
 - Claude Code CLI credentials (subscription login) stay wherever the CLI itself stores them; an
   `ANTHROPIC_API_KEY` you set instead lives in `data/secrets.json` (or your environment). Neither

@@ -177,7 +177,7 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
               ))}
               {check.exePath && (
                 <span className="mt-1.5 block text-muted">
-                  PocketRocket looked for it at <PrivatePath path={check.exePath} />
+                  PocketRocket Crew looked for it at <PrivatePath path={check.exePath} />
                 </span>
               )}
             </li>

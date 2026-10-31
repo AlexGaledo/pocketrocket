@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Daily snapshot of PocketRocket's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
-# Installed as /etc/cron.daily/pocketrocket-backup by setup-vps.sh. Keeps the 7 newest archives.
+# Daily snapshot of PocketRocket Crew's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
+# Installed as /etc/cron.daily/pocketrocket-crew-backup by setup-vps.sh. Keeps the 7 newest archives.
 set -euo pipefail
-ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket/pocketrocket}"
-OUT="${POCKETROCKET_BACKUPS:-/var/backups/pocketrocket}"
+ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket-crew/pocketrocket-crew}"
+OUT="${POCKETROCKET_BACKUPS:-/var/backups/pocketrocket-crew}"
 mkdir -p "$OUT"
 stamp="$(date +%F-%H%M)"
 tar -czf "$OUT/data-$stamp.tgz" -C "$ROOT" \

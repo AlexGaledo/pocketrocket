@@ -37,7 +37,7 @@ export function AppearanceSection() {
 
   return (
     <>
-      <SectionHeader title="Appearance" description="How PocketRocket looks and sounds." />
+      <SectionHeader title="Appearance" description="How PocketRocket Crew looks and sounds." />
 
       <Group title="Theme" titleId={themeLabelId}>
         {/* A group of toggle buttons (aria-pressed), not tabs: picking one changes a setting, it doesn't swap a view. */}

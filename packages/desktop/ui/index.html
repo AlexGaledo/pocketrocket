@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>PocketRocket</title>
+<title>PocketRocket Crew</title>
 <style>
   :root {
     color-scheme: light;
@@ -169,7 +169,7 @@
         </svg>
       </span>
       <div class="head-text">
-        <h1>PocketRocket</h1>
+        <h1>PocketRocket Crew</h1>
         <div class="status-line" role="status"><span class="dot" id="dot"></span><span id="status-text">Starting…</span></div>
       </div>
     </header>
@@ -182,7 +182,7 @@
       </div>
     </div>
 
-    <p class="intro" id="intro" hidden>Welcome. Pick where your bots run. If you already deployed PocketRocket to a server, find it below.</p>
+    <p class="intro" id="intro" hidden>Welcome. Pick where your bots run. If you already deployed PocketRocket Crew to a server, find it below.</p>
 
     <section class="discover" id="discover" aria-labelledby="discover-title" hidden>
       <div class="section-title"><span id="discover-title">Find my servers</span><span class="hint">from ~/.ssh/config</span></div>
@@ -239,7 +239,7 @@
     <section class="fields" id="fields-port">
       <div class="field">
         <label for="port-input">Port <span class="hint">1024–65535</span></label>
-        <input id="port-input" type="number" min="1024" max="65535" step="1" value="7788" aria-describedby="port-error" />
+        <input id="port-input" type="number" min="1024" max="65535" step="1" value="7790" aria-describedby="port-error" />
         <div class="field-error" id="port-error" hidden></div>
       </div>
     </section>
@@ -253,7 +253,7 @@
       <span class="spacer"></span>
       <button class="btn" id="retry">Retry</button>
       <button class="btn" id="save" disabled>Save and connect</button>
-      <button class="btn primary" id="back" hidden>Back to PocketRocket</button>
+      <button class="btn primary" id="back" hidden>Back to PocketRocket Crew</button>
     </div>
   </div>
 </div>
@@ -264,7 +264,7 @@
   const MODES = ['local', 'remote', 'attach'];
   const cards = { local: $('card-local'), remote: $('card-remote'), attach: $('card-attach') };
 
-  let cfg = { mode: 'local', sshHost: '', port: 7788, hubDir: null };
+  let cfg = { mode: 'local', sshHost: '', port: 7790, hubDir: null };
   let selectedMode = cfg.mode;
   let lastStatus = null;
   let busy = false;
@@ -382,7 +382,7 @@
       selectedMode = cfg.mode;
       $('host-input').value = cfg.sshHost || '';
       $('host-input').dataset.touched = '';
-      $('port-input').value = cfg.port || 7788;
+      $('port-input').value = cfg.port || 7790;
       closeDiscover();
     }
     render();
@@ -411,10 +411,10 @@
 
   async function loadCfg() {
     try { cfg = await invoke('get_config'); }
-    catch { cfg = { mode: 'local', sshHost: '', port: 7788, hubDir: null }; }
+    catch { cfg = { mode: 'local', sshHost: '', port: 7790, hubDir: null }; }
     selectedMode = cfg.mode;
     $('host-input').value = cfg.sshHost || '';
-    $('port-input').value = cfg.port || 7788;
+    $('port-input').value = cfg.port || 7790;
     render();
   }
 
@@ -571,8 +571,7 @@
   const KIND = {
     running: ['Running', 'ok'],
     stopped: ['Installed, not running', 'warn'],
-    legacy: ['Old Claudebot', 'warn'],
-    none: ['No PocketRocket', ''],
+    none: ['No PocketRocket Crew', ''],
     hostKeyUnknown: ['New host key', 'warn'],
     hostKeyChanged: ['Host key changed', 'bad'],
     needsKey: ['Needs your SSH key', 'warn'],
@@ -639,7 +638,7 @@
     }
     const actions = el('div', { className: 'result-actions' });
     if (r.kind === 'running') {
-      actions.append(button('Use this server', true, () => saveConfig({ mode: 'remote', sshHost: r.alias, port: portError() ? 7788 : portValue(), hubDir: cfg.hubDir || null })));
+      actions.append(button('Use this server', true, () => saveConfig({ mode: 'remote', sshHost: r.alias, port: portError() ? 7790 : portValue(), hubDir: cfg.hubDir || null })));
     }
     if (r.kind === 'hostKeyUnknown') {
       const fp = fingerprints.get(r.alias);

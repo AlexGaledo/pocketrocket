@@ -123,16 +123,16 @@ export function Onboarding() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
+    <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket Crew">
       {/* m-auto rather than centring from the overlay: a card taller than a small window can still scroll to its top. */}
       <div className="panel m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8">
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
             <RocketMark />
-            <div className="text-[22px] font-semibold tracking-tight">PocketRocket</div>
+            <div className="text-[22px] font-semibold tracking-tight">PocketRocket Crew</div>
             <div className="text-[13.5px] font-medium text-muted">Your pocket fleet of AI agents</div>
             <p className="max-w-[42ch] text-[13.5px] leading-relaxed text-muted">
-              PocketRocket runs a small team of AI bots on your machine. Message them directly, put a few in a group chat to hand off work, and approve anything risky before it happens.
+              PocketRocket Crew runs a small team of AI bots on your machine. Message them directly, put a few in a group chat to hand off work, and approve anything risky before it happens.
             </p>
             <Button variant="primary" className="mt-2" autoFocus onClick={goNext}>Get started</Button>
           </div>
@@ -238,7 +238,7 @@ export function Onboarding() {
               {botCreated ? "Your first bot is ready — say hi." : 'Create a bot whenever you like from the sidebar.'}
             </p>
             <Button variant="primary" autoFocus disabled={busy} onClick={() => void finish()}>
-              {busy ? 'Saving…' : error ? 'Try again' : 'Start using PocketRocket'}
+              {busy ? 'Saving…' : error ? 'Try again' : 'Start using PocketRocket Crew'}
             </Button>
           </div>
         )}

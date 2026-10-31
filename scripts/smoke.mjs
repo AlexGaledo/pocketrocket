@@ -1,6 +1,6 @@
 // Smoke test against a running hub: creates a bot + DM, sends a message, prints WS events until turn.end.
 //
-// Usage: node scripts/smoke.mjs [--port 7788] [--token <hex>] [--data <dir>] ["message text"]
+// Usage: node scripts/smoke.mjs [--port 7790] [--token <hex>] [--data <dir>] ["message text"]
 //        HUB=http://127.0.0.1:7791 POCKETROCKET_TOKEN=<hex> node scripts/smoke.mjs "…"
 //
 // The hub always requires a token now. Resolution order: --token, POCKETROCKET_TOKEN, then the
@@ -34,7 +34,7 @@ function tokenFromDataDir() {
 }
 const TOKEN = flag('token') ?? process.env.POCKETROCKET_TOKEN ?? tokenFromDataDir();
 if (!TOKEN) console.warn('[smoke] no token found (--token, POCKETROCKET_TOKEN or <data>/hub-token); expect 401s');
-const BASE = port ? 'http://127.0.0.1:' + port : (process.env.HUB ?? 'http://127.0.0.1:7788');
+const BASE = port ? 'http://127.0.0.1:' + port : (process.env.HUB ?? 'http://127.0.0.1:7790');
 const text = argv[0] ?? 'Create a file hello.txt in the workspace containing "hi from pocketrocket", then tell me its full path.';
 
 const authHeaders = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};

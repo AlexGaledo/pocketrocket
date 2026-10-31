@@ -167,7 +167,7 @@ function HubStatus() {
   }
 
   const cause =
-    issue?.kind === 'unreachable' ? (issue.detail ? issue.detail + ' ' : '') + 'Check that PocketRocket is running.'
+    issue?.kind === 'unreachable' ? (issue.detail ? issue.detail + ' ' : '') + 'Check that PocketRocket Crew is running.'
     : issue?.kind === 'rateLimited' ? 'The hub is pausing connections after too many failed sign-in attempts. Trying again in about ' + Math.ceil(issue.retryInMs / 1000) + ' seconds.'
     : issue?.kind === 'refused' ? 'The hub is running but refused the live connection. Reloading the page usually fixes this.'
     : 'Still trying to connect.';

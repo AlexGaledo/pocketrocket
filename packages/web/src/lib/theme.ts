@@ -20,7 +20,7 @@ export function resolveDark(mode: ThemeMode): boolean {
 export function applyTheme(mode: ThemeMode) {
   document.documentElement.classList.toggle('dark', resolveDark(mode));
   try {
-    localStorage.setItem('pocketrocket.theme', mode);
+    localStorage.setItem('prcrew.theme', mode);
   } catch {
     /* ignore */
   }

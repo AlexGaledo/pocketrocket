@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # PocketRocket "computer": a persistent XFCE desktop on a virtual display, exposed via VNC -> noVNC.
+# Display and ports come from SCREEN_DISPLAY / CDP_PORT / VNC_PORT / NOVNC_PORT (defaults below:
+# :99, 9222, 5900, 6080). The PocketRocket Crew units set :98 / 9223 / 5901 / 6081 so a stock
+# PocketRocket screen can run on the same VPS.
 # - Desktop folder = $DATA/workspace (what bots write shows up on the desktop)
 # - Desktop config/home persists in $DATA/desktop-home; Chromium profile in $DATA/browser-profile
 # - CDP on 127.0.0.1:9222 (Browser tool), xdotool/scrot on DISPLAY :99 (Desktop tool)
 # - noVNC on 127.0.0.1:6080, proxied by the hub at /screen/
-# Runs as the unprivileged `pocketrocket` user (see deploy/setup-vps.sh); everything above binds
+# Runs as the unprivileged `pocketrocket-crew` user (see deploy/setup-vps.sh); everything above binds
 # 127.0.0.1 only and X requires the cookie below. VNC itself has no password: the only way in is the
 # hub's /screen/ proxy, which already demands the hub token (a /screen-scoped httpOnly cookie), and a
 # second prompt for a VNC password on every Screen tab load added nothing but friction.
 set -euo pipefail
-export DISPLAY=:99
-DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket/data}"
+DISP="${SCREEN_DISPLAY:-:99}"
+CDP_PORT="${CDP_PORT:-9222}"; VNC_PORT="${VNC_PORT:-5900}"; NOVNC_PORT="${NOVNC_PORT:-6080}"
+export DISPLAY="$DISP"
+DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket-crew/data}"
 PROFILE="$DATA/browser-profile"
 DHOME="$DATA/desktop-home"
 WS="$DATA/workspace"
@@ -53,9 +58,9 @@ trap 'kill 0 2>/dev/null || true' EXIT
 export XAUTHORITY="$DHOME/.Xauthority"
 touch "$XAUTHORITY"
 chmod 600 "$XAUTHORITY"
-xauth -f "$XAUTHORITY" add :99 . "$(mcookie 2>/dev/null || openssl rand -hex 16)"
+xauth -f "$XAUTHORITY" add "$DISP" . "$(mcookie 2>/dev/null || openssl rand -hex 16)"
 
-Xvfb :99 -auth "$XAUTHORITY" -screen 0 "${W}x${H}x24" -nolisten tcp +extension RANDR >/dev/null 2>&1 &
+Xvfb "$DISP" -auth "$XAUTHORITY" -screen 0 "${W}x${H}x24" -nolisten tcp +extension RANDR >/dev/null 2>&1 &
 sleep 1
 
 # XFCE session pieces run with HOME=$DHOME so every setting persists in data/.
@@ -91,9 +96,9 @@ fi
 # header comment and the PocketRocket audit item 8 for the verification notes.
 "$CHROME" "${SANDBOX_ARGS[@]}" --test-type --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check \
   --disable-session-crashed-bubble --disable-features=TranslateUI --password-store=basic \
-  --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port="$CDP_PORT" --remote-debugging-address=127.0.0.1 \
   --user-data-dir="$PROFILE" --window-position=0,0 --window-size="$W,$((H-40))" \
   "https://www.google.com" >/dev/null 2>&1 &
 
-x11vnc -display :99 -localhost -nopw -forever -shared -noxdamage -rfbport 5900 -quiet >/dev/null 2>&1 &
-exec websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900
+x11vnc -display "$DISP" -localhost -nopw -forever -shared -noxdamage -rfbport "$VNC_PORT" -quiet >/dev/null 2>&1 &
+exec websockify --web /usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT"

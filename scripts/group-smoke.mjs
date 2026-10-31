@@ -1,6 +1,6 @@
 // Group-chat smoke: 3 bots, coordinator, @mention fan-out + handoff. Prints events until all bots idle for 8s.
 import WebSocket from 'ws';
-const BASE = process.env.HUB ?? 'http://127.0.0.1:7788';
+const BASE = process.env.HUB ?? 'http://127.0.0.1:7790';
 const text = process.argv[2] ?? '@planner: we need a tiny CLI script `greet.js` in the workspace that prints "hello <name>". Split into: @coder writes it, @reviewer checks it and reports back. Keep every message to 2 sentences.';
 
 async function api(method, path, body) {

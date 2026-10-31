@@ -10,7 +10,7 @@ import { RocketMark } from '../RocketMark';
 import { authPhrase, PrivateEmail } from './ConnectionStatus';
 import { Card, Group, SectionHeader } from './parts';
 
-const REPO_URL = 'https://github.com/AlexGaledo/pocketrocket';
+const REPO_URL = 'https://github.com/AlexGaledo/pocketrocket-crew';
 const LINKS: { href: string; label: string }[] = [
   { href: REPO_URL + '/releases', label: 'Check for updates' },
   { href: 'https://pocketrocket-chi.vercel.app', label: 'Website' },
@@ -32,7 +32,7 @@ export function AboutSection({ health }: { health: HealthResponse | null }) {
         <div className="flex items-center gap-4">
           <RocketMark size={52} />
           <div>
-            <div className="text-[15px] font-semibold tracking-tight">PocketRocket</div>
+            <div className="text-[15px] font-semibold tracking-tight">PocketRocket Crew</div>
             <div className="text-[12.5px] text-muted">{health?.version ? 'Version ' + health.version : 'Version unknown'}</div>
             <div className="text-[12.5px] text-muted">Your pocket fleet of AI agents.</div>
           </div>

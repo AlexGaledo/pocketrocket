@@ -1,4 +1,4 @@
-//! First-run discovery: which servers in ~/.ssh/config already run PocketRocket, and whether Claude Code is
+//! First-run discovery: which servers in ~/.ssh/config already run PocketRocket Crew, and whether Claude Code is
 //! signed in on this PC.
 //!
 //! Safety rules this module is built around:
@@ -440,13 +440,13 @@ pub fn list_hosts() -> HostList {
 pub const SCAN_SCRIPT: &str = concat!(
     "echo pr_scan=1; ",
     "u=$(id -u 2>/dev/null); echo uid=$u; ",
-    "echo active=$(systemctl is-active pocketrocket 2>/dev/null); ",
-    "for s in pocketrocket claudebot; do if systemctl cat $s.service >/dev/null 2>&1 || [ -f /etc/systemd/system/$s.service ]; then echo unit_$s=1; fi; done; ",
-    "for d in /home/pocketrocket/pocketrocket /root/pocketrocket /root/claudebot; do if [ -d $d/packages/hub ]; then echo dir=$d; break; fi; done; ",
-    "h=$(curl -fsS -m 3 http://127.0.0.1:7788/api/health 2>/dev/null || wget -q -T 3 -O - http://127.0.0.1:7788/api/health 2>/dev/null); ",
+    "echo active=$(systemctl is-active pocketrocket-crew 2>/dev/null); ",
+    "if systemctl cat pocketrocket-crew.service >/dev/null 2>&1 || [ -f /etc/systemd/system/pocketrocket-crew.service ]; then echo unit_pocketrocket=1; fi; ",
+    "for d in /home/pocketrocket-crew/pocketrocket-crew; do if [ -d $d/packages/hub ]; then echo dir=$d; break; fi; done; ",
+    "h=$(curl -fsS -m 3 http://127.0.0.1:7790/api/health 2>/dev/null || wget -q -T 3 -O - http://127.0.0.1:7790/api/health 2>/dev/null); ",
     "printf \"health=%s\\n\" \"$(printf %s \"$h\" | tr -d \"\\r\\n\" | head -c 1000)\"; ",
-    "c=; if [ \"$u\" = 0 ]; then c=$(timeout 3 sudo -n -u pocketrocket -H /home/pocketrocket/.local/bin/claude auth status 2>/dev/null); ",
-    "elif [ \"$(id -un 2>/dev/null)\" = pocketrocket ]; then c=$(timeout 3 /home/pocketrocket/.local/bin/claude auth status 2>/dev/null); fi; ",
+    "c=; if [ \"$u\" = 0 ]; then c=$(timeout 3 sudo -n -u pocketrocket-crew -H /home/pocketrocket-crew/.local/bin/claude auth status 2>/dev/null); ",
+    "elif [ \"$(id -un 2>/dev/null)\" = pocketrocket-crew ]; then c=$(timeout 3 /home/pocketrocket-crew/.local/bin/claude auth status 2>/dev/null); fi; ",
     "printf \"claude=%s\\n\" \"$(printf %s \"$c\" | tr -d \"\\r\\n\" | head -c 1000)\"; ",
     "exit 0"
 );
@@ -472,13 +472,12 @@ pub struct Facts {
     pub uid: Option<String>,
     pub active: Option<String>,
     pub unit_pocketrocket: bool,
-    pub unit_claudebot: bool,
     pub dir: Option<String>,
     pub health: Option<String>,
     pub claude: Option<String>,
 }
 
-const KNOWN_DIRS: [&str; 3] = ["/home/pocketrocket/pocketrocket", "/root/pocketrocket", "/root/claudebot"];
+const KNOWN_DIRS: [&str; 1] = ["/home/pocketrocket-crew/pocketrocket-crew"];
 
 fn clean(v: &str, max: usize) -> String {
     v.chars().filter(|c| !c.is_control()).take(max).collect()
@@ -500,7 +499,6 @@ pub fn parse_facts(stdout: &[u8]) -> Facts {
             "uid" if f.uid.is_none() => f.uid = only(v, 10, |c| c.is_ascii_digit()),
             "active" if f.active.is_none() => f.active = only(v, 20, |c| c.is_ascii_lowercase() || c == '-'),
             "unit_pocketrocket" => f.unit_pocketrocket |= v == "1",
-            "unit_claudebot" => f.unit_claudebot |= v == "1",
             "dir" if f.dir.is_none() => f.dir = KNOWN_DIRS.iter().find(|d| **d == v).map(|d| d.to_string()),
             "health" if f.health.is_none() && !v.is_empty() => f.health = Some(clean(v, 1000)),
             "claude" if f.claude.is_none() && !v.is_empty() => f.claude = Some(clean(v, 1000)),
@@ -554,7 +552,7 @@ pub fn health_version(json: &str) -> Option<String> {
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub alias: String,
-    /// running | stopped | legacy | none | hostKeyUnknown | hostKeyChanged | needsKey | unreachable
+    /// running | stopped | none | hostKeyUnknown | hostKeyChanged | needsKey | unreachable
     pub kind: String,
     pub detail: String,
     pub version: Option<String>,
@@ -581,25 +579,23 @@ pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[
         if let Some(v) = f.health.as_deref().and_then(health_version) {
             r.version_matches = (!v.is_empty()).then(|| v == mine);
             let detail = if v.is_empty() {
-                "PocketRocket hub is running.".to_string()
+                "PocketRocket Crew hub is running.".to_string()
             } else if v == mine {
-                format!("PocketRocket {v} is running.")
+                format!("PocketRocket Crew {v} is running.")
             } else {
-                format!("PocketRocket {v} is running (this app is {mine}).")
+                format!("PocketRocket Crew {v} is running (this app is {mine}).")
             };
             r.version = (!v.is_empty()).then_some(v);
             set(&mut r, "running", detail);
-        } else if f.unit_pocketrocket || f.dir.as_deref().is_some_and(|d| d.ends_with("/pocketrocket")) {
+        } else if f.unit_pocketrocket || f.dir.is_some() {
             let state = f.active.as_deref().unwrap_or("unknown");
             set(&mut r, "stopped", format!(
-                "PocketRocket is installed but its hub isn't answering on 127.0.0.1:7788 (service: {state}). On the server: systemctl status pocketrocket"
+                "PocketRocket Crew is installed but its hub isn't answering on 127.0.0.1:7790 (service: {state}). On the server: systemctl status pocketrocket-crew"
             ));
-        } else if f.unit_claudebot || f.dir.as_deref() == Some("/root/claudebot") {
-            set(&mut r, "legacy", "An old Claudebot install. Deploy PocketRocket to it (scripts/deploy.sh) to migrate it.".into());
         } else if timed_out {
             set(&mut r, "unreachable", "The server answered but the check didn't finish within 8 seconds. Try again.".into());
         } else {
-            set(&mut r, "none", "Reachable, no PocketRocket here yet. Deploy it with scripts/deploy.sh.".into());
+            set(&mut r, "none", "Reachable, no PocketRocket Crew here yet. Deploy it with scripts/deploy.sh.".into());
         }
         return r;
     }
@@ -609,7 +605,7 @@ pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[
     }
     match ssh::classify_failure(stderr) {
         ssh::SshFailure::HostKeyChanged => set(&mut r, "hostKeyChanged", format!(
-            "{alias}'s host key has CHANGED. This can mean the connection is being intercepted. PocketRocket won't connect or \
+            "{alias}'s host key has CHANGED. This can mean the connection is being intercepted. PocketRocket Crew won't connect or \
              replace the key. If you rebuilt the server, verify the new key with your provider and fix known_hosts yourself."
         )),
         ssh::SshFailure::HostKeyUnknown => set(&mut r, "hostKeyUnknown", "This PC hasn't seen this server's host key before.".into()),
@@ -620,7 +616,7 @@ pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[
         _ if exit_code.is_some_and(|c| c != 255) => {
             set(&mut r, "none", "Reachable, but the check couldn't run there (not a Linux shell?).".into())
         }
-        _ => set(&mut r, "unreachable", ssh::explain(stderr, alias, 7788)),
+        _ => set(&mut r, "unreachable", ssh::explain(stderr, alias, 7790)),
     }
     r
 }
@@ -690,7 +686,7 @@ fn verify_accepted_key(alias: &str) -> Option<String> {
     let expected = shown_fingerprints().lock().unwrap_or_else(|e| e.into_inner()).get(alias).cloned()?;
     let Some(info) = ssh_g(alias) else {
         return Some(format!(
-            "PocketRocket couldn't re-read the ssh settings for {alias} (`ssh -G {alias}` failed), so it can't tell whether the \
+            "PocketRocket Crew couldn't re-read the ssh settings for {alias} (`ssh -G {alias}` failed), so it can't tell whether the \
              key that was just stored is the one you confirmed. Nothing was saved. Run `ssh {alias}` in a terminal instead."
         ));
     };
@@ -713,7 +709,7 @@ fn verify_accepted_key(alias: &str) -> Option<String> {
     match judge_stored_key(&expected, &stored) {
         StoredKey::Confirmed => None,
         StoredKey::Unreadable => Some(format!(
-            "PocketRocket couldn't read back the host key that was just stored for {alias} (looked for {spec} in \
+            "PocketRocket Crew couldn't read back the host key that was just stored for {alias} (looked for {spec} in \
              {}), so it can't confirm it's the one you approved. Nothing was saved. Run `ssh {alias}` in a terminal instead.",
             if info.known_hosts.is_empty() { "no known_hosts file".to_string() } else { info.known_hosts.join(", ") }
         )),
@@ -723,12 +719,12 @@ fn verify_accepted_key(alias: &str) -> Option<String> {
             let removed: Vec<String> =
                 found.iter().filter(|(f, _)| remove_host_key(&spec, f)).map(|(f, _)| f.to_string_lossy().into_owned()).collect();
             let cleanup = if removed.len() == found.len() {
-                format!("PocketRocket has removed it again from {}.", removed.join(", "))
+                format!("PocketRocket Crew has removed it again from {}.", removed.join(", "))
             } else {
                 format!("Remove it yourself with `ssh-keygen -R {spec}`.")
             };
             Some(format!(
-                "The key {alias} presented doesn't match the fingerprint you confirmed, so PocketRocket won't use it. \
+                "The key {alias} presented doesn't match the fingerprint you confirmed, so PocketRocket Crew won't use it. \
                  {cleanup} Check the server."
             ))
         }
@@ -1084,7 +1080,7 @@ mod tests {
     #[test]
     fn classifies_a_running_hub() {
         let out = format!(
-            "pr_scan=1\nuid=0\nactive=active\nunit_pocketrocket=1\ndir=/home/pocketrocket/pocketrocket\n\
+            "pr_scan=1\nuid=0\nactive=active\nunit_pocketrocket=1\ndir=/home/pocketrocket-crew/pocketrocket-crew\n\
              health={{\"ok\":true,\"version\":\"{MINE}\",\"provider\":\"claude\"}}\n\
              claude={{\"loggedIn\":true,\"email\":\"a@b.com\",\"subscriptionType\":\"max\"}}\n"
         );
@@ -1102,15 +1098,16 @@ mod tests {
     }
 
     #[test]
-    fn classifies_installed_legacy_and_empty_servers() {
+    fn classifies_installed_and_empty_servers() {
         let stopped = classify("vps", Some(0), false, b"pr_scan=1\nuid=1000\nactive=failed\nunit_pocketrocket=1\nhealth=\nclaude=\n", "");
         assert_eq!(stopped.kind, "stopped");
         assert!(stopped.detail.contains("failed"));
         assert_eq!(stopped.root, Some(false));
-        let dir_only = classify("vps", Some(0), false, b"pr_scan=1\ndir=/root/pocketrocket\n", "");
+        let dir_only = classify("vps", Some(0), false, b"pr_scan=1\ndir=/home/pocketrocket-crew/pocketrocket-crew\n", "");
         assert_eq!(dir_only.kind, "stopped");
-        let legacy = classify("vps", Some(0), false, b"pr_scan=1\nactive=inactive\nunit_claudebot=1\ndir=/root/claudebot\n", "");
-        assert_eq!(legacy.kind, "legacy");
+        // A stock PocketRocket install (other dir, other unit) is not ours.
+        let stock = classify("vps", Some(0), false, b"pr_scan=1\nactive=inactive\ndir=/home/pocketrocket/pocketrocket\n", "");
+        assert_eq!(stock.kind, "none");
         let none = classify("vps", Some(0), false, b"pr_scan=1\nuid=1000\nactive=inactive\nhealth=\nclaude=\n", "");
         assert_eq!(none.kind, "none");
     }

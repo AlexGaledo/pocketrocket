@@ -121,7 +121,7 @@ export function Sidebar() {
       <div className="flex h-11 items-center justify-between px-3">
         <div className="flex items-center gap-2 text-[14px] font-semibold tracking-tight">
           <RocketMark size={24} />
-          PocketRocket
+          PocketRocket Crew
         </div>
         <div className="flex items-center gap-1">
           <span className="text-[11.5px] text-dim">{busy ? busy + ' working' : ''}</span>
