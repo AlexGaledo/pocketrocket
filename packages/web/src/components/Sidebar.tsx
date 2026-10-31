@@ -61,6 +61,8 @@ export function Sidebar() {
   const panelBotId = useStore((s) => s.panelBotId);
   const connected = useStore((s) => s.connected);
   const helloReceived = useStore((s) => s.helloReceived);
+  // P9: a paired phone may not create or edit bots and rooms, change settings or open the workspace (403).
+  const device = useStore((s) => s.device);
   // On a narrow window this sidebar is a drawer over the chat (App.tsx), so picking a chat closes it.
   const inDrawer = useMediaQuery(NARROW_SIDEBAR_QUERY);
   const leaveDrawer = () => { if (inDrawer) setSidebarOpen(false); };
@@ -148,7 +150,7 @@ export function Sidebar() {
       </button>
 
       <div className="flex-1 overflow-y-auto px-1 pb-2">
-        <SectionHeader label="Bots" onAdd={() => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
+        <SectionHeader label="Bots" onAdd={device ? undefined : () => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
         <div className="mb-3">
           {sections.map((section, i) => (
             <div key={section.key}>
@@ -185,14 +187,14 @@ export function Sidebar() {
                 </button>
                 {/* A sibling of the row button, not inside it. Shown on hover, whenever focus is anywhere in the
                     row (so Tab finds it), and always on touch screens, which have no hover to reveal it. */}
-                <button
+                {!device && <button
                   className="mr-1.5 shrink-0 rounded-full p-1.5 text-muted opacity-0 hover:bg-card2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
                   title="Bot settings"
                   aria-label={b.name + ' settings'}
                   onClick={() => openDialog({ kind: 'bot', bot: b })}
                 >
                   <Settings2 size={14} />
-                </button>
+                </button>}
               </li>
             );
                   })}
@@ -204,7 +206,7 @@ export function Sidebar() {
           {!helloReceived ? <SkeletonRows count={3} /> : !bots.length && <div className="px-3 py-2 text-[12.5px] text-muted">No bots yet.</div>}
         </div>
 
-        <SectionHeader label="Group chats" onAdd={() => openDialog({ kind: 'room', room: null })} addTitle="New group chat" />
+        <SectionHeader label="Group chats" onAdd={device ? undefined : () => openDialog({ kind: 'room', room: null })} addTitle="New group chat" />
         {!helloReceived ? (
           <SkeletonRows count={1} />
         ) : (
@@ -221,27 +223,33 @@ export function Sidebar() {
         <button className="flex h-8 flex-1 items-center gap-2 rounded-full px-3 text-[12.5px] text-muted hover:bg-panel/70 hover:text-fg" onClick={() => { leaveDrawer(); openPanel('usage'); }}>
           <BarChart3 size={14} /> Usage
         </button>
-        <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Open the shared workspace folder" onClick={() => void openWorkspace()}>
-          <FolderOpen size={15} />
-        </button>
+        {!device && (
+          <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Open the shared workspace folder" onClick={() => void openWorkspace()}>
+            <FolderOpen size={15} />
+          </button>
+        )}
         <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title="Settings" onClick={() => openDialog({ kind: 'settings' })}>
           <Settings size={15} />
         </button>
-        <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title={dark ? 'Light theme' : 'Dark theme'} onClick={toggleTheme}>
-          {dark ? <Sun size={15} /> : <Moon size={15} />}
-        </button>
+        {!device && (
+          <button className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-panel/70 hover:text-fg" title={dark ? 'Light theme' : 'Dark theme'} onClick={toggleTheme}>
+            {dark ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+        )}
       </div>
     </aside>
   );
 }
 
-function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd: () => void; addTitle: string }) {
+function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd?: () => void; addTitle: string }) {
   return (
     <div className="mb-0.5 flex items-center justify-between px-3 pt-2">
       <span className="text-[11.5px] font-medium text-dim">{label}</span>
-      <button className="rounded-full p-1 text-dim hover:bg-panel/70 hover:text-fg" onClick={onAdd} title={addTitle}>
-        <Plus size={14} />
-      </button>
+      {onAdd && (
+        <button className="rounded-full p-1 text-dim hover:bg-panel/70 hover:text-fg" onClick={onAdd} title={addTitle}>
+          <Plus size={14} />
+        </button>
+      )}
     </div>
   );
 }

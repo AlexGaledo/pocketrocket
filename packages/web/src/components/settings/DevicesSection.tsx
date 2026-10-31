@@ -10,7 +10,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { BellRing, RefreshCw, Smartphone } from 'lucide-react';
 import { useStore } from '../../store';
 import { api, type DeviceInfo, type PairingCode } from '../../lib/api';
-import { isDevice } from '../../lib/auth';
 import { currentSubscription, disablePush, enablePush, pushSupport } from '../../lib/push';
 import { Badge, Button, Field, Input, Label, Select, Switch } from '../ui';
 import { QrCode } from '../QrCode';
@@ -29,7 +28,7 @@ function ago(ts: number | null): string {
 const fmtCode = (c: string) => c.slice(0, 4) + '-' + c.slice(4);
 
 export function DevicesSection() {
-  const device = isDevice();
+  const device = useStore((s) => s.device);
   return (
     <>
       <SectionHeader
