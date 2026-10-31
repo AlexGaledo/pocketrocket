@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import {
   AUTO_MEMORY_EVERY,
   type Bot, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
+  type CauseKind, type UsageGroup,
 } from '@pocketrocket/shared';
 import type { Db, Row } from './db.js';
 
@@ -150,6 +151,7 @@ export class Repos {
       hop: (r.hop as number) ?? 0,
       turnId: (r.turn_id as string) ?? null,
       createdAt: r.created_at as number,
+      ...(r.model ? { model: r.model as string, modelReason: (r.model_reason as string) ?? undefined } : {}),
     };
   }
   insertMessage(m: Omit<Message, 'id' | 'seq' | 'createdAt'> & { id?: string }): Message {
@@ -158,9 +160,10 @@ export class Repos {
         this.db.get<{ s: number }>('SELECT COALESCE(MAX(seq),0)+1 AS s FROM messages WHERE room_id=?', m.roomId)?.s ?? 1;
       const msg: Message = { ...m, id: m.id ?? nanoid(12), seq, createdAt: now() };
       this.db.run(
-        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         msg.id, msg.roomId, msg.seq, msg.authorType, msg.authorId, msg.kind, msg.text,
         msg.payload ? JSON.stringify(msg.payload) : null, msg.causeId, msg.hop, msg.turnId, msg.createdAt,
+        msg.model ?? null, msg.modelReason ?? null,
       );
       return msg;
     });
@@ -405,11 +408,14 @@ export class Repos {
   recordUsage(u: {
     botId: string; roomId: string; turnId: string; causeId: string | null; costUsd: number; inputTokens: number;
     outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; modelUsage: unknown; durationMs: number;
+    /** P8: the model that ran, why the router chose it, and what kind of cause started the turn. */
+    model?: string; routeReason?: string; causeKind?: CauseKind;
   }) {
     this.db.run(
-      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at,model,route_reason,cause_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       u.botId, u.roomId, u.turnId, u.causeId, u.costUsd, u.inputTokens, u.outputTokens, u.cacheReadTokens,
       u.cacheWriteTokens, JSON.stringify(u.modelUsage ?? null), u.durationMs, now(),
+      u.model ?? null, u.routeReason ?? null, u.causeKind ?? null,
     );
   }
   private totalsFrom(r: Row | undefined): UsageTotals {
@@ -437,5 +443,14 @@ export class Repos {
       roomId: r.room_id as string,
       ...this.totalsFrom(r),
     }));
+  }
+
+  // ---------- P8: usage by model / cause kind ----------
+  /** Spend grouped by the model that ran or by what started the turn. Rows from before P8 group under ''. */
+  usageBy(by: 'model' | 'causeKind'): UsageGroup[] {
+    const col = by === 'model' ? 'model' : 'cause_kind';
+    return this.db
+      .all('SELECT COALESCE(' + col + ", '') k, " + SUM + ' FROM usage GROUP BY k ORDER BY cost DESC')
+      .map((r) => ({ key: r.k as string, ...this.totalsFrom(r) }));
   }
 }

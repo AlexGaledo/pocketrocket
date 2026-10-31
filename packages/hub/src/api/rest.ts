@@ -288,7 +288,8 @@ export function createRest(deps: RestDeps) {
   add('GET', '/api/usage', ({ query }) => {
     const botId = query.get('botId') ?? undefined;
     const roomId = query.get('roomId') ?? undefined;
-    return { totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown() };
+    // byModel / byCause (P8): where the money went, so automation spend is visible next to chat spend.
+    return { totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown(), byModel: repos.usageBy('model'), byCause: repos.usageBy('causeKind') };
   });
 
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
