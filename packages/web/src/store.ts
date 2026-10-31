@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState } from '@pocketrocket/shared';
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
+import type { KnowledgeStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
@@ -119,6 +120,11 @@ interface State {
    */
   helloReceived: boolean;
   _playedConnectedSound: boolean;
+  // ---- P7 ----
+  /** Latest knowledge repo status from the `knowledge.status` event; null until one arrives. */
+  knowledge: KnowledgeStatus | null;
+  /** Bumped per bot on `voice.updated`, so the Memory tab refetches voice.md and its proposals. */
+  voiceRev: Record<string, number>;
 
   setConnected: (v: boolean) => void;
   setHubIssue: (issue: HubIssue | null) => void;
@@ -178,6 +184,8 @@ export const useStore = create<State>((set, get) => ({
   account: SIGNED_OUT,
   helloReceived: false,
   _playedConnectedSound: false,
+  knowledge: null,
+  voiceRev: {},
 
   setConnected: (connected) => {
     const was = get().connected;
@@ -299,6 +307,13 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'error':
         get().toast(ev.message, true);
+        return;
+      // ---- P7 ----
+      case 'knowledge.status':
+        set({ knowledge: ev.status });
+        return;
+      case 'voice.updated':
+        set({ voiceRev: { ...s.voiceRev, [ev.botId]: (s.voiceRev[ev.botId] ?? 0) + 1 } });
         return;
       default:
         return;
