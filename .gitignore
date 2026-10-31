@@ -17,7 +17,8 @@ packages/desktop/icon-src.png
 packages/desktop/src-tauri/binaries/
 packages/hub/build/
 .vercel
-.claude/
+.claude/*
+!.claude/agents/
 
 # The detailed pre-release audit stays out of the public repo: it is a file:line map of every weakness
 # found, including personal paths and host aliases. SECURITY.md carries the summary users need.
