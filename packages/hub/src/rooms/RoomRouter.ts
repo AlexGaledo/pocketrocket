@@ -355,10 +355,16 @@ export class RoomRouter {
     const runId = o.runId ?? undefined;
     this.enqueue(bot, room, {
       causeId: o.causeId, hop: o.hop, triggerSeq: this.repos.maxSeq(room.id), note: o.note, runId,
-      causeKind: this.requiresApprovals(o.causeId) ? 'routine' : 'user',
+      causeKind: this.resumedCauseKind(o.causeId),
       onDone: runId ? (r) => this.repos.finishRun(runId, r.ok ? 'success' : 'error', r.costUsd) : undefined,
     });
     return true;
+  }
+
+  /** P2 x P5: a resumed turn keeps its thread's kind (a trigger stays 'trigger' in usage and the model router). */
+  private resumedCauseKind(causeId: string): CauseKind {
+    if (!this.requiresApprovals(causeId)) return 'user';
+    return this.repos.getMessage(causeId)?.kind === 'trigger' ? 'trigger' : 'routine';
   }
 
   /** Posts a system note into a room (FollowUp says what it did). */

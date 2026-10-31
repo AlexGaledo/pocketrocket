@@ -197,3 +197,51 @@ describe('a 3 a.m. routine parks on its card and completes after the morning app
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('a trigger turn (P5) parks on its card like a routine turn', () => {
+  it('parks under bypass, resumes on the answer without a second card, and stays a trigger turn', async () => {
+    let t = Date.UTC(2026, 10, 2, 3, 0);
+    const now = () => t;
+    const db = new Db(':memory:');
+    const repos = new Repos(db);
+    const store = new ApprovalStore(db, now);
+    const usage = new UsageTracker(repos);
+    const broker = new PermissionBroker(repos, { bypass: () => true, store, now, parkAfterMs: 20 });
+    const provider = new ScriptedProvider();
+    const router = new RoomRouter(repos, usage);
+    router.runner = new BotRunner(
+      repos, new MemoryService(), new SkillService(repos), broker, usage,
+      { dispatchFromBot: (req, tg) => router.dispatchFromBot(req, tg), setState: () => undefined },
+      { active: () => provider, get: () => provider } as unknown as ProviderRegistry, new TurnRegistry(),
+    );
+    broker.onParkedDecision = (p, d) => router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, runId: p.runId, note: 'Approval: ' + d });
+    const bot = repos.createBot({ name: 'Releaser', handle: 'releaser', title: '', description: '', avatar: '🤖', model: 'm', allowedTools: ['Bash'], maxBudgetUsd: 2 });
+    const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
+    const results: boolean[] = [];
+    const msg = router.fireTrigger(room, bot, {
+      name: 'Tag pushed', prompt: 'Push the release.',
+      event: { source: 'github.repo', id: 'ev-1', title: 'v1.2.0', text: 'tag created', from: 'octocat', url: 'https://github.com/acme/app', at: '2026-11-02T03:00:00Z', fields: {} },
+      payload: { triggerId: 'tr', fireId: 'f', name: 'Tag pushed', source: 'github.repo', eventId: 'ev-1' },
+      onDone: (r) => results.push(r.ok),
+    });
+
+    await until(() => store.listParked().length === 1);
+    await until(() => !router.isBusy(bot.id, room.id));
+    const [p] = store.listParked();
+    expect(p).toMatchObject({ botId: bot.id, roomId: room.id, causeId: msg.id, toolName: 'Bash' });
+    expect(repos.messagesAfter(room.id, 0).some((m) => m.kind === 'approval' && (m.payload as ApprovalPayload).parked)).toBe(true);
+
+    t = Date.UTC(2026, 10, 2, 8, 30);
+    let cards = 0;
+    const off = events.onEvent((ev) => { if (ev.type === 'approval.request') cards++; });
+    expect(broker.resolve(p.id, 'allow')).toBe(true);
+    await until(() => provider.inputs.length === 2 && !router.isBusy(bot.id, room.id));
+    off();
+    expect(cards).toBe(0);
+    expect(provider.inputs.at(-1)).toContain('Approval: allow');
+    const kinds = db.raw.prepare('SELECT cause_kind AS k FROM usage WHERE cause_id = ?').all(msg.id) as { k: string }[];
+    expect(kinds.length).toBeGreaterThan(0);
+    expect(kinds.every((r) => r.k === 'trigger')).toBe(true);
+    db.raw.close();
+  });
+});

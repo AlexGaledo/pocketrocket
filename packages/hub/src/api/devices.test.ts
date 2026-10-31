@@ -154,7 +154,11 @@ describe('revocation (P9.1)', () => {
 
 describe('capability split (P9.1)', () => {
   let phone: { token: string; id: string };
-  beforeAll(async () => { phone = await pair('Split'); });
+  let botId: string;
+  beforeAll(async () => {
+    phone = await pair('Split');
+    botId = hub.repos.createBot({ name: 'Shopper', handle: 'shopper', title: '', description: 'x', avatar: '🛒', model: 'claude-sonnet-5', allowedTools: ['Bash'], maxBudgetUsd: 2 }).id;
+  });
 
   it('lets a device follow the fleet, chat, run automations and open a Screen', async () => {
     for (const p of ['/api/bots', '/api/rooms', '/api/routines', '/api/settings', '/api/usage', '/api/skills', '/api/push']) {
@@ -206,6 +210,30 @@ describe('capability split (P9.1)', () => {
     await new Promise((r) => setTimeout(r, 100));
     ws.close();
     expect(messages.some((m) => m.type === 'error' && /desktop app/.test(m.message))).toBe(true);
+  });
+
+  it('lets a device take over, hand back and pause a computer, and read approval rules (P2)', async () => {
+    const bot = { id: botId };
+    expect((await req('GET', '/api/control', { token: phone.token })).status).toBe(200);
+    expect((await req('GET', '/api/computers/' + bot.id + '/control', { token: phone.token })).status).toBe(200);
+    for (const control of ['user', 'paused', 'agent']) {
+      const r = await req('PUT', '/api/computers/' + bot.id + '/control', { token: phone.token, body: { control, note: 'from the phone' } });
+      expect(r.status, control).toBe(200);
+      expect(r.json.control).toBe(control);
+    }
+    expect((await req('GET', '/api/approval-policies', { token: phone.token })).status).toBe(200);
+    expect((await req('GET', '/api/approvals/parked', { token: phone.token })).status).toBe(200);
+  });
+
+  it('refuses creating or revoking an approval rule from a device (P2)', async () => {
+    const bot = { id: botId };
+    const body = { botId: bot.id, tool: 'Bash', pattern: 'ls *', decision: 'allow' };
+    expect((await req('POST', '/api/approval-policies', { token: phone.token, body })).status).toBe(403);
+    const made = await req('POST', '/api/approval-policies', { token: TOKEN, body });
+    expect(made.status).toBe(200);
+    expect((await req('DELETE', '/api/approval-policies/' + made.json.id, { token: phone.token })).status).toBe(403);
+    expect((await req('GET', '/api/approval-policies', { token: TOKEN })).json.some((p: { id: string }) => p.id === made.json.id)).toBe(true);
+    expect((await req('DELETE', '/api/approval-policies/' + made.json.id, { token: TOKEN })).status).toBe(200);
   });
 
   it('the allowlist is closed by default for unknown routes', () => {

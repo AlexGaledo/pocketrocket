@@ -305,6 +305,14 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/computers\/[^/]+$/],
   ['POST', /^\/api\/computers\/[^/]+\/wake$/],
   ['PUT', /^\/api\/computers\/[^/]+\/keep-awake$/],
+  // P2: take over / hand back (which also answers a bot's takeover request) / pause, from the Screen tab.
+  ['GET', /^\/api\/control$/],
+  ['GET', /^\/api\/computers\/[^/]+\/control$/],
+  ['PUT', /^\/api\/computers\/[^/]+\/control$/],
+  // P2 approval rules: a phone may read them and see parked cards; creating or revoking a rule changes
+  // approvals policy, so it stays a desktop (hub token) action like "Allow for this session".
+  ['GET', /^\/api\/approval-policies$/],
+  ['GET', /^\/api\/approvals\/parked$/],
   // Automations (routine turns always go through approvals, decision Q6)
   ['GET', /^\/api\/routines$/],
   ['POST', /^\/api\/routines$/],
