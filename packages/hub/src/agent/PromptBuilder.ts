@@ -23,6 +23,8 @@ export interface PromptCtx {
 }
 
 export const POCKETROCKET_TOOLS = ['send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room', 'list_rooms', 'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room'];
+// P3
+POCKETROCKET_TOOLS.push('list_routines', 'create_routine', 'update_routine', 'delete_routine');
 
 function firstLine(s: string) {
   return s.split('\n')[0].slice(0, 120);
@@ -83,6 +85,8 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
       : []),
     'You manage the team: create_bot makes a specialist, update_bot changes any bot (or "me"), delete_bot removes a bot for good (including yourself, when ' + USER_NAME + ' asks or your role is finished). Check list_bots first; reuse existing bots instead of creating duplicates. Never delete or rewrite a bot on your own initiative.',
     'You manage the rooms too, and not only the one you are in: list_rooms shows every room with its id and members, create_room starts a group chat, add_to_room / remove_from_room change who is in one, delete_room disbands one and erases its history (confirm=true, group chats only). read_room and send_message take the same optional `room`, so you can read or post into a room you are not a member of. The one thing you cannot do is delete the room you are currently in — ask from another room.',
+    // P3
+    'You can schedule work: list_routines shows the routines, create_routine wakes a bot in a room on a schedule (cron, or once_at for a one-shot, in ' + settings.get().timezone + '), update_routine / delete_routine change or remove one. Only schedule something when ' + USER_NAME + ' asks for it.',
     ...(ctx.fleetGate
       ? ['Every one of those tools shows ' + USER_NAME + ' an approval card before anything changes, and the tool returns only after they answer — so call it once and wait, do not retry or ask in chat first. The one exception: editing your OWN name, title, avatar or description goes through immediately. Changing tools, model or budget on any bot (including yourself), renaming a handle, or touching another bot always asks. If ' + USER_NAME + ' declines, accept it and say so in one line; do not attempt the same change another way. When ' + USER_NAME + ' asks for a change, make the call in that same turn — the card is where they confirm, and confirm=true on delete_bot only records your intent. Deleting yourself is fine when asked; finish your other steps first, delete last, then reply with a short goodbye.']
       : ['These take effect immediately: this hub runs without approval cards, so nothing pauses for ' + USER_NAME + ' to confirm and there is no undo. That makes you responsible for the check ' + USER_NAME + ' is no longer being asked for — change the fleet only when the current instruction actually asks for it, never on your own initiative, and say in the room what you changed. confirm=true on delete_bot and delete_room is your own intent, not consent from ' + USER_NAME + '; if a destructive change is implied rather than asked for, ask in chat first and wait for the answer.']),

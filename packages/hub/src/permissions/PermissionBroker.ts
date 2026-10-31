@@ -15,6 +15,8 @@ export interface PermCtx {
   hop: number;
   causeId: string;
   setState: (s: 'blocked' | 'working') => void;
+  /** P3, decision Q6: a routine/trigger turn. Bypass does not apply to it; every gate still asks. */
+  strictApprovals?: boolean;
 }
 
 type Decision = ApprovalPayload['status'];
@@ -40,6 +42,8 @@ const HUB_PREFIX = 'mcp__pocketrocket__';
 const SILENT_HUB_TOOLS = new Set([
   'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
   'list_rooms', 'request_approval', ...DESKTOP_TOOL_NAMES,
+  // P3
+  'list_routines',
 ]);
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
@@ -47,7 +51,11 @@ const SILENT_HUB_TOOLS = new Set([
  * touch `decide()`, are gated identically. Before the audit every `mcp__pocketrocket__*` call was allowed
  * unconditionally and a Read-only bot could grant itself Bash (audit 2026-09-09, B6).
  */
-const GATED_HUB_TOOLS = new Set(['create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room']);
+const GATED_HUB_TOOLS = new Set([
+  'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
+  // P3: a routine a bot schedules is autonomous future spend (grok-bot-parity §4).
+  'create_routine', 'update_routine', 'delete_routine',
+]);
 
 /** How long a `request_approval` grant stays valid. */
 export const GRANT_TTL_MS = 10 * 60 * 1000;
@@ -69,6 +77,10 @@ export class PermissionBroker {
   get bypassed(): boolean {
     return !!this.opts.bypass?.();
   }
+  /** Bypass for one turn: never for a strict (routine/trigger) turn, whatever the setting says. */
+  bypassedFor(ctx: Pick<PermCtx, 'strictApprovals'>): boolean {
+    return this.bypassed && !ctx.strictApprovals;
+  }
 
   async decide(
     ctx: PermCtx,
@@ -76,7 +88,7 @@ export class PermissionBroker {
     input: Record<string, unknown>,
     opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; blockedPath?: string },
   ): Promise<PermissionResult> {
-    if (this.bypassed) return { behavior: 'allow' };
+    if (this.bypassedFor(ctx)) return { behavior: 'allow' };
     const roots = [WORKSPACE_DIR, botHome(ctx.bot.id)];
     let reason = '';
     let danger = false;
@@ -119,7 +131,7 @@ export class PermissionBroker {
     req: { action: string; command?: string; paths?: string[]; reason?: string },
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
-    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    if (this.bypassedFor(ctx)) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const danger = req.command ? classifyBash(req.command, [WORKSPACE_DIR, botHome(ctx.bot.id)]).danger : false;
     const { decision, approvalId } = await this.prompt(
       ctx, 'request_approval',
@@ -167,7 +179,7 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
-    if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    if (this.bypassedFor(ctx)) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const key = ctx.bot.id + ':' + toolName;
     if (this.alwaysAllowed.has(key)) return { allowed: true, message: 'Previously approved for this session.' };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });

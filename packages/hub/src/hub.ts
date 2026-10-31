@@ -21,6 +21,7 @@ import { BotRunner } from './agent/BotRunner.js';
 import { ModelRouter } from './agent/ModelRouter.js';
 import { classifyWithHaiku } from './agent/routerClassifier.js';
 import { RoutineScheduler } from './services/RoutineScheduler.js';
+import { FollowUp } from './services/FollowUp.js';
 import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
@@ -92,6 +93,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
     dispatchFromBot: (req, targets) => router.dispatchFromBot(req, targets),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
+    routinesChanged: () => scheduler.reload(),
   }, providers, turns);
   router.runner = runner;
   // P8: the optional classifier is a Haiku call through the Claude CLI, so it only runs while Claude is the
@@ -102,6 +104,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
   const scheduler = new RoutineScheduler(repos, router);
+  // P3: resumes turns a restart cut off, and nudges stalled handoffs.
+  const followUp = new FollowUp({ repos, router });
 
   const screenSessions = new ScreenSessions();
   const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account });
@@ -286,6 +290,9 @@ export function createHub(opts: HubOptions = {}): Hub {
         server.once('error', reject);
         server.listen(port, HOST, () => {
           port = (server.address() as { port: number }).port;
+          const resumed = followUp.resumeInterrupted();
+          if (resumed) console.log('resuming ' + resumed + ' turn(s) cut off by the previous run');
+          followUp.start();
           scheduler.start();
           // Async on purpose: an offline start must not hold the hub up (see AccountService).
           void account.start();
@@ -309,7 +316,10 @@ export function createHub(opts: HubOptions = {}): Hub {
       }),
     async shutdown() {
       scheduler.stop();
+      followUp.stop();
       account.stop();
+      // Keep the lane journal: the turns interrupted here resume on the next start (P3).
+      router.freeze();
       runner.interruptAll();
       await providers.shutdown();
       for (const c of wss.clients) c.terminate();

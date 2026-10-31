@@ -15,6 +15,15 @@ interface LaneItem {
   onDone?: (r: TurnResult) => void;
   /** P8: what started this item; feeds the model router and the usage breakdown. */
   causeKind?: CauseKind;
+  // ---- P3 ----
+  /** Routine run this item belongs to, journaled so a resumed turn can still close the run. */
+  runId?: string;
+  /** Extra line for the bot's input (a follow-up nudge, a resume after restart). */
+  note?: string;
+  /** `lane_journal` row; removed when the item settles. */
+  journalId?: string;
+  /** Restarts this item was already resumed across (journaled). */
+  attempts?: number;
 }
 interface Lane {
   running: boolean;
@@ -98,7 +107,8 @@ export class RoomRouter {
     this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
     msg.causeId = msg.id;
     events.emitEvent({ type: 'message.new', message: msg });
-    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone, causeKind });
+    const runId = (payload as { runId?: string } | null)?.runId;
+    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone, causeKind, runId });
     return msg;
   }
 
@@ -155,6 +165,10 @@ export class RoomRouter {
     const key = bot.id + ':' + room.id;
     let lane = this.lanes.get(key);
     if (!lane) this.lanes.set(key, (lane = { running: false, pending: [] }));
+    item.journalId ??= this.repos.journalAdd({
+      botId: bot.id, roomId: room.id, causeId: item.causeId, hop: item.hop, triggerSeq: item.triggerSeq,
+      runId: item.runId ?? null, note: item.note ?? null, attempts: item.attempts,
+    });
     lane.pending.push(item);
     if (!lane.running) void this.runLane(key, bot.id, room.id);
   }
@@ -183,15 +197,23 @@ export class RoomRouter {
           const causeId = items[0].causeId;
           const session = this.repos.getSession(bot.id, room.id);
           startSeq = this.repos.maxSeq(room.id);
-          const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq));
+          const notes = [...new Set(items.map((i) => i.note).filter((n): n is string => !!n))];
+          const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq)) + (notes.length ? '\n\n' + notes.join('\n') : '');
           const causeBudgetUsd = CAUSE_COST_CAP_USD - this.usage.causeCost(causeId);
           // A person's message in the batch outranks automation, so a routine never drags a reply down to triage.
           const causeKind = items.find((i) => i.causeKind === 'user')?.causeKind ?? items[0].causeKind;
-          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd, causeKind };
+          // Decision Q6: a turn any of whose causes the human did not start (a routine, later a trigger)
+          // goes through approvals even when the hub runs in bypass mode.
+          const strictApprovals = items.some((i) => this.requiresApprovals(i.causeId));
+          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd, causeKind, strictApprovals };
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
         }
+        // Shutting down: the hub interrupted the turn, it did not finish. Leave its journal rows (and the
+        // session cursor) alone so the next start resumes it (services/FollowUp.ts).
+        if (this.frozen) return;
+        this.repos.journalRemove(items.map((i) => i.journalId).filter((id): id is string => !!id));
         this.repos.saveSession(bot.id, room.id, { lastSeenSeq: startSeq });
         // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
         this.autoMemory?.afterTurn(bot.id, room.id, result);
@@ -223,6 +245,7 @@ export class RoomRouter {
         }
       }
       if (spentBy.get(i.causeId)! >= CAUSE_COST_CAP_USD) {
+        if (i.journalId) this.repos.journalRemove([i.journalId]);
         i.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'cost cap reached' });
       } else keep.push(i);
     }
@@ -257,5 +280,51 @@ export class RoomRouter {
 
   interrupt(turnId: string) {
     return this.runner.interrupt(turnId);
+  }
+
+  // ---------- P3: approvals for non-user causes, resume and follow-up ----------
+  private frozen = false;
+  /**
+   * True when the thread `causeId` was not started by the human: its first message is a routine (or, from P5,
+   * a trigger) rather than a user message. Such turns ask for approvals even in bypass mode (decision Q6).
+   * An unknown cause counts as not-user, so the default is the safe answer.
+   */
+  requiresApprovals(causeId: string): boolean {
+    return this.repos.getMessage(causeId)?.authorType !== 'user';
+  }
+  /** Hub shutdown: start no more turns and keep the journal, so the next start resumes what was in flight. */
+  freeze() {
+    this.frozen = true;
+  }
+  /** Whether a bot has a turn running or queued in a room. */
+  isBusy(botId: string, roomId: string): boolean {
+    const lane = this.lanes.get(botId + ':' + roomId);
+    return !!lane && (lane.running || lane.pending.length > 0);
+  }
+  /** Re-queues a journaled item after a restart (FollowUp). It keeps its cause and hop; `attempts` is journaled. */
+  resume(bot: Bot, room: Room, item: { causeId: string; hop: number; triggerSeq: number; attempts: number; runId?: string; note?: string; onDone?: (r: TurnResult) => void }) {
+    this.enqueue(bot, room, { ...item });
+  }
+  /**
+   * A turn nobody @mentioned (FollowUp's stalled-handoff nudge). It is one more hop on the thread, so it is
+   * refused, with a note, once the thread is out of hops or has spent its cost cap.
+   */
+  followUp(room: Room, bot: Bot, o: { causeId: string; hop: number; note: string }): boolean {
+    const hop = o.hop + 1;
+    if (hop > MAX_HOPS) {
+      this.note(room, 'Hop budget exhausted (' + MAX_HOPS + '), so @' + bot.handle + ' was not nudged.', o.causeId, hop);
+      return false;
+    }
+    const spent = this.usage.causeCost(o.causeId);
+    if (spent >= CAUSE_COST_CAP_USD) {
+      this.note(room, 'Cost cap reached for this thread ($' + spent.toFixed(2) + '), so @' + bot.handle + ' was not nudged.', o.causeId, hop);
+      return false;
+    }
+    this.enqueue(bot, room, { causeId: o.causeId, hop, triggerSeq: this.repos.maxSeq(room.id), note: o.note });
+    return true;
+  }
+  /** Posts a system note into a room (FollowUp says what it did). */
+  systemNote(room: Room, text: string, causeId: string | null, hop: number) {
+    this.note(room, text, causeId, hop);
   }
 }

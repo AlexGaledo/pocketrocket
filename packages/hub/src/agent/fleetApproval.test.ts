@@ -15,7 +15,7 @@ import { createHubTools, type ToolCtx } from './botTools.js';
 
 type Answer = 'allow' | 'always' | 'deny';
 
-function setup(answer: Answer | ((a: ApprovalPayload) => Answer)) {
+function setup(answer: Answer | ((a: ApprovalPayload) => Answer), extra: Partial<ToolCtx> = {}) {
   const repos = new Repos(new Db(':memory:'));
   const bot = repos.createBot({ name: 'Scout', handle: 'scout', title: '', description: 'x', avatar: '🔎', model: 'm1', allowedTools: ['Read'], maxBudgetUsd: 2 });
   const other = repos.createBot({ name: 'Nova', handle: 'nova', title: '', description: 'y', avatar: '🤖', model: 'm1', allowedTools: ['Read'], maxBudgetUsd: 2 });
@@ -35,6 +35,7 @@ function setup(answer: Answer | ((a: ApprovalPayload) => Answer)) {
     repos, memory: new MemoryService(), skills: new SkillService(repos),
     dispatchFromBot: () => [], setState: () => undefined, models: ['m1', 'm2'],
     confirmFleetChange: (a) => broker.askFleetChange(permCtx, a.tool, a.input, a.reason, new AbortController().signal),
+    ...extra,
   };
   const tools = createHubTools(ctx);
   return { repos, bot, other, room, cards, off, tool: (n: string) => tools.find((t) => t.name === n)! };
@@ -199,5 +200,105 @@ describe('create_room', () => {
     const out = await s.tool('create_room').handler({ name: 'solo', handles: [] });
     expect(out.isError).toBe(true);
     s.off();
+  });
+});
+
+// ---- P3: routines a bot schedules are autonomous future spend, so they go through the same card ----
+describe('routine tools go through an approval card', () => {
+  const ZONE = 'Asia/Manila';
+  const routineSetup = (answer: Answer) => {
+    let reloads = 0;
+    const s = setup(answer, { timezone: ZONE, routinesChanged: () => { reloads++; } });
+    return { ...s, reloads: () => reloads };
+  };
+
+  it('proposes a routine on a card and schedules nothing when declined', async () => {
+    const s = routineSetup('deny');
+    const out = await s.tool('create_routine').handler({ name: 'Standup', prompt: 'Post the standup', cron: '0 9 * * 1-5' });
+    s.off();
+    expect(s.cards.map((c) => c.toolName)).toEqual(['create_routine']);
+    expect(s.cards[0].reason).toContain('Standup');
+    expect(s.cards[0].reason).toContain('0 9 * * 1-5');
+    expect(s.cards[0].reason).toContain(ZONE);
+    expect(out.isError).toBe(true);
+    expect(s.repos.listRoutines()).toHaveLength(0);
+    expect(s.reloads()).toBe(0);
+  });
+
+  it('schedules it once the user allows, and asks the scheduler to reload', async () => {
+    const s = routineSetup('allow');
+    const out = await s.tool('create_routine').handler({ name: 'Standup', prompt: 'Post the standup', cron: '0 9 * * 1-5', bot: '@nova' });
+    s.off();
+    expect(out.isError).toBeFalsy();
+    const [r] = s.repos.listRoutines();
+    expect(r).toMatchObject({ name: 'Standup', cron: '0 9 * * 1-5', botId: s.other.id, roomId: s.room.id, enabled: true, onceAt: null });
+    expect(s.reloads()).toBe(1);
+  });
+
+  it('reads once_at in the hub time zone', async () => {
+    const s = routineSetup('allow');
+    await s.tool('create_routine').handler({ name: 'Ping', prompt: 'p', once_at: '2099-01-02T09:00' });
+    s.off();
+    // 09:00 in Manila (UTC+8) is 01:00 UTC.
+    expect(s.repos.listRoutines()[0].onceAt).toBe(Date.UTC(2099, 0, 2, 1, 0));
+    expect(s.cards[0].reason).toContain('once at 2099-01-02 09:00');
+  });
+
+  it('refuses a bad cron, a past once_at or a bot outside the room before any card', async () => {
+    const s = routineSetup('allow');
+    const third = s.repos.createBot({ name: 'Pip', handle: 'pip', title: '', description: 'z', avatar: '🤖', model: 'm1', allowedTools: [], maxBudgetUsd: 1 });
+    const outs = [
+      await s.tool('create_routine').handler({ name: 'x', prompt: 'p', cron: 'not a cron' }),
+      await s.tool('create_routine').handler({ name: 'x', prompt: 'p', once_at: '2001-01-01T09:00' }),
+      await s.tool('create_routine').handler({ name: 'x', prompt: 'p' }),
+      await s.tool('create_routine').handler({ name: 'x', prompt: 'p', cron: '0 9 * * *', bot: '@' + third.handle }),
+    ];
+    s.off();
+    expect(outs.every((o) => o.isError)).toBe(true);
+    expect(s.cards).toHaveLength(0);
+    expect(s.repos.listRoutines()).toHaveLength(0);
+  });
+
+  it('asks before changing or deleting a routine, and keeps it on a decline', async () => {
+    const s = routineSetup('deny');
+    const r = s.repos.createRoutine({ botId: s.bot.id, roomId: s.room.id, name: 'Digest', cron: '0 8 * * *', prompt: 'p', enabled: true });
+    const up = await s.tool('update_routine').handler({ routine: 'Digest', cron: '0 7 * * *', enabled: false });
+    const del = await s.tool('delete_routine').handler({ routine: r.id });
+    s.off();
+    expect(s.cards.map((c) => c.toolName)).toEqual(['update_routine', 'delete_routine']);
+    expect(up.isError && del.isError).toBe(true);
+    expect(s.repos.getRoutine(r.id)).toMatchObject({ cron: '0 8 * * *', enabled: true });
+  });
+
+  it('changes and deletes once allowed', async () => {
+    const s = routineSetup('allow');
+    const r = s.repos.createRoutine({ botId: s.bot.id, roomId: s.room.id, name: 'Digest', cron: '0 8 * * *', prompt: 'p', enabled: true });
+    await s.tool('update_routine').handler({ routine: 'digest', once_at: '2099-05-01T10:30' });
+    expect(s.repos.getRoutine(r.id)).toMatchObject({ cron: '', onceAt: Date.UTC(2099, 4, 1, 2, 30) });
+    await s.tool('delete_routine').handler({ routine: 'Digest' });
+    s.off();
+    expect(s.repos.getRoutine(r.id)).toBeUndefined();
+    expect(s.reloads()).toBe(2);
+  });
+
+  it('lists routines without a card', async () => {
+    const s = routineSetup('deny');
+    s.repos.createRoutine({ botId: s.bot.id, roomId: s.room.id, name: 'Digest', cron: '0 8 * * *', prompt: 'summarise', enabled: true });
+    const out = await s.tool('list_routines').handler({});
+    s.off();
+    expect(s.cards).toHaveLength(0);
+    expect(out.content[0]).toMatchObject({ text: expect.stringContaining('Digest') });
+  });
+
+  it('is gated by the broker too, so a CLI provider cannot skip the card', () => {
+    // decide() lets the tool through because its handler raises the card itself (like create_bot).
+    const repos = new Repos(new Db(':memory:'));
+    const broker = new PermissionBroker(repos);
+    const bot = repos.createBot({ name: 'S', handle: 's', title: '', description: 'x', avatar: '🔎', model: 'm1', allowedTools: [], maxBudgetUsd: 2 });
+    const room = repos.createRoom({ kind: 'dm', name: 'd', memberIds: [bot.id], coordinatorBotId: null });
+    const ctx = { bot, room, turnId: 't', hop: 0, causeId: 'c', setState: () => undefined };
+    return Promise.all(['create_routine', 'update_routine', 'delete_routine', 'list_routines'].map(async (t) => {
+      expect(await broker.decide(ctx, 'mcp__pocketrocket__' + t, {}, { signal: new AbortController().signal })).toEqual({ behavior: 'allow' });
+    }));
   });
 });

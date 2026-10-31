@@ -29,7 +29,8 @@ CREATE TABLE sessions (
   updated_at INTEGER, PRIMARY KEY (bot_id, room_id)
 );`;
 
-const P0_VERSIONS = MIGRATIONS.filter((m) => m.version <= 9).map((m) => m.version);
+const P0 = MIGRATIONS.filter((m) => m.version <= 9);
+const P0_VERSIONS = P0.map((m) => m.version);
 
 describe('Db migrations', () => {
   it('creates a fresh database at the latest version', () => {
@@ -73,13 +74,12 @@ describe('Db migrations', () => {
   it('runs a later block even when a higher version is already applied, and rolls back a failing one', () => {
     const file = tmpFile();
     const later: Migration = { version: 30, name: 't30', up: (r) => r.exec('CREATE TABLE IF NOT EXISTS t30 (x)') };
-    new Db(file, [...MIGRATIONS, later]).raw.close();
+    new Db(file, [...P0, later]).raw.close();
     const earlier: Migration = { version: 10, name: 't10', up: (r) => r.exec('CREATE TABLE IF NOT EXISTS t10 (x)') };
     const broken: Migration = { version: 11, name: 'broken', up: (r) => { r.exec('CREATE TABLE t11 (x)'); throw new Error('boom'); } };
-    expect(() => new Db(file, [...MIGRATIONS, later, earlier, broken])).toThrow('boom');
-    const db = new Db(file, [...MIGRATIONS, later, earlier]);
-    // Every registered phase block runs too (P8 has 80+), so compare against the full list, not just P0's.
-    expect(db.schemaVersions()).toEqual([...MIGRATIONS.map((m) => m.version), 10, 30].sort((a, b) => a - b));
+    expect(() => new Db(file, [...P0, later, earlier, broken])).toThrow('boom');
+    const db = new Db(file, [...P0, later, earlier]);
+    expect(db.schemaVersions()).toEqual([...P0_VERSIONS, 10, 30]);
     expect(db.get("SELECT name FROM sqlite_master WHERE name = 't11'")).toBeUndefined();
     db.raw.close();
   });

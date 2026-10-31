@@ -267,6 +267,7 @@ export class Repos {
       enabled: !!(r.enabled as number),
       lastRunAt: (r.last_run_at as number) ?? null,
       nextRunAt: (r.next_run_at as number) ?? null,
+      onceAt: (r.once_at as number) ?? null,
     };
   }
   listRoutines(): Routine[] {
@@ -276,11 +277,11 @@ export class Repos {
     const r = this.db.get('SELECT * FROM routines WHERE id=?', id);
     return r && this.rowToRoutine(r);
   }
-  createRoutine(i: Omit<Routine, 'id' | 'lastRunAt' | 'nextRunAt'>): Routine {
+  createRoutine(i: Omit<Routine, 'id' | 'lastRunAt' | 'nextRunAt' | 'onceAt'> & { onceAt?: number | null }): Routine {
     const id = nanoid(10);
     this.db.run(
-      'INSERT INTO routines (id,bot_id,room_id,name,cron,prompt,enabled) VALUES (?,?,?,?,?,?,?)',
-      id, i.botId, i.roomId, i.name, i.cron, i.prompt, i.enabled ? 1 : 0,
+      'INSERT INTO routines (id,bot_id,room_id,name,cron,prompt,enabled,once_at) VALUES (?,?,?,?,?,?,?,?)',
+      id, i.botId, i.roomId, i.name, i.cron, i.prompt, i.enabled ? 1 : 0, i.onceAt ?? null,
     );
     return this.getRoutine(id)!;
   }
@@ -289,8 +290,8 @@ export class Repos {
     if (!cur) return undefined;
     const r = { ...cur, ...patch };
     this.db.run(
-      'UPDATE routines SET bot_id=?,room_id=?,name=?,cron=?,prompt=?,enabled=?,last_run_at=?,next_run_at=? WHERE id=?',
-      r.botId, r.roomId, r.name, r.cron, r.prompt, r.enabled ? 1 : 0, r.lastRunAt, r.nextRunAt, id,
+      'UPDATE routines SET bot_id=?,room_id=?,name=?,cron=?,prompt=?,enabled=?,last_run_at=?,next_run_at=?,once_at=? WHERE id=?',
+      r.botId, r.roomId, r.name, r.cron, r.prompt, r.enabled ? 1 : 0, r.lastRunAt, r.nextRunAt, r.onceAt, id,
     );
     return r;
   }
@@ -453,4 +454,54 @@ export class Repos {
       .all('SELECT COALESCE(' + col + ", '') k, " + SUM + ' FROM usage GROUP BY k ORDER BY cost DESC')
       .map((r) => ({ key: r.k as string, ...this.totalsFrom(r) }));
   }
+  // ---------- P3: lane journal (services/FollowUp.ts) ----------
+  journalAdd(e: Omit<LaneJournalRow, 'id' | 'attempts' | 'createdAt'> & { attempts?: number }): string {
+    const id = nanoid(10);
+    this.db.run(
+      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,note,attempts,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, e.runId, e.note, e.attempts ?? 0, now(),
+    );
+    return id;
+  }
+  journalRemove(ids: string[]) {
+    for (const id of ids) this.db.run('DELETE FROM lane_journal WHERE id=?', id);
+  }
+  /** Every row, oldest first, and empties the table: the caller re-enqueues what it still wants. */
+  journalTakeAll(): LaneJournalRow[] {
+    return this.db.tx(() => {
+      const rows = this.db.all('SELECT * FROM lane_journal ORDER BY created_at, rowid').map((r) => ({
+        id: r.id as string,
+        botId: r.bot_id as string,
+        roomId: r.room_id as string,
+        causeId: r.cause_id as string,
+        hop: r.hop as number,
+        triggerSeq: r.trigger_seq as number,
+        runId: (r.run_id as string) ?? null,
+        note: (r.note as string) ?? null,
+        attempts: r.attempts as number,
+        createdAt: r.created_at as number,
+      }));
+      this.db.run('DELETE FROM lane_journal');
+      return rows;
+    });
+  }
+  /** Routine runs still `running`: their turn died with the previous hub process. */
+  runningRuns(): { id: string; routineId: string }[] {
+    return this.db.all<{ id: string; routine_id: string }>("SELECT id, routine_id FROM routine_runs WHERE status='running'")
+      .map((r) => ({ id: r.id, routineId: r.routine_id }));
+  }
+}
+
+/** One queued or running lane item (P3, `lane_journal`). */
+export interface LaneJournalRow {
+  id: string;
+  botId: string;
+  roomId: string;
+  causeId: string;
+  hop: number;
+  triggerSeq: number;
+  runId: string | null;
+  note: string | null;
+  attempts: number;
+  createdAt: number;
 }

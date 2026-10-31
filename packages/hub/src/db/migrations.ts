@@ -92,3 +92,22 @@ registerMigrations([80, 89], [
   { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
   { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);
+
+// P3 (30–39): routines v2 and proactive follow-up.
+registerMigrations([30, 39], [
+  // One-shot routines: epoch ms the routine fires at once; NULL for a cron routine.
+  { version: 30, name: 'routines.once_at', up: (db) => addColumnIfMissing(db, 'routines', 'once_at', 'INTEGER') },
+  // Lane items queued or running, so a hub restart can resume them (services/FollowUp.ts). A row lives from
+  // enqueue until its turn settles; `attempts` counts restarts it was resumed across, so a turn that kills
+  // the hub is resumed once, not forever.
+  {
+    version: 31,
+    name: 'lane_journal table',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS lane_journal (' +
+          'id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, room_id TEXT NOT NULL, cause_id TEXT NOT NULL, hop INTEGER NOT NULL, ' +
+          'trigger_seq INTEGER NOT NULL, run_id TEXT, note TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)',
+      ),
+  },
+]);

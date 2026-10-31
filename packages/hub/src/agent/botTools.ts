@@ -10,6 +10,8 @@ import { events } from '../events.js';
 import { parseMentions } from '../rooms/mentions.js';
 import { desktopTools } from './desktopTools.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
+import { RoutineScheduler } from '../services/RoutineScheduler.js';
+import type { Routine } from '@pocketrocket/shared';
 
 export interface ToolCtx {
   bot: Bot;
@@ -42,6 +44,11 @@ export interface ToolCtx {
    * bypassed); when absent (unit tests) the change goes through unguarded. See audit 2026-09-09, B6/B14.
    */
   confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown> }) => Promise<{ allowed: boolean; message: string }>;
+  // ---- P3: routine tools ----
+  /** Reschedule after a routine tool changed the table (RoutineScheduler.reload). Absent in unit tests. */
+  routinesChanged?: () => void;
+  /** Zone routine times are read in. Defaults to `settings.timezone`. */
+  timezone?: string;
 }
 
 export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
@@ -546,6 +553,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom, deleteRoom];
 
+  tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
+
   if (ctx.requestApproval) {
     tools.push(hubTool(
       'request_approval',
@@ -565,4 +574,168 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
   }
   if (ctx.desktop) tools.push(...desktopTools());
   return tools;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// P3: routine tools. A routine a bot schedules is autonomous future spend, so creating, changing and
+// deleting one always goes through `gate()` (fleet approval). Listing is silent.
+const MAX_ROUTINES = 100;
+
+/** `2026-11-02 09:00` style, in `tz`. */
+function fmtAt(ms: number, tz: string): string {
+  return new Date(ms).toLocaleString('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '');
+}
+/** How a routine's schedule reads on an approval card and in list_routines. */
+export function describeSchedule(r: Pick<Routine, 'cron' | 'onceAt'>, tz: string): string {
+  return r.onceAt !== null ? 'once at ' + fmtAt(r.onceAt, tz) + ' (' + tz + ')' : 'cron "' + r.cron + '" (' + tz + ')';
+}
+
+function routineTools(
+  ctx: ToolCtx,
+  h: {
+    gate: (tool: string, reason: string, input: Record<string, unknown>) => Promise<ToolOutput | null>;
+    resolveRoom: (ref?: string) => { ok: true; room: Room; members: Bot[] } | { ok: false; out: ToolOutput };
+    resolveAny: (ref: string) => Bot | undefined;
+    sysNote: (body: string, room?: Room) => void;
+    ROOM_ARG: z.ZodOptional<z.ZodString>;
+  },
+): HubTool[] {
+  const tz = () => ctx.timezone ?? settings.get().timezone;
+  const find = (ref: string): Routine | ToolOutput => {
+    const all = ctx.repos.listRoutines();
+    const byId = all.find((r) => r.id === ref.trim());
+    const hits = byId ? [byId] : all.filter((r) => r.name.toLowerCase() === ref.trim().toLowerCase());
+    if (!hits.length) return err('No routine "' + ref + '". Call list_routines to see them and their ids.');
+    if (hits.length > 1) return err('More than one routine is named "' + ref + '"; pass an id: ' + hits.map((r) => r.id).join(', '));
+    return hits[0];
+  };
+  const who = (id: string) => {
+    const b = ctx.repos.getBot(id);
+    return b ? '@' + b.handle : '(deleted bot)';
+  };
+  const where = (id: string) => ctx.repos.getRoom(id)?.name ?? '(deleted room)';
+  const SCHEDULE_HELP =
+    'Give either `cron` (5 fields: minute hour day-of-month month day-of-week, e.g. "0 9 * * 1-5" = weekdays 09:00) ' +
+    'or `once_at` (a local date-time like "2026-11-02T09:00" for a one-shot). Times are in ' + tz() + '.';
+  const changed = () => ctx.routinesChanged?.();
+
+  const listRoutines = hubTool(
+    'list_routines',
+    'List every scheduled routine with its id, bot, room, schedule and next run.',
+    {},
+    async () => {
+      const all = ctx.repos.listRoutines();
+      if (!all.length) return text('(no routines) Times are in ' + tz() + '.');
+      return text(
+        'Times are in ' + tz() + '.\n' +
+          all
+            .map((r) =>
+              r.name + ' id=' + r.id + (r.enabled ? '' : ' [off]') + ': ' + who(r.botId) + ' in "' + where(r.roomId) + '", ' +
+              describeSchedule(r, tz()) + (r.nextRunAt ? ', next ' + fmtAt(r.nextRunAt, tz()) : '') +
+              '\n    prompt: ' + r.prompt.split('\n')[0].slice(0, 160),
+            )
+            .join('\n'),
+      );
+    },
+    { readOnly: true },
+  );
+
+  const createRoutine = hubTool(
+    'create_routine',
+    'Schedule a routine: at the given time a bot is woken in a room with `prompt`, on its own. ' + SCHEDULE_HELP +
+      ' Shows ' + settings.get().userName + ' an approval card first; routine turns also ask before any risky action.',
+    {
+      name: z.string().min(1).max(60).describe('Short name, e.g. "Morning inbox triage"'),
+      prompt: z.string().min(1).max(4000).describe('What the bot is told when the routine fires'),
+      cron: z.string().max(200).optional().describe('Recurring schedule, e.g. "0 9 * * *" (daily 09:00)'),
+      once_at: z.string().max(40).optional().describe('One-shot local time, e.g. "2026-11-02T09:00"'),
+      bot: z.string().optional().describe('@handle of the bot that runs it. Default: you'),
+      room: h.ROOM_ARG,
+    },
+    async (a) => {
+      if (ctx.repos.listRoutines().length >= MAX_ROUTINES) return err('Routine limit reached (' + MAX_ROUTINES + ').');
+      const bot = a.bot ? h.resolveAny(a.bot) : ctx.repos.getBot(ctx.bot.id);
+      if (!bot) return err('No bot "' + a.bot + '".');
+      const r = h.resolveRoom(a.room);
+      if (!r.ok) return r.out;
+      if (!r.room.memberIds.includes(bot.id)) return err('@' + bot.handle + ' is not in "' + r.room.name + '". Add it first or pick another room.');
+      const sched = RoutineScheduler.resolveSchedule({ cron: a.cron, onceAt: a.once_at ?? null }, tz());
+      if ('error' in sched) return err(sched.error + ' ' + SCHEDULE_HELP);
+      const denied = await h.gate(
+        'create_routine',
+        'Schedule routine "' + a.name + '" for @' + bot.handle + ' in "' + r.room.name + '", ' + describeSchedule(sched, tz()) +
+          ': ' + a.prompt.split('\n')[0].slice(0, 160),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      const created = ctx.repos.createRoutine({ botId: bot.id, roomId: r.room.id, name: a.name, prompt: a.prompt, enabled: true, ...sched });
+      changed();
+      h.sysNote('@' + ctx.bot.handle + ' scheduled routine "' + created.name + '" for @' + bot.handle + ' in "' + r.room.name + '", ' + describeSchedule(created, tz()) + '.');
+      return text('Scheduled "' + created.name + '" (id ' + created.id + '), ' + describeSchedule(created, tz()) + '.');
+    },
+  );
+
+  const updateRoutine = hubTool(
+    'update_routine',
+    'Change a routine (by name or id). Only the fields you pass change; passing cron clears a one-shot time and vice versa. ' +
+      SCHEDULE_HELP + ' Shows ' + settings.get().userName + ' an approval card first.',
+    {
+      routine: z.string().describe('Routine name or id, from list_routines'),
+      name: z.string().min(1).max(60).optional(),
+      prompt: z.string().min(1).max(4000).optional(),
+      cron: z.string().max(200).optional(),
+      once_at: z.string().max(40).optional(),
+      enabled: z.boolean().optional().describe('false pauses it, true resumes it'),
+    },
+    async (a) => {
+      const cur = find(a.routine);
+      if ('content' in cur) return cur;
+      const patch: Partial<Routine> = {};
+      if (a.name !== undefined) patch.name = a.name;
+      if (a.prompt !== undefined) patch.prompt = a.prompt;
+      if (a.enabled !== undefined) patch.enabled = a.enabled;
+      if (a.cron !== undefined || a.once_at !== undefined) {
+        const sched = RoutineScheduler.resolveSchedule({ cron: a.cron ?? cur.cron, onceAt: a.once_at ?? null }, tz());
+        if ('error' in sched) return err(sched.error + ' ' + SCHEDULE_HELP);
+        Object.assign(patch, sched);
+      }
+      if (!Object.keys(patch).length) return err('Nothing to change: pass at least one field.');
+      const after = { ...cur, ...patch };
+      const denied = await h.gate(
+        'update_routine',
+        'Change routine "' + cur.name + '" (' + who(cur.botId) + ' in "' + where(cur.roomId) + '"): ' +
+          Object.keys(patch).filter((k) => k !== 'onceAt' && k !== 'cron').map((k) => k + ' = ' + JSON.stringify((patch as Record<string, unknown>)[k]).slice(0, 120))
+            .concat('cron' in patch ? ['schedule = ' + describeSchedule(after, tz())] : [])
+            .join(', '),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      ctx.repos.updateRoutine(cur.id, patch);
+      changed();
+      h.sysNote('@' + ctx.bot.handle + ' changed routine "' + after.name + '": ' + Object.keys(patch).filter((k) => k !== 'onceAt').join(', ').replace('cron', 'schedule') + '.');
+      return text('Updated "' + after.name + '" (' + describeSchedule(after, tz()) + (after.enabled ? '' : ', paused') + ').');
+    },
+  );
+
+  const deleteRoutine = hubTool(
+    'delete_routine',
+    'Delete a routine (by name or id) and its run history. Shows ' + settings.get().userName + ' an approval card first.',
+    { routine: z.string().describe('Routine name or id, from list_routines') },
+    async (a) => {
+      const cur = find(a.routine);
+      if ('content' in cur) return cur;
+      const denied = await h.gate(
+        'delete_routine',
+        'Delete routine "' + cur.name + '" (' + who(cur.botId) + ' in "' + where(cur.roomId) + '", ' + describeSchedule(cur, tz()) + ')',
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      ctx.repos.deleteRoutine(cur.id);
+      changed();
+      h.sysNote('@' + ctx.bot.handle + ' deleted routine "' + cur.name + '".');
+      return text('Deleted "' + cur.name + '".');
+    },
+  );
+
+  return [listRoutines, createRoutine, updateRoutine, deleteRoutine];
 }

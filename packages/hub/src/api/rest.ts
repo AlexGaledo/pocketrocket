@@ -25,7 +25,7 @@ import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
-import type { RoutineScheduler } from '../services/RoutineScheduler.js';
+import { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import type { BotRunner } from '../agent/BotRunner.js';
 import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.js';
@@ -264,24 +264,29 @@ export function createRest(deps: RestDeps) {
   add('GET', '/api/routines', () => repos.listRoutines());
   add('POST', '/api/routines', ({ body }) => {
     const i = parse(RoutineInputSchema, body);
-    const err = scheduler.constructor as typeof RoutineScheduler;
-    const bad = err.validate(i.cron);
-    if (bad) throw new HttpError(400, 'Invalid cron: ' + bad);
+    const sched = RoutineScheduler.resolveSchedule(i, scheduler.timezone());
+    if ('error' in sched) throw new HttpError(400, sched.error);
     need(repos.getBot(i.botId), 'Bot'); need(repos.getRoom(i.roomId), 'Room');
-    const r = repos.createRoutine(i);
+    const r = repos.createRoutine({ ...i, ...sched });
     scheduler.reload();
     return repos.getRoutine(r.id);
   });
   add('PATCH', '/api/routines/:id', ({ params, body }) => {
-    need(repos.getRoutine(params.id), 'Routine');
-    const i = parsePatch(RoutineInputSchema.partial(), body);
-    if (i.cron) { const bad = (scheduler.constructor as typeof RoutineScheduler).validate(i.cron); if (bad) throw new HttpError(400, 'Invalid cron: ' + bad); }
-    const r = repos.updateRoutine(params.id, i)!;
+    const cur = need(repos.getRoutine(params.id), 'Routine');
+    const { onceAt, ...i } = parsePatch(RoutineInputSchema.partial(), body);
+    let sched = {};
+    if (i.cron !== undefined || onceAt !== undefined) {
+      // Re-check the schedule only when it changes, so toggling an old one-shot is not refused as "past".
+      const s = RoutineScheduler.resolveSchedule({ cron: i.cron ?? cur.cron, onceAt: onceAt === undefined ? cur.onceAt : onceAt }, scheduler.timezone());
+      if ('error' in s) throw new HttpError(400, s.error);
+      sched = s;
+    }
+    const r = repos.updateRoutine(params.id, { ...i, ...sched })!;
     scheduler.reload();
     return repos.getRoutine(r.id);
   });
   add('DELETE', '/api/routines/:id', ({ params }) => { repos.deleteRoutine(params.id); scheduler.reload(); return { ok: true }; });
-  add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id) }));
+  add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id, { manual: true }) }));
   add('GET', '/api/routines/:id/runs', ({ params }) => repos.listRuns(params.id));
 
   // ---- usage

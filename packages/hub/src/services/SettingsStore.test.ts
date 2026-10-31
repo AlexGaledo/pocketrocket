@@ -146,3 +146,19 @@ describe('SettingsStore with only Claude enabled (the v1 default)', () => {
     expect(repos.getBot(bot.id)!.model).toBe('claude-opus-5');
   });
 });
+
+// ---- P3: settings.timezone ----
+describe('settings.timezone', () => {
+  it('follows the system zone until the user picks one, then keeps the choice', () => {
+    const { repos, settings } = store();
+    expect(settings.get().timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+    expect(settings.patch({ timezone: 'Asia/Manila' }).timezone).toBe('Asia/Manila');
+    expect(new SettingsStore({ repos, enabled: ALL }).get().timezone).toBe('Asia/Manila');
+  });
+
+  it('refuses a zone that does not exist', () => {
+    const { settings } = store();
+    expect(() => settings.patch({ timezone: 'Mars/Olympus_Mons' })).toThrow();
+    expect(settings.get().timezone).not.toBe('Mars/Olympus_Mons');
+  });
+});

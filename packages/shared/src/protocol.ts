@@ -23,7 +23,10 @@ export type ServerEvent =
   | { type: 'routine.fired'; routineId: string; runId: string; botId: string; roomId: string }
   | { type: 'usage.updated'; botId: string; roomId: string; totals: UsageTotals }
   | { type: 'account.changed'; account: AccountState }
-  | { type: 'error'; message: string; context?: string };
+  | { type: 'error'; message: string; context?: string }
+  // ---- P3: routines v2 ----
+  /** A routine was created, changed or deleted (REST or a bot tool); clients refetch GET /api/routines. */
+  | { type: 'routines.changed' };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
@@ -66,8 +69,15 @@ export const RoutineInputSchema = z.object({
   botId: z.string(),
   roomId: z.string(),
   name: z.string().min(1).max(60),
-  cron: z.string().min(5),
+  /** Croner pattern in `settings.timezone`. Empty for a one-shot routine (`onceAt`). */
+  cron: z.string().max(200).default(''),
   prompt: z.string().min(1),
   enabled: z.boolean().default(true),
+  // ---- P3: one-shot routines ----
+  /**
+   * One-shot: epoch ms, or a local date-time `YYYY-MM-DDTHH:mm[:ss]` the hub reads in `settings.timezone`.
+   * Set it and the routine fires once (cron is ignored) and then disables itself. null clears it.
+   */
+  onceAt: z.union([z.number().int().positive(), z.string().min(10).max(40)]).nullable().optional(),
 });
 export type RoutineInput = z.infer<typeof RoutineInputSchema>;

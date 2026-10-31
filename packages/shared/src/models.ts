@@ -108,6 +108,8 @@ export interface Routine {
   enabled: boolean;
   lastRunAt: number | null;
   nextRunAt: number | null;
+  /** P3: one-shot routine. Epoch ms it fires at; null for a cron routine. */
+  onceAt: number | null;
 }
 export interface RoutineRun {
   id: string;

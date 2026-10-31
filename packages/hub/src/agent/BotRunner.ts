@@ -31,6 +31,11 @@ export interface TurnRequest {
    * or 'routine'; P5 passes 'trigger'. Left out, it is 'bot' for a hop and 'user' otherwise.
    */
   causeKind?: CauseKind;
+  /**
+   * P3, decision Q6: the turn's cause was not the human (a routine; from P5 a trigger), so approvals apply
+   * even when the hub is in bypass mode. RoomRouter sets it from `requiresApprovals(causeId)`.
+   */
+  strictApprovals?: boolean;
 }
 export interface TurnResult {
   ok: boolean;
@@ -54,6 +59,8 @@ export interface RunnerHooks {
   /** Route mentions produced mid-turn (send_message / handoff tools). Returns handles dispatched. */
   dispatchFromBot: (req: TurnRequest, targets: Bot[]) => string[];
   setState: (botId: string, roomId: string, state: BotState, note?: string) => void;
+  /** P3: a routine tool changed the routines table; the hub reschedules (RoutineScheduler.reload). */
+  routinesChanged?: () => void;
 }
 
 /**
@@ -110,7 +117,8 @@ export class BotRunner {
     const browserOn = bot.allowedTools.includes('Browser');
     // The approvals setting, read once per turn so a change in Settings applies from the next turn. Under
     // bypass nothing asks, so the request_approval tool (and its prompt text) is dropped.
-    const bypass = this.broker.bypassed;
+    // A strict turn (routine, trigger) ignores bypass: the provider runs in ask mode and the broker cards.
+    const bypass = this.broker.bypassed && !req.strictApprovals;
     const bestEffort = provider.info.permissions === 'best-effort' && !bypass;
     // P8: the model for this turn. Only ever one the active provider lists; the budget above is computed
     // without it and is never raised by it.
@@ -128,7 +136,10 @@ export class BotRunner {
       this.usage.record(bot.id, room.id, 'cls-' + nanoid(8), req.causeId, cu, { model: 'claude-haiku-4-5-20251001', routeReason: 'classifier', causeKind });
     }
     const ac = new AbortController();
-    const permCtx = { bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s) };
+    const permCtx = {
+      bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s),
+      strictApprovals: !!req.strictApprovals,
+    };
 
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
@@ -142,6 +153,7 @@ export class BotRunner {
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
       confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
+      routinesChanged: this.hooks.routinesChanged,
     });
 
     const mcpToken = this.turns.registerTurn(tools);
