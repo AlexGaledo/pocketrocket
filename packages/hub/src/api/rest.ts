@@ -174,6 +174,7 @@ export function createRest(deps: RestDeps) {
   add('DELETE', '/api/bots/:id', ({ params }) => {
     need(repos.getBot(params.id), 'Bot');
     repos.deleteBot(params.id);
+    memory.removeHome(params.id);
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return { ok: true };
@@ -210,8 +211,10 @@ export function createRest(deps: RestDeps) {
     return room;
   });
   add('PATCH', '/api/rooms/:id', ({ params, body }) => {
-    need(repos.getRoom(params.id), 'Room');
+    const cur = need(repos.getRoom(params.id), 'Room');
     const input = parsePatch(RoomInputSchema.partial(), body);
+    for (const id of input.memberIds ?? []) need(repos.getBot(id), 'Bot ' + id);
+    if ((input.kind ?? cur.kind) === 'dm' && (input.memberIds ?? cur.memberIds).length !== 1) throw new HttpError(400, 'DM needs exactly one bot');
     const room = repos.updateRoom(params.id, input)!;
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return room;

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AUTO_MEMORY_EVERY, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload } from './models.js';
+import { AUTO_MEMORY_EVERY, MAX_ROOM_BOTS, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
 
@@ -57,7 +57,7 @@ export type BotInput = z.infer<typeof BotInputSchema>;
 export const RoomInputSchema = z.object({
   kind: z.enum(['dm', 'group']),
   name: z.string().min(1).max(60),
-  memberIds: z.array(z.string()).min(1).max(6),
+  memberIds: z.array(z.string()).min(1).max(MAX_ROOM_BOTS),
   coordinatorBotId: z.string().nullable().default(null),
 });
 export type RoomInput = z.infer<typeof RoomInputSchema>;

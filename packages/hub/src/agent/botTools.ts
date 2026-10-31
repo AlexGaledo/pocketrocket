@@ -481,7 +481,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       );
       if (denied) return denied;
       ctx.repos.deleteBot(target.id);
-      try { const fs = await import('node:fs'); const { botHome } = await import('../config.js'); fs.rmSync(botHome(target.id), { recursive: true, force: true }); } catch { /* ignore */ }
+      try { ctx.memory.removeHome(target.id); } catch { /* ignore */ }
       const idx = ctx.members.findIndex((m) => m.id === target.id);
       if (idx >= 0) ctx.members.splice(idx, 1);
       events.emitEvent({ type: 'bots.changed', bots: ctx.repos.listBots() });

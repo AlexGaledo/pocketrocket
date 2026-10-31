@@ -50,6 +50,10 @@ export class MemoryService {
   ensureHome(botId: string) {
     fs.mkdirSync(botHome(botId), { recursive: true });
   }
+  /** Deletes the bot's private home (memory, identity, plugin). Used by every bot-delete path. */
+  removeHome(botId: string) {
+    fs.rmSync(botHome(botId), { recursive: true, force: true });
+  }
   read(botId: string): string {
     try {
       return fs.readFileSync(this.file(botId), 'utf8');
