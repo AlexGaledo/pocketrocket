@@ -93,6 +93,11 @@ export const SettingsSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']).default('system'),
   /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
   approvals: z.enum(APPROVALS).default('ask'),
+  /**
+   * P8: for bots on the `auto` model, ask a one-shot Haiku classifier (at most $0.002 a turn) to pick the model
+   * when no free rule applies. Off by default because it spends money on every such turn.
+   */
+  routerClassifier: z.boolean().default(false),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

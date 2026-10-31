@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
-import type { Bot, BotState, Room, ToolPayload } from '@pocketrocket/shared';
+import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
 import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -14,6 +14,8 @@ import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import { createHubTools } from './botTools.js';
+import { settings } from '../services/SettingsStore.js';
+import { ModelRouter, type RouteChoice, type RouteRequest } from './ModelRouter.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -24,6 +26,11 @@ export interface TurnRequest {
   injected: string;
   /** What is left of the cause's cost cap; the turn spends at most min(bot budget, this). */
   causeBudgetUsd?: number;
+  /**
+   * P8: what started this turn, for the model router and the usage breakdown. RoomRouter sets 'user', 'bot'
+   * or 'routine'; P5 passes 'trigger'. Left out, it is 'bot' for a hop and 'user' otherwise.
+   */
+  causeKind?: CauseKind;
 }
 export interface TurnResult {
   ok: boolean;
@@ -31,6 +38,9 @@ export interface TurnResult {
   finalText: string;
   costUsd: number;
   error?: string;
+  /** P8: the model the turn ended on and the router's reason for it. */
+  model?: string;
+  modelReason?: string;
 }
 /**
  * True when a provider refused to resume because the session it was handed no longer exists on disk.
@@ -56,6 +66,8 @@ export class BotRunner {
   private aborts = new Map<string, AbortController>();
   /** Last init info reported by the active provider (GET /api/health). */
   lastInit: ProviderInit = {};
+  /** P8: picks the model for bots on `auto`. hub.ts replaces it with one that has the optional classifier. */
+  router = new ModelRouter();
 
   constructor(
     private repos: Repos,
@@ -100,6 +112,21 @@ export class BotRunner {
     // bypass nothing asks, so the request_approval tool (and its prompt text) is dropped.
     const bypass = this.broker.bypassed;
     const bestEffort = provider.info.permissions === 'best-effort' && !bypass;
+    // P8: the model for this turn. Only ever one the active provider lists; the budget above is computed
+    // without it and is never raised by it.
+    const providerModels = provider.modelsSync();
+    const causeKind: CauseKind = req.causeKind ?? (req.hop > 0 ? 'bot' : 'user');
+    const routeReq: RouteRequest = {
+      bot, causeKind, input: req.injected, models: providerModels,
+      opusSkills: bot.model === AUTO_MODEL ? this.skills.opusSkillNames(bot.id) : [],
+      fallbackModel: settings.get().defaultModel,
+    };
+    const picked = await this.router.pick(routeReq);
+    let route: RouteChoice = picked;
+    const cu = picked.classifierUsage;
+    if (cu && (cu.costUsd || cu.inputTokens || cu.outputTokens)) {
+      this.usage.record(bot.id, room.id, 'cls-' + nanoid(8), req.causeId, cu, { model: 'claude-haiku-4-5-20251001', routeReason: 'classifier', causeKind });
+    }
     const ac = new AbortController();
     const permCtx = { bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s) };
 
@@ -109,7 +136,8 @@ export class BotRunner {
       dispatchFromBot: (targets, room) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets),
       setState: (s) => setState(s),
       desktop: desktopOn,
-      models: provider.modelsSync().map((m) => m.id),
+      // `auto` is a valid choice wherever the provider has a list to route within (P8).
+      models: providerModels.length ? [...providerModels.map((m) => m.id), AUTO_MODEL] : [],
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
@@ -147,7 +175,7 @@ export class BotRunner {
           blockedPath: o.blockedPath,
         }),
       pluginDir,
-      model: bot.model,
+      model: route.model,
       maxBudgetUsd: budgetUsd,
       maxTurns: MAX_TURNS_PER_QUERY,
       signal: ac.signal,
@@ -176,7 +204,7 @@ export class BotRunner {
         texts.push(text);
         const msg = this.repos.insertMessage({
           roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'text', text, payload: null,
-          causeId: req.causeId, hop: req.hop, turnId,
+          causeId: req.causeId, hop: req.hop, turnId, model: route.model, modelReason: route.detail,
         });
         lastMessageId = msg.id;
         events.emitEvent({ type: 'message.new', message: msg });
@@ -214,7 +242,9 @@ export class BotRunner {
         // Only turns the provider actually accounted for become usage rows (matches the pre-provider
         // behaviour: a turn that died before any result reported nothing).
         const u = o.usage;
-        if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, req.causeId, u);
+        if (u.costUsd || u.inputTokens || u.outputTokens) {
+          this.usage.record(bot.id, room.id, turnId, req.causeId, u, { model: route.model, routeReason: route.reason, causeKind });
+        }
       };
       record(outcome);
 
@@ -241,9 +271,15 @@ export class BotRunner {
       for (let attempt = 1; outcome.error === 'error_max_turns' && attempt <= MAX_TURN_CONTINUATIONS; attempt++) {
         if (ac.signal.aborted) break;
         if (costUsd >= budgetUsd) break;
+        // P8: an auto bot retries on Opus. Same remaining budget either way: the router never raises it.
+        const next = this.router.escalate(routeReq, route, 'error_max_turns');
+        const escalated = next.model !== route.model;
+        if (escalated) console.log('[router] ' + bot.handle + ' ' + turnId + ': ' + route.model + ' -> ' + next.model + ' (' + next.detail + ')');
+        route = next;
         const note = this.repos.insertMessage({
           roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
-          text: bot.name + ' hit the ' + MAX_TURNS_PER_QUERY + '-step limit; continuing (' + attempt + '/' + MAX_TURN_CONTINUATIONS + ').',
+          text: bot.name + ' hit the ' + MAX_TURNS_PER_QUERY + '-step limit; continuing (' + attempt + '/' + MAX_TURN_CONTINUATIONS + ')' +
+            (escalated ? ' on ' + route.model + ' (escalated by the model router)' : '') + '.',
           payload: null, causeId: req.causeId, hop: req.hop, turnId,
         });
         events.emitEvent({ type: 'message.new', message: note });
@@ -257,6 +293,7 @@ export class BotRunner {
               'You stopped because you reached the step limit, not because the work was done. ' +
               'Continue from exactly where you left off and finish the task. Do not start over or re-explain.',
             maxBudgetUsd: budgetUsd - costUsd,
+            model: route.model,
           },
           sink,
         );
@@ -285,7 +322,7 @@ export class BotRunner {
     }
     events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, error });
     setState(error ? 'error' : 'done');
-    return { ok, turnId, finalText: texts.join('\n\n'), costUsd, error };
+    return { ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail };
   }
 
   /** Feeds GET /api/health, which answers without the hub token, so the error names no path. */

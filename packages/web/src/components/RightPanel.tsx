@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from 'lucide-react';
-import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
+import { MODELS, type CauseKind, type Routine, type RoutineRun, type Skill, type UsageGroup, type UsageRow } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
 import { isDesktopMode } from '../lib/auth';
@@ -348,9 +348,10 @@ function UsageTab() {
   const rooms = useStore((s) => s.rooms);
   const live = useStore((s) => s.usage);
   const [rows, setRows] = useState<UsageRow[]>([]);
+  const [split, setSplit] = useState<{ byModel: UsageGroup[]; byCause: UsageGroup[] }>({ byModel: [], byCause: [] });
   const [health, setHealth] = useState<{ apiKeySource?: string; ok: boolean; error?: string; version?: string } | null>(null);
   useEffect(() => {
-    api.usage().then((u) => setRows(u.rows));
+    api.usage().then((u) => { setRows(u.rows); setSplit({ byModel: u.byModel ?? [], byCause: u.byCause ?? [] }); });
     api.health().then(setHealth).catch(() => undefined);
   }, [live]);
   const total = rows.reduce((a, r) => a + r.costUsd, 0);
@@ -377,6 +378,7 @@ function UsageTab() {
           return <li key={r.id} className="flex items-center gap-2 rounded-2xl bg-card2/60 px-2 py-1.5"><span className="flex-1">{r.kind === 'group' ? '# ' : ''}{r.name}</span><span className="font-mono">{fmtUsd(c)}</span></li>;
         })}
       </ul>
+      <UsageSplit split={split} />
       {health && (
         <div className="rounded-2xl bg-card2/60 p-2 text-[11px] text-muted">
           <div className="mb-1 text-[12px] font-medium text-muted">Hub</div>
@@ -389,5 +391,51 @@ function UsageTab() {
         </div>
       )}
     </div>
+  );
+}
+
+// ---------- P8: usage by model and by cause ----------
+const CAUSE_LABEL: Record<CauseKind, string> = {
+  user: 'Your messages',
+  bot: 'Bot hand-offs',
+  routine: 'Routines',
+  trigger: 'Triggers',
+  memory: 'Auto-memory',
+  reflection: 'Skill reflection',
+};
+
+/**
+ * Where the spend went: which models ran, and what started the turns. Routines, triggers and auto-memory get
+ * their own rows so automation cost is visible next to chat cost. '' is spend recorded before the hub kept this.
+ */
+function UsageSplit({ split }: { split: { byModel: UsageGroup[]; byCause: UsageGroup[] } }) {
+  const providers = useStore((s) => s.providers);
+  const modelLabel = (id: string) =>
+    !id ? 'Not recorded' : (providers?.providers.flatMap((p) => p.models).find((m) => m.id === id)?.label ?? MODELS.find((m) => m.id === id)?.label ?? id);
+  const causeLabel = (k: string) => (k ? CAUSE_LABEL[k as CauseKind] ?? k : 'Not recorded');
+  const section = (title: string, groups: UsageGroup[], label: (k: string) => string, mono: boolean) => {
+    if (!groups.length) return null;
+    const total = groups.reduce((a, g) => a + g.costUsd, 0);
+    return (
+      <>
+        <Label>{title}</Label>
+        <ul className="flex flex-col gap-1">
+          {groups.map((g) => (
+            <li key={g.key || '-'} className="flex items-center gap-2 rounded-2xl bg-card2/60 px-2 py-1.5">
+              <span className={cn('min-w-0 flex-1 truncate', mono && g.key ? 'font-mono text-[11.5px]' : 'font-medium', !g.key && 'text-muted')}>{label(g.key)}</span>
+              <span className="text-muted">{g.turns} turns</span>
+              {total > 0 && <span className="w-9 text-right text-dim">{Math.round((g.costUsd / total) * 100)}%</span>}
+              <span className="font-mono">{fmtUsd(g.costUsd)}</span>
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+  };
+  return (
+    <>
+      {section('By model', split.byModel, modelLabel, true)}
+      {section('By what started it', split.byCause, causeLabel, false)}
+    </>
   );
 }

@@ -18,6 +18,8 @@ import { AccountService } from './services/AccountService.js';
 import { PermissionBroker } from './permissions/PermissionBroker.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
+import { ModelRouter } from './agent/ModelRouter.js';
+import { classifyWithHaiku } from './agent/routerClassifier.js';
 import { RoutineScheduler } from './services/RoutineScheduler.js';
 import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
@@ -92,6 +94,12 @@ export function createHub(opts: HubOptions = {}): Hub {
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
   }, providers, turns);
   router.runner = runner;
+  // P8: the optional classifier is a Haiku call through the Claude CLI, so it only runs while Claude is the
+  // active provider (Q12: the router never reaches outside it) and only when switched on in Settings.
+  runner.router = new ModelRouter({
+    classify: classifyWithHaiku,
+    classifierEnabled: () => settings.get().routerClassifier && providers.active().id === 'claude',
+  });
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
   const scheduler = new RoutineScheduler(repos, router);
 

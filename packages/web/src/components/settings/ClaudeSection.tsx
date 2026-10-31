@@ -4,11 +4,11 @@
  * developer build enables more than one.
  */
 import { useEffect, useState } from 'react';
-import { MODELS } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, MODELS } from '@pocketrocket/shared';
 import type { ModelInfo, ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
-import { Button, Field, Label, Select } from '../ui';
+import { Button, Field, Label, Select, Switch } from '../ui';
 import { ProviderCard } from '../ProviderCard';
 import { ApiKeyField } from './ApiKeyField';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -27,7 +27,7 @@ export function ClaudeSection() {
 
   const list = providers?.providers ?? [];
   const active = list.find((p) => p.id === settings.provider) ?? list[0];
-  const models: ModelInfo[] = active?.models?.length ? active.models : MODELS.map((m) => ({ id: m.id, label: m.label }));
+  const models: ModelInfo[] = [AUTO_MODEL_INFO, ...(active?.models?.length ? active.models : MODELS.map((m) => ({ id: m.id, label: m.label })))];
   const multiple = list.length > 1;
 
   // Refetch for the source of truth, but patch the check in place now so the card updates at once.
@@ -68,6 +68,27 @@ export function ClaudeSection() {
           <p className="mt-2 text-[12px] text-muted">Each bot can use a different model; change it in the bot's settings.</p>
         </Card>
       </Group>
+
+      {settings.provider === 'claude' && (
+        <Group>
+          <Card>
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div id="router-classifier-label" className="text-[13px] font-medium">Smarter Auto routing</div>
+                <p id="router-classifier-hint" className="mt-0.5 text-[12px] text-muted">
+                  For bots on Auto, a quick Haiku check (at most $0.002) picks the model when no rule applies. Off by default because it runs on every such turn.
+                </p>
+              </div>
+              <Switch
+                checked={settings.routerClassifier}
+                aria-labelledby="router-classifier-label"
+                aria-describedby="router-classifier-hint"
+                onChange={(next) => void updateSettings({ routerClassifier: next })}
+              />
+            </div>
+          </Card>
+        </Group>
+      )}
 
       {active && active.secretKeys.length > 0 && (
         <Group>

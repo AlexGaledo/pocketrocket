@@ -93,6 +93,9 @@ export interface Message {
   hop: number;
   turnId: string | null;
   createdAt: number;
+  /** Bot messages only (P8): the model that wrote it, and why the router chose that model. */
+  model?: string;
+  modelReason?: string;
 }
 
 export interface Routine {
@@ -153,4 +156,25 @@ export interface HealthInfo {
   approvals: Approvals;
   /** True when POCKETROCKET_BYPASS_PERMISSIONS pins `approvals`; Settings cannot change it (PUT answers 409). */
   approvalsLocked: boolean;
+}
+
+// ---------- P8: model router and usage ----------
+/**
+ * A bot whose model is `auto` lets the hub pick one per turn (`agent/ModelRouter.ts`): Haiku for background and
+ * triage work, Sonnet by default, Opus when asked or when a turn has to be retried. It always picks from the
+ * active provider's own list and never changes the bot's budget.
+ */
+export const AUTO_MODEL = 'auto';
+export const AUTO_MODEL_INFO = { id: AUTO_MODEL, label: 'Auto', note: 'picks Haiku, Sonnet or Opus per turn' } as const;
+
+/**
+ * What started a turn. `user` a person's message, `bot` a hand-off from another bot, `routine` a scheduled
+ * routine, `trigger` an outside event (P5), `memory` the auto-memory pass, `reflection` a skill reflection pass.
+ */
+export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'memory', 'reflection'] as const;
+export type CauseKind = (typeof CAUSE_KINDS)[number];
+
+/** One row of a usage breakdown: `key` is a model id or a cause kind; '' for rows recorded before P8. */
+export interface UsageGroup extends UsageTotals {
+  key: string;
 }

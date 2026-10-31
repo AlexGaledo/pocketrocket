@@ -34,6 +34,17 @@ function parseFrontmatter(md: string): { name?: string; description?: string } {
   return { name: out.name, description: out.description };
 }
 
+/**
+ * P8: true when a SKILL.md's frontmatter asks for the strongest model (`model: opus`, or a full Opus id). The
+ * model router runs a turn that invokes such a skill on Opus when the bot's model is `auto`.
+ */
+export function skillWantsOpus(md: string): boolean {
+  const m = md.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return false;
+  const line = m[1].split(/\r?\n/).map((l) => l.match(/^model:\s*(.*)$/)).find(Boolean);
+  return !!line && /opus/i.test(line[1]);
+}
+
 export class SkillService {
   constructor(private repos: Repos) {}
 
@@ -146,5 +157,15 @@ export class SkillService {
       }
     }
     return plugin;
+  }
+
+  /** P8: names of this bot's approved skills that declare `model: opus` (see skillWantsOpus). */
+  opusSkillNames(botId: string): string[] {
+    return this.repos
+      .botSkillIds(botId)
+      .map((id) => this.repos.getSkill(id))
+      .filter((s): s is Skill => !!s && s.reviewStatus === 'approved')
+      .filter((s) => skillWantsOpus(this.readMarkdown(s)))
+      .map((s) => s.name);
   }
 }

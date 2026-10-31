@@ -265,7 +265,9 @@ export class AutoMemory {
     const outcome = await (this.deps.run ?? runPass)(prompt);
     // Spent is spent, even if the bot is gone by now. No cause id: it must not count toward a thread's cost cap.
     const u = outcome.usage;
-    if (u.costUsd || u.inputTokens || u.outputTokens) usage.record(bot.id, roomId, 'mem-' + nanoid(8), null, u);
+    if (u.costUsd || u.inputTokens || u.outputTokens) {
+      usage.record(bot.id, roomId, 'mem-' + nanoid(8), null, u, { model: AUTO_MEMORY_MODEL, routeReason: 'background', causeKind: 'memory' });
+    }
 
     // Deleted (or switched off) while the pass ran: drop the result.
     const fresh = repos.getBot(bot.id);
