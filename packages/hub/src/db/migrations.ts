@@ -168,3 +168,26 @@ registerMigrations([80, 89], [
   { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
   { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);
+
+// P9 (90–99): paired devices (phones) and their Web Push subscriptions. A device row holds only the SHA-256 of
+// its token; the token itself is shown to the phone once and never stored. Revoking keeps the row (so the list
+// can say so) and drops its push subscriptions.
+registerMigrations([90, 99], [
+  {
+    version: 90,
+    name: 'devices table',
+    up: (db) => db.exec(
+      'CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, ' +
+      'created_at INTEGER NOT NULL, last_seen_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0)',
+    ),
+  },
+  {
+    version: 91,
+    name: 'push_subscriptions table',
+    up: (db) => db.exec(
+      'CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY, device_id TEXT, endpoint TEXT NOT NULL UNIQUE, ' +
+      'p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS idx_push_subscriptions_device ON push_subscriptions(device_id)',
+    ),
+  },
+]);

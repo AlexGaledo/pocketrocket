@@ -291,3 +291,34 @@ export function botRoots(botId: string): string[] {
 // which deploy/backup.sh leaves out of every archive so a leaked backup holds no usable token.
 export const VAULT_KEY_PATH = path.join(DATA_DIR, 'vault.key');
 export const INTEGRATIONS_PATH = path.join(DATA_DIR, 'integrations.json');
+
+// ---------------------------------------------------------------------------------------------------
+// P9: phone, devices, push.
+/**
+ * Hostnames (comma or space separated) the hub also answers to, besides loopback, e.g.
+ * `POCKETROCKET_ALLOWED_HOSTS=myhub.tail1234.ts.net`. Off by default (decision Q9). A listed host is only
+ * accepted on a request that reached the hub over HTTPS through a proxy on this machine (Tailscale Serve
+ * sets `X-Forwarded-Proto: https` and connects from loopback); the hub itself still binds 127.0.0.1 only.
+ * Anything that is not a plain DNS name (a scheme, a port, a wildcard, an IP literal, a loopback name) is
+ * dropped with a warning rather than widening the check.
+ */
+export function parseAllowedHosts(raw: string | undefined): string[] {
+  const out: string[] = [];
+  for (const h of String(raw ?? '').split(/[\s,]+/)) {
+    const v = h.trim().toLowerCase().replace(/\.$/, '');
+    if (!v) continue;
+    const ok = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(v)
+      && !/^[0-9.]+$/.test(v) && v !== 'localhost' && !v.endsWith('.localhost');
+    if (!ok) {
+      console.warn('[pocketrocket] POCKETROCKET_ALLOWED_HOSTS: ignoring ' + JSON.stringify(h) + ' (expected a hostname like myhub.tail1234.ts.net)');
+      continue;
+    }
+    if (!out.includes(v)) out.push(v);
+  }
+  return out;
+}
+export const ALLOWED_HOSTS: readonly string[] = parseAllowedHosts(process.env.POCKETROCKET_ALLOWED_HOSTS);
+/** VAPID key pair for Web Push (P9), minted locally on first use. 0600, like hub-token. */
+export const VAPID_PATH = path.join(DATA_DIR, 'vapid.json');
+/** VAPID `sub` claim. Apple wants a mailto: or https: URL here; it is sent to the push service, never to a bot. */
+export const PUSH_SUBJECT = process.env.POCKETROCKET_PUSH_SUBJECT || 'https://github.com/AlexGaledo/pocketrocket';

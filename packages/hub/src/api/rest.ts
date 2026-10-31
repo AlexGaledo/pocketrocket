@@ -33,7 +33,7 @@ import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.
 import type { SecretsStore } from '../services/SecretsStore.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { AccountError, type AccountService } from '../services/AccountService.js';
-import { AUTH_CALLBACK_PATH } from './guard.js';
+import { AUTH_CALLBACK_PATH, deviceIdOf } from './guard.js';
 import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
 import type { VoiceProposals } from '../services/VoiceProposals.js';
 
@@ -118,14 +118,16 @@ export function createRest(deps: RestDeps) {
   // The web client cannot put the hub token in an iframe URL, so it spends the token here instead: one
   // authenticated POST buys a ticket that `/screen/session` trades for a `/screen`-scoped httpOnly cookie.
   // P1: with `{ botId }` the ticket (and the cookie it buys) opens that bot's computer and nothing else.
-  add('POST', '/api/screen/ticket', ({ body }) => {
+  add('POST', '/api/screen/ticket', ({ body, req }) => {
     const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
+    // P9: a ticket a paired device mints is tagged with it, so revoking the device closes its Screen too.
+    const owner = deviceIdOf(req);
     if (botId && computers.enabled) {
       need(repos.getBot(botId), 'Bot');
       if (!computers.existingEndpoint(botId)) throw new HttpError(409, 'This bot has no computer yet; wake it first');
-      return { url: screenSessions.mintTicket(botId).url };
+      return { url: screenSessions.mintTicket(botId, owner).url };
     }
-    return { url: screenSessions.mintTicket().url };
+    return { url: screenSessions.mintTicket(null, owner).url };
   });
 
   // ---- per-bot computers (P1). Human-only: no bot tool reaches these.

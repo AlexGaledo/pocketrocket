@@ -40,6 +40,14 @@ import { IntegrationService } from './services/IntegrationService.js';
 import { createIntegrationsApi } from './api/integrations.js';
 import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
 import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
+// P9: devices, pairing, push
+import { ALLOWED_HOSTS, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { DEVICE_PAIR_PATH, deviceMayAccess, setPrincipal } from './api/guard.js';
+import { DevicesRepo } from './db/devices.js';
+import { DeviceService } from './services/DeviceService.js';
+import { PushService } from './services/PushService.js';
+import { createDevicesApi, handleDevicePair } from './api/devices.js';
+import type { WebSocket as WsSocket } from 'ws';
 
 export interface HubOptions {
   port?: number;
@@ -55,6 +63,11 @@ export interface HubOptions {
   computers?: (db: Db) => ComputerManager;
   /** P4 integrations, built on the hub's db; tests hand in a factory with a temp vault and a fake fetch. */
   integrations?: (db: Db) => IntegrationService;
+  // ---- P9 ----
+  /** Extra Host names accepted over HTTPS (POCKETROCKET_ALLOWED_HOSTS); tests pass their own. */
+  allowedHosts?: readonly string[];
+  /** Web Push; tests hand in one with a fixed VAPID key and a fake fetch. */
+  push?: (devices: DevicesRepo, repos: Repos) => PushService;
 }
 
 export interface Hub {
@@ -69,6 +82,9 @@ export interface Hub {
   runner: BotRunner;
   computers: ComputerManager;
   integrations: IntegrationService;
+  // P9
+  devices: DeviceService;
+  push: PushService;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -149,6 +165,32 @@ export function createHub(opts: HubOptions = {}): Hub {
   const integrationsApi = createIntegrationsApi({ integrations, repos });
 
   const screenSessions = new ScreenSessions();
+
+  // P9: paired devices and opt-in Web Push. What a device token may reach is guard.ts `deviceMayAccess`.
+  const allowedHosts = opts.allowedHosts ?? ALLOWED_HOSTS;
+  const devicesRepo = new DevicesRepo(db);
+  const devices = new DeviceService(devicesRepo);
+  const push = opts.push
+    ? opts.push(devicesRepo, repos)
+    : PushService.withFile({ devices: devicesRepo, repos, subject: PUSH_SUBJECT, vapidPath: VAPID_PATH });
+  const devicesApi = createDevicesApi({ devices, push, allowedHosts });
+  // Every socket a device holds open (/ws and its Screen), so revoking it hangs them up at once.
+  const deviceSockets = new Map<string, Set<{ close(): void }>>();
+  const trackDeviceSocket = (deviceId: string, s: { close(): void }, onClose: (fn: () => void) => void) => {
+    let set = deviceSockets.get(deviceId);
+    if (!set) deviceSockets.set(deviceId, (set = new Set()));
+    const mine = set;
+    mine.add(s);
+    onClose(() => {
+      mine.delete(s);
+      if (!mine.size && deviceSockets.get(deviceId) === mine) deviceSockets.delete(deviceId);
+    });
+  };
+  const offRevoke = devices.onRevoke((id) => {
+    screenSessions.revokeOwner(id);
+    for (const s of deviceSockets.get(id) ?? []) s.close();
+    deviceSockets.delete(id);
+  });
   const rest = createRest({
     repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers,
   });
@@ -220,7 +262,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
-      const guard = checkRequestOrigin(req, port);
+      const guard = checkRequestOrigin(req, port, { allowedHosts });
       if (!guard.ok) {
         res.writeHead(guard.status, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: guard.reason }));
@@ -252,11 +294,24 @@ export function createHub(opts: HubOptions = {}): Hub {
         res.end();
         return;
       }
-      if (!checkToken(req, url, token, { isPublicAsset, screenAuth })) {
+      let deviceId: string | null = null;
+      const deviceToken = (t: string) => (deviceId = devices.authenticate(t)) !== null;
+      if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken })) {
         limiter.fail(ip);
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Missing or invalid hub token' }));
         return;
+      }
+      // P9: who this is. A device token only reaches what deviceMayAccess lists (403 otherwise, never 401).
+      if (presentsHubToken(req, url, token)) setPrincipal(req, { kind: 'hub' });
+      else if (deviceId) {
+        setPrincipal(req, { kind: 'device', deviceId });
+        limiter.succeed(ip);
+        if (!deviceMayAccess(req.method ?? 'GET', url.pathname)) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Not available from a paired device; use the desktop app' }));
+          return;
+        }
       }
       // Token-exempt, so reaching it proves nothing: it must not clear the limiter, and it feeds it on failure.
       if (url.pathname === AUTH_CALLBACK_PATH && (req.method ?? 'GET') === 'GET') {
@@ -273,6 +328,11 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (!ct.ok) {
         res.writeHead(ct.status, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: ct.reason }));
+        return;
+      }
+      // P9: token-exempt; every miss feeds the limiter.
+      if (url.pathname === DEVICE_PAIR_PATH && (req.method ?? 'GET') === 'POST') {
+        await handleDevicePair(req, res, { devices, limiter });
         return;
       }
       if (url.pathname === '/mcp') {
@@ -294,6 +354,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleOAuthStart(req, res, url, { integrations });
         return;
       }
+      if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
       if (await rest(req, res)) return;
       if (url.pathname.startsWith('/screen/')) {
@@ -330,24 +391,39 @@ export function createHub(opts: HubOptions = {}): Hub {
     const p = req.url ?? '';
     const url = new URL(p, 'http://localhost');
     const ip = clientIp(req);
-    if (limiter.blocked(ip) || !checkRequestOrigin(req, port).ok) {
+    if (limiter.blocked(ip) || !checkRequestOrigin(req, port, { allowedHosts }).ok) {
       socket.destroy();
       return;
     }
     // Applies to /screen/* too: the noVNC proxy used to be exempt (audit 2026-09-09, B2).
-    if (!checkToken(req, url, token, { isPublicAsset, screenAuth })) {
+    let deviceId: string | null = null;
+    const deviceToken = (t: string) => (deviceId = devices.authenticate(t)) !== null;
+    if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken })) {
       limiter.fail(ip);
       socket.destroy();
       return;
     }
-    if (presentsHubToken(req, url, token)) limiter.succeed(ip);
+    if (presentsHubToken(req, url, token)) {
+      limiter.succeed(ip);
+      setPrincipal(req, { kind: 'hub' });
+    } else if (deviceId) {
+      limiter.succeed(ip);
+      setPrincipal(req, { kind: 'device', deviceId });
+    }
     if (url.pathname === '/ws') {
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+      const id: string | null = deviceId;
+      wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
+        if (id) trackDeviceSocket(id, { close: () => ws.close(4001, 'device revoked') }, (fn) => ws.once('close', fn));
+        wss.emit('connection', ws, req);
+      });
     } else if (url.pathname.startsWith('/screen/')) {
       const route = screenRoute(url.pathname);
       req.url = route.rest + url.search;
       // An open viewer keeps the bot's computer from an idle stop until it disconnects.
       if (route.scope) socket.once('close', computers.viewerOpened(route.scope));
+      // P9: a Screen a paired device opened closes with the device.
+      const owner = screenSessions.ownerOf(cookieValue(req, screenCookieName(route.scope)), route.scope);
+      if (owner) trackDeviceSocket(owner, { close: () => socket.destroy() }, (fn) => socket.once('close', fn));
       screenProxy.ws(req, socket, head, { target: route.target });
     } else {
       socket.destroy();
@@ -355,7 +431,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, devices, push,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -365,6 +441,8 @@ export function createHub(opts: HubOptions = {}): Hub {
           if (resumed) console.log('resuming ' + resumed + ' turn(s) cut off by the previous run');
           followUp.start();
           scheduler.start();
+          // P9: content-free pushes for approval cards and finished routines (only to opted-in subscriptions).
+          push.start();
           // P7: sync the knowledge repo if its source changed, then pull it on a timer (never blocks start).
           knowledge.start(KNOWLEDGE_SYNC_MINUTES);
           // Reconcile with systemd, prune deleted bots, move the shared screen's logins (once), start timers.
@@ -400,6 +478,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       offBots();
       for (const p of integrations.pending()) integrations.cancel(p.provider);
       account.stop();
+      push.stop();
+      offRevoke();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).
       router.freeze();
       runner.interruptAll();
