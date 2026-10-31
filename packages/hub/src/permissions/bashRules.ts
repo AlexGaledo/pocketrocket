@@ -21,6 +21,11 @@ export type BashVerdict = { verdict: 'allow' | 'ask'; danger: boolean; reason: s
 const READ_ONLY = new Set([
   'ls', 'dir', 'cat', 'type', 'head', 'tail', 'grep', 'rg', 'pwd', 'echo', 'wc', 'sort', 'uniq', 'tree',
 ]);
+/**
+ * P7: the subset of READ_ONLY that can only ever read its path arguments. `sort -o`, `uniq in out` and
+ * `tree -o` write a file named by a plain argument, so they never get to touch a read-only root.
+ */
+const READERS = new Set(['ls', 'dir', 'cat', 'type', 'head', 'tail', 'grep', 'rg', 'wc']);
 /** `git` is allowed only for these subcommands; everything else (push, reset, clean, checkout, ...) asks. */
 const GIT_READ_ONLY = new Set(['status', 'log', 'diff']);
 /** Anything that dumps the environment: the child env is filtered (providers/env.ts), but never silently. */
@@ -119,7 +124,7 @@ function baseName(cmd: string): string {
  * resolved against it, and a `cd` updates it for the segments that follow (audit 2026-09-09, B3 — before
  * this, only absolute paths were ever inspected).
  */
-export function classifyBash(cmd: string, allowedRoots: string[] = []): BashVerdict {
+export function classifyBash(cmd: string, allowedRoots: string[] = [], opts: { readOnlyRoots?: string[] } = {}): BashVerdict {
   for (const d of DANGER) if (d.test(cmd)) return { verdict: 'ask', danger: true, reason: 'Dangerous pattern: ' + d.source };
 
   const segs = segments(cmd);
@@ -128,6 +133,10 @@ export function classifyBash(cmd: string, allowedRoots: string[] = []): BashVerd
 
   let cwd = allowedRoots[0];
   const outside = (p: string) => !isInside(p, allowedRoots, cwd);
+  // P7: read-only roots (the knowledge repo). Only `cd` and the plain readers may name a path in them;
+  // a redirect target is still checked against `allowedRoots` alone, so nothing writes there silently.
+  const readOnly = opts.readOnlyRoots ?? [];
+  const readable = (p: string) => readOnly.length > 0 && isInside(p, [...allowedRoots, ...readOnly], cwd);
 
   for (const seg of segs) {
     const toks = tokenize(seg);
@@ -157,7 +166,7 @@ export function classifyBash(cmd: string, allowedRoots: string[] = []): BashVerd
     if (cmdName === 'cd') {
       const target = rest.find((t) => !isFlag(t));
       if (!target) continue; // bare `cd` -> home, but nothing is read or written by it
-      if (outside(target)) return { verdict: 'ask', danger: false, reason: 'cd outside workspace: ' + target };
+      if (outside(target) && !readable(target)) return { verdict: 'ask', danger: false, reason: 'cd outside workspace: ' + target };
       cwd = path.resolve(cwd, target);
       continue;
     }
@@ -185,7 +194,9 @@ export function classifyBash(cmd: string, allowedRoots: string[] = []): BashVerd
       if (isFlag(t)) continue;
       // grep/rg take the pattern first; a pattern that resolves inside the roots is harmless either way,
       // and one that escapes them (../../etc/passwd) is exactly what we want a card for.
-      if (outside(t)) return { verdict: 'ask', danger: false, reason: 'References path outside workspace: ' + t };
+      if (outside(t) && !(READERS.has(cmdName) && readable(t))) {
+        return { verdict: 'ask', danger: false, reason: 'References path outside workspace: ' + t };
+      }
     }
   }
   return { verdict: 'allow', danger: false, reason: 'Allowlisted' };

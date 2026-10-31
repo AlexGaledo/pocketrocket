@@ -149,16 +149,46 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     },
   );
 
+  /**
+   * P7 (7.3): resolve `ref` against the whole fleet and add that bot to the current group room behind the
+   * add_to_room approval card. `{ bot: undefined }` = no such bot anywhere (the caller reports it).
+   */
+  const joinFromFleet = async (ref: string): Promise<{ bot: Bot | undefined } | { out: ToolOutput }> => {
+    const r = ref.replace(/^@/, '').toLowerCase();
+    const b = ctx.repos.getBotByHandle(r) ?? ctx.repos.listBots().find((x) => x.name.toLowerCase() === r);
+    if (!b || b.id === ctx.bot.id) return { bot: undefined };
+    const room = ctx.repos.getRoom(ctx.room.id) ?? ctx.room;
+    if (room.kind !== 'group') {
+      return { out: err('@' + b.handle + ' is not in this DM, and a DM cannot take more bots. Use send_message into a group chat @' + b.handle + ' is in, or create_room.') };
+    }
+    if (room.memberIds.length >= MAX_ROOM_BOTS) return { out: err('"' + room.name + '" is full (' + MAX_ROOM_BOTS + ' bots); @' + b.handle + ' cannot join.') };
+    const denied = await gate('add_to_room', 'Add @' + b.handle + ' (' + b.name + ') to "' + room.name + '" to hand it a task', { handle: b.handle, room: room.id });
+    if (denied) return { out: denied };
+    ctx.repos.updateRoom(room.id, { memberIds: [...room.memberIds, b.id] });
+    if (!ctx.members.some((m) => m.id === b.id)) ctx.members.push(b);
+    events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
+    const note = ctx.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' added ' + b.avatar + ' ' + b.name + ' (@' + b.handle + ') to this room.', payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
+    events.emitEvent({ type: 'message.new', message: note });
+    return { bot: b };
+  };
+
   const handoff = hubTool(
     'handoff',
-    'Hand a task to another bot in this room. It picks the task up with room context. Use for delegation; you do not need to wait for it.',
+    'Hand a task to another bot. It picks the task up with room context. Use for delegation; you do not need to wait for it. A bot from the fleet directory that is not in this group chat is added to it first (approval card).',
     {
       to_bot: z.string().describe('@handle or name of the bot'),
       task: z.string().min(1).describe('What the bot should do'),
       context: z.string().optional().describe('Extra context: file paths, decisions, constraints'),
     },
     async (a) => {
-      const target = findBot(a.to_bot);
+      let target = findBot(a.to_bot);
+      // P7 (7.3): a bot from the fleet directory that is not in this room is added first, through the same
+      // gated path as add_to_room, so the coordinator can route work to anyone on the account.
+      if (!target) {
+        const joined = await joinFromFleet(a.to_bot);
+        if ('out' in joined) return joined.out;
+        target = joined.bot;
+      }
       if (!target) {
         return err('Unknown bot "' + a.to_bot + '". Members: ' + (others().map((b) => '@' + b.handle).join(', ') || 'none'));
       }
@@ -554,6 +584,40 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
   const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom, deleteRoom];
 
   tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
+  // ---- P7 (7.2): notes/, searched on demand so memory.md can stay small ----
+  tools.push(
+    hubTool(
+      'search_notes',
+      'Search your private notes/ folder (longer reference material you saved with write_note). Every word must appear in a note for it to match. Returns file paths and matching lines; Read a path for the whole note.',
+      {
+        query: z.string().min(2).max(200).describe('Words to look for'),
+        limit: z.number().int().min(1).max(20).optional().describe('Default 8'),
+      },
+      async (a) => {
+        const hits = ctx.memory.searchNotes(ctx.bot.id, a.query, a.limit ?? 8);
+        if (!hits.length) return text('No notes match "' + a.query + '" (' + ctx.memory.listNotes(ctx.bot.id).length + ' notes searched).');
+        return text(hits.map((h) => h.file + '\n' + h.lines.map((l) => '  ' + l).join('\n')).join('\n\n'));
+      },
+      { readOnly: true },
+    ),
+    hubTool(
+      'write_note',
+      'Save a note to your private notes/ folder: reference material too long or too specific for memory.md (meeting notes, specs, how-tos, lists). The title becomes the file name; the same title replaces (or appends to) that note. Find notes later with search_notes.',
+      {
+        title: z.string().min(1).max(80).describe('Short title, e.g. "Q3 launch plan"'),
+        text: z.string().min(1).max(32000).describe('Markdown body'),
+        mode: z.enum(['replace', 'append']).optional().describe('Default replace'),
+      },
+      async (a) => {
+        try {
+          const r = ctx.memory.writeNote(ctx.bot.id, a.title, a.text, a.mode ?? 'replace');
+          return text('Saved ' + r.file + (r.trimmed ? ' (cut at 32 KB; split it into several notes)' : '') + '.');
+        } catch (e) {
+          return err(String((e as Error).message));
+        }
+      },
+    ),
+  );
 
   if (ctx.requestApproval) {
     tools.push(hubTool(

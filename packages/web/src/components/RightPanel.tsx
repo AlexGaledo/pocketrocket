@@ -6,6 +6,8 @@ import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
 import { isDesktopMode } from '../lib/auth';
 import { Avatar, Badge, Button, Input, Label, Select, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
+import { VoicePanel } from './VoicePanel';
+import { SkillGitImport } from './SkillGitImport';
 
 export function RightPanel() {
   const bots = useStore((s) => s.bots);
@@ -44,7 +46,7 @@ export function RightPanel() {
         </TabsList>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <TabsContent value="screen" className="h-full"><ScreenTab /></TabsContent>
-          <TabsContent value="memory">{bot && <MemoryTab botId={bot.id} />}</TabsContent>
+          <TabsContent value="memory">{bot && <><MemoryTab botId={bot.id} /><VoicePanel botId={bot.id} /></>}</TabsContent>
           <TabsContent value="skills">{bot && <SkillsTab botId={bot.id} />}</TabsContent>
           <TabsContent value="routines"><RoutinesTab botId={bot?.id ?? null} /></TabsContent>
           <TabsContent value="usage"><UsageTab /></TabsContent>
@@ -166,6 +168,7 @@ function SkillsTab({ botId }: { botId: string }) {
   const [importable, setImportable] = useState<{ name: string; description: string }[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [showGit, setShowGit] = useState(false);
   const [view, setView] = useState<(Skill & { markdown: string }) | null>(null);
   const [nw, setNw] = useState({ name: '', description: '', markdown: '' });
 
@@ -212,8 +215,10 @@ function SkillsTab({ botId }: { botId: string }) {
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" onClick={() => setShowNew(!showNew)}><Plus size={13} /> New</Button>
           <Button size="sm" variant="ghost" onClick={() => setShowImport(!showImport)} disabled={!importable.length} title={importable.length ? 'Import from ~/.claude/skills' : 'Nothing left to import'}>Import ({importable.length})</Button>
+          <Button size="sm" variant="ghost" onClick={() => setShowGit(!showGit)} aria-expanded={showGit} title="Import skills from a git repo; they start pending review">From git</Button>
         </div>
       </div>
+      {showGit && <SkillGitImport onDone={load} onClose={() => setShowGit(false)} />}
 
       {showNew && (
         <div className="flex flex-col gap-2 rounded-2xl bg-card2/60 p-2">
@@ -243,7 +248,7 @@ function SkillsTab({ botId }: { botId: string }) {
               <button className="min-w-0 flex-1 text-left" onClick={async () => setView(await api.skills.get(s.id))}>
                 <div className="flex items-center gap-1.5"><span className="font-medium">{s.name}</span>
                   {s.source === 'bot' && <Badge tone={s.reviewStatus === 'pending' ? 'warn' : 'accent'}>{s.reviewStatus === 'pending' ? 'review' : 'by ' + (botById(bots, s.createdByBot)?.handle ?? 'bot')}</Badge>}
-                  {s.source === 'imported' && <Badge>imported</Badge>}
+                  {s.source === 'imported' && (s.reviewStatus === 'pending' ? <Badge tone="warn">review</Badge> : <Badge>imported</Badge>)}
                 </div>
                 <div className="truncate text-muted">{s.description}</div>
               </button>

@@ -2,6 +2,7 @@ import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
 } from '@pocketrocket/shared';
+import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -117,4 +118,17 @@ export const api = {
     signOut: () => req<AccountActionResponse>('POST', '/api/account/sign-out', {}),
     oauth: (provider: 'google' | 'github') => req<{ url: string }>('POST', '/api/account/oauth', { provider }),
   },
+  // ---- P7: knowledge repo, voice, notes, skill import from git ----
+  knowledge: {
+    status: () => req<KnowledgeStatus>('GET', '/api/knowledge'),
+    sync: () => req<KnowledgeStatus>('POST', '/api/knowledge/sync', {}),
+  },
+  voice: {
+    get: (botId: string) => req<{ text: string; proposals: VoiceProposal[] }>('GET', '/api/bots/' + botId + '/voice'),
+    set: (botId: string, text: string) => req<{ ok: true; trimmed: boolean }>('PUT', '/api/bots/' + botId + '/voice', { text }),
+    decide: (botId: string, id: string, decision: 'approve' | 'dismiss') =>
+      req<{ text: string; proposals: VoiceProposal[] }>('POST', '/api/bots/' + botId + '/voice/proposals/' + id, { decision }),
+  },
+  notes: (botId: string) => req<{ name: string; bytes: number; mtime: number }[]>('GET', '/api/bots/' + botId + '/notes'),
+  importSkillsFromGit: (url: string) => req<SkillGitImportResult>('POST', '/api/skills/import-git', { url }),
 };

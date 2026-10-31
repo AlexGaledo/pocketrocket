@@ -115,6 +115,12 @@ export const SettingsSchema = z.object({
    * system zone until the user picks one, the way it fills in `userName`.
    */
   timezone: z.string().max(64).refine(isTimeZone, 'not a known IANA time zone').default('UTC'),
+  // ---- P7: knowledge repo ----
+  /**
+   * A git URL (https://, ssh://, git@host:path, file://) cloned to `data/knowledge`, or an absolute local
+   * folder linked there. Every bot reads it; none can write it. Empty = off. Validated by the hub.
+   */
+  knowledgeRepo: z.string().max(500).default(''),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

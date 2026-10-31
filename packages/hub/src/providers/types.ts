@@ -66,6 +66,8 @@ export interface TurnContext {
   signal: AbortSignal;
   /** Loopback MCP endpoint exposing `tools` for this turn only; CLI adapters point their config at it. */
   mcp: { url: string; token: string };
+  /** P7: the knowledge repo folder, readable but never writable by the bot; null/absent when none is set up. */
+  knowledgeDir?: string | null;
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */

@@ -180,3 +180,33 @@ export type CauseKind = (typeof CAUSE_KINDS)[number];
 export interface UsageGroup extends UsageTotals {
   key: string;
 }
+
+// ---------- P7: knowledge repo, voice ----------
+/** GET /api/knowledge, and the WS `knowledge.status` event. */
+export interface KnowledgeStatus {
+  /** settings.knowledgeRepo as last synced ('' = off). */
+  source: string;
+  /** 'clone' = a git URL cloned to data/knowledge; 'link' = a local folder linked there; 'off' = none. */
+  mode: 'off' | 'clone' | 'link';
+  /** Absolute path bots read from, or null while there is nothing to read. */
+  dir: string | null;
+  syncing: boolean;
+  lastSyncedAt: number | null;
+  /** Short commit id of the clone after the last successful sync. */
+  head: string | null;
+  lastError: string | null;
+}
+
+/** A style note AutoMemory proposed for a bot's voice.md; applied only when the user approves it. */
+export interface VoiceProposal {
+  id: string;
+  botId: string;
+  text: string;
+  createdAt: number;
+}
+
+/** POST /api/skills/import-git result. Every imported skill starts `pending` review. */
+export interface SkillGitImportResult {
+  imported: Skill[];
+  skipped: { name: string; reason: string }[];
+}

@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { Info, Palette, ShieldCheck, Sparkles, UserRound, type LucideIcon } from 'lucide-react';
+import { BookOpen, Info, Palette, ShieldCheck, Sparkles, UserRound, type LucideIcon } from 'lucide-react';
 import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { useMediaQuery } from '../../lib/useMediaQuery';
@@ -16,8 +16,9 @@ import { ClaudeSection } from '../settings/ClaudeSection';
 import { BotsSection } from '../settings/BotsSection';
 import { AppearanceSection } from '../settings/AppearanceSection';
 import { AboutSection } from '../settings/AboutSection';
+import { KnowledgeSection } from '../settings/KnowledgeSection';
 
-type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about';
+type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge';
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'account', label: 'Account', icon: UserRound },
@@ -25,6 +26,8 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'bots', label: 'Bots', icon: ShieldCheck },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'about', label: 'About', icon: Info },
+  // ---- P7 ----
+  { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
 ];
 
 /** Matches Tailwind's `sm` breakpoint, where the section list moves from the top to the left. */
@@ -105,6 +108,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <TabsPrimitive.Content value="bots" tabIndex={-1} className={PANEL}><BotsSection health={health} onHealthStale={refreshHealth} /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
+            {/* P7 */}
+            <TabsPrimitive.Content value="knowledge" tabIndex={-1} className={PANEL}><KnowledgeSection /></TabsPrimitive.Content>
           </div>
         </div>
       </TabsPrimitive.Root>

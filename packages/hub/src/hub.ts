@@ -4,7 +4,7 @@ import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS,
-  ensureDirs, ensureHubToken, migrateLegacyDb,
+  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES,
 } from './config.js';
 import { Db } from './db/db.js';
 import { Repos } from './db/repos.js';
@@ -22,6 +22,8 @@ import { ModelRouter } from './agent/ModelRouter.js';
 import { classifyWithHaiku } from './agent/routerClassifier.js';
 import { RoutineScheduler } from './services/RoutineScheduler.js';
 import { FollowUp } from './services/FollowUp.js';
+import { KnowledgeRepo } from './services/KnowledgeRepo.js';
+import { VoiceProposals } from './services/VoiceProposals.js';
 import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
@@ -84,7 +86,13 @@ export function createHub(opts: HubOptions = {}): Hub {
   const providers = createProviders({ settings, enabled: ENABLED_PROVIDERS });
   settings.ensureEnabledProvider();
   // Live, not a constant: toggling approvals in Settings reaches the very next tool call and turn.
-  const broker = new PermissionBroker(repos, { bypass: () => settings.approvals() === 'bypass' });
+  // P7: the knowledge repo, read-only to every bot. Its folder is a read root only while it is synced.
+  const knowledge = new KnowledgeRepo({ repos, source: () => settings.get().knowledgeRepo });
+  const voice = new VoiceProposals(repos, memory);
+  const broker = new PermissionBroker(repos, {
+    bypass: () => settings.approvals() === 'bypass',
+    readOnlyRoots: () => { const d = knowledge.activeDir(); return d ? [d] : []; },
+  });
   // Cards left open by the previous process can never be answered (their turns are gone): show them as expired.
   const expired = repos.expirePendingApprovals();
   if (expired.length) console.log('expired ' + expired.length + ' approval card(s) left open by the previous run');
@@ -94,7 +102,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     dispatchFromBot: (req, targets) => router.dispatchFromBot(req, targets),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
     routinesChanged: () => scheduler.reload(),
-  }, providers, turns);
+  }, providers, turns, { knowledgeDir: () => knowledge.activeDir() });
   router.runner = runner;
   // P8: the optional classifier is a Haiku call through the Claude CLI, so it only runs while Claude is the
   // active provider (Q12: the router never reaches outside it) and only when switched on in Settings.
@@ -102,13 +110,13 @@ export function createHub(opts: HubOptions = {}): Hub {
     classify: classifyWithHaiku,
     classifierEnabled: () => settings.get().routerClassifier && providers.active().id === 'claude',
   });
-  router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
+  router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
   const followUp = new FollowUp({ repos, router });
 
   const screenSessions = new ScreenSessions();
-  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account });
+  const rest = createRest({ repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice });
   const handleMcp = createMcpHandler(turns);
 
   const MIME: Record<string, string> = {
@@ -294,6 +302,8 @@ export function createHub(opts: HubOptions = {}): Hub {
           if (resumed) console.log('resuming ' + resumed + ' turn(s) cut off by the previous run');
           followUp.start();
           scheduler.start();
+          // P7: sync the knowledge repo if its source changed, then pull it on a timer (never blocks start).
+          knowledge.start(KNOWLEDGE_SYNC_MINUTES);
           // Async on purpose: an offline start must not hold the hub up (see AccountService).
           void account.start();
           console.log(
@@ -317,6 +327,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     async shutdown() {
       scheduler.stop();
       followUp.stop();
+      knowledge.stop();
       account.stop();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).
       router.freeze();

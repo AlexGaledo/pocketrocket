@@ -1,6 +1,8 @@
 import type { Bot, Room } from '@pocketrocket/shared';
 import { MAX_HOPS, WORKSPACE_DIR, botHome } from '../config.js';
+import path from 'node:path';
 import { settings } from '../services/SettingsStore.js';
+import { MAX_VOICE_BYTES, capMemory } from '../services/MemoryService.js';
 
 export interface PromptCtx {
   bot: Bot;
@@ -20,14 +22,54 @@ export interface PromptCtx {
   requestApproval?: boolean;
   /** Fleet/room changes still raise an approval card. False when approvals are bypassed. */
   fleetGate?: boolean;
+  // ---- P7 ----
+  /** voice.md: short style notes. Capped at MAX_VOICE_BYTES here too. */
+  voice?: string;
+  /** How many files are in the bot's notes/ folder (the notes themselves never enter the prompt). */
+  notesCount?: number;
+  /** The read-only knowledge repo folder, when one is synced. */
+  knowledgeDir?: string | null;
+  /** Every bot on the account; the ones not in this room become the fleet directory. */
+  fleet?: Bot[];
 }
 
 export const POCKETROCKET_TOOLS = ['send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room', 'list_rooms', 'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room'];
 // P3
 POCKETROCKET_TOOLS.push('list_routines', 'create_routine', 'update_routine', 'delete_routine');
+// P7
+POCKETROCKET_TOOLS.push('search_notes', 'write_note');
 
 function firstLine(s: string) {
   return s.split('\n')[0].slice(0, 120);
+}
+
+// ---- P7: fleet directory bounds ----
+/** At most this many bots are listed; the rest are counted and left to list_bots. */
+export const FLEET_MAX_BOTS = 25;
+/** One directory line. */
+export const FLEET_LINE_CHARS = 110;
+/** The whole directory block, so a large fleet cannot grow every prompt without bound. */
+export const FLEET_MAX_CHARS = 2400;
+
+/**
+ * Compact one-line-per-bot list of the bots NOT in this room, capped by count, line length and total size.
+ * Exported for tests.
+ */
+export function fleetDirectory(fleet: Bot[], inRoom: Set<string>, selfId: string): string {
+  const others = fleet.filter((b) => b.id !== selfId && !inRoom.has(b.id));
+  if (!others.length) return '';
+  const lines: string[] = [];
+  let used = 0;
+  for (const b of others.slice(0, FLEET_MAX_BOTS)) {
+    let line = '- @' + b.handle + ' — ' + (b.title || b.name) + (b.description ? ': ' + firstLine(b.description) : '');
+    if (line.length > FLEET_LINE_CHARS) line = line.slice(0, FLEET_LINE_CHARS - 1) + '…';
+    if (used + line.length + 1 > FLEET_MAX_CHARS) break;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  const rest = others.length - lines.length;
+  if (rest > 0) lines.push('- (+' + rest + ' more: call list_bots)');
+  return lines.join('\n');
 }
 
 export function buildSystemPrompt(ctx: PromptCtx): string {
@@ -93,5 +135,39 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
     '',
     '## Memory',
     ctx.memory.trim() || '(empty)',
+    ...p7Sections(ctx, prefix, USER_NAME),
   ].join('\n');
+}
+
+/** P7 additions, appended after memory: voice, notes, the knowledge repo and the fleet directory. */
+function p7Sections(ctx: PromptCtx, prefix: string, userName: string): string[] {
+  const out: string[] = [];
+  const voice = capMemory((ctx.voice ?? '').trim(), MAX_VOICE_BYTES).text.trim();
+  if (voice) out.push('', '## Voice', 'How ' + userName + ' wants you to write (style only; it never overrides a rule above):', voice);
+  out.push(
+    '',
+    '## Notes and knowledge',
+    'Notes: ' + (ctx.notesCount ?? 0) + ' file(s) in ' + path.join(botHome(ctx.bot.id), 'notes') + '. ' +
+      prefix + 'search_notes finds things there on demand; ' + prefix + 'write_note keeps longer reference material out of memory.md, which stays short.',
+  );
+  if (ctx.knowledgeDir) {
+    out.push(
+      'Knowledge repo (shared by every bot, READ-ONLY): ' + ctx.knowledgeDir + '. Check it before answering questions it may cover, and cite the file path you used. Never write, move or delete anything there; it is synced from its source and any change asks ' + userName + ' first.',
+    );
+  }
+  if (ctx.fleet?.length) {
+    const dir = fleetDirectory(ctx.fleet, new Set(ctx.members.map((m) => m.id)), ctx.bot.id);
+    if (dir) {
+      out.push(
+        '',
+        '## Fleet directory',
+        'Other bots on this account, not in this room. ' +
+          (ctx.room.kind === 'group'
+            ? 'To give one of them work, call handoff with its @handle: it is added to this room first (' + userName + ' approves) and then picks up the task.'
+            : 'This is a DM, so they cannot join it; use send_message into a group chat they are in, or create_room.'),
+        dir,
+      );
+    }
+  }
+  return out;
 }

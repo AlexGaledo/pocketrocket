@@ -36,6 +36,8 @@ export interface ApprovalGrant {
 }
 
 const PATH_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob', 'Grep']);
+/** P7: the PATH_TOOLS that only read; they alone may reach a read-only root without a card. */
+const READ_TOOLS = new Set(['Read', 'Glob', 'Grep']);
 
 const HUB_PREFIX = 'mcp__pocketrocket__';
 /** Hub tools that never need a card: read-only, or already visible to the user as a room message. */
@@ -44,6 +46,8 @@ const SILENT_HUB_TOOLS = new Set([
   'list_rooms', 'request_approval', ...DESKTOP_TOOL_NAMES,
   // P3
   'list_routines',
+  // P7: notes live in the bot's own home.
+  'search_notes', 'write_note',
 ]);
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
@@ -71,7 +75,14 @@ export class PermissionBroker {
    * without a card. Nothing raises an approval card at all. A function, not a flag, so it follows the
    * approvals setting live (the hub passes `settings.approvals() === 'bypass'`).
    */
-  constructor(private repos: Repos, private opts: { bypass?: () => boolean } = {}) {}
+  constructor(
+    private repos: Repos,
+    private opts: {
+      bypass?: () => boolean;
+      /** P7: folders bots may read but never write (the knowledge repo). Read live, per decision. */
+      readOnlyRoots?: () => string[];
+    } = {},
+  ) {}
 
   /** Whether approvals are bypassed right now. BotRunner reads it once per turn to set up the provider. */
   get bypassed(): boolean {
@@ -99,12 +110,18 @@ export class PermissionBroker {
       reason = 'Unknown hub tool: ' + bare;
     } else if (PATH_TOOLS.has(toolName)) {
       const paths = opts.blockedPath ? [opts.blockedPath] : pathsFromInput(toolName, input);
-      const outside = paths.filter((p) => !isInside(p, roots, WORKSPACE_DIR));
+      // P7: a read-only root (the knowledge repo) counts as inside for the read tools only.
+      const readOnly = this.opts.readOnlyRoots?.() ?? [];
+      const readRoots = READ_TOOLS.has(toolName) ? [...roots, ...readOnly] : roots;
+      const outside = paths.filter((p) => !isInside(p, readRoots, WORKSPACE_DIR));
       if (!outside.length) return { behavior: 'allow' };
-      reason = toolName + ' outside workspace: ' + outside.join(', ');
+      const intoReadOnly = readOnly.length > 0 && outside.some((p) => isInside(p, readOnly, WORKSPACE_DIR));
+      reason = intoReadOnly
+        ? toolName + ' into the read-only knowledge repo: ' + outside.join(', ')
+        : toolName + ' outside workspace: ' + outside.join(', ');
     } else if (toolName === 'Bash') {
       const cmd = String(input.command ?? '');
-      const v = classifyBash(cmd, roots);
+      const v = classifyBash(cmd, roots, { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] });
       if (v.verdict === 'allow' && !opts.blockedPath) return { behavior: 'allow' };
       reason = opts.blockedPath ? 'Bash touches ' + opts.blockedPath : v.reason;
       danger = v.danger;

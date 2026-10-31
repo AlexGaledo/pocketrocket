@@ -33,6 +33,8 @@ import type { SecretsStore } from '../services/SecretsStore.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { AccountError, type AccountService } from '../services/AccountService.js';
 import { AUTH_CALLBACK_PATH } from './guard.js';
+import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
+import type { VoiceProposals } from '../services/VoiceProposals.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
@@ -49,6 +51,9 @@ export interface RestDeps {
   /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
   screenSessions: ScreenSessions;
   account: AccountService;
+  // ---- P7 ----
+  knowledge?: KnowledgeRepo;
+  voice?: VoiceProposals;
 }
 
 export function createRest(deps: RestDeps) {
@@ -175,6 +180,7 @@ export function createRest(deps: RestDeps) {
     need(repos.getBot(params.id), 'Bot');
     repos.deleteBot(params.id);
     memory.removeHome(params.id);
+    deps.voice?.removeForBot(params.id);
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return { ok: true };
@@ -288,6 +294,38 @@ export function createRest(deps: RestDeps) {
   add('DELETE', '/api/routines/:id', ({ params }) => { repos.deleteRoutine(params.id); scheduler.reload(); return { ok: true }; });
   add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id, { manual: true }) }));
   add('GET', '/api/routines/:id/runs', ({ params }) => repos.listRuns(params.id));
+
+  // ---- P7: knowledge repo, voice, notes, skill import from git
+  // Human-only, like settings: no bot tool reaches the knowledge sync or the voice approvals.
+  if (deps.knowledge) {
+    const knowledge = deps.knowledge;
+    add('GET', '/api/knowledge', () => knowledge.status());
+    add('POST', '/api/knowledge/sync', () => knowledge.sync());
+  }
+  add('GET', '/api/bots/:id/voice', ({ params }) => {
+    const bot = need(repos.getBot(params.id), 'Bot');
+    return { text: memory.readVoice(bot.id), proposals: deps.voice?.list(bot.id) ?? [] };
+  });
+  add('PUT', '/api/bots/:id/voice', ({ params, body }) => {
+    const { text } = parse(z.object({ text: z.string().max(64 * 1024) }), body);
+    const trimmed = memory.writeVoice(need(repos.getBot(params.id), 'Bot').id, text);
+    return { ok: true, trimmed };
+  });
+  add('POST', '/api/bots/:id/voice/proposals/:pid', ({ params, body }) => {
+    const bot = need(repos.getBot(params.id), 'Bot');
+    const { decision } = parse(z.object({ decision: z.enum(['approve', 'dismiss']) }), body);
+    if (!deps.voice?.decide(bot.id, params.pid, decision)) throw new HttpError(404, 'Proposal not found');
+    return { text: memory.readVoice(bot.id), proposals: deps.voice.list(bot.id) };
+  });
+  add('GET', '/api/bots/:id/notes', ({ params }) => memory.listNotes(need(repos.getBot(params.id), 'Bot').id));
+  add('POST', '/api/skills/import-git', async ({ body }) => {
+    const { url } = parse(z.object({ url: z.string().min(1).max(500) }), body);
+    try {
+      return await skills.importFromGit(url);
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
+  });
 
   // ---- usage
   add('GET', '/api/usage', ({ query }) => {

@@ -38,6 +38,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `SCREEN_URL` | `http://127.0.0.1:6080` | noVNC endpoint proxied at `/screen/` (server mode). |
 | `CDP_URL` | `http://127.0.0.1:9222` | Chromium DevTools endpoint for the Browser tool (server mode). |
 | `SCREEN_DISPLAY` | `:99` | X display for the Desktop tool (Linux server mode). |
+| `KNOWLEDGE_SYNC_MINUTES` | `60` | Minutes between `git pull --ff-only` runs of the knowledge repo clone (P7). `0` turns the timer off; Settings › Knowledge › Sync now still works. |
 
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 
@@ -54,6 +55,7 @@ Not configurable by env in this version (constants in `config.ts`): `HOST=127.0.
 | `onboarded` | `false` | Set to `true` by the wizard; `false` shows it again. |
 | `theme` | `system` | `system` · `light` · `dark`. |
 | `approvals` | `ask` | `ask` · `bypass`. Read at the start of every turn, so a change applies from the next turn without a restart. Only `PUT /api/settings` writes it; no bot tool can. `POCKETROCKET_BYPASS_PERMISSIONS` overrides and locks it (`PUT` then answers 409); `GET /api/health` reports the mode in force as `approvals` and the lock as `approvalsLocked`. |
+| `knowledgeRepo` | `""` | Knowledge repo every bot reads and none can write (P7): a git URL (`https://`, `ssh://`, `git://`, `file://`, `git@host:path`), shallow-cloned to `<data>/knowledge`, or an absolute local folder, linked there. Sources starting with `-`, `ext::`/`fd::` helpers, relative paths and folders that contain or sit in `<data>` are refused (400). Empty turns it off. |
 
 ## 3. Secrets (`<data>/secrets.json`, `GET/PUT /api/secrets`)
 
