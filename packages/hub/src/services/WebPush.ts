@@ -27,6 +27,9 @@ export function loadOrCreateVapid(file: string): VapidKeys {
     const j = JSON.parse(fs.readFileSync(file, 'utf8')) as JsonWebKey;
     if (j.kty === 'EC' && j.crv === 'P-256' && j.d && j.x && j.y) jwk = j;
   } catch { /* none yet */ }
+  // Hardening pass: a key restored from a backup (backups keep it, so phones need not re-subscribe) may come
+  // back with looser modes; it is a signing key, so it is owner-only on every load, not only when minted.
+  if (jwk) restrictFile(file);
   if (!jwk) {
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
     jwk = privateKey.export({ format: 'jwk' }) as JsonWebKey;
