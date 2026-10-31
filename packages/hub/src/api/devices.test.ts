@@ -321,3 +321,33 @@ describe('Web Push (P9.3)', () => {
     expect(devices.subscriptions()).toHaveLength(0);
   });
 });
+
+describe('routine push (P9.3)', () => {
+  it('sends a content-free "routine" push when a routine turn ends, and nothing for a chat turn', async () => {
+    const devices = new DevicesRepo(new Db(':memory:'));
+    const sent: Buffer[] = [];
+    const ua = createECDH('prime256v1');
+    ua.generateKeys();
+    const auth = randomBytes(16);
+    const svc = new PushService({
+      devices, subject: 'mailto:x@y.z', vapid: () => vapidFromJwk(VAPID_JWK),
+      repos: { getMessage: (id: string) => ({ id, kind: id === 'routine-msg' ? 'routine' : 'text', text: 'Summarise the board meeting notes' }) } as never,
+      fetch: async (_u, init) => { sent.push(init.body); return { status: 201 }; },
+    });
+    svc.subscribe(null, { endpoint: 'https://web.push.apple.com/x', keys: { p256dh: ua.getPublicKey().toString('base64url'), auth: auth.toString('base64url') } });
+    svc.start();
+    try {
+      events.emitEvent({ type: 'turn.start', turnId: 't-chat', botId: 'b', roomId: 'r', causeId: 'chat-msg', hop: 0 });
+      events.emitEvent({ type: 'turn.end', turnId: 't-chat', botId: 'b', roomId: 'r' });
+      events.emitEvent({ type: 'turn.start', turnId: 't-rt', botId: 'b', roomId: 'r', causeId: 'routine-msg', hop: 0 });
+      events.emitEvent({ type: 'turn.end', turnId: 't-rt', botId: 'b', roomId: 'r', messageId: 'm' });
+      await new Promise((r) => setTimeout(r, 30));
+    } finally {
+      svc.stop();
+    }
+    expect(sent).toHaveLength(1);
+    const plain = decrypt(sent[0], ua, auth).toString();
+    expect(JSON.parse(plain)).toEqual({ kind: 'routine' });
+    expect(plain).not.toContain('board meeting');
+  });
+});

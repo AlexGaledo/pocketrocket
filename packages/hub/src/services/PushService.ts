@@ -143,7 +143,11 @@ export class PushService {
   start(): void {
     this.off = events.onEvent((ev) => {
       if (ev.type === 'approval.request') this.notify('approval');
-      else if (ev.type === 'turn.start') this.turnCause.set(ev.turnId, ev.causeId);
+      else if (ev.type === 'turn.start') {
+        // A turn whose end never arrives (a crash mid-turn) must not grow this forever.
+        if (this.turnCause.size > 500) this.turnCause.clear();
+        this.turnCause.set(ev.turnId, ev.causeId);
+      }
       else if (ev.type === 'turn.end') {
         const cause = this.turnCause.get(ev.turnId);
         this.turnCause.delete(ev.turnId);
