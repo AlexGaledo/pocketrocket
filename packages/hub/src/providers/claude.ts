@@ -204,13 +204,14 @@ export class ClaudeProvider implements AgentProvider {
 
     const allowed = ctx.allowedBuiltins.filter((t) => AUTO_OK.has(t));
     const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t));
-    // "Browser" = Playwright MCP attached over CDP to the Chromium on the screen (shared, logged-in profile).
+    // "Browser" = Playwright MCP attached over CDP to the Chromium on the bot's own computer (its logged-in
+    // profile), or on the one shared screen when this hub has no per-bot computers.
     const browserOn = ctx.allowedBuiltins.includes('Browser') && fs.existsSync(PLAYWRIGHT_MCP_CLI);
     const mcpServers: NonNullable<Options['mcpServers']> = { pocketrocket: toolServer(ctx.tools) };
     if (browserOn) {
       mcpServers.browser = {
         type: 'stdio', command: process.execPath,
-        args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', CDP_URL, '--caps', 'vision'],
+        args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', ctx.cdpUrl ?? CDP_URL, '--caps', 'vision'],
       };
     }
 
@@ -236,7 +237,7 @@ export class ClaudeProvider implements AgentProvider {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
       spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
       cwd: ctx.workspaceDir,
-      additionalDirectories: [ctx.botHome],
+      additionalDirectories: [ctx.botHome, ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : [])],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: ctx.systemPrompt },
@@ -265,7 +266,7 @@ export class ClaudeProvider implements AgentProvider {
             hooks: [
               async (hookInput) => {
                 const i = hookInput as PreToolUseHookInput;
-                const roots = [ctx.workspaceDir, ctx.botHome];
+                const roots = [ctx.workspaceDir, ctx.botHome, ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : [])];
                 const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);
                 const outside = paths.filter((p) => !isInside(p, roots, ctx.workspaceDir));
                 if (process.env.POCKETROCKET_DEBUG) console.log('[hook PreToolUse]', i.tool_name, paths, outside.length ? 'ASK' : 'ok');

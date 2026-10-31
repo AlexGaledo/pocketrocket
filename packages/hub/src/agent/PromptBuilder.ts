@@ -20,6 +20,27 @@ export interface PromptCtx {
   requestApproval?: boolean;
   /** Fleet/room changes still raise an approval card. False when approvals are bypassed. */
   fleetGate?: boolean;
+  // P1: per-bot computers.
+  /** The bot's own computer. Absent = no per-bot computers on this hub (the one shared screen, as before). */
+  computer?: { display: string; filesDir: string; diskBytes: number; quotaBytes: number };
+  /** The bot's computer could not start this turn (quota, every slot busy, ...); Browser/Desktop are off. */
+  computerUnavailable?: string;
+}
+
+const gb = (b: number) => (b / 1024 ** 3).toFixed(1) + ' GB';
+
+/** "Your computer" block for a bot with its own computer. Never claims isolation: it is the same OS user. */
+function computerLines(ctx: PromptCtx, userName: string): string[] {
+  const c = ctx.computer!;
+  const full = c.quotaBytes > 0 ? c.diskBytes / c.quotaBytes : 0;
+  return [
+    'You have your own computer on this server (display ' + c.display + '): its own desktop, its own Chromium profile (the accounts logged in there are the ones you use) and its own disk at ' + c.filesDir + ' (Desktop, Downloads). ' + userName + ' can watch it and take over on the Screen tab.',
+    "It is separate from the other bots' computers but not private: every bot runs as the same user on this server, so never treat anything on it as hidden from them.",
+    '~/Shared on your computer is the team folder ' + WORKSPACE_DIR + ', which is also your working directory. Put anything other bots or ' + userName + ' need there; keep scratch downloads on your own disk.',
+    ...(full >= 0.8
+      ? ['Disk warning: your computer uses ' + gb(c.diskBytes) + ' of its ' + gb(c.quotaBytes) + ' quota. At 100% it will not start. Delete what you no longer need from ' + c.filesDir + ' before downloading more.']
+      : []),
+  ];
 }
 
 export const POCKETROCKET_TOOLS = ['send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room', 'list_rooms', 'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room'];
@@ -61,19 +82,23 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
     '- Your final message is posted to the room verbatim. Write it as a chat message, not a report. Be concise.',
     '- Reply with exactly NO_REPLY (and nothing else) whenever you have nothing new to add. That includes: your part depends on another bot that has not finished yet (you will be mentioned again when it is your turn, so never post "waiting for X"); someone asks for something you already did or already reported ("already done" replies are noise); acknowledgements, confirmations, "noted", "task closed". Only post when you did work, have a result, need a decision, or hit a problem.',
     '',
-    '## Shared computer',
-    'Working directory (shared with all bots): ' + WORKSPACE_DIR,
+    ...(ctx.computer
+      ? ['## Your computer', ...computerLines(ctx, USER_NAME)]
+      : ['## Shared computer', 'Working directory (shared with all bots): ' + WORKSPACE_DIR]),
+    ...(ctx.computerUnavailable
+      ? ['Your computer is unavailable this turn, so the Browser and Desktop tools are off: ' + ctx.computerUnavailable + ' If the task needs them, say so to ' + USER_NAME + ' in one line.']
+      : []),
     'Your private home: ' + botHome(ctx.bot.id) + ' (memory.md lives here). Files are shared; memory is not.',
     'Custom tools: ' + POCKETROCKET_TOOLS.map((t) => prefix + t).join(', ') + '.',
     'Use update_memory when you learn something durable about the user, the project, or how you should work. Keep memory short and factual.',
     ...(ctx.browser
       ? [
-          'Browser: mcp__browser__* tools (browser_navigate, browser_snapshot, browser_click, browser_type, browser_take_screenshot, ...) drive a real Chromium on this computer that ' + USER_NAME + ' can watch and take over on the Screen tab. Its profile holds ' + USER_NAME + "'s real logged-in accounts. Prefer browser_snapshot (accessibility tree) over screenshots. Act deliberately: never change passwords or account settings, delete data, send messages/emails, post publicly, or make purchases unless the current instruction explicitly asks for that exact action. If a site needs a login you do not have, say so and let " + USER_NAME + ' log in on the Screen tab.',
+          'Browser: mcp__browser__* tools (browser_navigate, browser_snapshot, browser_click, browser_type, browser_take_screenshot, ...) drive a real Chromium on ' + (ctx.computer ? 'your computer' : 'this computer') + ' that ' + USER_NAME + ' can watch and take over on the Screen tab. Its profile holds ' + USER_NAME + "'s real logged-in accounts. Prefer browser_snapshot (accessibility tree) over screenshots. Act deliberately: never change passwords or account settings, delete data, send messages/emails, post publicly, or make purchases unless the current instruction explicitly asks for that exact action. If a site needs a login you do not have, say so and let " + USER_NAME + ' log in on the Screen tab.',
         ]
       : []),
     ...(ctx.desktop
       ? [
-          'Desktop: ' + prefix + 'desktop_* tools (desktop_screenshot, desktop_click, desktop_type, desktop_key, desktop_scroll, desktop_launch) operate the XFCE desktop on this computer that ' + USER_NAME + ' watches on the Screen tab. The desktop folder is the shared workspace. Always screenshot first, act in small steps, verify with the screenshot each action returns. Prefer Bash/file tools for anything a shell can do; use the desktop only for GUI apps and sites that need a real browser interaction the Browser tool cannot do.',
+          'Desktop: ' + prefix + 'desktop_* tools (desktop_screenshot, desktop_click, desktop_type, desktop_key, desktop_scroll, desktop_launch) operate the XFCE desktop on ' + (ctx.computer ? 'your computer' : 'this computer') + ' that ' + USER_NAME + ' watches on the Screen tab. ' + (ctx.computer ? 'The desktop folder is your own disk; ~/Shared on it is the shared workspace.' : 'The desktop folder is the shared workspace.') + ' Always screenshot first, act in small steps, verify with the screenshot each action returns. Prefer Bash/file tools for anything a shell can do; use the desktop only for GUI apps and sites that need a real browser interaction the Browser tool cannot do.',
         ]
       : []),
     ...(ctx.requestApproval

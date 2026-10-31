@@ -33,3 +33,38 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt({ ...base, desktop: true, toolPrefix: '' })).toContain('Desktop: desktop_*');
   });
 });
+
+describe('buildSystemPrompt: per-bot computers (P1)', () => {
+  const computer = { display: ':201', filesDir: '/data/computers/b1/files', diskBytes: 1, quotaBytes: 10 * 1024 ** 3 };
+
+  it('tells the bot about its own computer and the shared folder, without claiming isolation', () => {
+    const p = buildSystemPrompt({ ...base, browser: true, desktop: true, computer });
+    expect(p).toContain('## Your computer');
+    expect(p).not.toContain('## Shared computer');
+    expect(p).toContain('display :201');
+    expect(p).toContain('/data/computers/b1/files');
+    expect(p).toContain('~/Shared');
+    expect(p).toContain('not private');
+    expect(p).not.toMatch(/isolat/i);
+    expect(p).toContain('drive a real Chromium on your computer');
+    expect(p).toContain('operate the XFCE desktop on your computer');
+    expect(p).not.toContain('Disk warning');
+  });
+
+  it('warns at 80% of the disk quota', () => {
+    const p = buildSystemPrompt({ ...base, computer: { ...computer, diskBytes: 8.5 * 1024 ** 3 } });
+    expect(p).toContain('Disk warning: your computer uses 8.5 GB of its 10.0 GB quota');
+  });
+
+  it('explains when the computer is unavailable this turn', () => {
+    const p = buildSystemPrompt({ ...base, computerUnavailable: 'Its disk is full.' });
+    expect(p).toContain('Your computer is unavailable this turn, so the Browser and Desktop tools are off: Its disk is full.');
+  });
+
+  it('keeps the shared-computer wording when there are no per-bot computers', () => {
+    const p = buildSystemPrompt({ ...base, browser: true, desktop: true });
+    expect(p).toContain('## Shared computer');
+    expect(p).toContain('drive a real Chromium on this computer');
+    expect(p).toContain('The desktop folder is the shared workspace.');
+  });
+});

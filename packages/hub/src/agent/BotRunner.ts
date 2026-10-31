@@ -14,6 +14,8 @@ import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import { createHubTools } from './botTools.js';
+import { desktopTools, sharedDesktop } from './desktopTools.js';
+import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -66,6 +68,8 @@ export class BotRunner {
     private hooks: RunnerHooks,
     private providers: ProviderRegistry,
     private turns: TurnRegistry,
+    /** Per-bot computers (P1). Left out (tests, or none wired) = the legacy shared screen, as before. */
+    private computers?: ComputerManager,
   ) {}
 
   interrupt(turnId: string) {
@@ -94,8 +98,23 @@ export class BotRunner {
     const pluginDir = this.skills.materialize(bot.id, bot.handle);
     const setState = (s: BotState, note?: string) => this.hooks.setState(bot.id, room.id, s, note);
 
-    const desktopOn = bot.allowedTools.includes('Desktop') && DESKTOP_AVAILABLE;
-    const browserOn = bot.allowedTools.includes('Browser');
+    const wantsDesktop = bot.allowedTools.includes('Desktop') && DESKTOP_AVAILABLE;
+    const wantsBrowser = bot.allowedTools.includes('Browser');
+    // P1: a bot with Browser or Desktop drives its own computer, started here on first use and held busy (never
+    // idled out) until the turn ends. When it cannot start, the turn still runs, without those two tools.
+    let computer: ComputerEndpoint | null = null;
+    let computerDown: string | undefined;
+    let releaseComputer = () => undefined as void;
+    if (this.computers?.enabled && (wantsDesktop || wantsBrowser)) {
+      if (this.computers.status(bot.id).state !== 'live') setState('working', 'starting its computer');
+      const got = await this.computers.acquire(bot.id);
+      releaseComputer = got.release;
+      if (got.ok) computer = got.endpoint;
+      else computerDown = got.reason;
+    }
+    const desktopOn = wantsDesktop && !computerDown;
+    const browserOn = wantsBrowser && !computerDown;
+    const computerStatus = computer?.perBot ? this.computers!.status(bot.id) : null;
     // The approvals setting, read once per turn so a change in Settings applies from the next turn. Under
     // bypass nothing asks, so the request_approval tool (and its prompt text) is dropped.
     const bypass = this.broker.bypassed;
@@ -108,13 +127,20 @@ export class BotRunner {
       repos: this.repos, memory: this.memory, skills: this.skills,
       dispatchFromBot: (targets, room) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets),
       setState: (s) => setState(s),
-      desktop: desktopOn,
+      // Added below with this bot's own display rather than the shared one.
+      desktop: false,
       models: provider.modelsSync().map((m) => m.id),
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
       confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
     });
+
+    if (desktopOn) {
+      tools.push(...desktopTools(computer?.perBot
+        ? { display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [] }
+        : sharedDesktop()));
+    }
 
     const mcpToken = this.turns.registerTurn(tools);
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
@@ -128,13 +154,18 @@ export class BotRunner {
         toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',
         requestApproval: bestEffort,
         fleetGate: !bypass,
+        computer: computer?.perBot && computer.filesDir && computerStatus
+          ? { display: computer.display, filesDir: computer.filesDir, diskBytes: computerStatus.diskBytes, quotaBytes: computerStatus.quotaBytes }
+          : undefined,
+        computerUnavailable: computerDown,
       }),
       input: req.injected,
       resumeToken: session.sdkSessionId,
       workspaceDir: WORKSPACE_DIR,
       botHome: botHome(bot.id),
       tools,
-      allowedBuiltins: bot.allowedTools,
+      // Browser/Desktop are dropped for this turn when the bot's computer could not start.
+      allowedBuiltins: computerDown ? bot.allowedTools.filter((t) => t !== 'Browser' && t !== 'Desktop') : bot.allowedTools,
       bypassPermissions: bypass,
       permission: async (name, input, extra) => {
         const r = await this.broker.decide(permCtx, name, input, { signal: ac.signal, blockedPath: extra?.blockedPath });
@@ -152,6 +183,8 @@ export class BotRunner {
       maxTurns: MAX_TURNS_PER_QUERY,
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
+      cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
+      computerFilesDir: computer?.filesDir ?? undefined,
     };
 
     events.emitEvent({ type: 'turn.start', turnId, botId: bot.id, roomId: room.id, causeId: req.causeId, hop: req.hop });
@@ -182,6 +215,7 @@ export class BotRunner {
         events.emitEvent({ type: 'message.new', message: msg });
       },
       onToolUse: (id, name, input) => {
+        if (computer?.perBot && (name.startsWith('mcp__browser__') || name.includes('desktop_'))) this.computers!.touch(bot.id);
         const payload: ToolPayload = { toolUseId: id, name, input, done: false };
         const msg = this.repos.insertMessage({
           roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'tool', text: name, payload,
@@ -272,6 +306,7 @@ export class BotRunner {
       this.aborts.delete(turnId);
       this.turns.unregister(mcpToken);
       removeSecret(mcpToken);
+      releaseComputer();
     }
 
     if (!ok && !error) error = 'Turn ended without a result';

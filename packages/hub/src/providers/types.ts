@@ -66,6 +66,11 @@ export interface TurnContext {
   signal: AbortSignal;
   /** Loopback MCP endpoint exposing `tools` for this turn only; CLI adapters point their config at it. */
   mcp: { url: string; token: string };
+  // P1: per-bot computers. Unset = the legacy shared screen (CDP_URL), exactly as before.
+  /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
+  cdpUrl?: string;
+  /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */
+  computerFilesDir?: string;
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */

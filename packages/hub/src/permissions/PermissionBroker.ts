@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
 import type { ApprovalPayload, Bot, Room } from '@pocketrocket/shared';
-import { APPROVAL_TIMEOUT_MS, WORKSPACE_DIR, botHome } from '../config.js';
+import { APPROVAL_TIMEOUT_MS, WORKSPACE_DIR, botRoots } from '../config.js';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import { isInside, pathsFromInput } from './pathRules.js';
@@ -77,7 +77,7 @@ export class PermissionBroker {
     opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; blockedPath?: string },
   ): Promise<PermissionResult> {
     if (this.bypassed) return { behavior: 'allow' };
-    const roots = [WORKSPACE_DIR, botHome(ctx.bot.id)];
+    const roots = botRoots(ctx.bot.id);
     let reason = '';
     let danger = false;
 
@@ -120,7 +120,7 @@ export class PermissionBroker {
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
     if (this.bypassed) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
-    const danger = req.command ? classifyBash(req.command, [WORKSPACE_DIR, botHome(ctx.bot.id)]).danger : false;
+    const danger = req.command ? classifyBash(req.command, botRoots(ctx.bot.id)).danger : false;
     const { decision, approvalId } = await this.prompt(
       ctx, 'request_approval',
       { action: req.action, command: req.command, paths: req.paths, reason: req.reason },
