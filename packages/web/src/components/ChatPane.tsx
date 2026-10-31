@@ -3,7 +3,7 @@ import {
   ArrowDown, PanelRightOpen, Send, Square, Users, Settings2, Check, ShieldAlert, ArrowRightLeft, Clock, Info, Monitor,
   FileText, Pencil, Terminal, Globe, Search, Zap, MousePointer2, ChevronDown,
 } from 'lucide-react';
-import { MAX_ROOM_BOTS } from '@pocketrocket/shared';
+import { MAX_ROOM_BOTS, MODELS } from '@pocketrocket/shared';
 import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, ToolPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
@@ -266,7 +266,12 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
         </div>
         <div className="flex flex-col gap-2">
           {segments(group.items).map((seg) =>
-            seg.kind === 'trace' ? <Trace key={seg.items[0].id} items={seg.items} /> : <Item key={seg.item.id} m={seg.item} bots={bots} />,
+            seg.kind === 'trace' ? <Trace key={seg.items[0].id} items={seg.items} /> : (
+              <div key={seg.item.id} className="flex flex-col gap-1">
+                <Item m={seg.item} bots={bots} />
+                {chipAfter(group.items, seg.item) && <ModelChip m={seg.item} />}
+              </div>
+            ),
           )}
         </div>
       </div>
@@ -519,5 +524,37 @@ function Composer({ members }: { members: Bot[] }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- P8: model chip ----------
+/**
+ * One chip per bot turn: on the last text message of a turn (or of the part of it that ran on one model, when
+ * the router escalated a retry), so a long multi-message reply is not stamped on every paragraph.
+ */
+function chipAfter(items: Message[], m: Message): boolean {
+  if (m.kind !== 'text' || !m.model) return false;
+  const rest = items.slice(items.indexOf(m) + 1);
+  return !rest.some((x) => x.kind === 'text' && x.turnId === m.turnId && x.model === m.model);
+}
+
+/** Which model wrote this, and why. Muted and mono like the other metadata; static, no motion. */
+function ModelChip({ m }: { m: Message }) {
+  const providers = useStore((s) => s.providers);
+  const id = m.model ?? '';
+  const known = providers?.providers.flatMap((p) => p.models).find((x) => x.id === id)?.label ?? MODELS.find((x) => x.id === id)?.label;
+  // "Sonnet 5 (default)" reads as a claim about this turn; the chip only names the model.
+  const label = (known ?? id).replace(/\s*\(.*\)\s*$/, '');
+  const auto = m.modelReason?.startsWith('Auto:');
+  const reason = m.modelReason ?? '';
+  return (
+    <span
+      title={reason || undefined}
+      className="inline-flex w-fit max-w-full items-center gap-1 truncate rounded-full bg-card2 px-2 py-0.5 font-mono text-[11px] text-muted"
+    >
+      {auto && <span aria-hidden>auto ·</span>}
+      {label}
+      {reason && <span className="sr-only">. Model choice: {reason}</span>}
+    </span>
   );
 }

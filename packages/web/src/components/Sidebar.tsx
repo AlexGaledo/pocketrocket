@@ -1,5 +1,5 @@
 import { Plus, Hash, Settings2, Settings, Sun, Moon, BarChart3, PanelLeftClose, FolderOpen } from 'lucide-react';
-import { MODELS } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, MODELS } from '@pocketrocket/shared';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
 import { Avatar, STATE_LABEL, cn } from './ui';
 import { BotGroupHeader, useBotGroups } from './BotGroups';
@@ -89,6 +89,7 @@ export function Sidebar() {
   const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
   const modelLabel = activeProvider?.models.find((m) => m.id === settings.defaultModel)?.label
     ?? MODELS.find((m) => m.id === settings.defaultModel)?.label
+    ?? (settings.defaultModel === AUTO_MODEL_INFO.id ? AUTO_MODEL_INFO.label : undefined)
     ?? settings.defaultModel;
   const status = providerStatus(connected, activeProvider, !!providers);
 

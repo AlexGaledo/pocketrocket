@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, type Bot, type BotInput } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, type Bot, type BotInput } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
 import { Button, Dialog, Field, Input, Label, Select, Textarea, cn } from '../ui';
@@ -18,7 +18,9 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
   const providers = useStore((s) => s.providers);
   const settings = useStore((s) => s.settings);
   const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
-  const models = activeProvider?.models.length ? activeProvider.models : MODELS.map((m) => ({ id: m.id, label: m.label as string, note: undefined as string | undefined }));
+  const providerModels = activeProvider?.models.length ? activeProvider.models : MODELS.map((m) => ({ id: m.id, label: m.label as string, note: undefined as string | undefined }));
+  // "Auto" first: the hub picks from the provider's own list per turn (P8 model router).
+  const models: { id: string; label: string; note?: string }[] = [AUTO_MODEL_INFO, ...providerModels];
   const [f, setF] = useState<BotInput>({
     name: bot?.name ?? '', handle: bot?.handle ?? '', title: bot?.title ?? '', description: bot?.description ?? '', avatar: bot?.avatar ?? '🤖',
     model: bot?.model ?? settings.defaultModel ?? DEFAULT_MODEL, allowedTools: bot?.allowedTools ?? DEFAULT_TOOLS, maxBudgetUsd: bot?.maxBudgetUsd ?? 2,
