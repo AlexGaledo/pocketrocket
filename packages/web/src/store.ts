@@ -3,6 +3,7 @@ import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, 
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
+import type { RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
@@ -135,6 +136,11 @@ interface State {
   control: Record<string, ControlStatus>;
   /** Bumped on `policies.changed`, so the approval rule list refetches. */
   policiesRev: number;
+  // ---- P6 ----
+  /** Teach recordings per bot, from `recorder.state`. Missing = not recording (or not asked yet). */
+  recorder: Record<string, RecorderStatus>;
+  /** Bumped on `skills.changed`, so the Skills tab and an open version list refetch. */
+  skillsRev: number;
 
   setConnected: (v: boolean) => void;
   setHubIssue: (issue: HubIssue | null) => void;
@@ -200,6 +206,8 @@ export const useStore = create<State>((set, get) => ({
   voiceRev: {},
   control: {},
   policiesRev: 0,
+  recorder: {},
+  skillsRev: 0,
 
   setConnected: (connected) => {
     const was = get().connected;
@@ -361,6 +369,13 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'policies.changed':
         set({ policiesRev: s.policiesRev + 1 });
+        return;
+      // ---- P6 ----
+      case 'recorder.state':
+        set({ recorder: { ...s.recorder, [ev.status.botId]: ev.status } });
+        return;
+      case 'skills.changed':
+        set({ skillsRev: s.skillsRev + 1 });
         return;
       default:
         return;
