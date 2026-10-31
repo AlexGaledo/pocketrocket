@@ -66,6 +66,8 @@ export class BotRunner {
     private hooks: RunnerHooks,
     private providers: ProviderRegistry,
     private turns: TurnRegistry,
+    /** P7: the read-only knowledge repo folder, when one is synced (read per turn). */
+    private p7: { knowledgeDir?: () => string | null } = {},
   ) {}
 
   interrupt(turnId: string) {
@@ -116,6 +118,7 @@ export class BotRunner {
       confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
     });
 
+    const knowledgeDir = this.p7.knowledgeDir?.() ?? null;
     const mcpToken = this.turns.registerTurn(tools);
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
@@ -128,6 +131,10 @@ export class BotRunner {
         toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',
         requestApproval: bestEffort,
         fleetGate: !bypass,
+        voice: this.memory.readVoice(bot.id),
+        notesCount: this.memory.listNotes(bot.id).length,
+        knowledgeDir,
+        fleet: this.repos.listBots(),
       }),
       input: req.injected,
       resumeToken: session.sdkSessionId,
@@ -152,6 +159,7 @@ export class BotRunner {
       maxTurns: MAX_TURNS_PER_QUERY,
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
+      knowledgeDir,
     };
 
     events.emitEvent({ type: 'turn.start', turnId, botId: bot.id, roomId: room.id, causeId: req.causeId, hop: req.hop });
