@@ -386,6 +386,20 @@ export class Repos {
   decideApproval(id: string, status: string) {
     this.db.run('UPDATE approvals SET status=?, decided_at=? WHERE id=?', status, now(), id);
   }
+  /**
+   * Startup: every approval still `pending` belonged to a turn that died with the previous hub process, so
+   * nothing can act on it. Marks those rows and their cards `expired`; returns the card messages it changed.
+   */
+  expirePendingApprovals(): Message[] {
+    return this.db.tx(() => {
+      this.db.run("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending'", now());
+      const ids = this.db
+        .all<{ id: string }>("SELECT id FROM messages WHERE kind='approval' AND json_extract(payload, '$.status')='pending'")
+        .map((r) => r.id);
+      this.db.run("UPDATE messages SET payload=json_set(payload, '$.status', 'expired') WHERE kind='approval' AND json_extract(payload, '$.status')='pending'");
+      return ids.map((id) => this.getMessage(id)).filter((m): m is Message => !!m);
+    });
+  }
 
   // ---------- usage ----------
   recordUsage(u: {

@@ -44,4 +44,25 @@ describe('Repos', () => {
     expect(r.getRoom(room.id)).toBeUndefined();
     expect(r.listMessages(room.id)).toEqual([]);
   });
+
+  it('expires approval cards left pending by a previous hub process', () => {
+    const r = fresh();
+    const bot = r.createBot({ name: 'A', handle: 'a', title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1 });
+    const room = r.createRoom({ kind: 'dm', name: 'A', memberIds: [bot.id], coordinatorBotId: null });
+    const card = (approvalId: string, status: 'pending' | 'allow') => {
+      r.createApproval({ id: approvalId, botId: bot.id, roomId: room.id, turnId: 't', toolName: 'Bash', toolInput: { command: 'ls' }, reason: 'r' });
+      if (status !== 'pending') r.decideApproval(approvalId, status);
+      return r.insertMessage({ roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'approval', text: '', causeId: null, hop: 0, turnId: 't',
+        payload: { approvalId, toolName: 'Bash', toolInput: { command: 'ls' }, reason: 'r', danger: false, status } });
+    };
+    const open = card('ap1', 'pending');
+    const done = card('ap2', 'allow');
+
+    const changed = r.expirePendingApprovals();
+    expect(changed.map((m) => m.id)).toEqual([open.id]);
+    expect((r.getMessage(open.id)!.payload as { status: string }).status).toBe('expired');
+    expect((r.getMessage(done.id)!.payload as { status: string }).status).toBe('allow');
+    expect(r.db.all('SELECT id, status FROM approvals ORDER BY id')).toEqual([{ id: 'ap1', status: 'expired' }, { id: 'ap2', status: 'allow' }]);
+    expect(r.expirePendingApprovals()).toEqual([]);
+  });
 });

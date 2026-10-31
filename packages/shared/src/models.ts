@@ -65,7 +65,8 @@ export interface ApprovalPayload {
   toolInput: unknown;
   reason: string;
   danger: boolean;
-  status: 'pending' | 'allow' | 'always' | 'deny' | 'timeout';
+  /** `expired`: the card was still open when the hub stopped, so nothing is waiting on it any more. */
+  status: 'pending' | 'allow' | 'always' | 'deny' | 'timeout' | 'expired';
 }
 export interface HandoffPayload {
   fromBotId: string;

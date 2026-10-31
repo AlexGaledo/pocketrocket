@@ -82,6 +82,9 @@ export function createHub(opts: HubOptions = {}): Hub {
   settings.ensureEnabledProvider();
   // Live, not a constant: toggling approvals in Settings reaches the very next tool call and turn.
   const broker = new PermissionBroker(repos, { bypass: () => settings.approvals() === 'bypass' });
+  // Cards left open by the previous process can never be answered (their turns are gone): show them as expired.
+  const expired = repos.expirePendingApprovals();
+  if (expired.length) console.log('expired ' + expired.length + ' approval card(s) left open by the previous run');
   const router = new RoomRouter(repos, usage);
   const turns = new TurnRegistry();
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
@@ -113,7 +116,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   screenProxy.on('error', (_err, _req, res) => {
     if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
       res.writeHead(502, { 'content-type': 'text/plain' });
-      res.end('Screen is not running on this computer. On the VPS: systemctl status pocketrocket-screen');
+      res.end('Screen is not running on this computer. On the VPS: systemctl status pocketrocket-crew-screen');
     } else if (res && 'destroy' in res) {
       (res as { destroy: () => void }).destroy();
     }

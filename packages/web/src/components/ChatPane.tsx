@@ -398,7 +398,7 @@ function ApprovalCard({ m }: { m: Message }) {
   const p = m.payload as ApprovalPayload;
   const decide = useStore((s) => s.decide);
   const pending = p.status === 'pending';
-  const outcome = p.status === 'allow' ? 'Allowed once' : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? 'Denied' : p.status === 'timeout' ? 'Timed out, denied' : null;
+  const outcome = p.status === 'allow' ? 'Allowed once' : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? 'Denied' : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired — the hub restarted. Ask the bot to retry.' : null;
   return (
     <div className={cn('max-w-[640px] overflow-hidden rounded-2xl bg-panel shadow-[var(--shadow-lg)] ring-1', p.danger ? 'ring-bad/40' : pending ? 'ring-warn/40' : 'ring-line')}>
       <div className="flex items-center gap-2 px-4 pt-3 text-[13px]">
