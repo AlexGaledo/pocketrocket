@@ -29,7 +29,7 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | `/screen/*` authenticated by a `/screen`-scoped httpOnly cookie, bought with a single-use ticket; no `?token=` there | ☑ tests | `curl 'http://127.0.0.1:7790/screen/vnc.html?token=<token>'` → 401; `screenTicket.test.ts` |
 | Per-turn MCP token on `/mcp`; tools scoped to that turn | ☑ tests | `mcp/httpServer.test.ts` |
 | Secrets file never returned by the API (`GET /api/secrets` = which keys set) | ☑ | `SecretsStore.test.ts` |
-| No telemetry / no outbound calls except Claude, the GitHub releases page, and Supabase auth (only when signed in) | ☐ | grep for `fetch(`/`https://` in hub; SECURITY.md |
+| No telemetry / no outbound calls except Claude, the GitHub releases page, Supabase auth (only when signed in), and **integration providers the user connected** (P4, user-initiated): `api.github.com` `github.com` · `accounts.google.com` `oauth2.googleapis.com` `openidconnect.googleapis.com` `gmail.googleapis.com` `www.googleapis.com` · `slack.com` · `api.clickup.com` `app.clickup.com` · `login.microsoftonline.com` `graph.microsoft.com` | ☐ | grep for `fetch(`/`https://` in hub; integration hosts live only in `packages/hub/src/integrations/*`; SECURITY.md |
 | Approvals ask by default for shell commands, out-of-workspace edits, and fleet/room changes; bypass mode is an explicit opt-in (Settings → Bots → Approvals, or `POCKETROCKET_BYPASS_PERMISSIONS` for the whole hub) | ☐ | fresh bot, unapproved shell command → expect a card; flip Approvals to bypass → expect none |
 | Hub token: always required, minted on first run, **stable across restarts** (reused from `<data>/hub-token` unless `POCKETROCKET_ROTATE_TOKEN=1`) | ☑ | restart the hub, confirm an already-open tab stays authenticated |
 | Account (Supabase auth): sign-in via GitHub (email off until custom SMTP), sign-out, session persists across a restart, app works fully signed out | ☐ | Settings → Account: sign in, close/reopen app, confirm still signed in; sign out; use the app signed out |
@@ -43,6 +43,8 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | CI: top-level `permissions: contents: read`, every third-party action SHA-pinned, Dependabot configured (audit #21) | ☑ | `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml` |
 | Screenshots/docs/fixtures redacted of the local username and SSH host alias (audit A) | ☑ | see this file's redaction grep in the audit report |
 | Dependency audit | ☑ | `pnpm audit --prod` → 0 |
+| Integration tokens encrypted at rest (AES-256-GCM, `vault.key` 0600) and `vault.key` left out of `backup.sh` archives (P4) | ☑ tests | `IntegrationVault.test.ts`; `tar -tzf /var/backups/pocketrocket-crew/data-*.tgz \| grep vault.key` → nothing |
+| Integration write tools (send mail, post, comment, create) always show a card, also under bypass; a bot without a grant gets no integration tools (P4) | ☑ tests | `integrations/tools.test.ts` |
 | Branch protection on `main` (required checks, no force-push), Dependabot alerts + security fixes | ☑ | `gh api repos/AlexGaledo/pocketrocket/branches/main/protection` |
 | Secret scanning + push protection | ☐ not available on a private free-plan repo; auto-enabled when public | repo Settings → Code security |
 
