@@ -236,7 +236,7 @@ function SkillsTab({ botId }: { botId: string }) {
 
       <ul className="flex flex-col gap-1">
         {pool.map((s) => (
-          <li key={s.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', s.reviewStatus === 'pending' && 'border-warn/40')}>
+          <li key={s.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', s.reviewStatus === 'pending' && 'border border-warn/40')}>
             <div className="flex items-center gap-2">
               <input type="checkbox" checked={assigned.has(s.id)} onChange={() => toggle(s.id)} disabled={s.reviewStatus === 'pending'} aria-label={'Assign ' + s.name + ' to this bot'} title={s.reviewStatus === 'pending' ? 'Approve first' : 'Assign to this bot'} />
               <button className="min-w-0 flex-1 text-left" onClick={async () => setView(await api.skills.get(s.id))}>
