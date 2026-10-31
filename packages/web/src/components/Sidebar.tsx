@@ -58,6 +58,7 @@ export function Sidebar() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const toast = useStore((s) => s.toast);
+  const panelBotId = useStore((s) => s.panelBotId);
   const connected = useStore((s) => s.connected);
   const helloReceived = useStore((s) => s.helloReceived);
   // On a narrow window this sidebar is a drawer over the chat (App.tsx), so picking a chat closes it.
@@ -72,7 +73,8 @@ export function Sidebar() {
    */
   const openWorkspace = async () => {
     try {
-      const r = await api.openWorkspace();
+      // On a hub with per-bot computers the folder opens on the bot shown in the right panel (P1).
+      const r = await api.openWorkspace(panelBotId);
       if (!r.ok) return toast(r.error ? 'Could not open the workspace: ' + r.error : 'Could not open the workspace', true);
       const WHERE: Record<string, string> = {
         explorer: 'Workspace opened in File Explorer',

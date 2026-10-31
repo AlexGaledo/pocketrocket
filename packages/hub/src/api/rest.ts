@@ -7,7 +7,7 @@ import {
 import net from 'node:net';
 import { readBody } from './body.js';
 import { WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
-import { openWorkspace } from './openWorkspace.js';
+import { openWorkspace, workspaceTarget } from './openWorkspace.js';
 import { SCREEN_VIEWER_PATH, screenViewerPath, type ScreenSessions } from './screenSession.js';
 import type { ComputerManager } from '../services/ComputerManager.js';
 
@@ -146,7 +146,12 @@ export function createRest(deps: RestDeps) {
   // Opens the workspace on the machine the HUB runs on, which is the only machine it exists on: the user's
   // own PC for a local hub, the virtual desktop behind the Screen tab for a server one. The path is fixed,
   // so the request carries nothing that reaches the shell.
-  add('POST', '/api/workspace/open', () => openWorkspace({ screen: DESKTOP_AVAILABLE }));
+  // P1: with per-bot computers it opens on the requesting bot's running computer (`{ botId }`), or says why not.
+  add('POST', '/api/workspace/open', ({ body }) => {
+    const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
+    const bot = botId ? need(repos.getBot(botId), 'Bot') : null;
+    return openWorkspace({ screen: DESKTOP_AVAILABLE, ...workspaceTarget(computers, bot) });
+  });
 
   // ---- settings / secrets / providers
   add('GET', '/api/settings', () => settings.get());

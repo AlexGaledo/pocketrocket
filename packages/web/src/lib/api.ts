@@ -61,8 +61,10 @@ export const api = {
     keepAwake: (botId: string, on: boolean) => req<ComputerStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/keep-awake', { on }),
   },
   config: () => req<{ workspaceDir: string; version: string }>('GET', '/api/config'),
-  // Opens the shared workspace on whichever computer the hub runs on; `where` says which one it was.
-  openWorkspace: () => req<{ ok: boolean; where: 'explorer' | 'finder' | 'screen' | 'file-manager'; path: string; error?: string }>('POST', '/api/workspace/open'),
+  // Opens the shared workspace on whichever computer the hub runs on; `where` says which one it was. On a hub
+  // with per-bot computers it opens on `botId`'s computer (P1), or `error` says to open its Screen first.
+  openWorkspace: (botId?: string | null) =>
+    req<{ ok: boolean; where: 'explorer' | 'finder' | 'screen' | 'file-manager'; path: string; error?: string }>('POST', '/api/workspace/open', botId ? { botId } : {}),
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
     create: (b: BotInput) => req<Bot>('POST', '/api/bots', b),
