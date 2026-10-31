@@ -9,6 +9,7 @@ import { CDP_URL, CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
+import { WRITE_TOOLS, readOnlyWriteDecision } from '../permissions/readOnlyRoots.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
@@ -232,11 +233,28 @@ export class ClaudeProvider implements AgentProvider {
       return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: 'The user declined this action.' };
     };
 
+    // P7: writes into the read-only knowledge repo ask (or, under bypass, are denied) before acceptEdits sees them.
+    const knowledgeDir = ctx.knowledgeDir ?? null;
+    const knowledgeGuard = knowledgeDir
+      ? [{
+          matcher: WRITE_TOOLS.join('|'),
+          hooks: [
+            async (hookInput: unknown) => {
+              const i = hookInput as PreToolUseHookInput;
+              const d = readOnlyWriteDecision(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, [knowledgeDir], ctx.workspaceDir, !!ctx.bypassPermissions);
+              if (!d) return {};
+              return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: d.decision, permissionDecisionReason: d.reason } };
+            },
+          ],
+        }]
+      : [];
+
     const options: Options = {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
       spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
       cwd: ctx.workspaceDir,
-      additionalDirectories: [ctx.botHome],
+      // P7: the knowledge repo is readable like the bot's home; writes there are stopped by the hook below.
+      additionalDirectories: [ctx.botHome, ...(knowledgeDir ? [knowledgeDir] : [])],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: ctx.systemPrompt },
@@ -258,14 +276,16 @@ export class ClaudeProvider implements AgentProvider {
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
       // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
       // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: ctx.bypassPermissions ? undefined : {
+      hooks: ctx.bypassPermissions ? (knowledgeGuard.length ? { PreToolUse: knowledgeGuard } : undefined) : {
         PreToolUse: [
+          ...knowledgeGuard,
           {
             matcher: 'Read|Glob|Grep|NotebookEdit',
             hooks: [
               async (hookInput) => {
                 const i = hookInput as PreToolUseHookInput;
-                const roots = [ctx.workspaceDir, ctx.botHome];
+                // NotebookEdit writes, so only the read tools see the read-only knowledge root (P7).
+                const roots = [ctx.workspaceDir, ctx.botHome, ...(knowledgeDir && i.tool_name !== 'NotebookEdit' ? [knowledgeDir] : [])];
                 const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);
                 const outside = paths.filter((p) => !isInside(p, roots, ctx.workspaceDir));
                 if (process.env.POCKETROCKET_DEBUG) console.log('[hook PreToolUse]', i.tool_name, paths, outside.length ? 'ASK' : 'ok');

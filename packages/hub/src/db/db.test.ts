@@ -78,7 +78,8 @@ describe('Db migrations', () => {
     const broken: Migration = { version: 11, name: 'broken', up: (r) => { r.exec('CREATE TABLE t11 (x)'); throw new Error('boom'); } };
     expect(() => new Db(file, [...MIGRATIONS, later, earlier, broken])).toThrow('boom');
     const db = new Db(file, [...MIGRATIONS, later, earlier]);
-    expect(db.schemaVersions()).toEqual([...P0_VERSIONS, 10, 30]);
+    // Every registered migration (other phases' blocks included) plus the two test ones, in order.
+    expect(db.schemaVersions()).toEqual([...MIGRATIONS.map((m) => m.version), 10, 30].sort((a, b) => a - b));
     expect(db.get("SELECT name FROM sqlite_master WHERE name = 't11'")).toBeUndefined();
     db.raw.close();
   });

@@ -4,6 +4,7 @@ import {
 import { APPROVALS_ENV, ENABLED_PROVIDERS, osUserName } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
+import { knowledgeSourceError } from './KnowledgeRepo.js';
 
 export interface SettingsDeps {
   repos: Repos;
@@ -94,6 +95,11 @@ export class SettingsStore {
     }
     if (this.approvalsLocked && next.approvals !== prev.approvals) {
       throw new SettingsRejected('approvals: set by the server environment (POCKETROCKET_BYPASS_PERMISSIONS)', 409);
+    }
+    // P7: the knowledge source reaches git (as an argument, never a shell), so it is checked before it is stored.
+    if (p.knowledgeRepo !== undefined && p.knowledgeRepo !== prev.knowledgeRepo) {
+      const bad = knowledgeSourceError(p.knowledgeRepo);
+      if (bad) throw new SettingsRejected('knowledgeRepo: ' + bad);
     }
     for (const [k, v] of Object.entries(next)) {
       if ((prev as Record<string, unknown>)[k] !== v || (p as Record<string, unknown>)[k] !== undefined) {

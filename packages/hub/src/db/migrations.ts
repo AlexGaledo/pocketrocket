@@ -62,3 +62,24 @@ registerMigrations([1, 9], [
 //   // P1 (10–19): per-bot computers
 //   registerMigrations([10, 19], [{ version: 10, name: 'computers table', up: (db) => db.exec('CREATE TABLE IF NOT EXISTS computers (...)') }]);
 // or keep the list in its own file (importing only `type Migration` from here) and register it here.
+
+// ---------------------------------------------------------------------------------------------------
+// P7 (70–79): knowledge repo sync status, voice proposals from AutoMemory.
+registerMigrations([70, 79], [
+  {
+    version: 70,
+    name: 'knowledge_sync table',
+    up: (db) => db.exec(
+      "CREATE TABLE IF NOT EXISTS knowledge_sync (id INTEGER PRIMARY KEY CHECK (id = 1), source TEXT NOT NULL DEFAULT '', " +
+      "mode TEXT NOT NULL DEFAULT 'off', last_synced_at INTEGER, head TEXT, last_error TEXT)",
+    ),
+  },
+  {
+    version: 71,
+    name: 'voice_proposals table',
+    up: (db) => db.exec(
+      'CREATE TABLE IF NOT EXISTS voice_proposals (id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS idx_voice_proposals_bot ON voice_proposals(bot_id, created_at)',
+    ),
+  },
+]);

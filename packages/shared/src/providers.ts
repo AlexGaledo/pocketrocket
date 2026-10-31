@@ -93,6 +93,12 @@ export const SettingsSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']).default('system'),
   /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
   approvals: z.enum(APPROVALS).default('ask'),
+  // ---- P7: knowledge repo ----
+  /**
+   * A git URL (https://, ssh://, git@host:path, file://) cloned to `data/knowledge`, or an absolute local
+   * folder linked there. Every bot reads it; none can write it. Empty = off. Validated by the hub.
+   */
+  knowledgeRepo: z.string().max(500).default(''),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

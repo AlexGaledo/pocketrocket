@@ -245,3 +245,9 @@ export function migrateLegacyDb() {
   }
   console.log('migrated legacy claudebot.db -> pocketrocket.db');
 }
+
+// ---- P7: knowledge repo ----
+/** Where settings.knowledgeRepo is cloned (git URL) or linked (local folder). Read-only to every bot. */
+export const KNOWLEDGE_DIR = path.join(DATA_DIR, 'knowledge');
+/** Minutes between background `git pull --ff-only` runs of the knowledge clone. 0 turns the timer off. */
+export const KNOWLEDGE_SYNC_MINUTES = Number(process.env.KNOWLEDGE_SYNC_MINUTES ?? 60);
