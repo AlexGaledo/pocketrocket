@@ -199,6 +199,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   const MIME: Record<string, string> = {
     '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
     '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2', '.woff': 'font/woff',
+    // P9: PWA manifest
+    '.webmanifest': 'application/manifest+json',
   };
 
   // /screen/* -> noVNC (websockify) on the computer. Same-origin, so the SSH tunnel / Tailscale covers it.
@@ -372,7 +374,9 @@ export function createHub(opts: HubOptions = {}): Hub {
         res.end('PocketRocket hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
         return;
       }
-      const isShell = path.basename(file) === 'index.html';
+      // P9: the service worker and the manifest have fixed names, so they must be revalidated like the shell;
+      // an immutable sw.js would pin every installed phone to the build it first saw.
+      const isShell = ['index.html', 'sw.js', 'manifest.json', 'manifest.webmanifest'].includes(path.basename(file));
       res.writeHead(200, {
         'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
         // hashed assets are immutable; the shell must always be re-fetched so a reload picks up new builds
