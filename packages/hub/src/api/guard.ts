@@ -332,6 +332,17 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['DELETE', /^\/api\/devices\/[^/]+$/],
   ['GET', /^\/api\/push$/],
   ['POST', /^\/api\/push\/(subscribe|unsubscribe|test)$/],
+  // P6 teach: a phone may watch a recording, end it (Done hands control back, like Hand back above) and read
+  // recordings, skill versions with their diff and the reflection setting. Starting a recording, distilling,
+  // corrections, the reflection opt-in and approving or rejecting a version stay desktop actions, like the rest
+  // of skill review.
+  ['GET', /^\/api\/computers\/[^/]+\/recorder$/],
+  ['POST', /^\/api\/computers\/[^/]+\/recorder\/stop$/],
+  ['GET', /^\/api\/computers\/[^/]+\/recordings$/],
+  ['GET', /^\/api\/computers\/[^/]+\/recordings\/[^/]+$/],
+  ['GET', /^\/api\/skills\/[^/]+\/versions$/],
+  ['GET', /^\/api\/skills\/[^/]+\/versions\/[^/]+$/],
+  ['GET', /^\/api\/bots\/[^/]+\/skill-reflection$/],
 ];
 
 /**

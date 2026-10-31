@@ -55,6 +55,11 @@ import { ApprovalStore, type ParkedApproval } from './db/approvalStore.js';
 import { ComputerControlService, type VncControl } from './services/ComputerControl.js';
 import { createTakeoverApi } from './api/takeover.js';
 import { handBackNote } from './rooms/RoomRouter.js';
+// P6: teach by demonstration, skill versions and reflection
+import { Recorder, type RecorderDeps } from './services/Recorder.js';
+import { SkillDistiller } from './services/SkillDistiller.js';
+import { SkillReflection } from './services/SkillReflection.js';
+import { createTeachApi } from './api/teach.js';
 
 export interface HubOptions {
   port?: number;
@@ -79,6 +84,9 @@ export interface HubOptions {
   push?: (devices: DevicesRepo, repos: Repos) => PushService;
   /** P2: x11vnc view-only toggle; tests pass a fake. Defaults to `x11vnc -R viewonly|noviewonly`. */
   vnc?: VncControl;
+  // ---- P6 ----
+  /** Recorder overrides (tests: availability, a fake CDP, fake scrot/xdotool, a temp folder). */
+  recorder?: Partial<Omit<RecorderDeps, 'computers' | 'control'>>;
 }
 
 export interface Hub {
@@ -103,6 +111,10 @@ export interface Hub {
   control: ComputerControlService;
   broker: PermissionBroker;
   approvals: ApprovalStore;
+  // ---- P6 ----
+  skills: SkillService;
+  recorder: Recorder;
+  distiller: SkillDistiller;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -204,6 +216,16 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
   const takeoverApi = createTakeoverApi({ repos, control, store: approvalStore, broker });
   let p2Timer: NodeJS.Timeout | null = null;
+
+  // P6: teach by demonstration (forces control=user while recording), distill/corrections, opt-in reflection.
+  const recorder = new Recorder({ computers, control, ...opts.recorder });
+  recorder.listen();
+  const activeModels = () => providers.modelsSync(providers.active().id);
+  const distiller = new SkillDistiller({ repos, skills, recorder, usage, activeProvider: () => providers.active().id, models: activeModels });
+  router.skillReflection = new SkillReflection({ repos, skills, usage, activeProvider: () => providers.active().id, models: activeModels });
+  skills.versionsRepo.prune(repos.listBots().map((b) => b.id));
+  const offP6 = events.onEvent((ev) => { if (ev.type === 'bots.changed') skills.versionsRepo.prune(ev.bots.map((b) => b.id)); });
+  const teachApi = createTeachApi({ repos, skills, recorder, distiller });
 
   // P4: integrations. Shared connections, per-bot grants; grants of deleted bots are dropped as bots change.
   const integrations = opts.integrations ? opts.integrations(db) : new IntegrationService({ db });
@@ -413,6 +435,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await integrationsApi(req, res)) return;
       if (await triggersApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
+      if (await teachApi(req, res)) return;
       if (await rest(req, res)) return;
       if (url.pathname.startsWith('/screen/')) {
         const route = screenRoute(url.pathname);
@@ -492,6 +515,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   return {
     server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push,
     control, broker, approvals: approvalStore,
+    skills, recorder, distiller,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -540,6 +564,9 @@ export function createHub(opts: HubOptions = {}): Hub {
       followUp.stop();
       control.stop();
       offP2();
+      // P6: an open recording ends (its control is in memory anyway) and its computer is released.
+      offP6();
+      await recorder.shutdown();
       if (p2Timer) clearInterval(p2Timer);
       knowledge.stop();
       offComputers();
