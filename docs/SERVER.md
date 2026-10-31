@@ -168,3 +168,104 @@ RESTIC_PASSWORD_FILE=/root/.pocketrocket-crew-restic-pass
 
 With both set, the daily job takes a restic snapshot instead of a tarball and keeps 7 daily snapshots. It is
 off until you create that file. Offsite copies are up to you.
+
+## Phone access over Tailscale Serve
+
+The hub still binds `127.0.0.1` only. To use PocketRocket Crew from a phone, put
+[Tailscale Serve](https://tailscale.com/kb/1312/serve) in front of it: Serve terminates HTTPS for your
+machine's tailnet name and forwards to the loopback port, so only devices **signed in to your own tailnet**
+can reach it.
+
+> **Never use Tailscale Funnel.** Funnel publishes the hub to the whole internet. Serve keeps it inside your
+> tailnet. If `tailscale funnel status` ever lists the hub's port, turn it off (`tailscale funnel reset`).
+
+This bends one of the project's rules ("remote access only over SSH", decision Q9), so it is **off until you
+opt in** with `POCKETROCKET_ALLOWED_HOSTS`. The SSH tunnel keeps working exactly as before.
+
+### 1. Turn on HTTPS for your tailnet (once)
+
+In the Tailscale admin console, under **DNS**: enable **MagicDNS** and **HTTPS Certificates**. Your machine
+then has a name like `myhub.tail1234.ts.net`. Find it with:
+
+```sh
+tailscale status --json | grep -m1 DNSName     # "DNSName": "myhub.tail1234.ts.net."
+```
+
+### 2. Serve the hub on the tailnet
+
+On the machine the hub runs on (the VPS, or your PC in local mode):
+
+```sh
+sudo tailscale serve --bg http://127.0.0.1:7790   # https://myhub.tail1234.ts.net/ -> the hub
+tailscale serve status                            # check: one https:// entry, "tailnet only"
+```
+
+`--bg` keeps the setting across reboots. Remove it with `sudo tailscale serve reset`. Websockets (`/ws`) and
+the Screen tab (`/screen/*`) go through the same Serve entry. Do not point Serve at the noVNC or CDP ports
+(6080, 9222, 62xx, 94xx): the hub proxies the Screen itself, behind its own auth.
+
+### 3. Tell the hub its tailnet name
+
+The hub refuses any `Host` that is not loopback, which is what stops DNS rebinding. List the tailnet name to
+let it through:
+
+```sh
+sudo systemctl edit pocketrocket-crew
+```
+
+```ini
+[Service]
+Environment=POCKETROCKET_ALLOWED_HOSTS=myhub.tail1234.ts.net
+```
+
+```sh
+sudo systemctl restart pocketrocket-crew
+```
+
+In local mode on your PC, set `POCKETROCKET_ALLOWED_HOSTS` as a user environment variable and restart the
+desktop app (it passes its environment to the hub it starts).
+
+What the hub accepts with this set:
+
+- Only the names you listed (comma or space separated). Anything else (a scheme, a port, a wildcard, an IP,
+  `localhost`) is ignored with a warning in the log.
+- Only over HTTPS: the request has to arrive from loopback carrying `X-Forwarded-Proto: https`, which is what
+  Serve sends. A plain `http://` request using that name is refused, and so is an `Origin` other than
+  `https://<listed name>`.
+- Everything else is unchanged: the token guard, the rate limiter (10 failed sign-ins a minute), and the
+  JSON content-type rule.
+
+Check it from another tailnet device: `curl https://myhub.tail1234.ts.net/api/health` answers with the
+version, and `curl https://myhub.tail1234.ts.net/api/bots` answers 401.
+
+### 4. Pair a phone
+
+Phones never get the hub token. They get a **device token** of their own, which you can revoke at any time.
+
+1. On the desktop app (or a browser that holds the hub token), open **Settings › Devices** and press
+   **Pair a phone**. It shows a QR code and an 8-character code (`ABCD-EFGH`) that works **once** and expires
+   after **5 minutes**. The QR code holds `https://myhub.tail1234.ts.net/#pair=<code>`: the hub's tailnet URL
+   and the one-time code, never the hub token.
+2. On the phone, with Tailscale connected, scan the QR code with the camera. The page opens, redeems the
+   code and keeps the device token on the phone. If you can't scan, open the tailnet URL and type the code.
+3. Install it: **Share › Add to Home Screen** on iPhone (Safari), **Install app** on Android (Chrome). The
+   app shell is cached so it opens fast; messages are never stored on the phone by the app.
+4. Optional: in **Settings › Devices** on the phone, turn on **Notifications on this device**. Pushes say only
+   "A bot needs your approval" or "Routine finished", never what a bot wrote, because they pass through
+   Apple's or Google's push service. On iPhone, notifications need the Home Screen app (iOS 16.4 or later).
+
+What a paired phone can do: read bots, rooms and messages, chat, answer approval cards (**once**; "Always
+allow" stays a desktop decision), watch a Screen, and create, edit and run Automations. What it cannot do:
+change Settings (including approvals), read or change API keys, integrations or the account, edit bots or
+rooms, or pair another device. Those answer 403.
+
+**Revoke** a device in **Settings › Devices** on the desktop. It takes effect on the next request: the
+phone's open connection and any Screen it has open are closed at once, and its push subscription is deleted.
+A phone can also unpair itself. Lost the phone? Revoke it; the hub token was never on it.
+
+### Without Tailscale
+
+The fallback that bends nothing: an SSH client app on the phone with local port forwarding
+(`-L 7790:127.0.0.1:7790`), then open `http://127.0.0.1:7790` on the phone. It works, but the phone browser
+sees plain `http://`, so the app cannot be installed and push is unavailable. Pair it the same way, typing
+`http://127.0.0.1:7790` as the phone's URL in Settings › Devices.
