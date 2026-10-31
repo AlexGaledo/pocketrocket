@@ -8,21 +8,134 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 **PocketRocket Crew** is a fork of PocketRocket 0.2.0 (upstream: `AlexGaledo/pocketrocket`). Entries
-below are fork changes; the per-phase notes live in `docs/changes/pN.md` and are merged here by the
-integrator. Upstream changes after 0.2.0 that the fork already includes: the desktop app stops offering
-the other connection modes once one is set up.
+below are fork changes, grouped by feature area; the per-phase notes live in `docs/changes/pN.md`.
+Upstream changes after 0.2.0 that the fork already includes: the desktop app stops offering the other
+connection modes once one is set up.
 
-### Changed
+### Name and install
 
 - The app is named PocketRocket Crew and installs side by side with PocketRocket: its own app id
   (`com.pocketrocket.crew`, so its own `%APPDATA%` folder and single-instance lock), default hub port
   **7790**, browser storage keys `prcrew.*`, and on a server its own `pocketrocket-crew` user,
   `/home/pocketrocket-crew/pocketrocket-crew` install, `pocketrocket-crew*.service` units and screen
   (display `:98`, CDP 9223, VNC 5901, noVNC 6081). Releases come from `AlexGaledo/pocketrocket-crew`.
-- The $5 per-thread cost cap now limits every turn (your messages, routines), not only bot-to-bot
-  hand-offs: a turn may spend at most what is left of the cap, and a queued turn on a thread that is
-  already over it does not start and says so.
 - Room members can be set up to 10 bots over REST (was 6), matching what bots can do.
+
+### Each bot's own computer (server)
+
+- A bot with Browser or Desktop gets its own virtual display, desktop, Chromium profile (its own logins)
+  and disk, with the shared workspace linked as `~/Shared`. Computers are separate but **not isolated**:
+  every bot runs as the same OS user.
+- Computers start on first use and sleep after `COMPUTER_IDLE_MIN` (30) idle minutes; at most
+  `MAX_RUNNING_COMPUTERS` (3) run at once. A soft disk quota (`COMPUTER_QUOTA_GB`, 10) warns at 80% and
+  keeps the computer from starting at 100%. Existing logins move to the first Browser bot once.
+- The Screen tab follows the selected bot: Asleep / Starting / Live, **Wake**, **Keep awake** and a disk
+  badge. A screen ticket opens one bot's screen only.
+- **Take over, Hand back, Pause** in the Screen tab and a bot's DM header. While the bot has control you
+  only watch; take over and you can click and type. The bot's computer tools refuse while you have control,
+  also in bypass mode. A paused bot starts no turns until you resume it.
+- Bots can ask for you with `request_takeover` ("@shopper needs you: log in to example.com"); hand back
+  with a note and the bot carries on.
+- Deleting a bot stops its computer and erases its disk. The desktop app, and servers with per-bot
+  computers off, keep the one shared screen.
+
+### Approvals
+
+- **Routine and trigger turns always ask**, and so does every bot hop they cause, even when approvals are
+  bypassed. Nobody is watching a 3 a.m. routine.
+- **Approvals while away.** A routine or trigger turn whose card nobody answers in 10 minutes parks
+  instead of failing: the card stays open (also across a restart), and when you answer, hours later, the
+  bot picks up where it stopped. A card parked for 24 hours is denied.
+- **Approval rules.** After "Allow for this session" a card offers **Make this a rule?**; Settings › Bots
+  › Approval rules lists and revokes them. Only you can create one. A rule never covers a dangerous
+  command or an integration write. "Allow for this session" now covers the same command again, not every
+  use of the tool.
+
+### Automations: schedules and triggers
+
+- The Routines tab is now **Automations**, with **Schedules** and **Triggers**.
+- **Time zone** in Settings › Account; schedules run on that clock. **One-shot** schedules fire once at
+  a date and time. Presets (once, daily, weekdays, weekly, monthly, yearly) write the cron for you; raw
+  cron is under Advanced. The list shows schedules in words, next runs, and run history with cost.
+- Bots can create, change and delete schedules (`create_routine`, `update_routine`, `delete_routine`);
+  each shows an approval card first.
+- **Triggers** wake a bot in a room when something happens in a connected integration: GitHub
+  notifications and repository events, Gmail, Google Calendar, Google Drive, Slack, ClickUp and Teams.
+  Events arrive by outbound polling and Slack Socket Mode; the hub opens no inbound port. Each trigger has
+  filters, a prompt with `{{event.*}}` placeholders, a per-hour limit and a per-day budget, **Send a
+  sample event**, and its recent fires with cost and skip reasons.
+- Trigger messages show as "Trigger: name", with the event folded under "Event (untrusted)".
+- **Turns survive a restart:** a turn queued or running when the hub stopped resumes once on the next
+  start. A handoff nobody answers in 10 minutes gets one nudge to the room's coordinator.
+
+### Integrations
+
+- **Settings › Integrations** connects GitHub, Google (Gmail, Calendar, Drive), Slack, ClickUp and
+  Microsoft Teams, with your own OAuth app (PKCE and a loopback redirect; a device code for GitHub and
+  Teams on a server) or a pasted token. Each card has setup steps, Test connection, Reconnect and
+  Disconnect.
+- Connections are shared, but a bot sees a provider's tools only after you switch it on for that bot.
+- Bot tools read issues, PRs, notifications, mail, calendars, Drive files, channels, tasks and chats, and
+  write issues, comments, mail, events, Slack posts, tasks and Teams messages. Reads are labelled as
+  untrusted third-party content. **Every write asks, on every call, even under bypass.**
+
+### Knowledge, notes and voice
+
+- **Settings › Knowledge** takes a git URL (shallow clone, pulled hourly and on **Sync now**) or a local
+  folder. Every bot can read and cite it; none can write it.
+- Per-bot **notes** (`write_note`, `search_notes`) that stay out of the prompt, and a per-bot **voice**
+  (style notes in every prompt, editable in the Memory tab). Auto-memory may propose voice notes from your
+  corrections; they wait for your approval.
+- The prompt lists the bots not in the room; handing off to one in a group chat adds it, after a card.
+- **Skills › From git** imports every `SKILL.md` folder of a repository as pending review.
+
+### Models and usage
+
+- **Auto model:** the hub picks the model per turn (Haiku for triage and memory, Opus when you ask it to
+  think hard or a skill asks for it, Sonnet otherwise) and moves a turn that hits the step limit to Opus,
+  within the bot's budget. An optional one-shot classifier is in Settings › Claude.
+- A **model chip** on every bot turn shows the model and why. The Usage tab breaks spend down by model and
+  by what started it.
+
+### Phone and desktop app
+
+- **Pair a phone** in Settings › Devices with a QR code and a one-time code (never the hub token). The list
+  shows when each device was paired and last seen; a revoked phone is cut off at once.
+- A phone can chat, answer approval cards (once only), watch the Screen and manage Automations. What it
+  may not do is hidden: creating or editing bots and rooms, settings, integrations and approval rules.
+  Settings on a phone shows Devices, read-only Appearance and About.
+- **Installable web app** (PWA) with a phone layout, and opt-in **Web Push** that says only "A bot needs
+  your approval", "Routine finished" or a test line.
+- Phone access over **Tailscale Serve** with `POCKETROCKET_ALLOWED_HOSTS`, off by default.
+- Desktop app: **tray icon and close-to-tray** (the hub and bots keep running), and **Linux** (AppImage,
+  deb) and **macOS** (unsigned dmg) builds.
+- Settings sections are Account, Claude, Bots, Integrations, Knowledge, Devices, Appearance, About.
+
+### Server
+
+- Per-bot computers run as a systemd user unit (`pocketrocket-crew-computer@.service`); slot `n` uses
+  display `:200+n`, CDP `9400+n`, VNC `5800+n` and noVNC `6200+n`, all on 127.0.0.1.
+  `POCKETROCKET_COMPUTERS=0 bash deploy/setup-vps.sh` keeps the one shared screen.
+- Optional **restic** backups (`RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE`). Backups skip browser caches
+  and `vault.key`, and keep `vapid.json`, so phones need not re-subscribe after a restore.
+
+### Security
+
+- The $5 per-thread cost cap now limits every turn (your messages, routines, triggers), not only
+  bot-to-bot hand-offs.
+- Integration tokens are encrypted at rest (AES-256-GCM, key in `data/vault.key`, owner-only), never
+  reach a bot, and are scrubbed from output and logs.
+- Trigger event text is fenced as untrusted data with a random nonce; placeholders get a quoted,
+  single-line, capped copy. Each trigger has an hourly limit and a 24-hour budget, and the budget now also
+  caps a trigger turn resumed after a restart or a parked approval.
+- Shell commands that look read-only but write or run code now ask: `git diff`/`git log --output`,
+  `--ext-diff`, `--textconv`, git global options, `rg --pre`, `sort -o` / `--compress-program`,
+  `tree -o`, and option values that point outside the workspace.
+- The knowledge folder is read-only to bots: file-tool and shell writes there ask, and are refused
+  outright under bypass.
+- Device tokens are stored hashed, and a phone reaches only the routes it is allowed. Web Push payloads
+  carry no bot, room or message text.
+- Errors in the hub log go through redaction, and the VAPID key is kept owner-only on every start.
 
 ### Fixed
 
