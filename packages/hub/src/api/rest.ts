@@ -8,7 +8,8 @@ import net from 'node:net';
 import { readBody } from './body.js';
 import { WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
 import { openWorkspace } from './openWorkspace.js';
-import { SCREEN_VIEWER_PATH, type ScreenSessions } from './screenSession.js';
+import { SCREEN_VIEWER_PATH, screenViewerPath, type ScreenSessions } from './screenSession.js';
+import type { ComputerManager } from '../services/ComputerManager.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -49,6 +50,8 @@ export interface RestDeps {
   /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
   screenSessions: ScreenSessions;
   account: AccountService;
+  /** Per-bot computers (P1): Screen tab status, Wake, Keep awake. */
+  computers: ComputerManager;
 }
 
 export function createRest(deps: RestDeps) {
@@ -58,7 +61,7 @@ export function createRest(deps: RestDeps) {
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '/?$');
     routes.push({ method, pattern, keys, handler });
   };
-  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account } = deps;
+  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, computers } = deps;
   const need = <T>(v: T | undefined, what: string): T => { if (!v) throw new HttpError(404, what + ' not found'); return v; };
   const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
     const r = schema.safeParse(body);
@@ -92,13 +95,48 @@ export function createRest(deps: RestDeps) {
     };
   });
   add('GET', '/api/debug/last-init', () => runner.lastInit);
-  add('GET', '/api/screen', async () => {
+  add('GET', '/api/screen', async ({ query }) => {
+    // P1: `?botId=` asks about that bot's own computer. Without per-bot computers (or without a bot) it is the
+    // one shared screen, exactly as before; `computer` then says perBot: false.
+    const botId = query.get('botId');
+    if (botId && computers.enabled) {
+      need(repos.getBot(botId), 'Bot');
+      const computer = computers.status(botId);
+      const ep = computers.existingEndpoint(botId);
+      const live = !!ep && computer.state === 'live';
+      const [screen, cdp] = live ? await Promise.all([probe(ep.screenUrl), probe(ep.cdpUrl)]) : [false, false];
+      return { screen, cdp, url: screenViewerPath(botId), computer };
+    }
     const [screen, cdp] = await Promise.all([probe(SCREEN_URL), probe(CDP_URL)]);
-    return { screen, cdp, url: SCREEN_VIEWER_PATH };
+    return { screen, cdp, url: SCREEN_VIEWER_PATH, ...(botId ? { computer: computers.status(botId) } : {}) };
   });
   // The web client cannot put the hub token in an iframe URL, so it spends the token here instead: one
   // authenticated POST buys a ticket that `/screen/session` trades for a `/screen`-scoped httpOnly cookie.
-  add('POST', '/api/screen/ticket', () => ({ url: screenSessions.mintTicket().url }));
+  // P1: with `{ botId }` the ticket (and the cookie it buys) opens that bot's computer and nothing else.
+  add('POST', '/api/screen/ticket', ({ body }) => {
+    const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
+    if (botId && computers.enabled) {
+      need(repos.getBot(botId), 'Bot');
+      if (!computers.existingEndpoint(botId)) throw new HttpError(409, 'This bot has no computer yet; wake it first');
+      return { url: screenSessions.mintTicket(botId).url };
+    }
+    return { url: screenSessions.mintTicket().url };
+  });
+
+  // ---- per-bot computers (P1). Human-only: no bot tool reaches these.
+  add('GET', '/api/computers/:botId', ({ params }) => computers.status(need(repos.getBot(params.botId), 'Bot').id));
+  add('POST', '/api/computers/:botId/wake', async ({ params }) => {
+    const bot = need(repos.getBot(params.botId), 'Bot');
+    if (!computers.enabled) throw new HttpError(409, 'This hub has no per-bot computers');
+    await computers.ensureRunning(bot.id);
+    return computers.status(bot.id);
+  });
+  add('PUT', '/api/computers/:botId/keep-awake', ({ params, body }) => {
+    const bot = need(repos.getBot(params.botId), 'Bot');
+    const { on } = parse(z.object({ on: z.boolean() }), body);
+    if (!computers.enabled) throw new HttpError(409, 'This hub has no per-bot computers');
+    return computers.setKeepAwake(bot.id, on);
+  });
   add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR, version: VERSION }));
   // Opens the workspace on the machine the HUB runs on, which is the only machine it exists on: the user's
   // own PC for a local hub, the virtual desktop behind the Screen tab for a server one. The path is fixed,
