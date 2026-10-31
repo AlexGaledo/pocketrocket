@@ -9,7 +9,7 @@ import { CDP_URL, CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
-import { WRITE_TOOLS, readOnlyWriteDecision } from '../permissions/readOnlyRoots.js';
+import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision } from '../permissions/readOnlyRoots.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
@@ -238,7 +238,7 @@ export class ClaudeProvider implements AgentProvider {
     const knowledgeDir = ctx.knowledgeDir ?? null;
     const knowledgeGuard = knowledgeDir
       ? [{
-          matcher: WRITE_TOOLS.join('|'),
+          matcher: READ_ONLY_GUARD_TOOLS.join('|'),
           hooks: [
             async (hookInput: unknown) => {
               const i = hookInput as PreToolUseHookInput;

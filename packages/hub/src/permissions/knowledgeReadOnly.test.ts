@@ -22,7 +22,7 @@ import { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import { ClaudeProvider } from '../providers/claude.js';
 import type { TurnContext } from '../providers/types.js';
-import { classifyBash } from './bashRules.js';
+import { bashWritesReadOnly, classifyBash } from './bashRules.js';
 import { PermissionBroker } from './PermissionBroker.js';
 import { readOnlyWriteDecision } from './readOnlyRoots.js';
 
@@ -92,6 +92,43 @@ describe('PermissionBroker with a read-only knowledge root', () => {
   });
 });
 
+// ---- hardening pass: the P7 gap, shell writes under bypass ----
+describe('shell writes into the knowledge repo under bypass', () => {
+  const writes = [
+    'echo hacked > ' + kfile, 'cat a.txt >> ' + kfile, 'cp a.txt ' + kdir, 'mv a.txt ' + kdir, 'rm ' + kfile,
+    'sort -o ' + kfile + ' a.txt', 'tee ' + kfile, 'cd ' + kdir + ' && echo x > y.md', 'cd ' + kdir + ' && git pull',
+    'cd ' + kdir + ' && touch x', 'sh -c "cp a.txt ' + kfile.replace(/\\/g, '/') + '"', 'git diff --output=' + kfile,
+  ];
+  it('bashWritesReadOnly names the target of every write it can see', () => {
+    for (const c of writes) expect(bashWritesReadOnly(c, WORKSPACE_DIR, [kdir]), c).toBeTruthy();
+  });
+  it('leaves reads of the knowledge repo, and writes elsewhere, alone', () => {
+    for (const c of [
+      'cat ' + kfile, 'grep -n Handbook ' + kfile + ' > out.txt', 'cd ' + kdir + ' && ls', 'cd ' + kdir + ' && git log -3',
+      'rg Handbook ' + kdir, 'echo x > out.txt', 'cp a.txt b.txt', 'npm test',
+    ]) {
+      expect(bashWritesReadOnly(c, WORKSPACE_DIR, [kdir]), c).toBeNull();
+    }
+    expect(bashWritesReadOnly('cp a.txt ' + kdir, WORKSPACE_DIR, [])).toBeNull();
+  });
+  it('the broker refuses them in bypass, without a card, and still allows everything else', async () => {
+    for (const c of writes) {
+      const r = await decide('Bash', { command: c }, true);
+      expect(r, c).toEqual({ behavior: 'deny', card: null });
+    }
+    expect(await decide('Bash', { command: 'cat ' + kfile }, true)).toEqual({ behavior: 'allow', card: null });
+    expect(await decide('Bash', { command: 'npm test' }, true)).toEqual({ behavior: 'allow', card: null });
+    const { b, ctx } = broker(true);
+    const asked = await b.ask(ctx, { action: 'run', command: 'cp a.txt ' + kdir }, new AbortController().signal);
+    expect(asked.allowed).toBe(false);
+  });
+  it('readOnlyWriteDecision covers Bash: ask normally, deny under bypass', () => {
+    expect(readOnlyWriteDecision('Bash', { command: 'cp a.txt ' + kdir }, [kdir], WORKSPACE_DIR, false)).toMatchObject({ decision: 'ask' });
+    expect(readOnlyWriteDecision('Bash', { command: 'cp a.txt ' + kdir }, [kdir], WORKSPACE_DIR, true)).toMatchObject({ decision: 'deny' });
+    expect(readOnlyWriteDecision('Bash', { command: 'cat ' + kfile }, [kdir], WORKSPACE_DIR, true)).toBeNull();
+  });
+});
+
 describe('classifyBash read-only roots', () => {
   const ro = { readOnlyRoots: [kdir] };
   it('allows the plain readers on a read-only root, including after cd', () => {
@@ -150,6 +187,14 @@ describe('Claude SDK wiring', () => {
     const o = await runTurn(true, kdir);
     const out = await writeHook(o)({ tool_name: 'Edit', tool_input: { file_path: kfile } });
     expect(out.hookSpecificOutput?.permissionDecision).toBe('deny');
+  });
+
+  it('the Claude PreToolUse guard also denies a shell write there under bypass', async () => {
+    const o = await runTurn(true, kdir);
+    expect(o.hooks!.PreToolUse.find((h) => h.matcher.includes('Write'))!.matcher).toContain('Bash');
+    const out = await writeHook(o)({ tool_name: 'Bash', tool_input: { command: 'echo x > ' + kfile } });
+    expect(out.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(await writeHook(o)({ tool_name: 'Bash', tool_input: { command: 'cat ' + kfile } })).toEqual({});
   });
 
   it('adds nothing when no knowledge repo is synced', async () => {
