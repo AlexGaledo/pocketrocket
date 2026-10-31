@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from 'lucide-react';
-import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
+import type { Bot, ComputerStatus, Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
 import { isDesktopMode } from '../lib/auth';
-import { Avatar, Badge, Button, Input, Label, Select, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
+import { Avatar, Badge, Button, Input, Label, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
 
 export function RightPanel() {
   const bots = useStore((s) => s.bots);
@@ -42,7 +42,7 @@ export function RightPanel() {
           <TabsTrigger value="usage">Usage</TabsTrigger>
         </TabsList>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <TabsContent value="screen" className="h-full"><ScreenTab /></TabsContent>
+          <TabsContent value="screen" className="h-full"><ScreenPane bot={bot} /></TabsContent>
           <TabsContent value="memory">{bot && <MemoryTab botId={bot.id} />}</TabsContent>
           <TabsContent value="skills">{bot && <SkillsTab botId={bot.id} />}</TabsContent>
           <TabsContent value="routines"><RoutinesTab botId={bot?.id ?? null} /></TabsContent>
@@ -388,6 +388,139 @@ function UsageTab() {
           <div>auth: {health.apiKeySource ?? '(known after first turn)'}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// P1: per-bot computers. The Screen tab follows the panel's bot. On a hub without per-bot computers (the
+// desktop app, or a server with them off) it is the shared ScreenTab above, unchanged.
+
+/** Whether this hub has per-bot computers. A hub-wide fact, so it is asked once per page load. */
+let perBotHub: boolean | null = null;
+
+function ScreenPane({ bot }: { bot?: Bot }) {
+  const [perBot, setPerBot] = useState<boolean | null>(perBotHub);
+  useEffect(() => {
+    if (perBotHub !== null || !bot) return;
+    let alive = true;
+    api.screen(bot.id)
+      .then((s) => { perBotHub = !!s.computer?.perBot; if (alive) setPerBot(perBotHub); })
+      .catch(() => alive && setPerBot(false));
+    return () => { alive = false; };
+  }, [bot]);
+  if (perBot === null && bot) return <div className="px-3 py-2 text-xs text-muted">checking…</div>;
+  return perBot && bot ? <BotScreen key={bot.id} bot={bot} /> : <ScreenTab />;
+}
+
+const gbText = (b: number) => (b / 1024 ** 3).toFixed(1) + ' GB';
+
+function BotScreen({ bot }: { bot: Bot }) {
+  const toast = useStore((s) => s.toast);
+  const [info, setInfo] = useState<{ screen: boolean; cdp: boolean; computer: ComputerStatus } | null>(null);
+  const [waking, setWaking] = useState(false);
+  const [src, setSrc] = useState('');
+  const [nonce, setNonce] = useState(0);
+  const [wide, setWide] = useState(false);
+  const c = info?.computer;
+  const state = waking && c?.state === 'asleep' ? 'starting' : c?.state;
+  const live = state === 'live' && !!info?.screen;
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await api.screen(bot.id);
+      if (s.computer) setInfo({ screen: s.screen, cdp: s.cdp, computer: s.computer });
+    } catch { /* hub unreachable: keep the last state */ }
+  }, [bot.id]);
+  // Poll faster while a start is in flight, so "starting" turns into the live screen promptly.
+  useEffect(() => {
+    void refresh();
+    const id = setInterval(refresh, state === 'starting' ? 1500 : 10000);
+    return () => clearInterval(id);
+  }, [refresh, state]);
+  // Same ticket scheme as the shared screen, scoped to this bot: the cookie it buys opens no other screen.
+  useEffect(() => {
+    if (!live) { setSrc(''); return; }
+    let alive = true;
+    api.screenTicket(bot.id).then((t) => alive && setSrc(t.url)).catch(() => alive && setSrc(''));
+    return () => { alive = false; };
+  }, [live, nonce, bot.id]);
+
+  const wake = async () => {
+    setWaking(true);
+    try {
+      const s = await api.computers.wake(bot.id);
+      if (s.reason && s.state === 'asleep') toast("Couldn't wake " + bot.name + "'s computer: " + s.reason, true);
+    } catch (e) {
+      toast("Couldn't wake " + bot.name + "'s computer: " + (e as Error).message, true);
+    } finally {
+      setWaking(false);
+      void refresh();
+    }
+  };
+  const setKeepAwake = async (on: boolean) => {
+    try {
+      const s = await api.computers.keepAwake(bot.id, on);
+      setInfo((cur) => (cur ? { ...cur, computer: s } : cur));
+    } catch (e) {
+      toast("Couldn't change Keep awake: " + (e as Error).message, true);
+    }
+  };
+  const popOut = async () => {
+    try { window.open((await api.screenTicket(bot.id)).url, '_blank', 'width=1320,height=880'); } catch { /* hub unreachable */ }
+  };
+
+  const used = c && c.quotaBytes > 0 ? c.diskBytes / c.quotaBytes : 0;
+  const label = state === undefined ? 'checking…' : state === 'live' ? (info?.screen ? 'Live' + (info.cdp ? '' : ' · browser not answering') : 'Live · connecting') : state === 'starting' ? 'Starting…' : 'Asleep';
+  const hasTools = bot.allowedTools.includes('Browser') || bot.allowedTools.includes('Desktop');
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 px-3 py-2 text-xs">
+        <span aria-hidden className={cn('h-2 w-2 rounded-full', state === 'live' ? 'bg-ok' : state === 'starting' ? 'bg-warn' : 'bg-dim')} />
+        <span className="flex-1 text-muted" role="status" aria-live="polite">{bot.name}'s computer: {label}</span>
+        {c && c.slot !== null && (
+          <Badge tone={used >= 1 ? 'bad' : used >= 0.8 ? 'warn' : 'muted'}>
+            <span title="Disk used by this computer (soft quota)">{gbText(c.diskBytes)} / {gbText(c.quotaBytes)}</span>
+          </Badge>
+        )}
+        {live && (
+          <>
+            <Button size="sm" variant="ghost" title="Reload viewer" aria-label="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={13} /></Button>
+            <Button size="sm" variant="ghost" title="Bigger" onClick={() => setWide(!wide)}>{wide ? 'Fit' : 'Wide'}</Button>
+            <Button size="sm" onClick={popOut}>Pop out</Button>
+          </>
+        )}
+      </div>
+      <div className="flex items-center gap-2 px-3 pb-2 text-xs">
+        {state !== 'live' && (
+          <Button size="sm" onClick={wake} disabled={state === 'starting' || state === undefined}>{state === 'starting' ? 'Waking…' : 'Wake'}</Button>
+        )}
+        <span id="keep-awake-label" className="ml-auto text-muted">Keep awake</span>
+        <Switch aria-labelledby="keep-awake-label" checked={!!c?.keepAwake} onChange={(on) => void setKeepAwake(on)} />
+      </div>
+      {live ? (
+        <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>
+          {src && <iframe key={nonce} title={bot.name + "'s computer screen"} src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />}
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
+          {state === 'starting' ? (
+            <p className="font-medium text-fg">Starting {bot.name}'s computer. This takes a few seconds.</p>
+          ) : (
+            <>
+              <p className="font-medium text-fg">{bot.name}'s computer is asleep.</p>
+              <p>{hasTools
+                ? 'It wakes by itself when ' + bot.name + ' uses the Browser or Desktop tool, or press Wake to log into accounts for it. It goes back to sleep after a while with nothing to do; its disk and logins are kept.'
+                : bot.name + ' has no Browser or Desktop tool, so it does not use this computer on its own. You can still wake it, for example to log into accounts before you give it those tools.'}</p>
+            </>
+          )}
+          {c?.reason && state !== 'live' && <p className="text-bad">{c.reason}</p>}
+          {used >= 0.8 && <p className="text-warn">The disk is {Math.round(used * 100)}% full. At 100% the computer will not start.</p>}
+        </div>
+      )}
+      <div className="px-3 py-2 text-[11px] text-dim">
+        Each bot has its own screen, Chromium profile and disk; its desktop links the shared workspace as <span className="font-mono">~/Shared</span>. They are separate, not private: every bot runs as the same user on the server, so a bot with shell access can read another bot's files and logins.
+      </div>
     </div>
   );
 }
