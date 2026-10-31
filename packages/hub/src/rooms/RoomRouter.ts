@@ -159,19 +159,28 @@ export class RoomRouter {
     lane.running = true;
     try {
       while (lane.pending.length) {
-        const items = lane.pending.splice(0);
         const bot = this.repos.getBot(botId);
         const room = this.repos.getRoom(roomId);
         if (!bot || !room) break;
-        const hop = Math.max(...items.map((i) => i.hop));
-        const causeId = items[0].causeId;
-        const session = this.repos.getSession(bot.id, room.id);
-        const startSeq = this.repos.maxSeq(room.id);
-        const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq));
-        const req: TurnRequest = { bot, room, members: this.members(room), hop, causeId, injected };
+        // A slot first, so a turn that queued behind others sees what they spent.
         await this.acquire();
+        let items: LaneItem[];
+        let req: TurnRequest;
+        let startSeq: number;
         let result: TurnResult;
         try {
+          // The cost cap covers every cause (user message, routine, later triggers), not only bot hops: a
+          // trigger whose thread already spent the cap is dropped with a note instead of starting a turn,
+          // and a turn that does start may spend at most what is left of the cap.
+          items = this.withinCostCap(bot, room, lane.pending.splice(0));
+          if (!items.length) continue;
+          const hop = Math.max(...items.map((i) => i.hop));
+          const causeId = items[0].causeId;
+          const session = this.repos.getSession(bot.id, room.id);
+          startSeq = this.repos.maxSeq(room.id);
+          const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq));
+          const causeBudgetUsd = CAUSE_COST_CAP_USD - this.usage.causeCost(causeId);
+          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd };
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
@@ -192,6 +201,25 @@ export class RoomRouter {
     } finally {
       lane.running = false;
     }
+  }
+
+  /** Drops (and notes once per cause) the items whose cause has already spent CAUSE_COST_CAP_USD. */
+  private withinCostCap(bot: Bot, room: Room, items: LaneItem[]): LaneItem[] {
+    const spentBy = new Map<string, number>();
+    const keep: LaneItem[] = [];
+    for (const i of items) {
+      if (!spentBy.has(i.causeId)) {
+        const spent = this.usage.causeCost(i.causeId);
+        spentBy.set(i.causeId, spent);
+        if (spent >= CAUSE_COST_CAP_USD) {
+          this.note(room, 'Cost cap reached for this thread ($' + spent.toFixed(2) + ' >= $' + CAUSE_COST_CAP_USD + '), so @' + bot.handle + ' did not start. Send a new message to continue.', i.causeId, i.hop);
+        }
+      }
+      if (spentBy.get(i.causeId)! >= CAUSE_COST_CAP_USD) {
+        i.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'cost cap reached' });
+      } else keep.push(i);
+    }
+    return keep;
   }
 
   private buildInjected(bot: Bot, room: Room, lastSeenSeq: number, triggerSeqs: number[]): string {

@@ -22,6 +22,8 @@ export interface TurnRequest {
   hop: number;
   causeId: string;
   injected: string;
+  /** What is left of the cause's cost cap; the turn spends at most min(bot budget, this). */
+  causeBudgetUsd?: number;
 }
 export interface TurnResult {
   ok: boolean;
@@ -83,6 +85,7 @@ export class BotRunner {
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const { bot, room } = req;
     const turnId = nanoid(10);
+    const budgetUsd = Math.min(bot.maxBudgetUsd, req.causeBudgetUsd ?? Infinity);
     const provider = this.providers.active();
     const session = this.repos.getSession(bot.id, room.id, provider.id);
     this.memory.ensureHome(bot.id);
@@ -145,7 +148,7 @@ export class BotRunner {
         }),
       pluginDir,
       model: bot.model,
-      maxBudgetUsd: bot.maxBudgetUsd,
+      maxBudgetUsd: budgetUsd,
       maxTurns: MAX_TURNS_PER_QUERY,
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
@@ -228,7 +231,7 @@ export class BotRunner {
         });
         events.emitEvent({ type: 'message.new', message: note });
         setState('thinking');
-        outcome = await provider.runTurn({ ...ctx, resumeToken: null, maxBudgetUsd: bot.maxBudgetUsd - costUsd }, sink);
+        outcome = await provider.runTurn({ ...ctx, resumeToken: null, maxBudgetUsd: budgetUsd - costUsd }, sink);
         record(outcome);
       }
 
@@ -237,7 +240,7 @@ export class BotRunner {
       // a bot stuck in a loop still stops instead of quietly costing three times as much.
       for (let attempt = 1; outcome.error === 'error_max_turns' && attempt <= MAX_TURN_CONTINUATIONS; attempt++) {
         if (ac.signal.aborted) break;
-        if (costUsd >= bot.maxBudgetUsd) break;
+        if (costUsd >= budgetUsd) break;
         const note = this.repos.insertMessage({
           roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
           text: bot.name + ' hit the ' + MAX_TURNS_PER_QUERY + '-step limit; continuing (' + attempt + '/' + MAX_TURN_CONTINUATIONS + ').',
@@ -253,7 +256,7 @@ export class BotRunner {
             input:
               'You stopped because you reached the step limit, not because the work was done. ' +
               'Continue from exactly where you left off and finish the task. Do not start over or re-explain.',
-            maxBudgetUsd: bot.maxBudgetUsd - costUsd,
+            maxBudgetUsd: budgetUsd - costUsd,
           },
           sink,
         );
