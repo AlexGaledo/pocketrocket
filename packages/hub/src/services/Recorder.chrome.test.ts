@@ -42,7 +42,11 @@ describe.skipIf(!CHROME)('Recorder against a real Chromium', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'prc-rec-real-'));
     proc = spawn(CHROME!, [
       '--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--no-first-run',
-      '--no-default-browser-check', '--disable-gpu', '--allow-file-access-from-files', 'about:blank',
+      '--no-default-browser-check', '--disable-gpu', '--allow-file-access-from-files',
+      // Ubuntu 23.10+ (GitHub's ubuntu-latest) blocks the unprivileged user namespaces Chrome's sandbox needs, so
+      // Chrome exits at once there. Test-only: the page is a local fixture.
+      ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+      'about:blank',
     ], { stdio: 'ignore' });
     const portFile = path.join(profile, 'DevToolsActivePort');
     for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(100);
