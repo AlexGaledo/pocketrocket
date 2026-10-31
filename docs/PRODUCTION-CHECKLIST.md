@@ -1,6 +1,6 @@
 # PocketRocket production checklist
 
-Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-16 (v0.2.0, pre-release). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
+Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-16 (v0.2.0, pre-release); fork phases P0–P9 added 2026-11-01 (section 7b). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
 
 ## 1. Build and quality gates
 
@@ -29,7 +29,7 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | `/screen/*` authenticated by a `/screen`-scoped httpOnly cookie, bought with a single-use ticket; no `?token=` there | ☑ tests | `curl 'http://127.0.0.1:7790/screen/vnc.html?token=<token>'` → 401; `screenTicket.test.ts` |
 | Per-turn MCP token on `/mcp`; tools scoped to that turn | ☑ tests | `mcp/httpServer.test.ts` |
 | Secrets file never returned by the API (`GET /api/secrets` = which keys set) | ☑ | `SecretsStore.test.ts` |
-| No telemetry / no outbound calls except Claude, the GitHub releases page, Supabase auth (only when signed in), and **integration providers the user connected** (P4, user-initiated): `api.github.com` `github.com` · `accounts.google.com` `oauth2.googleapis.com` `openidconnect.googleapis.com` `gmail.googleapis.com` `www.googleapis.com` · `slack.com` · `api.clickup.com` `app.clickup.com` · `login.microsoftonline.com` `graph.microsoft.com` | ☐ | grep for `fetch(`/`https://` in hub; integration hosts live only in `packages/hub/src/integrations/*`; SECURITY.md |
+| No telemetry / no outbound calls except Claude, the GitHub releases page, Supabase auth (only when signed in), and these, each only after the user turns it on: **integration providers the user connected** (P4 tools, P5 trigger polling): `api.github.com` `github.com` (incl. device flow) · `accounts.google.com` `oauth2.googleapis.com` `openidconnect.googleapis.com` `gmail.googleapis.com` `www.googleapis.com` (Calendar, Drive) · `slack.com` (Web API, `apps.connections.open`) and **Slack Socket Mode `wss-*.slack.com`** (outbound WebSocket, P5) · `api.clickup.com` `app.clickup.com` · `login.microsoftonline.com` (incl. device flow) `graph.microsoft.com`; **Web Push services** (P9, per subscribed phone; the hub refuses any other endpoint): `fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`; **git remotes the user names** (P7): the knowledge repo URL and Skills › From git URLs | ☐ | grep for `fetch(`/`https://`/`wss://` in hub; integration hosts live only in `packages/hub/src/integrations/*` and `services/TriggerService.ts`/`SlackSocketMode.ts`; push hosts in `services/WebPush.ts` (`PUSH_HOSTS`); SECURITY.md |
 | Approvals ask by default for shell commands, out-of-workspace edits, and fleet/room changes; bypass mode is an explicit opt-in (Settings → Bots → Approvals, or `POCKETROCKET_BYPASS_PERMISSIONS` for the whole hub) | ☐ | fresh bot, unapproved shell command → expect a card; flip Approvals to bypass → expect none |
 | Hub token: always required, minted on first run, **stable across restarts** (reused from `<data>/hub-token` unless `POCKETROCKET_ROTATE_TOKEN=1`) | ☑ | restart the hub, confirm an already-open tab stays authenticated |
 | Account (Supabase auth): sign-in via GitHub (email off until custom SMTP), sign-out, session persists across a restart, app works fully signed out | ☐ | Settings → Account: sign in, close/reopen app, confirm still signed in; sign out; use the app signed out |
@@ -86,7 +86,7 @@ pong", then ask it to write a file outside the workspace to see an approval card
 | Item | Status |
 |---|---|
 | Sound cues: send, reply, approval, approve/deny, done, error, connected; toggle; reduced-motion respected | ☑ code + AudioContext verified, ☐ heard by a human |
-| Redesigned Settings, sections **Account · Claude · Bots · Appearance · About**: Claude login check, model default, API key field, Bots approvals toggle, name, sounds, theme, version | ☐ |
+| Redesigned Settings, sections **Account · Claude · Bots · Integrations · Knowledge · Devices · Appearance · About**: Claude login check, model default, API key field, Bots approvals toggle, name, sounds, theme, version. On a paired phone only Devices, read-only Appearance and About | ☐ |
 | Onboarding wizard (welcome → Claude check → name → first bot → done) | ☐ retest against the Claude-only flow |
 | Onboarding "Connect Claude" step retested signed in and signed out | ☐ sign out of Claude Code, run onboarding, confirm the step's error/instructions; sign in and confirm it shows the plan |
 | Bot dialog model list: Sonnet 5, Opus 5, Fable 5.1, Haiku 4.5 | ☑ |
@@ -134,9 +134,33 @@ The accessibility pass covered, and fixed:
 
 | Item | Status |
 |---|---|
-| `scripts/deploy.sh <host>` requires a host, migrates `/root/claudebot` → `/root/pocketrocket`, renames units | ☑ code, ☐ run against the VPS |
+| `scripts/deploy.sh <host>` requires a host and installs as `pocketrocket-crew` (no Claudebot/stock migration; a stock PocketRocket on the same VPS is left alone) | ☑ code, ☐ run against the VPS |
 | Screen service + backups renamed and running | ☐ verify after redeploy |
 | Hub token: **always required in server mode too**, minted to `<data>/hub-token` on the VPS and stable across restarts; docs insist on tunnel-only access | ☑ |
+
+## 7b. PocketRocket Crew phases: checks that need a VPS, a phone or a real account
+
+Each phase's tests use fakes for these (`docs/changes/pN.md` → "Not verified" / "Known limits").
+
+| Phase | Item | Status | How to verify |
+|---|---|---|---|
+| P0 | Crew and stock PocketRocket side by side on one VPS: separate users, units, ports (7790 vs 7788), screens (`:98` vs `:99`) | ☐ | deploy both; `systemctl status pocketrocket-crew pocketrocket`; `ss -ltnp` shows only 127.0.0.1 |
+| P1 | Per-bot computers: `pocketrocket-crew-computer@<slot>-<bot>` starts on first Browser/Desktop use, sleeps after `COMPUTER_IDLE_MIN`, at most `MAX_RUNNING_COMPUTERS` run, quota warning at 80% | ☐ | two Browser bots; watch `systemctl --user list-units 'pocketrocket-crew-computer@*'` as the service user |
+| P1 | Every computer port on loopback (CDP 9400+n, VNC 5800+n, noVNC 6200+n; X no TCP) | ☑ static test, ☐ on the VPS | `deployScripts.test.ts`; with a computer awake, `ss -ltnp` lists its 94xx/58xx/62xx ports on `127.0.0.1` only |
+| P1 | Shared screen's logins move to the oldest Browser bot once; RAM sizing table holds | ☐ | first start with computers on; `docs/SERVER.md` table |
+| P2 | `x11vnc -R viewonly/noviewonly` toggles a running computer, and a viewer really cannot click while the bot has control | ☐ | Screen tab: try to click while bot has control; Take over; click works |
+| P2 | Claude CLI honours the PreToolUse `deny` for `mcp__browser__*` in bypass mode | ☐ | bypass on, Take over, ask the bot to browse → refused |
+| P2 | A real login through `request_takeover` (card → take over → hand back with note → bot continues) | ☐ | spec manual test |
+| P3 | Routines fire in `settings.timezone` on a UTC server; a turn cut off by `systemctl restart` resumes once | ☐ | daily 09:00 Asia/Manila routine; restart mid-turn |
+| P4 | A real OAuth round trip per provider (GitHub, Google, Slack, ClickUp, Teams); ClickUp accepts the loopback redirect; Microsoft device flow on a single-tenant app | ☐ | Settings › Integrations › Connect, Test connection |
+| P4 | `vault.key` absent from backups (tar and restic) | ☑ static test, ☐ on the VPS | `tar -tzf /var/backups/pocketrocket-crew/data-*.tgz \| grep vault.key` → nothing |
+| P5 | Slack Socket Mode against a live app (connect, ack, reconnect on `disconnect`); GitHub `X-Poll-Interval` on `/repos/*/events`; ClickUp `date_updated_gt` over 100 tasks | ☐ | one trigger per source; Automations › Triggers shows last check and fires |
+| P5 | Trigger turn resumed after a restart or a parked approval stays inside the trigger's daily budget | ☑ tests | `rooms/triggerBudget.test.ts` |
+| P7 | Knowledge repo clones over ssh with a deploy key non-interactively (BatchMode) and pulls on the timer | ☐ | Settings › Knowledge with a private `git@` URL; Sync now |
+| P7 | A shell write into the knowledge repo is refused under bypass (and cards otherwise) | ☑ tests | `permissions/knowledgeReadOnly.test.ts` |
+| P9 | Phone over Tailscale Serve with `POCKETROCKET_ALLOWED_HOSTS`: pair by QR, chat, answer a card; settings writes refused; revoke closes the phone's socket | ☐ | `tailscale serve --bg 7790`; pair an iPhone and an Android phone |
+| P9 | Web Push delivered on iOS (installed PWA) and Android; payload has no content; `vapid.json` 0600 and kept in backups | ☐ push, ☑ static test for the file | Settings › Devices › Send a test; `stat -c %a data/vapid.json` → 600 |
+| P9 | Tray and close-to-tray on Windows; Linux AppImage/deb and unsigned macOS dmg from the release workflow install and start the hub | ☐ | release workflow artifacts on each OS |
 
 ## 8. Release day
 
