@@ -110,5 +110,10 @@ fi
   --user-data-dir="$PROFILE" --window-position=0,0 --window-size="$W,$((H-40))" \
   "https://www.google.com" >/dev/null 2>&1 &
 
-x11vnc -display "$DISP" -localhost -nopw -forever -shared -noxdamage -rfbport "$VNC_PORT" -quiet >/dev/null 2>&1 &
+# P2: VNC_VIEWONLY=1 (per-bot computers) starts the viewer view-only: the bot has control until the user takes
+# over, and the hub flips it live with `x11vnc -R viewonly|noviewonly` (services/ComputerControl.ts). Remote
+# control goes through an X property, so it needs this display and its cookie, nothing on the network.
+VNC_ARGS=()
+if [ "${VNC_VIEWONLY:-0}" = "1" ]; then VNC_ARGS=(-viewonly); fi
+x11vnc -display "$DISP" -localhost -nopw -forever -shared -noxdamage ${VNC_ARGS[@]+"${VNC_ARGS[@]}"} -rfbport "$VNC_PORT" -quiet >/dev/null 2>&1 &
 exec websockify --web /usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT"
