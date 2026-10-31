@@ -245,3 +245,8 @@ export function migrateLegacyDb() {
   }
   console.log('migrated legacy claudebot.db -> pocketrocket.db');
 }
+
+// P4: integrations. Tokens live AES-256-GCM encrypted in integrations.json; the key in vault.key (0600),
+// which deploy/backup.sh leaves out of every archive so a leaked backup holds no usable token.
+export const VAULT_KEY_PATH = path.join(DATA_DIR, 'vault.key');
+export const INTEGRATIONS_PATH = path.join(DATA_DIR, 'integrations.json');
