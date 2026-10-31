@@ -7,11 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**PocketRocket Crew** is a fork of PocketRocket 0.2.0 (upstream: `AlexGaledo/pocketrocket`). Entries
+below are fork changes; the per-phase notes live in `docs/changes/pN.md` and are merged here by the
+integrator. Upstream changes after 0.2.0 that the fork already includes: the desktop app stops offering
+the other connection modes once one is set up.
+
 ### Changed
 
-- Desktop: once a connection is set up, the app stops offering the other modes. The Connection
-  menu no longer lists This PC / VPS / Attach, and Connection settings shows only the active mode
-  until you press **Change**. First run still shows every option.
+- The app is named PocketRocket Crew and installs side by side with PocketRocket: its own app id
+  (`com.pocketrocket.crew`, so its own `%APPDATA%` folder and single-instance lock), default hub port
+  **7790**, browser storage keys `prcrew.*`, and on a server its own `pocketrocket-crew` user,
+  `/home/pocketrocket-crew/pocketrocket-crew` install, `pocketrocket-crew*.service` units and screen
+  (display `:98`, CDP 9223, VNC 5901, noVNC 6081). Releases come from `AlexGaledo/pocketrocket-crew`.
+- The $5 per-thread cost cap now limits every turn (your messages, routines), not only bot-to-bot
+  hand-offs: a turn may spend at most what is left of the cap, and a queued turn on a thread that is
+  already over it does not start and says so.
+- Room members can be set up to 10 bots over REST (was 6), matching what bots can do.
+
+### Fixed
+
+- Approval cards left open when the hub stopped now show "Expired — the hub restarted. Ask the bot to
+  retry." instead of staying clickable forever.
+- Editing a DM can no longer give it more or fewer than one bot.
+- Deleting a bot from the app also deletes its folder (memory, identity, skills), as the `delete_bot`
+  tool already did.
+- The avatar initial and the Chief-of-staff preset use your name from Settings instead of "Alex".
+- Pending skills in the Skills tab get their amber outline back.
 
 ## [0.2.0] - 2026-09-16
 
