@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { MAX_ROOM_BOTS, MODELS } from '@pocketrocket/shared';
 import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, ToolPayload } from '@pocketrocket/shared';
+import type { TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
 import { Markdown } from './Markdown';
@@ -219,8 +220,8 @@ function groupMessages(msgs: Message[]): Group[] {
   const out: Group[] = [];
   for (const m of msgs) {
     const last = out[out.length - 1];
-    const solo = m.kind === 'system' || m.kind === 'routine';
-    const lastSolo = last && (last.items[0].kind === 'system' || last.items[0].kind === 'routine');
+    const solo = m.kind === 'system' || m.kind === 'routine' || m.kind === 'trigger';
+    const lastSolo = last && (last.items[0].kind === 'system' || last.items[0].kind === 'routine' || last.items[0].kind === 'trigger');
     if (!solo && last && !lastSolo && last.authorType === m.authorType && last.authorId === m.authorId && m.createdAt - last.items[last.items.length - 1].createdAt < 5 * 60_000) {
       last.items.push(m);
     } else out.push({ key: m.id, authorType: m.authorType, authorId: m.authorId, items: [m] });
@@ -244,6 +245,7 @@ function segments(items: Message[]): Segment[] {
 
 function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
   const first = group.items[0];
+  if (first.kind === 'trigger') return <TriggerLine m={first} bots={bots} />;
   if (first.kind === 'system' || first.kind === 'routine') return <SystemLine m={first} bots={bots} />;
   const bot = group.authorType === 'bot' || group.authorType === 'system' ? botById(bots, group.authorId) : undefined;
   if (group.authorType === 'user') {
@@ -298,6 +300,34 @@ function SystemLine({ m, bots }: { m: Message; bots: Bot[] }) {
       <div className="min-w-0 flex-1">
         {isRoutine && p && <div className="font-medium text-fg">Routine: {p.name}</div>}
         <div className="md whitespace-pre-wrap"><RichText text={m.text} bots={bots} /></div>
+      </div>
+      <span className="text-[11px] text-dim">{fmtTime(m.createdAt)}</span>
+    </div>
+  );
+}
+
+/**
+ * P5: a trigger fired. The bot's instructions show as usual; the outside event (third-party text, fenced as
+ * untrusted data by the hub) is folded away and shown as plain text, never as markdown.
+ */
+const EVENT_PREAMBLE = '\n\nThe block below is content from an external sender';
+function TriggerLine({ m, bots }: { m: Message; bots: Bot[] }) {
+  const p = m.payload as TriggerPayload | null;
+  const cut = m.text.indexOf(EVENT_PREAMBLE);
+  const head = (cut >= 0 ? m.text.slice(0, cut) : m.text).replace(/^\[Trigger "[^"]*"\]\s*/, '');
+  const event = cut >= 0 ? m.text.slice(cut + 2) : '';
+  return (
+    <div className="mx-auto flex w-full max-w-[640px] items-start gap-2 rounded-2xl bg-card2/70 px-4 py-1.5 text-[12px] text-muted">
+      <Zap size={14} className="mt-0.5 shrink-0 text-accent" />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-fg">Trigger{p ? ': ' + p.name : ''}{p && !p.eventId ? ' (sample)' : ''}</div>
+        <div className="md whitespace-pre-wrap"><RichText text={head} bots={bots} /></div>
+        {event && (
+          <details className="mt-1">
+            <summary className="cursor-pointer select-none text-[11px] text-dim hover:text-fg">Event (untrusted)</summary>
+            <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-card px-2 py-1.5 font-mono text-[11px] text-muted ring-1 ring-line">{event}</pre>
+          </details>
+        )}
       </div>
       <span className="text-[11px] text-dim">{fmtTime(m.createdAt)}</span>
     </div>
