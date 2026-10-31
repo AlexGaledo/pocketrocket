@@ -1,5 +1,5 @@
 import {
-  DEFAULT_SETTINGS, SettingsSchema, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
+  AUTO_MODEL, DEFAULT_SETTINGS, SettingsSchema, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
 } from '@pocketrocket/shared';
 import { APPROVALS_ENV, ENABLED_PROVIDERS, osUserName } from '../config.js';
 import type { Repos } from '../db/repos.js';
@@ -70,7 +70,7 @@ export class SettingsStore {
     if (this.enabled.includes(s.provider)) return;
     // The default model for new bots belonged to the old provider too; nothing else would ever fix it.
     const models = this.deps.models?.('claude') ?? [];
-    const stale = models.length > 0 && !models.some((m) => m.id === s.defaultModel);
+    const stale = models.length > 0 && s.defaultModel !== AUTO_MODEL && !models.some((m) => m.id === s.defaultModel);
     this.patch(stale ? { provider: 'claude', defaultModel: DEFAULT_SETTINGS.defaultModel } : { provider: 'claude' });
   }
 
@@ -138,7 +138,8 @@ export class SettingsStore {
     const known = new Set(models.map((m) => m.id));
     let changed = false;
     for (const bot of this.deps.repos.listBots()) {
-      if (known.has(bot.model)) continue;
+      // `auto` is resolved per turn against whichever provider is active (P8), so it never needs repointing.
+      if (known.has(bot.model) || bot.model === AUTO_MODEL) continue;
       const from = bot.model;
       this.deps.repos.updateBot(bot.id, { model: fallback });
       changed = true;

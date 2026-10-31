@@ -1,4 +1,4 @@
-import type { Bot, BotState, Message, Room } from '@pocketrocket/shared';
+import type { Bot, BotState, CauseKind, Message, Room } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { settings } from '../services/SettingsStore.js';
 import type { Repos } from '../db/repos.js';
@@ -13,6 +13,8 @@ interface LaneItem {
   hop: number;
   triggerSeq: number;
   onDone?: (r: TurnResult) => void;
+  /** P8: what started this item; feeds the model router and the usage breakdown. */
+  causeKind?: CauseKind;
 }
 interface Lane {
   running: boolean;
@@ -87,13 +89,16 @@ export class RoomRouter {
     return withCause;
   }
 
-  /** Fire a routine prompt into a room for a specific bot. */
-  fireRoutine(room: Room, bot: Bot, text: string, payload: Message['payload'], onDone?: (r: TurnResult) => void): Message {
+  /**
+   * Fire a routine prompt into a room for a specific bot. `causeKind` (P8) tells the model router this is
+   * automation; an outside event (P5) can pass 'trigger'.
+   */
+  fireRoutine(room: Room, bot: Bot, text: string, payload: Message['payload'], onDone?: (r: TurnResult) => void, causeKind: CauseKind = 'routine'): Message {
     const msg = this.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'routine', text, payload, causeId: null, hop: 0, turnId: null });
     this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
     msg.causeId = msg.id;
     events.emitEvent({ type: 'message.new', message: msg });
-    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone });
+    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone, causeKind });
     return msg;
   }
 
@@ -116,7 +121,7 @@ export class RoomRouter {
       this.note(room, 'Nobody was mentioned and this room has no coordinator. Mention a bot with @handle or set a coordinator.', msg.causeId, 0);
       return;
     }
-    for (const t of targets) this.enqueue(t, room, { causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq });
+    for (const t of targets) this.enqueue(t, room, { causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq, causeKind: 'user' });
   }
 
   /** Bot -> bot routing (after a turn or from tools). Returns dispatched handles. */
@@ -136,7 +141,7 @@ export class RoomRouter {
       return [];
     }
     const seq = this.repos.maxSeq(room.id);
-    for (const t of valid) this.enqueue(t, room, { causeId: req.causeId, hop, triggerSeq: seq });
+    for (const t of valid) this.enqueue(t, room, { causeId: req.causeId, hop, triggerSeq: seq, causeKind: 'bot' });
     return valid.map((v) => v.handle);
   }
 
@@ -180,7 +185,9 @@ export class RoomRouter {
           startSeq = this.repos.maxSeq(room.id);
           const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq));
           const causeBudgetUsd = CAUSE_COST_CAP_USD - this.usage.causeCost(causeId);
-          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd };
+          // A person's message in the batch outranks automation, so a routine never drags a reply down to triage.
+          const causeKind = items.find((i) => i.causeKind === 'user')?.causeKind ?? items[0].causeKind;
+          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd, causeKind };
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
