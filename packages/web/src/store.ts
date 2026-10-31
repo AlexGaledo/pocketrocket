@@ -101,6 +101,8 @@ interface State {
   streaming: Record<string, Streaming>;
   unread: Record<string, number>;
   usage: Record<string, UsageTotals>;
+  /** P3: bumped on WS `routines.changed`; the Routines tab refetches when it moves. */
+  routinesRev: number;
   memory: Record<string, string>;
   panelOpen: boolean;
   /** Left sidebar. Same treatment as panelOpen: remembered per browser so a narrow screen stays narrow. */
@@ -166,6 +168,7 @@ export const useStore = create<State>((set, get) => ({
   streaming: {},
   unread: {},
   usage: {},
+  routinesRev: 0,
   memory: {},
   panelOpen: !matches(NARROW_PANEL_QUERY) && localStorage.getItem('prcrew.panel') !== '0',
   sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('prcrew.sidebar') !== '0',
@@ -296,6 +299,11 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'usage.updated':
         set({ usage: { ...s.usage, [ev.botId + ':' + ev.roomId]: ev.totals } });
+        return;
+      // P3
+      case 'routines.changed':
+      case 'routine.fired':
+        set({ routinesRev: s.routinesRev + 1 });
         return;
       case 'error':
         get().toast(ev.message, true);

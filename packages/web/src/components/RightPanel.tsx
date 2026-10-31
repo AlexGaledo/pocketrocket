@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from 'lucide-react';
+import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X, History } from 'lucide-react';
 import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
+import { MONTHS, SCHEDULE_PRESETS, WEEKDAYS, cronToPreset, describeCron, presetToCron, zonedParts, type SchedulePreset, type ScheduleParts } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
 import { api } from '../lib/api';
 import { isDesktopMode } from '../lib/auth';
@@ -270,68 +271,189 @@ function SkillsTab({ botId }: { botId: string }) {
   );
 }
 
+/** P3: a routine is edited as a preset plus a time; raw cron lives under "Advanced". Times read in settings.timezone. */
+type RoutineForm = { open: boolean; id?: string; botId: string; roomId: string; name: string; prompt: string } & ScheduleParts;
+
+const PRESET_LABEL: Record<SchedulePreset, string> = {
+  once: 'Once', daily: 'Every day', weekdays: 'Weekdays', weekly: 'Every week', monthly: 'Every month', yearly: 'Every year', custom: 'Custom (cron)',
+};
+
+/** An instant as the clock reads in `tz`: "2 Nov 2026, 09:00". */
+function fmtIn(ms: number, tz: string) {
+  return new Date(ms).toLocaleString(undefined, { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
+function scheduleLabel(r: Routine, tz: string) {
+  return r.onceAt !== null ? 'Once, ' + fmtIn(r.onceAt, tz) : describeCron(r.cron);
+}
+
 function RoutinesTab({ botId }: { botId: string | null }) {
   const bots = useStore((s) => s.bots);
   const rooms = useStore((s) => s.rooms);
   const toast = useStore((s) => s.toast);
+  const tz = useStore((s) => s.settings.timezone);
+  const rev = useStore((s) => s.routinesRev);
   const room = useStore(selectActiveRoom);
   const [list, setList] = useState<Routine[]>([]);
-  const [runs, setRuns] = useState<Record<string, RoutineRun[]>>({});
-  const [form, setForm] = useState<{ open: boolean; id?: string; botId: string; roomId: string; name: string; cron: string; prompt: string }>({ open: false, botId: botId ?? '', roomId: room?.id ?? '', name: '', cron: '0 9 * * 1-5', prompt: '' });
+  const [runs, setRuns] = useState<Record<string, RoutineRun[] | undefined>>({});
+  const [advanced, setAdvanced] = useState(false);
+  const blank = (): RoutineForm => ({
+    open: false, botId: botId ?? bots[0]?.id ?? '', roomId: room?.id ?? rooms[0]?.id ?? '', name: '', prompt: '',
+    preset: 'weekdays', time: '09:00', date: zonedParts(Date.now() + 86_400_000, tz).date, weekday: 1, monthDay: 1, month: 1, cron: '0 9 * * 1-5',
+  });
+  const [form, setForm] = useState<RoutineForm>(blank);
+  const set = (patch: Partial<RoutineForm>) => setForm((f) => ({ ...f, ...patch }));
+
+  // Refetch on routines.changed / routine.fired (a bot scheduled something, a run started), and any open history.
+  useEffect(() => {
+    void api.routines.list().then(setList);
+    for (const id of Object.keys(runs)) if (runs[id]) void api.routines.runs(id).then((x) => setRuns((r) => ({ ...r, [id]: x })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rev]);
   const load = async () => setList(await api.routines.list());
-  useEffect(() => { void load(); }, []);
+
+  const openNew = () => {
+    setAdvanced(false);
+    setForm(form.open && !form.id ? { ...form, open: false } : { ...blank(), open: true });
+  };
+  const openEdit = (r: Routine) => {
+    const base = { ...blank(), open: true, id: r.id, botId: r.botId, roomId: r.roomId, name: r.name, prompt: r.prompt };
+    const sched = r.onceAt !== null ? { preset: 'once' as const, ...zonedParts(r.onceAt, tz) } : { ...cronToPreset(r.cron), cron: r.cron };
+    setAdvanced(sched.preset === 'custom');
+    setForm({ ...base, ...sched });
+  };
 
   const save = async () => {
     try {
-      const body = { botId: form.botId, roomId: form.roomId, name: form.name, cron: form.cron, prompt: form.prompt, enabled: true };
+      const schedule = form.preset === 'once' ? { cron: '', onceAt: form.date + 'T' + form.time } : { cron: presetToCron(form), onceAt: null };
+      const body = { botId: form.botId, roomId: form.roomId, name: form.name, prompt: form.prompt, enabled: true, ...schedule };
       if (form.id) await api.routines.update(form.id, body); else await api.routines.create(body);
-      setForm({ ...form, open: false, id: undefined, name: '', prompt: '' });
+      setForm({ ...blank(), open: false });
       await load();
     } catch (e) { toast((e as Error).message, true); }
   };
-  const toggle = async (r: Routine) => { await api.routines.update(r.id, { enabled: !r.enabled }); await load(); };
+  const toggle = async (r: Routine) => {
+    try { await api.routines.update(r.id, { enabled: !r.enabled }); } catch (e) { toast((e as Error).message, true); }
+    await load();
+  };
   const remove = async (r: Routine) => { if (confirm('Delete routine "' + r.name + '"?')) { await api.routines.remove(r.id); await load(); } };
-  const run = async (r: Routine) => { await api.routines.run(r.id); toast('Routine fired'); setTimeout(() => api.routines.runs(r.id).then((x) => setRuns({ ...runs, [r.id]: x })), 500); };
-  const showRuns = async (r: Routine) => setRuns({ ...runs, [r.id]: runs[r.id] ? undefined as never : await api.routines.runs(r.id) });
+  const run = async (r: Routine) => { await api.routines.run(r.id); toast('Routine fired'); };
+  const toggleRuns = async (r: Routine) => {
+    if (runs[r.id]) return setRuns((x) => ({ ...x, [r.id]: undefined }));
+    const x = await api.routines.runs(r.id);
+    setRuns((cur) => ({ ...cur, [r.id]: x }));
+  };
+
+  const rawCron = form.preset === 'custom' ? form.cron : presetToCron(form);
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
+  const valid = !!form.name && !!form.prompt && !!form.botId && !!form.roomId &&
+    (form.preset === 'once' ? !!form.date && !!form.time : form.preset === 'custom' ? form.cron.trim().split(/\s+/).length >= 5 : !!form.time);
 
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center justify-between">
-        <Label hint="cron, the hub's local time">Routines</Label>
-        <Button size="sm" variant="ghost" onClick={() => setForm({ ...form, open: !form.open, id: undefined, botId: botId ?? bots[0]?.id ?? '', roomId: room?.id ?? rooms[0]?.id ?? '' })}><Plus size={13} /> New</Button>
+        <Label hint={'times in ' + tz}>Routines</Label>
+        <Button size="sm" variant="ghost" onClick={openNew}><Plus size={13} /> New</Button>
       </div>
       {form.open && (
         <div className="flex flex-col gap-2 rounded-2xl bg-card2/60 p-2">
-          <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input placeholder="Name" aria-label="Routine name" value={form.name} onChange={(e) => set({ name: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
-            <Select value={form.botId} onChange={(e) => setForm({ ...form, botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}</Select>
-            <Select value={form.roomId} onChange={(e) => setForm({ ...form, roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
+            <Select aria-label="Bot" value={form.botId} onChange={(e) => set({ botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}</Select>
+            <Select aria-label="Room" value={form.roomId} onChange={(e) => set({ roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
           </div>
-          <Input placeholder="cron: m h dom mon dow" value={form.cron} onChange={(e) => setForm({ ...form, cron: e.target.value })} className="font-mono" />
-          <Textarea placeholder="Prompt the bot receives when the routine fires" rows={4} value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
-          <div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setForm({ ...form, open: false })}>Cancel</Button><Button size="sm" variant="primary" onClick={save} disabled={!form.name || !form.prompt || !form.botId || !form.roomId}>{form.id ? 'Save' : 'Create'}</Button></div>
+          <div className="grid grid-cols-2 gap-2">
+            <Select
+              aria-label="Repeats"
+              value={form.preset}
+              onChange={(e) => {
+                const preset = e.target.value as SchedulePreset;
+                set(preset === 'custom' ? { preset, cron: rawCron || form.cron } : { preset });
+                if (preset === 'custom') setAdvanced(true);
+              }}
+            >
+              {SCHEDULE_PRESETS.map((p) => <option key={p} value={p}>{PRESET_LABEL[p]}</option>)}
+            </Select>
+            {form.preset !== 'custom' && (
+              <Input type="time" aria-label="Time" value={form.time} onChange={(e) => set({ time: e.target.value })} />
+            )}
+          </div>
+          {form.preset === 'once' && (
+            <Input type="date" aria-label="Date" value={form.date} onChange={(e) => set({ date: e.target.value })} />
+          )}
+          {form.preset === 'weekly' && (
+            <Select aria-label="Day of the week" value={form.weekday} onChange={(e) => set({ weekday: Number(e.target.value) })}>
+              {WEEKDAYS.map((d, i) => <option key={d} value={i}>on {d}</option>)}
+            </Select>
+          )}
+          {(form.preset === 'monthly' || form.preset === 'yearly') && (
+            <div className={cn('grid gap-2', form.preset === 'yearly' && 'grid-cols-2')}>
+              {form.preset === 'yearly' && (
+                <Select aria-label="Month" value={form.month} onChange={(e) => set({ month: Number(e.target.value) })}>
+                  {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </Select>
+              )}
+              <Select aria-label="Day of the month" value={form.monthDay} onChange={(e) => set({ monthDay: Number(e.target.value) })}>
+                {days.map((d) => <option key={d} value={d}>day {d}</option>)}
+              </Select>
+            </div>
+          )}
+          {form.preset === 'monthly' && form.monthDay > 28 && (
+            <p className="px-1 text-[11px] text-muted">Months without day {form.monthDay} are skipped.</p>
+          )}
+          <div>
+            <button
+              type="button"
+              className="rounded-full px-1 text-[11px] text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              aria-expanded={advanced}
+              onClick={() => setAdvanced(!advanced)}
+            >
+              {advanced ? 'Hide advanced' : 'Advanced'}
+            </button>
+            {advanced && (
+              <Input
+                className="mt-1 font-mono"
+                aria-label="Cron pattern (minute hour day-of-month month day-of-week)"
+                placeholder="m h dom mon dow"
+                disabled={form.preset === 'once'}
+                value={form.preset === 'once' ? '' : rawCron}
+                onChange={(e) => set({ preset: 'custom', cron: e.target.value })}
+              />
+            )}
+          </div>
+          <p className="px-1 text-[11px] text-dim">Times are in {tz}. Change the zone in Settings › Account.</p>
+          <Textarea placeholder="Prompt the bot receives when the routine fires" aria-label="Prompt" rows={4} value={form.prompt} onChange={(e) => set({ prompt: e.target.value })} />
+          <div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => set({ open: false })}>Cancel</Button><Button size="sm" variant="primary" onClick={save} disabled={!valid}>{form.id ? 'Save' : 'Create'}</Button></div>
         </div>
       )}
       <ul className="flex flex-col gap-1">
         {list.map((r) => {
           const b = botById(bots, r.botId);
           const rm = rooms.find((x) => x.id === r.roomId);
+          const history = runs[r.id];
           return (
             <li key={r.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', !r.enabled && 'opacity-60')}>
               <div className="flex items-center gap-2">
                 <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} aria-label={'Routine ' + r.name + ' enabled'} title="Enabled" />
-                <button className="min-w-0 flex-1 text-left" onClick={() => setForm({ open: true, id: r.id, botId: r.botId, roomId: r.roomId, name: r.name, cron: r.cron, prompt: r.prompt })}>
-                  <div className="font-medium">{r.name} <span className="font-mono text-muted">{r.cron}</span></div>
-                  <div className="truncate text-muted">{b?.avatar} @{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + new Date(r.nextRunAt).toLocaleString() : ''}</div>
+                <button className="min-w-0 flex-1 text-left" onClick={() => openEdit(r)}>
+                  <div className="font-medium">{r.name}</div>
+                  <div className="truncate text-muted">{scheduleLabel(r, tz)}</div>
+                  <div className="truncate text-muted">{b?.avatar} @{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}</div>
                 </button>
-                <Button size="icon" variant="ghost" title="Run now" onClick={() => run(r)}><Play size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Runs" onClick={() => showRuns(r)}><RefreshCw size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Delete" onClick={() => remove(r)}><Trash2 size={13} /></Button>
+                <Button size="icon" variant="ghost" title="Run now" aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button>
+                <Button size="icon" variant="ghost" title="Run history" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button>
+                <Button size="icon" variant="ghost" title="Delete" aria-label={'Delete ' + r.name} onClick={() => remove(r)}><Trash2 size={13} /></Button>
               </div>
-              {runs[r.id] && (
+              {history && (
                 <ul className="mt-2 pt-1 text-[11px] text-muted">
-                  {runs[r.id].map((x) => <li key={x.id}>{new Date(x.startedAt).toLocaleString()} · <span className={x.status === 'error' ? 'text-bad' : x.status === 'success' ? 'text-ok' : ''}>{x.status}</span>{x.costUsd != null ? ' · ' + fmtUsd(x.costUsd) : ''}</li>)}
-                  {!runs[r.id].length && <li>No runs yet.</li>}
+                  {history.map((x) => (
+                    <li key={x.id}>
+                      {fmtIn(x.startedAt, tz)} · <span className={x.status === 'error' ? 'text-bad' : x.status === 'success' ? 'text-ok' : ''}>{x.status}</span>
+                      {x.endedAt ? ' · ' + Math.max(1, Math.round((x.endedAt - x.startedAt) / 1000)) + 's' : ''}
+                      {x.costUsd != null ? ' · ' + fmtUsd(x.costUsd) : ''}
+                    </li>
+                  ))}
+                  {!history.length && <li>No runs yet.</li>}
                 </ul>
               )}
             </li>

@@ -4,11 +4,11 @@
  * not available on this setup → one quiet line; signed out or waiting for a code → <AccountSignIn>;
  * signed in → who you are, your plan and "Sign out".
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AccountUser, Plan } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
-import { Badge, Button, Field, Input, Label } from '../ui';
+import { Badge, Button, Field, Input, Label, Select } from '../ui';
 import { AccountSignIn } from '../AccountSignIn';
 import { Card, Group, InlineError, SectionHeader } from './parts';
 
@@ -22,11 +22,12 @@ export function AccountSection() {
 
   return (
     <>
-      <SectionHeader title="Account" description="Your name, and an optional sign-in." />
+      <SectionHeader title="Account" description="Your name, your time zone, and an optional sign-in." />
 
       <Group>
         <Card>
           <NameField />
+          <div className="mt-4"><TimezoneField /></div>
         </Card>
       </Group>
 
@@ -115,5 +116,39 @@ function SignedIn({ user }: { user: AccountUser }) {
       </div>
       {error && <InlineError>{error}</InlineError>}
     </div>
+  );
+}
+
+/**
+ * P3: settings.timezone. Routines are scheduled on this clock and the Routines tab shows times in it. The hub
+ * starts it at its own system zone, which on a VPS is usually UTC, so offer this device's zone in one click.
+ */
+function TimezoneField() {
+  const timezone = useStore((s) => s.settings.timezone);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zones = useMemo(() => {
+    let list: string[] = [];
+    try {
+      list = Intl.supportedValuesOf('timeZone');
+    } catch {
+      /* older engine: the current value and UTC are still offered */
+    }
+    for (const z of [here, 'UTC', timezone]) if (z && !list.includes(z)) list = [z, ...list];
+    return list;
+  }, [here, timezone]);
+
+  return (
+    <Field>
+      <Label hint="Routines run on this clock">Time zone</Label>
+      <Select value={timezone} onChange={(e) => void updateSettings({ timezone: e.target.value })}>
+        {zones.map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+      </Select>
+      {here && here !== timezone && (
+        <Button size="sm" variant="ghost" className="mt-1 self-start" onClick={() => void updateSettings({ timezone: here })}>
+          Use this device's zone ({here.replace(/_/g, ' ')})
+        </Button>
+      )}
+    </Field>
   );
 }
