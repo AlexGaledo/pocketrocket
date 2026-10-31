@@ -312,6 +312,13 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['DELETE', /^\/api\/routines\/[^/]+$/],
   ['POST', /^\/api\/routines\/[^/]+\/run$/],
   ['GET', /^\/api\/routines\/[^/]+\/runs$/],
+  // P5 triggers: same reach as routines (the Automations tab).
+  ['GET', /^\/api\/triggers$/],
+  ['POST', /^\/api\/triggers$/],
+  ['PATCH', /^\/api\/triggers\/[^/]+$/],
+  ['DELETE', /^\/api\/triggers\/[^/]+$/],
+  ['GET', /^\/api\/triggers\/[^/]+\/fires$/],
+  ['POST', /^\/api\/triggers\/[^/]+\/test$/],
   // Its own pairing (the handlers refuse anything but the device itself) and its own push subscription.
   ['GET', /^\/api\/devices$/],
   ['DELETE', /^\/api\/devices\/[^/]+$/],

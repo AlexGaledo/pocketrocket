@@ -211,6 +211,8 @@ describe('capability split (P9.1)', () => {
   it('the allowlist is closed by default for unknown routes', () => {
     expect(deviceMayAccess('GET', '/api/some-new-phase-route')).toBe(false);
     expect(deviceMayAccess('POST', '/api/routines/x/run')).toBe(true);
+    expect(deviceMayAccess('GET', '/api/triggers')).toBe(true);
+    expect(deviceMayAccess('POST', '/api/triggers/x/test')).toBe(true);
     expect(deviceMayAccess('GET', '/assets/app.js')).toBe(true);
     expect(deviceMayAccess('POST', '/oauth/start/github')).toBe(false);
     expect(deviceMayAccess('GET', '/oauth/start/github')).toBe(false);
