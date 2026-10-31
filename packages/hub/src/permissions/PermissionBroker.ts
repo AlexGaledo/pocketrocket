@@ -42,6 +42,8 @@ const HUB_PREFIX = 'mcp__pocketrocket__';
 const SILENT_HUB_TOOLS = new Set([
   'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
   'list_rooms', 'request_approval', ...DESKTOP_TOOL_NAMES,
+  // P3
+  'list_routines',
 ]);
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
@@ -49,7 +51,11 @@ const SILENT_HUB_TOOLS = new Set([
  * touch `decide()`, are gated identically. Before the audit every `mcp__pocketrocket__*` call was allowed
  * unconditionally and a Read-only bot could grant itself Bash (audit 2026-09-09, B6).
  */
-const GATED_HUB_TOOLS = new Set(['create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room']);
+const GATED_HUB_TOOLS = new Set([
+  'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
+  // P3: a routine a bot schedules is autonomous future spend (grok-bot-parity §4).
+  'create_routine', 'update_routine', 'delete_routine',
+]);
 
 /** How long a `request_approval` grant stays valid. */
 export const GRANT_TTL_MS = 10 * 60 * 1000;

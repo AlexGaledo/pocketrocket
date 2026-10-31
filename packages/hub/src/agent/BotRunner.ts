@@ -49,6 +49,8 @@ export interface RunnerHooks {
   /** Route mentions produced mid-turn (send_message / handoff tools). Returns handles dispatched. */
   dispatchFromBot: (req: TurnRequest, targets: Bot[]) => string[];
   setState: (botId: string, roomId: string, state: BotState, note?: string) => void;
+  /** P3: a routine tool changed the routines table; the hub reschedules (RoutineScheduler.reload). */
+  routinesChanged?: () => void;
 }
 
 /**
@@ -123,6 +125,7 @@ export class BotRunner {
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
       confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
+      routinesChanged: this.hooks.routinesChanged,
     });
 
     const mcpToken = this.turns.registerTurn(tools);

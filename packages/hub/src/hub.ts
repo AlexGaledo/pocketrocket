@@ -90,6 +90,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
     dispatchFromBot: (req, targets) => router.dispatchFromBot(req, targets),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
+    routinesChanged: () => scheduler.reload(),
   }, providers, turns);
   router.runner = runner;
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id });
