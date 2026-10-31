@@ -9,6 +9,7 @@ import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import { approvalSubject } from '../permissions/PermissionBroker.js';
 import { INTEGRATION_WRITE_TOOLS } from '../integrations/toolNames.js';
 import { events } from '../events.js';
+import { logError } from '../providers/redact.js';
 
 class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -121,7 +122,7 @@ export function createTakeoverApi(deps: { repos: Repos; control: ComputerControl
       return send(res, 200, (await hit.r.handler({ params, query: url.searchParams, body })) ?? { ok: true });
     } catch (e) {
       if (e instanceof HttpError) return send(res, e.status, { error: e.message });
-      console.error(e);
+      logError('[takeover api]', e);
       return send(res, 500, { error: (e as Error).message ?? String(e) });
     }
   };

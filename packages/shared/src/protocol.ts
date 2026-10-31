@@ -9,7 +9,7 @@ import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './mo
 
 // ---------- server -> client ----------
 export type ServerEvent =
-  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings }
+  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings; /** Who this connection is (P9): a paired device has narrower rights (guard.ts DEVICE_ALLOW). */ principal?: 'hub' | 'device' }
   | { type: 'settings.changed'; settings: Settings }
   /** Provider switched (or its check changed); clients refetch GET /api/providers. */
   | { type: 'providers.changed'; active: ProviderId }

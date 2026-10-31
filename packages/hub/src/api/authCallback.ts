@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { clientIp, type AuthRateLimiter } from './guard.js';
 import { AccountError, type AccountService } from '../services/AccountService.js';
+import { logError } from '../providers/redact.js';
 
 /**
  * `GET /auth/callback?code=…` (or `?error=…&error_description=…`): the email link or OAuth provider landing in
@@ -28,7 +29,7 @@ export async function handleAuthCallback(
     send(res, 200, successPage(state.user?.email ?? ''));
   } catch (e) {
     deps.limiter.fail(ip);
-    if (!(e instanceof AccountError)) console.error(e);
+    if (!(e instanceof AccountError)) logError('[auth callback]', e);
     send(res, e instanceof AccountError ? e.status : 500, failurePage(e instanceof AccountError ? e.message : 'Sign-in failed.'));
   }
 }

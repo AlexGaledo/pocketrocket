@@ -205,16 +205,17 @@ export function RadioCard({ checked, onSelect, disabled, title, badge, children 
 }
 
 /** On/off toggle. Name it with `aria-labelledby` (or `aria-label`) pointing at its caption. */
-export function Switch({ checked, onChange, className, ...aria }: { checked: boolean; onChange: (next: boolean) => void; className?: string; 'aria-labelledby'?: string; 'aria-label'?: string; 'aria-describedby'?: string }) {
+export function Switch({ checked, onChange, className, disabled, ...aria }: { checked: boolean; onChange: (next: boolean) => void; className?: string; disabled?: boolean; 'aria-labelledby'?: string; 'aria-label'?: string; 'aria-describedby'?: string }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       {...aria}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-panel',
+        'relative h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-default disabled:opacity-60',
         checked ? 'bg-ink' : 'bg-card2 ring-1 ring-inset ring-line',
         className,
       )}

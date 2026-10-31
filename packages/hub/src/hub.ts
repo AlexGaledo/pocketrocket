@@ -32,7 +32,7 @@ import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, che
 import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
 import { readBody } from './api/body.js';
 import { handleAuthCallback } from './api/authCallback.js';
-import { addSecret } from './providers/redact.js';
+import { addSecret, logError } from './providers/redact.js';
 import { ComputersRepo } from './db/computers.js';
 import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
@@ -215,6 +215,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   // P5: event triggers. Outbound polling and Slack Socket Mode only (Q5); started in listen(), stopped first on shutdown.
   const triggers = new TriggerService({ db, repos, integrations, router, socket: opts.slackSocket });
   const triggersApi = createTriggersApi({ triggers });
+  router.triggerBudget = (id) => triggers.remainingBudget(id);
 
   const screenSessions = new ScreenSessions();
 
@@ -439,7 +440,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       });
       fs.createReadStream(file).pipe(res);
     } catch (e) {
-      console.error(e);
+      logError('[static]', e);
       res.writeHead(500);
       res.end('error');
     }

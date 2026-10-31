@@ -8,6 +8,7 @@ import type { UsageTracker } from '../services/UsageTracker.js';
 import type { AutoMemory } from '../services/AutoMemory.js';
 import { parseMentions } from './mentions.js';
 import { triggerText } from './untrusted.js';
+import { logError } from '../providers/redact.js';
 
 interface LaneItem {
   causeId: string;
@@ -61,6 +62,12 @@ export class RoomRouter {
   autoMemory?: AutoMemory;
   /** P2: computer control. A paused bot's lane waits; a hand-back note rides along with its next turn. */
   control?: LaneControl;
+  /**
+   * Hardening pass: what is left of a trigger's rolling daily budget (TriggerService), or undefined for a trigger
+   * that no longer exists. Read for every item whose thread a trigger started, so a turn resumed after a restart
+   * or a parked approval, and every hop on the thread, stays inside the trigger's budget too.
+   */
+  triggerBudget?: (triggerId: string) => number | undefined;
 
   constructor(private repos: Repos, private usage: UsageTracker) {}
 
@@ -243,7 +250,7 @@ export class RoomRouter {
         }
       }
     } catch (e) {
-      console.error('[lane ' + key + ']', e);
+      logError('[lane ' + key + ']', e);
     } finally {
       lane.running = false;
     }
@@ -252,6 +259,7 @@ export class RoomRouter {
   /** Drops (and notes once per cause) the items whose cause has already spent CAUSE_COST_CAP_USD. */
   private withinCostCap(bot: Bot, room: Room, items: LaneItem[]): LaneItem[] {
     const spentBy = new Map<string, number>();
+    const overBudget = new Set<string>();
     const keep: LaneItem[] = [];
     for (const i of items) {
       if (!spentBy.has(i.causeId)) {
@@ -264,9 +272,33 @@ export class RoomRouter {
       if (spentBy.get(i.causeId)! >= CAUSE_COST_CAP_USD) {
         if (i.journalId) this.repos.journalRemove([i.journalId]);
         i.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'cost cap reached' });
-      } else keep.push(i);
+        continue;
+      }
+      const trig = this.triggerLeft(i.causeId);
+      if (trig && trig.left <= 0) {
+        if (!overBudget.has(i.causeId)) {
+          overBudget.add(i.causeId);
+          this.note(room, 'Daily budget reached for trigger "' + trig.name + '", so @' + bot.handle + ' did not start.', i.causeId, i.hop);
+        }
+        if (i.journalId) this.repos.journalRemove([i.journalId]);
+        i.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'trigger budget reached' });
+        continue;
+      }
+      if (trig) i.budgetUsd = Math.min(i.budgetUsd ?? Infinity, trig.left);
+      keep.push(i);
     }
     return keep;
+  }
+
+  /** The trigger that started a thread, with what is left of its daily budget; null for any other thread. */
+  private triggerLeft(causeId: string): { name: string; left: number } | null {
+    if (!this.triggerBudget) return null;
+    const cause = this.repos.getMessage(causeId);
+    if (cause?.kind !== 'trigger' || cause.authorType !== 'system') return null;
+    const p = cause.payload as TriggerPayload | null;
+    if (!p?.triggerId) return null;
+    // A deleted trigger has no budget left to spend.
+    return { name: p.name, left: this.triggerBudget(p.triggerId) ?? 0 };
   }
 
   private buildInjected(bot: Bot, room: Room, lastSeenSeq: number, triggerSeqs: number[]): string {

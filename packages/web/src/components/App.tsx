@@ -11,7 +11,6 @@ import { RoomDialog } from './dialogs/RoomDialog';
 import { SettingsDialog } from './dialogs/SettingsDialog';
 import { Onboarding } from './Onboarding';
 import { TokenPrompt } from './TokenPrompt';
-import { isDevice } from '../lib/auth';
 import { Button, cn } from './ui';
 
 /** Tailwind's md and lg. Below these the sidebar and the right panel become drawers over the chat. */
@@ -31,8 +30,9 @@ export function App() {
   const openDialog = useStore((s) => s.openDialog);
   const settings = useStore((s) => s.settings);
   const helloReceived = useStore((s) => s.helloReceived);
+  const device = useStore((s) => s.device);
   // P9: a paired phone cannot write settings, so it never gets the first-run setup.
-  const showOnboarding = helloReceived && settings.onboarded === false && !isDevice();
+  const showOnboarding = helloReceived && settings.onboarded === false && !device;
   // Side by side needs room: at phone width a fixed 236px sidebar plus a 340px panel left the chat no
   // width at all and pushed the panel's close button off-screen.
   const sidebarInline = useMediaQuery(MD_QUERY);

@@ -60,3 +60,12 @@ export function redactUnknown(v: unknown): string {
 export function knownSecretCount(): number {
   return known.size;
 }
+
+/**
+ * Hardening pass: log an error through `redact`. Errors from integrations, triggers, pairing and providers can
+ * carry a token-bearing URL, header or response body; this is the one way the hub prints a caught error.
+ */
+export function logError(prefix: string, e: unknown): void {
+  const text = e instanceof Error ? e.stack ?? e.message : typeof e === 'string' ? e : JSON.stringify(e) ?? String(e);
+  console.error(prefix, redact(text));
+}

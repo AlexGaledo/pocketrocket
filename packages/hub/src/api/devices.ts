@@ -4,6 +4,7 @@ import { DEVICE_PAIR_PATH, deviceIdOf, principalOf, type AuthRateLimiter } from 
 import { clientIp } from './guard.js';
 import { PairingError, PAIRING_TTL_MS, type DeviceService } from '../services/DeviceService.js';
 import { PushError, type PushService } from '../services/PushService.js';
+import { logError } from '../providers/redact.js';
 
 class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -92,7 +93,7 @@ export function createDevicesApi(deps: DevicesApiDeps) {
         return send(res, 200, (await r.handler({ params, body, req })) ?? { ok: true });
       } catch (e) {
         const status = e instanceof HttpError || e instanceof PushError ? e.status : 500;
-        if (status === 500) console.error(e);
+        if (status === 500) logError('[devices api]', e);
         return send(res, status, { error: (e as Error).message ?? String(e) });
       }
     }
@@ -124,7 +125,7 @@ export async function handleDevicePair(
     deps.limiter.fail(ip);
     // 403, not 401: a 401 tells the web client "the token you hold is wrong", and the phone holds none yet.
     if (e instanceof PairingError) { send(res, 403, { error: e.message }); return; }
-    console.error(e);
+    logError('[devices api]', e);
     send(res, 500, { error: 'error' });
   }
 }

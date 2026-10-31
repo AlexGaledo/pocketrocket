@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { IntegrationError } from '../integrations/http.js';
+import { logError } from '../providers/redact.js';
 
 /** The part of a WebSocket the client uses; `ws` fits it, and tests hand in a fake. */
 export interface SocketLike {
@@ -134,7 +135,7 @@ export class SlackSocketMode {
       return;
     }
     if (env.type === 'events_api' && env.payload) {
-      try { this.o.onEvent(env.payload); } catch (e) { console.warn('[slack socket] ' + (e as Error).message); }
+      try { this.o.onEvent(env.payload); } catch (e) { logError('[slack socket]', e); }
     }
   }
 

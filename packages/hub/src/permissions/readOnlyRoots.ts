@@ -1,3 +1,4 @@
+import { bashWritesReadOnly } from './bashRules.js';
 import { isInside, pathsFromInput } from './pathRules.js';
 
 /**
@@ -8,6 +9,8 @@ import { isInside, pathsFromInput } from './pathRules.js';
  * because then nothing would ask at all.
  */
 export const WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'] as const;
+/** The PreToolUse matcher for the read-only guard: the file writers plus Bash. */
+export const READ_ONLY_GUARD_TOOLS = [...WRITE_TOOLS, 'Bash'] as const;
 
 export function readOnlyWriteDecision(
   toolName: string,
@@ -16,7 +19,16 @@ export function readOnlyWriteDecision(
   cwd: string,
   bypass: boolean,
 ): { decision: 'ask' | 'deny'; reason: string } | null {
-  if (!readOnlyRoots.length || !(WRITE_TOOLS as readonly string[]).includes(toolName)) return null;
+  if (!readOnlyRoots.length) return null;
+  // Hardening pass: a shell command that writes there, as far as the command line shows (bashWritesReadOnly).
+  if (toolName === 'Bash') {
+    const hit = bashWritesReadOnly(String(input.command ?? ''), cwd, readOnlyRoots);
+    if (!hit) return null;
+    return bypass
+      ? { decision: 'deny', reason: 'The knowledge repo is read-only; this shell command writes there: ' + hit }
+      : { decision: 'ask', reason: 'Shell write into the read-only knowledge repo: ' + hit };
+  }
+  if (!(WRITE_TOOLS as readonly string[]).includes(toolName)) return null;
   const hits = pathsFromInput(toolName, input).filter((p) => isInside(p, readOnlyRoots, cwd));
   if (!hits.length) return null;
   return bypass

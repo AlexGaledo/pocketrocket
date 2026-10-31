@@ -4,6 +4,7 @@ import { TriggerInputSchema, TriggerPatchSchema, TriggerTestSchema } from '@pock
 import { readBody } from './body.js';
 import type { TriggerService } from '../services/TriggerService.js';
 import { IntegrationError } from '../integrations/http.js';
+import { logError } from '../providers/redact.js';
 
 class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -70,7 +71,7 @@ export function createTriggersApi(deps: { triggers: TriggerService }) {
       } catch (e) {
         if (e instanceof HttpError) return send(res, e.status, { error: e.message });
         if (e instanceof IntegrationError) return send(res, e.status >= 400 && e.status < 500 ? 400 : 502, { error: e.message });
-        console.error('[triggers api]', e);
+        logError('[triggers api]', e);
         return send(res, 500, { error: 'Internal error' });
       }
     }

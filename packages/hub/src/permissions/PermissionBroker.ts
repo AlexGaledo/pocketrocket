@@ -5,7 +5,7 @@ import { APPROVAL_TIMEOUT_MS, WORKSPACE_DIR, botRoots } from '../config.js';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import { isInside, pathsFromInput } from './pathRules.js';
-import { classifyBash } from './bashRules.js';
+import { bashWritesReadOnly, classifyBash } from './bashRules.js';
 import { DESKTOP_TOOL_NAMES } from '../agent/desktopTools.js';
 import { INTEGRATION_READ_TOOLS, INTEGRATION_WRITE_TOOLS } from '../integrations/toolNames.js';
 import { patternMatches, type ApprovalStore, type ParkedApproval } from '../db/approvalStore.js';
@@ -169,7 +169,12 @@ export class PermissionBroker {
       const why = ctx.controlBlocked?.();
       if (why) return { behavior: 'deny', message: why };
     }
-    if (this.bypassedFor(ctx)) return { behavior: 'allow' };
+    if (this.bypassedFor(ctx)) {
+      // Hardening pass: a shell write into a read-only root is refused even in bypass (P7 read-only rule).
+      const hit = toolName === 'Bash' ? this.readOnlyShellWrite(String(input.command ?? '')) : null;
+      if (hit) return { behavior: 'deny', message: 'The knowledge repo is read-only; this shell command writes there: ' + hit };
+      return { behavior: 'allow' };
+    }
     const roots = botRoots(ctx.bot.id);
     let reason = '';
     let danger = false;
@@ -205,6 +210,11 @@ export class PermissionBroker {
     if (rule === 'allow') return { behavior: 'allow' };
     if (rule === 'deny') return { behavior: 'deny', message: 'An approval rule the user set denies this. Choose another approach or ask in chat.' };
     return this.promptUser(ctx, toolName, input, reason, danger, opts);
+  }
+
+  /** A shell command's write into a read-only root (the knowledge repo), if the command line shows one. */
+  private readOnlyShellWrite(cmd: string): string | null {
+    return bashWritesReadOnly(cmd, WORKSPACE_DIR, this.opts.readOnlyRoots?.() ?? []);
   }
 
   // ---------- P2: approval rules ----------
@@ -298,7 +308,11 @@ export class PermissionBroker {
     req: { action: string; command?: string; paths?: string[]; reason?: string },
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
-    if (this.bypassedFor(ctx)) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    if (this.bypassedFor(ctx)) {
+      const hit = req.command ? this.readOnlyShellWrite(req.command) : null;
+      if (hit) return { allowed: false, message: 'The knowledge repo is read-only; this command writes there: ' + hit };
+      return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
+    }
     const danger = req.command ? classifyBash(req.command, botRoots(ctx.bot.id)).danger : false;
     const askInput = { action: req.action, command: req.command, paths: req.paths, reason: req.reason };
     const rule = this.matchPolicy(ctx.bot.id, 'request_approval', approvalSubject('request_approval', askInput), danger);

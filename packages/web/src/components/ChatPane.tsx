@@ -9,7 +9,6 @@ import type { TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { Avatar, Badge, Button, cn, fmtTime, fmtUsd } from './ui';
 import { Markdown } from './Markdown';
-import { isDevice } from '../lib/auth';
 import { ControlBar, RuleOffer, TakeoverCard, hasComputer } from './ComputerControl';
 
 export function ChatPane() {
@@ -22,6 +21,8 @@ export function ChatPane() {
   const usage = useStore((s) => s.usage);
   const helloReceived = useStore((s) => s.helloReceived);
   const control = useStore((s) => s.control);
+  // P9: a paired phone may not create or edit bots and rooms (the hub answers 403), so it is not offered.
+  const device = useStore((s) => s.device);
 
   if (!room && !helloReceived) {
     // Until the hub's hello arrives there is no telling whether the team is empty, so claim nothing.
@@ -49,7 +50,7 @@ export function ChatPane() {
           <div className="text-[17px] font-semibold tracking-tight">Pick a bot to start</div>
           <div className="mt-1 max-w-[38ch] text-[13.5px] text-muted">Choose a bot or a group chat from the sidebar.</div>
         </div>
-        <Button onClick={() => openDialog({ kind: 'room', room: null })}>New group chat</Button>
+        {!device && <Button onClick={() => openDialog({ kind: 'room', room: null })}>New group chat</Button>}
       </div>
     );
   }
@@ -62,10 +63,14 @@ export function ChatPane() {
           <div className="text-[17px] font-semibold tracking-tight">Your team is empty</div>
           <div className="mt-1 max-w-[38ch] text-[13.5px] text-muted">Create a bot with a focused role, message it directly, or put a few in a group chat and let them hand work to each other.</div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="primary" onClick={() => openDialog({ kind: 'bot', bot: null })}>Create a bot</Button>
-          <Button onClick={() => openDialog({ kind: 'room', room: null })}>New group chat</Button>
-        </div>
+        {device ? (
+          <div className="max-w-[38ch] text-[12.5px] text-muted">Create bots and group chats on the desktop app.</div>
+        ) : (
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => openDialog({ kind: 'bot', bot: null })}>Create a bot</Button>
+            <Button onClick={() => openDialog({ kind: 'room', room: null })}>New group chat</Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -94,11 +99,11 @@ export function ChatPane() {
         <div className="flex -space-x-2">
           {members.slice(0, MAX_ROOM_BOTS).map((m) => <span key={m.id} className="rounded-full ring-2 ring-panel"><Avatar bot={m} state={botStates[m.id]} size={26} /></span>)}
         </div>
-        {room.kind === 'group' && (
+        {room.kind === 'group' && !device && (
           <Button variant="ghost" size="icon" title="Edit room" onClick={() => openDialog({ kind: 'room', room })}><Users size={16} /></Button>
         )}
         {room.kind === 'dm' && hasComputer(members[0]) && <ControlBar bot={members[0]} compact />}
-        {room.kind === 'dm' && members[0] && (
+        {room.kind === 'dm' && members[0] && !device && (
           <Button variant="ghost" size="icon" title="Bot settings" onClick={() => openDialog({ kind: 'bot', bot: members[0] })}><Settings2 size={16} /></Button>
         )}
         <Button variant="ghost" size="icon" title="Computer screen" onClick={() => openPanel('screen')}><Monitor size={16} /></Button>
@@ -444,7 +449,7 @@ function ApprovalCard({ m }: { m: Message }) {
   // P2: after "Allow for this session" the card offers to keep the answer as a rule.
   const [offer, setOffer] = useState(false);
   const pending = p.status === 'pending';
-  const device = isDevice();
+  const device = useStore((s) => s.device);
   const outcome = p.status === 'allow' ? 'Allowed once' : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? 'Denied' : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired — the hub restarted. Ask the bot to retry.' : null;
   return (
     <div className={cn('max-w-[640px] overflow-hidden rounded-2xl bg-panel shadow-[var(--shadow-lg)] ring-1', p.danger ? 'ring-bad/40' : pending ? 'ring-warn/40' : 'ring-line')}>

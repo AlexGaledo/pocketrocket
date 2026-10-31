@@ -25,7 +25,8 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
   wss.on('connection', (ws, req?: IncomingMessage) => {
     // P9: a paired phone answers cards once; a standing "always" grant is the desktop's call.
     const device = req ? deviceIdOf(req) : null;
-    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: deps.settings.get() });
+    // The client hides what a device is refused from this one flag rather than guessing per button.
+    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: deps.settings.get(), principal: device ? 'device' : 'hub' });
     ws.on('message', (raw) => {
       let data: unknown;
       try {

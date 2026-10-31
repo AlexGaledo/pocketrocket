@@ -8,6 +8,7 @@ import type { Repos } from '../db/repos.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { IntegrationError } from '../integrations/http.js';
 import { VaultError } from '../services/IntegrationVault.js';
+import { logError } from '../providers/redact.js';
 
 class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -79,7 +80,7 @@ export function createIntegrationsApi(deps: { integrations: IntegrationService; 
         if (e instanceof HttpError) return send(res, e.status, { error: e.message });
         if (e instanceof IntegrationError) return send(res, e.status === 404 ? 404 : e.status >= 400 && e.status < 500 ? 400 : 502, { error: e.message });
         if (e instanceof VaultError) return send(res, 500, { error: e.message });
-        console.error(e);
+        logError('[integrations api]', e);
         return send(res, 500, { error: 'Integration request failed' });
       }
     }

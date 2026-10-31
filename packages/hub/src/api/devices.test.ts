@@ -152,6 +152,23 @@ describe('revocation (P9.1)', () => {
   });
 });
 
+// ---- hardening pass: the UI hides what a device is refused from one flag the hub sends ----
+describe('hello principal', () => {
+  it('tells a paired device it is a device, and the hub token that it is the hub', async () => {
+    const d = await pair('Hello phone');
+    const phone = await openWs(d.token);
+    const desk = await openWs(TOKEN);
+    const hello = async (s: { messages: any[] }) => {
+      for (let i = 0; i < 100 && !s.messages.some((m) => m.type === 'hello'); i++) await new Promise((r) => setTimeout(r, 5));
+      return s.messages.find((m) => m.type === 'hello');
+    };
+    expect((await hello(phone)).principal).toBe('device');
+    expect((await hello(desk)).principal).toBe('hub');
+    phone.ws.close();
+    desk.ws.close();
+  });
+});
+
 describe('capability split (P9.1)', () => {
   let phone: { token: string; id: string };
   let botId: string;

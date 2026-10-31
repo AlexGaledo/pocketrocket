@@ -7,7 +7,7 @@ import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { applyTheme, watchSystemTheme } from './lib/theme';
-import { isDesktopMode } from './lib/auth';
+import { isDesktopMode, isDevice } from './lib/auth';
 
 export type PanelTab = 'screen' | 'memory' | 'skills' | 'routines' | 'usage';
 
@@ -124,6 +124,12 @@ interface State {
    * empty because nothing has loaded, not because there are none: gate every empty state on this.
    */
   helloReceived: boolean;
+  /**
+   * P9: this page is a paired device, so the hub refuses settings, bot/room edits, integrations and approval
+   * rules (guard.ts DEVICE_ALLOW). Seeded from which token this browser holds, then set by the hub's `hello`.
+   * The one flag the UI reads to hide what a device cannot do.
+   */
+  device: boolean;
   _playedConnectedSound: boolean;
   // ---- P7 ----
   /** Latest knowledge repo status from the `knowledge.status` event; null until one arrives. */
@@ -195,6 +201,7 @@ export const useStore = create<State>((set, get) => ({
   providers: null,
   account: SIGNED_OUT,
   helloReceived: false,
+  device: isDevice(),
   _playedConnectedSound: false,
   knowledge: null,
   voiceRev: {},
@@ -216,7 +223,7 @@ export const useStore = create<State>((set, get) => ({
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
-        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true });
+        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device });
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();

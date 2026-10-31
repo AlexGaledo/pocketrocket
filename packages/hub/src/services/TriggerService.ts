@@ -462,6 +462,12 @@ export class TriggerService {
     return this.repo.getFire(fire.id)!;
   }
 
+  /** What is left of a trigger's rolling 24-hour budget (RoomRouter caps resumed turns and hops with it). */
+  remainingBudget(id: string): number | undefined {
+    const t = this.repo.get(id);
+    return t ? t.budgetUsd - this.repo.spentLastDay(t.id, this.now()) : undefined;
+  }
+
   /** "Test fire" from the builder: a sample event straight to this trigger, skipping the filter and the poll. */
   testFire(id: string, input: TriggerTestInput = {}): TriggerFire | undefined {
     const t = this.repo.get(id);
