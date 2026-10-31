@@ -250,6 +250,22 @@ export class ClaudeProvider implements AgentProvider {
         }]
       : [];
 
+    // P2: the control interlock. While the user has control of this bot's computer (or it is paused) Browser and
+    // desktop calls are denied. It runs in bypass mode too: `mcp__browser__*` is pre-approved in allowedTools,
+    // so canUseTool never sees it, and bypass skips canUseTool entirely; a PreToolUse deny holds in both.
+    const controlGuard = ctx.controlGuard
+      ? [{
+          matcher: 'mcp__browser__.*|mcp__pocketrocket__desktop_.*',
+          hooks: [
+            async () => {
+              const why = ctx.controlGuard!();
+              if (!why) return {};
+              return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
+            },
+          ],
+        }]
+      : [];
+
     const options: Options = {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
       spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
@@ -282,8 +298,9 @@ export class ClaudeProvider implements AgentProvider {
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
       // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
       // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: ctx.bypassPermissions ? (knowledgeGuard.length ? { PreToolUse: knowledgeGuard } : undefined) : {
+      hooks: ctx.bypassPermissions ? (knowledgeGuard.length || controlGuard.length ? { PreToolUse: [...controlGuard, ...knowledgeGuard] } : undefined) : {
         PreToolUse: [
+          ...controlGuard,
           ...knowledgeGuard,
           {
             matcher: 'Read|Glob|Grep|NotebookEdit',

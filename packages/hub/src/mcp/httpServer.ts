@@ -10,12 +10,19 @@ import type { HubTool } from '../providers/types.js';
  * its turn's token in `TurnContext.mcp` and configures its own MCP client with them; the token dies with the turn.
  */
 export class TurnRegistry {
-  private turns = new Map<string, { tools: HubTool[] }>();
+  private turns = new Map<string, { tools: HubTool[]; guard?: ToolGuard }>();
 
-  registerTurn(tools: HubTool[]): string {
+  /**
+   * `guard` (P2): checked before every call over this endpoint; a string refuses the call with that text. It
+   * carries the computer control interlock to providers that only reach hub tools over MCP.
+   */
+  registerTurn(tools: HubTool[], guard?: ToolGuard): string {
     const token = randomBytes(24).toString('base64url');
-    this.turns.set(token, { tools });
+    this.turns.set(token, { tools, guard });
     return token;
+  }
+  guard(token: string): ToolGuard | undefined {
+    return this.turns.get(token)?.guard;
   }
   unregister(token: string) {
     this.turns.delete(token);
@@ -40,7 +47,10 @@ function bearer(req: IncomingMessage): string | null {
 }
 
 /** One McpServer per request (stateless): no session bookkeeping, and tools always match the live turn. */
-function buildServer(tools: HubTool[]): McpServer {
+/** P2: why a tool call must not run right now, or null. */
+export type ToolGuard = (toolName: string) => string | null;
+
+function buildServer(tools: HubTool[], guard?: ToolGuard): McpServer {
   const server = new McpServer({ name: 'pocketrocket', version: VERSION });
   for (const t of tools) {
     server.registerTool(
@@ -51,6 +61,8 @@ function buildServer(tools: HubTool[]): McpServer {
         annotations: t.readOnly ? { readOnlyHint: true } : undefined,
       },
       (async (args: unknown) => {
+        const refused = guard?.(t.name);
+        if (refused) return { content: [{ type: 'text', text: refused }], isError: true } as never;
         const out = await t.handler((args ?? {}) as Record<string, unknown>);
         return { content: out.content, isError: out.isError } as never;
       }) as never,
@@ -72,7 +84,7 @@ export function createMcpHandler(registry: TurnRegistry) {
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Unknown or expired turn token' }, id: null }));
       return;
     }
-    const server = buildServer(tools);
+    const server = buildServer(tools, registry.guard(token!));
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {
       void transport.close();

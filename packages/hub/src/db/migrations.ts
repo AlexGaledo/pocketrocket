@@ -78,6 +78,39 @@ registerMigrations([10, 19], [
       ),
   },
 ]);
+
+// P2 (20–29): take over, hand back, approvals while away (db/approvalStore.ts).
+registerMigrations([20, 29], [
+  // A routine/trigger turn that stopped waiting on a card ("parked") keeps what it needs to resume: the
+  // thread it belongs to, its hop, its routine run, and when it parked (a parked card expires after 24 h).
+  {
+    version: 20,
+    name: 'approvals parking columns',
+    up: (db) => {
+      addColumnIfMissing(db, 'approvals', 'parked_at', 'INTEGER');
+      addColumnIfMissing(db, 'approvals', 'cause_id', 'TEXT');
+      addColumnIfMissing(db, 'approvals', 'hop', 'INTEGER');
+      addColumnIfMissing(db, 'approvals', 'run_id', 'TEXT');
+      addColumnIfMissing(db, 'approvals', 'message_id', 'TEXT');
+    },
+  },
+  // Approval rules. `scope` 'always' rows are the user's persisted rules (Settings › Bots › Approvals);
+  // 'session' rows are "Allow for this session" answers and are dropped at every hub start. Only REST and the
+  // approval card write here; no bot tool or MCP route reaches it.
+  {
+    version: 21,
+    name: 'approval_policies table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS approval_policies (
+        id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, tool TEXT NOT NULL, pattern TEXT NOT NULL,
+        decision TEXT NOT NULL CHECK(decision IN ('allow','deny')), scope TEXT NOT NULL DEFAULT 'always' CHECK(scope IN ('always','session')),
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_approval_policies_bot ON approval_policies(bot_id, tool);
+    `),
+  },
+]);
+
 // P3 (30–39): routines v2 and proactive follow-up.
 registerMigrations([30, 39], [
   // One-shot routines: epoch ms the routine fires at once; NULL for a cron routine.
@@ -118,55 +151,6 @@ registerMigrations([40, 49], [
       CREATE INDEX IF NOT EXISTS idx_bot_integrations_integration ON bot_integrations(integration_id);
     `),
   },
-]);
-
-// P7 (70–79): knowledge repo sync status, voice proposals from AutoMemory.
-registerMigrations([70, 79], [
-  {
-    version: 70,
-    name: 'knowledge_sync table',
-    up: (db) => db.exec(
-      "CREATE TABLE IF NOT EXISTS knowledge_sync (id INTEGER PRIMARY KEY CHECK (id = 1), source TEXT NOT NULL DEFAULT '', " +
-      "mode TEXT NOT NULL DEFAULT 'off', last_synced_at INTEGER, head TEXT, last_error TEXT)",
-    ),
-  },
-  {
-    version: 71,
-    name: 'voice_proposals table',
-    up: (db) => db.exec(
-      'CREATE TABLE IF NOT EXISTS voice_proposals (id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);' +
-      'CREATE INDEX IF NOT EXISTS idx_voice_proposals_bot ON voice_proposals(bot_id, created_at)',
-    ),
-  },
-]);
-
-// P8 (80–89): model router and usage. Which model ran each turn, why the router picked it, and what kind of
-// cause started it, on the usage row (for the Usage tab) and on the bot's messages (for the chat chip).
-registerMigrations([80, 89], [
-  { version: 80, name: 'usage.model', up: (db) => addColumnIfMissing(db, 'usage', 'model', 'TEXT') },
-  { version: 81, name: 'usage.route_reason', up: (db) => addColumnIfMissing(db, 'usage', 'route_reason', 'TEXT') },
-  {
-    version: 82,
-    name: 'usage.cause_kind',
-    up: (db) => {
-      addColumnIfMissing(db, 'usage', 'cause_kind', 'TEXT');
-      // Best-effort backfill so old spend shows up in the breakdown: memory passes have `mem-` turn ids, bot
-      // hops wrote messages with hop > 0, routines and user messages are told apart by the cause message.
-      db.exec(`UPDATE usage SET cause_kind = CASE
-        WHEN turn_id LIKE 'mem-%' THEN 'memory'
-        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.turn_id = usage.turn_id AND m.hop > 0) THEN 'bot'
-        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.kind = 'routine') THEN 'routine'
-        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.author_type = 'user') THEN 'user'
-      END WHERE cause_kind IS NULL`);
-      // And the model, from the provider's own per-model report: the one that cost the most.
-      db.exec(`UPDATE usage SET model = (
-        SELECT j.key FROM json_each(usage.model_usage) j
-        ORDER BY COALESCE(json_extract(j.value, '$.costUSD'), json_extract(j.value, '$.costUsd'), 0) DESC LIMIT 1
-      ) WHERE model IS NULL AND model_usage IS NOT NULL AND json_valid(model_usage) AND json_type(model_usage) = 'object'`);
-    },
-  },
-  { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
-  { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);
 
 // P5 (50–59): event triggers (services/TriggerService.ts, db/triggerRepo.ts). Events arrive by outbound polling
@@ -221,6 +205,55 @@ registerMigrations([50, 59], [
       );
     `),
   },
+]);
+
+// P7 (70–79): knowledge repo sync status, voice proposals from AutoMemory.
+registerMigrations([70, 79], [
+  {
+    version: 70,
+    name: 'knowledge_sync table',
+    up: (db) => db.exec(
+      "CREATE TABLE IF NOT EXISTS knowledge_sync (id INTEGER PRIMARY KEY CHECK (id = 1), source TEXT NOT NULL DEFAULT '', " +
+      "mode TEXT NOT NULL DEFAULT 'off', last_synced_at INTEGER, head TEXT, last_error TEXT)",
+    ),
+  },
+  {
+    version: 71,
+    name: 'voice_proposals table',
+    up: (db) => db.exec(
+      'CREATE TABLE IF NOT EXISTS voice_proposals (id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);' +
+      'CREATE INDEX IF NOT EXISTS idx_voice_proposals_bot ON voice_proposals(bot_id, created_at)',
+    ),
+  },
+]);
+
+// P8 (80–89): model router and usage. Which model ran each turn, why the router picked it, and what kind of
+// cause started it, on the usage row (for the Usage tab) and on the bot's messages (for the chat chip).
+registerMigrations([80, 89], [
+  { version: 80, name: 'usage.model', up: (db) => addColumnIfMissing(db, 'usage', 'model', 'TEXT') },
+  { version: 81, name: 'usage.route_reason', up: (db) => addColumnIfMissing(db, 'usage', 'route_reason', 'TEXT') },
+  {
+    version: 82,
+    name: 'usage.cause_kind',
+    up: (db) => {
+      addColumnIfMissing(db, 'usage', 'cause_kind', 'TEXT');
+      // Best-effort backfill so old spend shows up in the breakdown: memory passes have `mem-` turn ids, bot
+      // hops wrote messages with hop > 0, routines and user messages are told apart by the cause message.
+      db.exec(`UPDATE usage SET cause_kind = CASE
+        WHEN turn_id LIKE 'mem-%' THEN 'memory'
+        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.turn_id = usage.turn_id AND m.hop > 0) THEN 'bot'
+        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.kind = 'routine') THEN 'routine'
+        WHEN EXISTS (SELECT 1 FROM messages m WHERE m.id = usage.cause_id AND m.author_type = 'user') THEN 'user'
+      END WHERE cause_kind IS NULL`);
+      // And the model, from the provider's own per-model report: the one that cost the most.
+      db.exec(`UPDATE usage SET model = (
+        SELECT j.key FROM json_each(usage.model_usage) j
+        ORDER BY COALESCE(json_extract(j.value, '$.costUSD'), json_extract(j.value, '$.costUsd'), 0) DESC LIMIT 1
+      ) WHERE model IS NULL AND model_usage IS NOT NULL AND json_valid(model_usage) AND json_type(model_usage) = 'object'`);
+    },
+  },
+  { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
+  { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);
 
 // P9 (90–99): paired devices (phones) and their Web Push subscriptions. A device row holds only the SHA-256 of

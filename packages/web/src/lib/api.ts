@@ -6,6 +6,7 @@ import type {
 } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
+import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -180,6 +181,18 @@ export const api = {
     subscribe: (sub: PushSubscriptionJSON) => req<{ ok: true }>('POST', '/api/push/subscribe', sub),
     unsubscribe: (endpoint: string) => req<{ ok: boolean }>('POST', '/api/push/unsubscribe', { endpoint }),
     test: () => req<{ sent: number; failed: number }>('POST', '/api/push/test', {}),
+  },
+  // ---- P2: take over / hand back / pause, approval rules ----
+  control: {
+    list: () => req<ControlStatus[]>('GET', '/api/control'),
+    set: (botId: string, control: ComputerControl, o: { holder?: string; note?: string } = {}) =>
+      req<ControlStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/control', { control, ...o }),
+  },
+  policies: {
+    list: (botId?: string) => req<ApprovalPolicy[]>('GET', '/api/approval-policies' + (botId ? '?botId=' + encodeURIComponent(botId) : '')),
+    /** From an answered card; `pattern` narrows or widens what it covers. */
+    fromApproval: (approvalId: string, pattern?: string) => req<ApprovalPolicy>('POST', '/api/approval-policies', { approvalId, ...(pattern ? { pattern } : {}) }),
+    revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/approval-policies/' + encodeURIComponent(id)),
   },
 };
 

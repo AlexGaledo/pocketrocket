@@ -23,10 +23,14 @@ export function screenCookieName(scope: string | null): string {
   return scope ? SCREEN_COOKIE + '_' + scope : SCREEN_COOKIE;
 }
 
-/** Where the browser lands after redeeming a ticket for this scope. */
-export function screenViewerPath(scope: string | null): string {
-  if (!scope) return SCREEN_VIEWER_PATH;
-  return '/screen/' + scope + '/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=screen%2F' + scope + '%2Fwebsockify';
+/**
+ * Where the browser lands after redeeming a ticket for this scope. P2: `viewOnly` adds noVNC's `view_only=1`
+ * while the bot has control. That flag is only the UI-side guard; x11vnc's own view-only mode is the real one.
+ */
+export function screenViewerPath(scope: string | null, viewOnly = false): string {
+  const vo = viewOnly ? '&view_only=1' : '';
+  if (!scope) return SCREEN_VIEWER_PATH + vo;
+  return '/screen/' + scope + '/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=screen%2F' + scope + '%2Fwebsockify' + vo;
 }
 
 /** Long enough for a redirect, short enough that a ticket left in a log or a history entry is already dead. */

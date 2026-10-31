@@ -57,6 +57,8 @@ export interface RestDeps {
   voice?: VoiceProposals;
   /** Per-bot computers (P1): Screen tab status, Wake, Keep awake. */
   computers: ComputerManager;
+  /** P2: true while the viewer of this screen (bot id, or null for the shared one) may only watch. */
+  viewOnly?: (scope: string | null) => boolean;
 }
 
 export function createRest(deps: RestDeps) {
@@ -110,10 +112,10 @@ export function createRest(deps: RestDeps) {
       const ep = computers.existingEndpoint(botId);
       const live = !!ep && computer.state === 'live';
       const [screen, cdp] = live ? await Promise.all([probe(ep.screenUrl), probe(ep.cdpUrl)]) : [false, false];
-      return { screen, cdp, url: screenViewerPath(botId), computer };
+      return { screen, cdp, url: screenViewerPath(botId, deps.viewOnly?.(botId) ?? false), computer };
     }
     const [screen, cdp] = await Promise.all([probe(SCREEN_URL), probe(CDP_URL)]);
-    return { screen, cdp, url: SCREEN_VIEWER_PATH, ...(botId ? { computer: computers.status(botId) } : {}) };
+    return { screen, cdp, url: screenViewerPath(null, deps.viewOnly?.(null) ?? false), ...(botId ? { computer: computers.status(botId) } : {}) };
   });
   // The web client cannot put the hub token in an iframe URL, so it spends the token here instead: one
   // authenticated POST buys a ticket that `/screen/session` trades for a `/screen`-scoped httpOnly cookie.

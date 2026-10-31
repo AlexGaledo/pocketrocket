@@ -32,6 +32,8 @@ export interface FollowUpDeps {
   sweepMs?: number;
   /** Clock, for tests. */
   now?: () => number;
+  /** P2: routine runs a parked approval still holds open; they are not closed at startup. */
+  heldRuns?: () => string[];
 }
 
 /**
@@ -76,7 +78,7 @@ export class FollowUp {
     const { repos, router } = this.deps;
     const rows = repos.journalTakeAll();
     // A routine run left `running` with no journaled turn will never finish: close it.
-    const journaledRuns = new Set(rows.map((r) => r.runId).filter(Boolean));
+    const journaledRuns = new Set([...rows.map((r) => r.runId).filter(Boolean), ...(this.deps.heldRuns?.() ?? [])]);
     for (const run of repos.runningRuns()) if (!journaledRuns.has(run.id)) repos.finishRun(run.id, 'error', null);
 
     let resumed = 0;

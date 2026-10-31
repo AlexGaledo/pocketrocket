@@ -51,6 +51,10 @@ import { DeviceService } from './services/DeviceService.js';
 import { PushService } from './services/PushService.js';
 import { createDevicesApi, handleDevicePair } from './api/devices.js';
 import type { WebSocket as WsSocket } from 'ws';
+import { ApprovalStore, type ParkedApproval } from './db/approvalStore.js';
+import { ComputerControlService, type VncControl } from './services/ComputerControl.js';
+import { createTakeoverApi } from './api/takeover.js';
+import { handBackNote } from './rooms/RoomRouter.js';
 
 export interface HubOptions {
   port?: number;
@@ -73,6 +77,8 @@ export interface HubOptions {
   allowedHosts?: readonly string[];
   /** Web Push; tests hand in one with a fixed VAPID key and a fake fetch. */
   push?: (devices: DevicesRepo, repos: Repos) => PushService;
+  /** P2: x11vnc view-only toggle; tests pass a fake. Defaults to `x11vnc -R viewonly|noviewonly`. */
+  vnc?: VncControl;
 }
 
 export interface Hub {
@@ -92,6 +98,11 @@ export interface Hub {
   // P9
   devices: DeviceService;
   push: PushService;
+  // ---- P2 ----
+  /** Who drives each bot's computer (agent / user / paused). P6's recorder forces `user` through this. */
+  control: ComputerControlService;
+  broker: PermissionBroker;
+  approvals: ApprovalStore;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -125,9 +136,13 @@ export function createHub(opts: HubOptions = {}): Hub {
   // P7: the knowledge repo, read-only to every bot. Its folder is a read root only while it is synced.
   const knowledge = new KnowledgeRepo({ repos, source: () => settings.get().knowledgeRepo });
   const voice = new VoiceProposals(repos, memory);
+  // P2: parked approvals and approval rules. "Allow for this session" rows belong to the previous process.
+  const approvalStore = new ApprovalStore(db);
+  approvalStore.clearSessionPolicies();
   const broker = new PermissionBroker(repos, {
     bypass: () => settings.approvals() === 'bypass',
     readOnlyRoots: () => { const d = knowledge.activeDir(); return d ? [d] : []; },
+    store: approvalStore,
   });
   // Cards left open by the previous process can never be answered (their turns are gone): show them as expired.
   const expired = repos.expirePendingApprovals();
@@ -162,7 +177,33 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
-  const followUp = new FollowUp({ repos, router });
+  const followUp = new FollowUp({ repos, router, heldRuns: () => approvalStore.parkedRunIds() });
+
+  // P2: take over / hand back / pause, and resuming turns that parked on the user.
+  const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
+  runner.control = control;
+  router.control = control;
+  broker.onParkedDecision = (p, decision) => {
+    router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, runId: p.runId, note: parkedDecisionNote(p, decision) });
+  };
+  control.onParkedHandBack = (botId, t, note) => {
+    router.resumeParked(botId, t.roomId, {
+      causeId: t.causeId, hop: t.hop, runId: t.runId,
+      note: note === null
+        ? '(Nobody took over your computer within ' + Math.round(control.maxParkMs / 3_600_000) + ' hours of your request "' + t.reason +
+          '", so you have control again. Do not ask again right away; tell the user what is still blocked.)'
+        : handBackNote(note || 'no note'),
+    });
+  };
+  approvalStore.prunePolicies(repos.listBots().map((b) => b.id));
+  const offP2 = events.onEvent((ev) => {
+    if (ev.type !== 'bots.changed') return;
+    const ids = ev.bots.map((b) => b.id);
+    approvalStore.prunePolicies(ids);
+    control.prune(ids);
+  });
+  const takeoverApi = createTakeoverApi({ repos, control, store: approvalStore, broker });
+  let p2Timer: NodeJS.Timeout | null = null;
 
   // P4: integrations. Shared connections, per-bot grants; grants of deleted bots are dropped as bots change.
   const integrations = opts.integrations ? opts.integrations(db) : new IntegrationService({ db });
@@ -204,6 +245,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
   const rest = createRest({
     repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers,
+    viewOnly: (scope) => control.viewOnly(scope),
   });
   const handleMcp = createMcpHandler(turns);
 
@@ -300,7 +342,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         limiter.succeed(ip);
         res.writeHead(302, {
           'set-cookie': redeemed.cookie,
-          location: screenViewerPath(redeemed.scope),
+          location: screenViewerPath(redeemed.scope, control.viewOnly(redeemed.scope)),
           'cache-control': 'no-store',
           'referrer-policy': 'no-referrer',
         });
@@ -370,6 +412,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
       if (await triggersApi(req, res)) return;
+      if (await takeoverApi(req, res)) return;
       if (await rest(req, res)) return;
       if (url.pathname.startsWith('/screen/')) {
         const route = screenRoute(url.pathname);
@@ -448,6 +491,7 @@ export function createHub(opts: HubOptions = {}): Hub {
 
   return {
     server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push,
+    control, broker, approvals: approvalStore,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -456,6 +500,11 @@ export function createHub(opts: HubOptions = {}): Hub {
           const resumed = followUp.resumeInterrupted();
           if (resumed) console.log('resuming ' + resumed + ' turn(s) cut off by the previous run');
           followUp.start();
+          // P2: re-apply view-only as computers come up; give up on parked cards and takeovers after 24 h.
+          control.start();
+          broker.sweepParked();
+          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); }, 60_000);
+          p2Timer.unref();
           scheduler.start();
           // P5: after resumeInterrupted, so a resumed trigger turn is not also re-fired from the inbox.
           triggers.start();
@@ -489,6 +538,9 @@ export function createHub(opts: HubOptions = {}): Hub {
       scheduler.stop();
       triggers.stop();
       followUp.stop();
+      control.stop();
+      offP2();
+      if (p2Timer) clearInterval(p2Timer);
       knowledge.stop();
       offComputers();
       // Timers only: the computers are systemd units and keep running across a hub restart.
@@ -511,4 +563,14 @@ export function createHub(opts: HubOptions = {}): Hub {
       try { db.raw.close(); } catch { /* already closed */ }
     },
   };
+}
+
+/** P2: the line a resumed bot gets when the user answers the approval card its turn parked on. */
+function parkedDecisionNote(p: ParkedApproval, decision: 'allow' | 'always' | 'deny' | 'timeout'): string {
+  const what = '"' + p.toolName + '"' + (p.reason ? ' (' + p.reason + ')' : '');
+  if (decision === 'allow' || decision === 'always') {
+    return '(Approval granted: the user allowed ' + what + '. Retry exactly the same call now; it goes through without another card. Then finish the task.)';
+  }
+  if (decision === 'deny') return '(Approval denied: the user declined ' + what + '. Do not retry it; choose another approach or say so in the room.)';
+  return '(Approval expired: nobody answered ' + what + ' in time, so it was denied. Do not retry it; say so in the room.)';
 }

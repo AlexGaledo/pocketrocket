@@ -5,6 +5,7 @@ import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
+import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './models.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -41,7 +42,12 @@ export type ServerEvent =
   // P5: event triggers. A trigger was created, changed or deleted, or its poll status moved; refetch GET /api/triggers.
   | { type: 'triggers.changed' }
   /** A trigger fired, was skipped, or one of its fires finished; refetch its fires. */
-  | { type: 'trigger.fired'; triggerId: string; fireId: string; status: TriggerFireStatus };
+  | { type: 'trigger.fired'; triggerId: string; fireId: string; status: TriggerFireStatus }
+  // ---- P2: take over, hand back, approval rules ----
+  /** Who drives a bot's computer changed (agent / user / paused), or its takeover request did. */
+  | { type: 'computer.control'; status: ControlStatus }
+  /** Approval rules changed (created or revoked); clients refetch GET /api/approval-policies. */
+  | { type: 'policies.changed'; policies: ApprovalPolicy[] };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
@@ -96,3 +102,25 @@ export const RoutineInputSchema = z.object({
   onceAt: z.union([z.number().int().positive(), z.string().min(10).max(40)]).nullable().optional(),
 });
 export type RoutineInput = z.infer<typeof RoutineInputSchema>;
+
+// ---- P2: take over, hand back, approval rules ----
+/** PUT /api/computers/:botId/control. `note` goes to the bot on hand-back (control: agent). */
+export const ControlInputSchema = z.object({
+  control: z.enum(COMPUTER_CONTROLS),
+  holder: z.string().max(64).optional(),
+  note: z.string().max(2000).optional(),
+});
+export type ControlInput = z.infer<typeof ControlInputSchema>;
+
+/**
+ * POST /api/approval-policies. Either from an answered card (`approvalId`, the hub derives bot, tool and
+ * pattern from it; `pattern` may narrow or widen it) or spelled out (`botId` + `tool` + `pattern`).
+ */
+export const ApprovalPolicyInputSchema = z.object({
+  approvalId: z.string().max(40).optional(),
+  botId: z.string().max(64).optional(),
+  tool: z.string().min(1).max(120).optional(),
+  pattern: z.string().min(1).max(500).optional(),
+  decision: z.enum(['allow', 'deny']).default('allow'),
+});
+export type ApprovalPolicyInput = z.infer<typeof ApprovalPolicyInputSchema>;

@@ -79,7 +79,8 @@ describe('screen ticket handshake', () => {
   it('redeems a ticket for an httpOnly cookie scoped to /screen and redirects to the viewer', async () => {
     const r = await req(await mint());
     expect(r.status).toBe(302);
-    expect(r.headers.location).toBe(SCREEN_VIEWER_PATH);
+    // P2: nobody has taken the screen over, so the viewer lands view-only.
+    expect(r.headers.location).toBe(SCREEN_VIEWER_PATH + '&view_only=1');
     expect(r.headers['cache-control']).toBe('no-store');
     expect(r.headers['referrer-policy']).toBe('no-referrer');
     const set = r.headers['set-cookie']![0];
@@ -215,7 +216,8 @@ describe('per-bot screens', () => {
   it('redeems a bot ticket for a cookie named and pathed for that bot only, landing on its viewer', async () => {
     const r = await r2(await ticketFor(A));
     expect(r.status).toBe(302);
-    expect(r.headers.location).toBe(screenViewerPath(A));
+    // P2: the bot has control, so the viewer lands view-only.
+    expect(r.headers.location).toBe(screenViewerPath(A, true));
     expect(r.headers.location).toContain('path=screen%2F' + A + '%2Fwebsockify');
     const set = r.headers['set-cookie']![0];
     expect(set.startsWith(screenCookieName(A) + '=')).toBe(true);
@@ -259,7 +261,7 @@ describe('per-bot screens', () => {
 
   it('reports the computer of the bot, and Keep awake round-trips', async () => {
     const s = JSON.parse((await r2('/api/screen?botId=' + A, auth2)).body) as { url: string; computer: { state: string; slot: number; perBot: boolean } };
-    expect(s.url).toBe(screenViewerPath(A));
+    expect(s.url).toBe(screenViewerPath(A, true));
     expect(s.computer).toMatchObject({ perBot: true, state: 'live', slot: 1 });
     const k = await r2('/api/computers/' + A + '/keep-awake', auth2, 'PUT', { on: true });
     expect(JSON.parse(k.body)).toMatchObject({ keepAwake: true });

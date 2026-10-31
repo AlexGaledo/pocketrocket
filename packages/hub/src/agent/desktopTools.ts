@@ -24,6 +24,11 @@ export interface DesktopTarget {
   home: string;
   /** Extra folders desktop_launch may open files from (the bot's own computer disk), besides the workspace. */
   fileRoots?: string[];
+  /**
+   * P2 control interlock: returns why the tools must not act right now (the user has control, or the bot is
+   * paused), or null. Every desktop tool, screenshot included, refuses without touching the display.
+   */
+  guard?: () => string | null;
 }
 
 /** The shared screen every bot used before per-bot computers, and still uses with them off. */
@@ -169,7 +174,16 @@ export function desktopTools(target: DesktopTarget = sharedDesktop()): HubTool[]
     },
   );
 
-  return [shot, click, type, key, scroll, launch];
+  const all = [shot, click, type, key, scroll, launch];
+  const guard = target.guard;
+  if (!guard) return all;
+  return all.map((t) => ({
+    ...t,
+    handler: async (input: Record<string, unknown>) => {
+      const why = guard();
+      return why ? err(why) : t.handler(input);
+    },
+  }));
 }
 
 export const DESKTOP_TOOL_NAMES = ['desktop_screenshot', 'desktop_click', 'desktop_type', 'desktop_key', 'desktop_scroll', 'desktop_launch'];

@@ -36,4 +36,6 @@ export SCREEN_DISPLAY=":$((200 + SLOT))"
 export CDP_PORT="$((9400 + SLOT))" VNC_PORT="$((5800 + SLOT))" NOVNC_PORT="$((6200 + SLOT))"
 export SCREEN_HOME="$CDIR/home" SCREEN_PROFILE="$CDIR/browser"
 export SCREEN_DESKTOP_DIR="$CDIR/files/Desktop" SCREEN_DOWNLOAD_DIR="$CDIR/files/Downloads"
+# P2: the bot has control when its computer starts, so the viewer can only watch (see screen.sh).
+export VNC_VIEWONLY=1
 exec bash "$(dirname "$0")/screen.sh"

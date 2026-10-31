@@ -145,6 +145,12 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
           'Desktop: ' + prefix + 'desktop_* tools (desktop_screenshot, desktop_click, desktop_type, desktop_key, desktop_scroll, desktop_launch) operate the XFCE desktop on ' + (ctx.computer ? 'your computer' : 'this computer') + ' that ' + USER_NAME + ' watches on the Screen tab. ' + (ctx.computer ? 'The desktop folder is your own disk; ~/Shared on it is the shared workspace.' : 'The desktop folder is the shared workspace.') + ' Always screenshot first, act in small steps, verify with the screenshot each action returns. Prefer Bash/file tools for anything a shell can do; use the desktop only for GUI apps and sites that need a real browser interaction the Browser tool cannot do.',
         ]
       : []),
+    // P2: take over and hand back.
+    ...(ctx.browser || ctx.desktop
+      ? [
+          'Take over: when a step needs a person (a login, a captcha, a 2FA prompt, a payment confirmation), call ' + prefix + 'request_takeover({ reason }) instead of guessing or giving up. It hands your screen to ' + USER_NAME + ' and waits for them to hand it back with a note. While ' + USER_NAME + ' has control (or has paused you) your browser and desktop tools refuse; do not retry them, wait or do other work.',
+        ]
+      : []),
     ...(ctx.requestApproval
       ? [
           'Approvals: this provider cannot intercept every action, so you must ask first. Call ' + prefix + 'request_approval({ action, command?, paths?, reason? }) BEFORE you: write, move or delete anything outside ' + WORKSPACE_DIR + ' and your private home; run a destructive, privileged or network-changing shell command (rm -r, sudo, git push, package publishes, installs outside the workspace); or do anything irreversible or costly. It shows ' + USER_NAME + ' an approval card and returns { allowed, message }. If allowed is false, do not do it: pick another approach or say so in the room. Everything inside the workspace needs no approval.',
