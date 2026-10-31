@@ -119,6 +119,20 @@ connection modes once one is set up.
 - Optional **restic** backups (`RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE`). Backups skip browser caches
   and `vault.key`, and keep `vapid.json`, so phones need not re-subscribe after a restore.
 
+### Teach by demonstration and skill versions
+- **Teach a bot by showing it.** On a server with per-bot computers, the Screen tab has **Teach**: do the task on
+  the bot's computer, press **Done**. You hold control while recording; a static indicator shows steps and
+  screenshots. Recordings stay on the server and are erased with the bot.
+- **Secrets are redacted while recording.** Passwords, card fields, one-time codes and credential-looking URL
+  values are saved as `«secret»`; screenshots are dropped while such a value is on screen. Limits: 2000 steps,
+  200 screenshots, 64 MB, 30 minutes.
+- **Distill** turns a recording into a `SKILL.md` (one Sonnet call, at most $0.25) that waits for your review.
+- **Skill versions.** Demos, your corrections ("no, use the Export button"), opt-in post-run reflection and a
+  bot's `save_skill` on an existing name all propose a pending version with a line diff. Nothing changes until
+  you **Approve**; `save_skill` no longer overwrites a skill silently.
+- Phones can view recordings and versions and stop a recording; starting, distilling and approving stay on the
+  desktop.
+
 ### Security
 
 - The $5 per-thread cost cap now limits every turn (your messages, routines, triggers), not only
