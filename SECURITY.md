@@ -19,6 +19,10 @@ Please report security issues via [GitHub private security advisories](https://g
   show; nothing about you is sent). Signing in from Settings → Account shares your GitHub (or
   Google) identity and email with Supabase; it does not touch bot conversations, files, memory, or
   secrets, which stay on your machine or server. Everything works fully signed out. No telemetry.
+  Beyond those, the hub only calls what you turn on yourself: the integration providers you connect
+  (and Slack Socket Mode for triggers), the Web Push service of a phone you subscribe, and the git
+  remotes you name for the knowledge repo or a skill import. The full host list is in
+  `docs/PRODUCTION-CHECKLIST.md` (Security).
   The hub, not the browser, holds the account session (including its refresh token) in
   `<data>/account.json`, owner-only like `secrets.json` and outside the bot workspace; signing out
   deletes it, and neither the UI nor any bot is ever handed its contents.
