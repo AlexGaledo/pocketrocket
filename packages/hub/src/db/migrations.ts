@@ -168,3 +168,35 @@ registerMigrations([80, 89], [
   { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
   { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);
+
+// P2 (20–29): take over, hand back, approvals while away (db/approvalStore.ts).
+registerMigrations([20, 29], [
+  // A routine/trigger turn that stopped waiting on a card ("parked") keeps what it needs to resume: the
+  // thread it belongs to, its hop, its routine run, and when it parked (a parked card expires after 24 h).
+  {
+    version: 20,
+    name: 'approvals parking columns',
+    up: (db) => {
+      addColumnIfMissing(db, 'approvals', 'parked_at', 'INTEGER');
+      addColumnIfMissing(db, 'approvals', 'cause_id', 'TEXT');
+      addColumnIfMissing(db, 'approvals', 'hop', 'INTEGER');
+      addColumnIfMissing(db, 'approvals', 'run_id', 'TEXT');
+      addColumnIfMissing(db, 'approvals', 'message_id', 'TEXT');
+    },
+  },
+  // Approval rules. `scope` 'always' rows are the user's persisted rules (Settings › Bots › Approvals);
+  // 'session' rows are "Allow for this session" answers and are dropped at every hub start. Only REST and the
+  // approval card write here; no bot tool or MCP route reaches it.
+  {
+    version: 21,
+    name: 'approval_policies table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS approval_policies (
+        id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, tool TEXT NOT NULL, pattern TEXT NOT NULL,
+        decision TEXT NOT NULL CHECK(decision IN ('allow','deny')), scope TEXT NOT NULL DEFAULT 'always' CHECK(scope IN ('always','session')),
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_approval_policies_bot ON approval_policies(bot_id, tool);
+    `),
+  },
+]);

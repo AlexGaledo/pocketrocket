@@ -4,6 +4,7 @@ import type { KnowledgeStatus } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
+import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './models.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -36,7 +37,12 @@ export type ServerEvent =
   // P1: a bot's computer changed state (asleep/starting/live), keep-awake or disk usage.
   | { type: 'computer.state'; status: ComputerStatus }
   // P4: integrations. A connection, grant, OAuth app or pending sign-in changed; clients refetch GET /api/integrations.
-  | { type: 'integrations.changed' };
+  | { type: 'integrations.changed' }
+  // ---- P2: take over, hand back, approval rules ----
+  /** Who drives a bot's computer changed (agent / user / paused), or its takeover request did. */
+  | { type: 'computer.control'; status: ControlStatus }
+  /** Approval rules changed (created or revoked); clients refetch GET /api/approval-policies. */
+  | { type: 'policies.changed'; policies: ApprovalPolicy[] };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
@@ -91,3 +97,25 @@ export const RoutineInputSchema = z.object({
   onceAt: z.union([z.number().int().positive(), z.string().min(10).max(40)]).nullable().optional(),
 });
 export type RoutineInput = z.infer<typeof RoutineInputSchema>;
+
+// ---- P2: take over, hand back, approval rules ----
+/** PUT /api/computers/:botId/control. `note` goes to the bot on hand-back (control: agent). */
+export const ControlInputSchema = z.object({
+  control: z.enum(COMPUTER_CONTROLS),
+  holder: z.string().max(64).optional(),
+  note: z.string().max(2000).optional(),
+});
+export type ControlInput = z.infer<typeof ControlInputSchema>;
+
+/**
+ * POST /api/approval-policies. Either from an answered card (`approvalId`, the hub derives bot, tool and
+ * pattern from it; `pattern` may narrow or widen it) or spelled out (`botId` + `tool` + `pattern`).
+ */
+export const ApprovalPolicyInputSchema = z.object({
+  approvalId: z.string().max(40).optional(),
+  botId: z.string().max(64).optional(),
+  tool: z.string().min(1).max(120).optional(),
+  pattern: z.string().min(1).max(500).optional(),
+  decision: z.enum(['allow', 'deny']).default('allow'),
+});
+export type ApprovalPolicyInput = z.infer<typeof ApprovalPolicyInputSchema>;

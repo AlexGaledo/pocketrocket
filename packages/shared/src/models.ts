@@ -49,7 +49,7 @@ export interface Room {
 }
 
 export type AuthorType = 'user' | 'bot' | 'system';
-export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system';
+export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system' | 'takeover';
 
 export interface ToolPayload {
   toolUseId: string;
@@ -67,6 +67,8 @@ export interface ApprovalPayload {
   danger: boolean;
   /** `expired`: the card was still open when the hub stopped, so nothing is waiting on it any more. */
   status: 'pending' | 'allow' | 'always' | 'deny' | 'timeout' | 'expired';
+  /** P2: a routine/trigger turn stopped waiting on this card; it resumes when the card is answered. */
+  parked?: boolean;
 }
 export interface HandoffPayload {
   fromBotId: string;
@@ -88,7 +90,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, null for user/system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | RoutinePayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | RoutinePayload | TakeoverPayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;
@@ -232,4 +234,49 @@ export interface ComputerStatus {
   lastUsedAt: number | null;
   /** Why the last start failed (quota, every slot in use, ...), when it did. */
   reason?: string;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// P2: take over, hand back, approvals while away (docs/specs/grok-bot-parity.md §2.2, §2.4).
+
+/**
+ * Who drives a bot's computer. `agent`: the bot; the viewer is view-only. `user`: a person; the bot's desktop
+ * and browser tools refuse. `paused`: nobody acts; the bot's turns wait in their lanes.
+ */
+export const COMPUTER_CONTROLS = ['agent', 'user', 'paused'] as const;
+export type ComputerControl = (typeof COMPUTER_CONTROLS)[number];
+
+export interface ControlStatus {
+  botId: string;
+  control: ComputerControl;
+  /** Device id of whoever took control (client-chosen, informational), or null. */
+  holder: string | null;
+  /** Epoch ms of the last change. */
+  since: number;
+  /** The bot's open `request_takeover`, while there is one. `parked`: its turn ended and resumes on hand-back. */
+  takeover: { messageId: string; roomId: string; reason: string; parked: boolean } | null;
+}
+
+/** `kind: 'takeover'` message: a bot asked the user to take over its computer (log in, solve a captcha, ...). */
+export interface TakeoverPayload {
+  botId: string;
+  reason: string;
+  /** waiting: the bot waits in its turn; parked: its turn ended and resumes on hand-back; done: handed back. */
+  status: 'waiting' | 'parked' | 'done' | 'expired';
+  /** The user's hand-back note, once handed back. */
+  note?: string;
+}
+
+/**
+ * A persisted approval rule (Settings › Bots › Approvals). Only the user creates one, over REST; no bot tool
+ * reaches this table. `pattern` is matched against the call's subject (a Bash command, a path, a URL): `*`
+ * matches anything, a trailing `*` is a prefix match, anything else must match exactly.
+ */
+export interface ApprovalPolicy {
+  id: string;
+  botId: string;
+  tool: string;
+  pattern: string;
+  decision: 'allow' | 'deny';
+  createdAt: number;
 }
