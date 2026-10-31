@@ -276,7 +276,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       if (!r.ok) return r.out;
       const msgs = ctx.repos
         .listMessages(r.room.id, { limit: a.limit ?? 30 })
-        .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine');
+        .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine' || m.kind === 'trigger');
       const who = (m: { authorType: string; authorId: string | null }) =>
         m.authorType === 'user'
           ? userName

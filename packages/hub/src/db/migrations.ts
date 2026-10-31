@@ -168,3 +168,57 @@ registerMigrations([80, 89], [
   { version: 83, name: 'messages.model', up: (db) => addColumnIfMissing(db, 'messages', 'model', 'TEXT') },
   { version: 84, name: 'messages.model_reason', up: (db) => addColumnIfMissing(db, 'messages', 'model_reason', 'TEXT') },
 ]);
+
+// P5 (50–59): event triggers (services/TriggerService.ts, db/triggerRepo.ts). Events arrive by outbound polling
+// and Slack Socket Mode only (decision Q5). Cursors and the inbox are persisted so a restart neither replays
+// nor loses events; `events_inbox.dedupe_key` is what makes a re-polled event a no-op.
+registerMigrations([50, 59], [
+  {
+    version: 50,
+    name: 'triggers table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS triggers (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, source TEXT NOT NULL,
+        filter_json TEXT NOT NULL DEFAULT '{}', bot_id TEXT NOT NULL, room_id TEXT NOT NULL, prompt TEXT NOT NULL,
+        max_per_hour INTEGER NOT NULL DEFAULT 6, budget_usd REAL NOT NULL DEFAULT 2,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_fired_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_triggers_source ON triggers(source, enabled);
+    `),
+  },
+  {
+    version: 51,
+    name: 'events_inbox table',
+    // status: new (stored, not yet matched) → matched | ignored. A row left `new` by a crash is matched on start.
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS events_inbox (
+        id TEXT PRIMARY KEY, source TEXT NOT NULL, poll_key TEXT NOT NULL, dedupe_key TEXT NOT NULL UNIQUE,
+        payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new', seen_at INTEGER NOT NULL, processed_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_events_inbox_status ON events_inbox(status, seen_at);
+    `),
+  },
+  {
+    version: 52,
+    name: 'trigger_fires table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS trigger_fires (
+        id TEXT PRIMARY KEY, trigger_id TEXT NOT NULL, event_id TEXT, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+        note TEXT, message_id TEXT, cost_usd REAL, test INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL, ended_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_trigger_fires_trigger ON trigger_fires(trigger_id, started_at);
+    `),
+  },
+  {
+    version: 53,
+    name: 'trigger_cursors table',
+    // One row per poll stream ('gmail', 'github.repo:owner/name', 'calendar:primary', ...): the provider cursor,
+    // its ETag, and the schedule/backoff state.
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS trigger_cursors (
+        key TEXT PRIMARY KEY, source TEXT NOT NULL, cursor TEXT, etag TEXT, last_polled_at INTEGER, next_poll_at INTEGER,
+        failures INTEGER NOT NULL DEFAULT 0, last_error TEXT
+      );
+    `),
+  },
+]);

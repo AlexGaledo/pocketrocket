@@ -5,6 +5,7 @@ import type {
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
+import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -156,5 +157,14 @@ export const api = {
     test: (id: string) => req<IntegrationInfo>('POST', '/api/integrations/' + id + '/test', {}),
     setGrants: (id: string, botIds: string[]) => req<IntegrationInfo>('PUT', '/api/integrations/' + id + '/grants', { botIds }),
     disconnect: (id: string) => req<{ ok: true }>('DELETE', '/api/integrations/' + id),
+  },
+  // P5: event triggers.
+  triggers: {
+    get: () => req<TriggersState>('GET', '/api/triggers'),
+    create: (t: TriggerInput) => req<Trigger>('POST', '/api/triggers', t),
+    update: (id: string, t: Partial<TriggerInput>) => req<Trigger>('PATCH', '/api/triggers/' + id, t),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/triggers/' + id),
+    fires: (id: string) => req<TriggerFire[]>('GET', '/api/triggers/' + id + '/fires'),
+    test: (id: string, body: TriggerTestInput = {}) => req<TriggerFire>('POST', '/api/triggers/' + id + '/test', body),
   },
 };

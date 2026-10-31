@@ -2,6 +2,7 @@
 export const MAX_ROOM_BOTS = 10;
 
 import type { Approvals } from './providers.js';
+import type { TriggerPayload } from './triggers.js';
 
 export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done' | 'error';
 
@@ -49,7 +50,7 @@ export interface Room {
 }
 
 export type AuthorType = 'user' | 'bot' | 'system';
-export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system';
+export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system' | 'trigger';
 
 export interface ToolPayload {
   toolUseId: string;
@@ -88,7 +89,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, null for user/system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | RoutinePayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | RoutinePayload | TriggerPayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;

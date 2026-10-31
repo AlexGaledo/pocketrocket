@@ -8,6 +8,7 @@ import { isDesktopMode } from '../lib/auth';
 import { Avatar, Badge, Button, Input, Label, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
 import { VoicePanel } from './VoicePanel';
 import { SkillGitImport } from './SkillGitImport';
+import { TriggersSection } from './TriggersSection';
 
 export function RightPanel() {
   const bots = useStore((s) => s.bots);
@@ -41,14 +42,15 @@ export function RightPanel() {
           <TabsTrigger value="screen">Screen</TabsTrigger>
           <TabsTrigger value="memory">Memory</TabsTrigger>
           <TabsTrigger value="skills">Skills</TabsTrigger>
-          <TabsTrigger value="routines">Routines</TabsTrigger>
+          <TabsTrigger value="routines">Automations</TabsTrigger>
           <TabsTrigger value="usage">Usage</TabsTrigger>
         </TabsList>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <TabsContent value="screen" className="h-full"><ScreenPane bot={bot} /></TabsContent>
           <TabsContent value="memory">{bot && <><MemoryTab botId={bot.id} /><VoicePanel botId={bot.id} /></>}</TabsContent>
           <TabsContent value="skills">{bot && <SkillsTab botId={bot.id} />}</TabsContent>
-          <TabsContent value="routines"><RoutinesTab botId={bot?.id ?? null} /></TabsContent>
+          {/* P5: "Automations" = Schedules (routines) + Triggers (outside events). The tab value stays 'routines'. */}
+          <TabsContent value="routines"><RoutinesTab botId={bot?.id ?? null} /><TriggersSection botId={bot?.id ?? null} /></TabsContent>
           <TabsContent value="usage"><UsageTab /></TabsContent>
         </div>
       </Tabs>
@@ -357,7 +359,7 @@ function RoutinesTab({ botId }: { botId: string | null }) {
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex items-center justify-between">
-        <Label hint={'times in ' + tz}>Routines</Label>
+        <Label hint={'times in ' + tz}>Schedules</Label>
         <Button size="sm" variant="ghost" onClick={openNew}><Plus size={13} /> New</Button>
       </div>
       {form.open && (

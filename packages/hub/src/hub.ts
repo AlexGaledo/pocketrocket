@@ -40,6 +40,9 @@ import { IntegrationService } from './services/IntegrationService.js';
 import { createIntegrationsApi } from './api/integrations.js';
 import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
 import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
+import { TriggerService } from './services/TriggerService.js';
+import { createTriggersApi } from './api/triggers.js';
+import type { SocketFactory } from './services/SlackSocketMode.js';
 
 export interface HubOptions {
   port?: number;
@@ -55,6 +58,8 @@ export interface HubOptions {
   computers?: (db: Db) => ComputerManager;
   /** P4 integrations, built on the hub's db; tests hand in a factory with a temp vault and a fake fetch. */
   integrations?: (db: Db) => IntegrationService;
+  /** P5: Slack Socket Mode transport; tests hand in a fake socket. */
+  slackSocket?: SocketFactory;
 }
 
 export interface Hub {
@@ -69,6 +74,8 @@ export interface Hub {
   runner: BotRunner;
   computers: ComputerManager;
   integrations: IntegrationService;
+  /** P5: event triggers (pollers, Slack Socket Mode, matcher). */
+  triggers: TriggerService;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -147,6 +154,10 @@ export function createHub(opts: HubOptions = {}): Hub {
   integrations.pruneGrants(repos.listBots().map((b) => b.id));
   const offBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') integrations.pruneGrants(ev.bots.map((b) => b.id)); });
   const integrationsApi = createIntegrationsApi({ integrations, repos });
+
+  // P5: event triggers. Outbound polling and Slack Socket Mode only (Q5); started in listen(), stopped first on shutdown.
+  const triggers = new TriggerService({ db, repos, integrations, router, socket: opts.slackSocket });
+  const triggersApi = createTriggersApi({ triggers });
 
   const screenSessions = new ScreenSessions();
   const rest = createRest({
@@ -295,6 +306,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         return;
       }
       if (await integrationsApi(req, res)) return;
+      if (await triggersApi(req, res)) return;
       if (await rest(req, res)) return;
       if (url.pathname.startsWith('/screen/')) {
         const route = screenRoute(url.pathname);
@@ -355,7 +367,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -365,6 +377,8 @@ export function createHub(opts: HubOptions = {}): Hub {
           if (resumed) console.log('resuming ' + resumed + ' turn(s) cut off by the previous run');
           followUp.start();
           scheduler.start();
+          // P5: after resumeInterrupted, so a resumed trigger turn is not also re-fired from the inbox.
+          triggers.start();
           // P7: sync the knowledge repo if its source changed, then pull it on a timer (never blocks start).
           knowledge.start(KNOWLEDGE_SYNC_MINUTES);
           // Reconcile with systemd, prune deleted bots, move the shared screen's logins (once), start timers.
@@ -391,6 +405,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       }),
     async shutdown() {
       scheduler.stop();
+      triggers.stop();
       followUp.stop();
       knowledge.stop();
       offComputers();

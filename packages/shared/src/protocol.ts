@@ -4,6 +4,7 @@ import type { KnowledgeStatus } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
+import type { TriggerFireStatus } from './triggers.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -36,7 +37,11 @@ export type ServerEvent =
   // P1: a bot's computer changed state (asleep/starting/live), keep-awake or disk usage.
   | { type: 'computer.state'; status: ComputerStatus }
   // P4: integrations. A connection, grant, OAuth app or pending sign-in changed; clients refetch GET /api/integrations.
-  | { type: 'integrations.changed' };
+  | { type: 'integrations.changed' }
+  // P5: event triggers. A trigger was created, changed or deleted, or its poll status moved; refetch GET /api/triggers.
+  | { type: 'triggers.changed' }
+  /** A trigger fired, was skipped, or one of its fires finished; refetch its fires. */
+  | { type: 'trigger.fired'; triggerId: string; fireId: string; status: TriggerFireStatus };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [

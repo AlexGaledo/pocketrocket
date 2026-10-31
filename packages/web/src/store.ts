@@ -104,6 +104,8 @@ interface State {
   usage: Record<string, UsageTotals>;
   /** P3: bumped on WS `routines.changed`; the Routines tab refetches when it moves. */
   routinesRev: number;
+  /** P5: bumped on WS `triggers.changed` / `trigger.fired` / `integrations.changed`; the Triggers section refetches. */
+  triggersRev: number;
   memory: Record<string, string>;
   panelOpen: boolean;
   /** Left sidebar. Same treatment as panelOpen: remembered per browser so a narrow screen stays narrow. */
@@ -175,6 +177,7 @@ export const useStore = create<State>((set, get) => ({
   unread: {},
   usage: {},
   routinesRev: 0,
+  triggersRev: 0,
   memory: {},
   panelOpen: !matches(NARROW_PANEL_QUERY) && localStorage.getItem('prcrew.panel') !== '0',
   sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('prcrew.sidebar') !== '0',
@@ -322,6 +325,12 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'voice.updated':
         set({ voiceRev: { ...s.voiceRev, [ev.botId]: (s.voiceRev[ev.botId] ?? 0) + 1 } });
+        return;
+      // ---- P5 ----
+      case 'triggers.changed':
+      case 'trigger.fired':
+      case 'integrations.changed':
+        set({ triggersRev: s.triggersRev + 1 });
         return;
       default:
         return;
