@@ -1,6 +1,7 @@
 import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState,
+  IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
@@ -115,5 +116,19 @@ export const api = {
     cancel: () => req<AccountActionResponse>('POST', '/api/account/cancel', {}),
     signOut: () => req<AccountActionResponse>('POST', '/api/account/sign-out', {}),
     oauth: (provider: 'google' | 'github') => req<{ url: string }>('POST', '/api/account/oauth', { provider }),
+  },
+  // P4: integrations. The hub keeps every credential; these answers never carry one.
+  integrations: {
+    get: () => req<IntegrationsState>('GET', '/api/integrations'),
+    setApp: (p: IntegrationProvider, app: OAuthAppInput) => req<OAuthAppStatus>('PUT', '/api/integrations/apps/' + p, app),
+    removeApp: (p: IntegrationProvider) => req<OAuthAppStatus>('DELETE', '/api/integrations/apps/' + p),
+    // Not under /api: the hub mints state + PKCE and answers the provider's authorize URL.
+    startOAuth: (p: IntegrationProvider) => req<{ url: string; redirectUri: string }>('POST', '/oauth/start/' + p, {}),
+    startDevice: (p: IntegrationProvider) => req<PendingConnect>('POST', '/api/integrations/device/' + p, {}),
+    cancel: (p: IntegrationProvider) => req<{ ok: true }>('POST', '/api/integrations/cancel/' + p, {}),
+    connectToken: (p: IntegrationProvider, body: TokenConnectInput) => req<IntegrationInfo>('POST', '/api/integrations/token/' + p, body),
+    test: (id: string) => req<IntegrationInfo>('POST', '/api/integrations/' + id + '/test', {}),
+    setGrants: (id: string, botIds: string[]) => req<IntegrationInfo>('PUT', '/api/integrations/' + id + '/grants', { botIds }),
+    disconnect: (id: string) => req<{ ok: true }>('DELETE', '/api/integrations/' + id),
   },
 };
