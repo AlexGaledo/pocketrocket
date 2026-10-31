@@ -4,10 +4,16 @@
 # cron jobs, and the screen unit.
 #
 # Security model: the hub (127.0.0.1:7790), noVNC (127.0.0.1:6081), the VNC server
-# (127.0.0.1:5901) and Chromium's CDP (127.0.0.1:9223) all bind loopback only. Nothing here opens
+# (127.0.0.1:5901) and Chromium's CDP (127.0.0.1:9223) all bind loopback only, and so does every per-bot
+# computer (CDP 9400+n, VNC 5800+n, noVNC 6200+n, display :200+n; see deploy/computer.sh). Nothing here opens
 # a firewall port or listens on a public interface, and nothing should ever be put behind a
 # reverse proxy without adding auth in front of it. The only supported remote access path is an
 # SSH tunnel: `ssh -L 7790:127.0.0.1:7790 <host>` (see README "Run on a server").
+#
+# Per-bot computers (default): every bot with Browser/Desktop gets its own display, Chromium profile and
+# loopback ports (deploy/computer.sh, a systemd *user* unit the hub starts and stops itself). They all run as
+# the same pocketrocket-crew uid, so this separates bots but does not isolate them from each other.
+# POCKETROCKET_COMPUTERS=0 bash deploy/setup-vps.sh keeps the one shared screen instead.
 #
 # Run as root on Ubuntu/Debian from the repo dir: bash deploy/setup-vps.sh
 set -euo pipefail
@@ -15,6 +21,8 @@ cd "$(dirname "$0")/.."
 export DEBIAN_FRONTEND=noninteractive
 
 APP_USER="pocketrocket-crew"
+COMPUTERS="${POCKETROCKET_COMPUTERS:-1}"
+case "$COMPUTERS" in 1|true|yes|on) COMPUTERS=1 ;; *) COMPUTERS=0 ;; esac
 APP_HOME="/home/pocketrocket-crew"
 INSTALL_DIR="$(pwd)"
 DATA_DIR="$INSTALL_DIR/data"
@@ -69,20 +77,49 @@ cp deploy/pocketrocket-crew.service /etc/systemd/system/pocketrocket-crew.servic
 systemctl daemon-reload
 systemctl enable pocketrocket-crew >/dev/null 2>&1 || true
 
-echo "==> installing pocketrocket-crew-screen.service"
-chmod +x deploy/screen.sh
-stamp="$(cat deploy/pocketrocket-crew-screen.service deploy/screen.sh | md5sum | cut -d' ' -f1)"
-prev="$(cat /etc/pocketrocket-crew-screen.stamp 2>/dev/null || true)"
-cp deploy/pocketrocket-crew-screen.service /etc/systemd/system/pocketrocket-crew-screen.service
+echo "==> hub drop-in: per-bot computers = $COMPUTERS"
+mkdir -p /etc/systemd/system/pocketrocket-crew.service.d
+cat > /etc/systemd/system/pocketrocket-crew.service.d/computers.conf <<EOF
+[Service]
+Environment=POCKETROCKET_COMPUTERS=$COMPUTERS
+EOF
 systemctl daemon-reload
-systemctl enable pocketrocket-crew-screen >/dev/null 2>&1 || true
-# Restart only when the screen files changed or it is down: a restart closes open tabs (logins persist).
-if [ "$stamp" != "$prev" ] || ! systemctl is-active -q pocketrocket-crew-screen; then
-  systemctl restart pocketrocket-crew-screen
-  echo "$stamp" > /etc/pocketrocket-crew-screen.stamp
-  sleep 4
+
+echo "==> per-bot computer user unit + lingering (the hub runs systemctl --user; no root needed)"
+APP_UID="$(id -u "$APP_USER")"
+loginctl enable-linger "$APP_USER"
+UNIT_DIR="$APP_HOME/.config/systemd/user"
+sudo -u "$APP_USER" mkdir -p "$UNIT_DIR"
+install -m 644 -o "$APP_USER" -g "$APP_USER" "deploy/pocketrocket-crew-computer@.service" "$UNIT_DIR/pocketrocket-crew-computer@.service"
+chmod +x deploy/computer.sh
+for _ in $(seq 1 20); do [ -S "/run/user/$APP_UID/bus" ] && break; sleep 0.5; done
+sudo -u "$APP_USER" env XDG_RUNTIME_DIR="/run/user/$APP_UID" systemctl --user daemon-reload \
+  || echo "   (systemctl --user daemon-reload failed; check: loginctl show-user $APP_USER -p Linger)"
+
+if [ "$COMPUTERS" = "1" ]; then
+  echo "==> shared screen off (each bot now gets its own computer; the hub moves its logins to the first Browser bot)"
+  cp deploy/pocketrocket-crew-screen.service /etc/systemd/system/pocketrocket-crew-screen.service
+  systemctl daemon-reload
+  systemctl disable --now pocketrocket-crew-screen >/dev/null 2>&1 || true
+  chmod +x deploy/screen.sh
+  rm -f /etc/pocketrocket-crew-screen.stamp
+  echo "   computers start on demand: ss -ltnp | grep -E ':(94|58|62)[0-9][0-9] ' should list 127.0.0.1 only"
 else
-  echo "   screen unchanged, left running"
+  echo "==> installing pocketrocket-crew-screen.service"
+  chmod +x deploy/screen.sh
+  stamp="$(cat deploy/pocketrocket-crew-screen.service deploy/screen.sh | md5sum | cut -d' ' -f1)"
+  prev="$(cat /etc/pocketrocket-crew-screen.stamp 2>/dev/null || true)"
+  cp deploy/pocketrocket-crew-screen.service /etc/systemd/system/pocketrocket-crew-screen.service
+  systemctl daemon-reload
+  systemctl enable pocketrocket-crew-screen >/dev/null 2>&1 || true
+  # Restart only when the screen files changed or it is down: a restart closes open tabs (logins persist).
+  if [ "$stamp" != "$prev" ] || ! systemctl is-active -q pocketrocket-crew-screen; then
+    systemctl restart pocketrocket-crew-screen
+    echo "$stamp" > /etc/pocketrocket-crew-screen.stamp
+    sleep 4
+  else
+    echo "   screen unchanged, left running"
+  fi
+  systemctl is-active pocketrocket-crew-screen
+  echo "screen: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6081/vnc.html)  cdp: $(curl -s http://127.0.0.1:9223/json/version | head -c 80)"
 fi
-systemctl is-active pocketrocket-crew-screen
-echo "screen: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6081/vnc.html)  cdp: $(curl -s http://127.0.0.1:9223/json/version | head -c 80)"
