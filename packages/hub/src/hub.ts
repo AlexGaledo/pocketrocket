@@ -215,6 +215,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   // P5: event triggers. Outbound polling and Slack Socket Mode only (Q5); started in listen(), stopped first on shutdown.
   const triggers = new TriggerService({ db, repos, integrations, router, socket: opts.slackSocket });
   const triggersApi = createTriggersApi({ triggers });
+  router.triggerBudget = (id) => triggers.remainingBudget(id);
 
   const screenSessions = new ScreenSessions();
 

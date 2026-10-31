@@ -397,6 +397,9 @@ describe('limits', () => {
     const third = h.svc.testFire(t.id)!;
     expect(third.status).toBe('skipped');
     expect(third.note).toContain('Daily budget');
+    // The router reads this for resumed turns and hops on the trigger's thread.
+    expect(h.svc.remainingBudget(t.id)).toBeCloseTo(1 - 1.4);
+    expect(h.svc.remainingBudget('nope')).toBeUndefined();
     h.advance(24 * 3600 + 1);
     expect(h.svc.testFire(t.id)!.status).toBe('running');
   });
