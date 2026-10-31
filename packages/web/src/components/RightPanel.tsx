@@ -21,7 +21,7 @@ export function RightPanel() {
   const bot = botById(bots, panelBotId) ?? bots[0];
 
   return (
-    <aside className="panel flex w-[340px] shrink-0 flex-col overflow-hidden">
+    <aside className="panel flex w-[340px] max-w-full shrink-0 flex-col overflow-hidden max-sm:w-full">
       <div className="flex h-12 items-center gap-2 px-3 pt-1">
         {bot ? (
           <>
@@ -365,11 +365,11 @@ function RoutinesTab({ botId }: { botId: string | null }) {
       {form.open && (
         <div className="flex flex-col gap-2 rounded-2xl bg-card2/60 p-2">
           <Input placeholder="Name" aria-label="Routine name" value={form.name} onChange={(e) => set({ name: e.target.value })} />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
             <Select aria-label="Bot" value={form.botId} onChange={(e) => set({ botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}</Select>
             <Select aria-label="Room" value={form.roomId} onChange={(e) => set({ roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
             <Select
               aria-label="Repeats"
               value={form.preset}

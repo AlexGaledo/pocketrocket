@@ -43,6 +43,8 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `MAX_RUNNING_COMPUTERS` | `3` | Per-bot computers running at once; the least recently used idle one is stopped to make room. |
 | `COMPUTER_IDLE_MIN` | `30` | Minutes without tool use, viewer, routine due or Keep awake before a computer is stopped (disk kept). |
 | `COMPUTER_QUOTA_GB` | `10` | Soft disk quota per computer: warned at 80%, not started at 100%. |
+| `POCKETROCKET_ALLOWED_HOSTS` | unset (loopback only) | P9. Comma/space separated hostnames (e.g. `myhub.tail1234.ts.net`) the hub also answers to, only on HTTPS requests forwarded from loopback (Tailscale Serve). Never use Funnel. See [SERVER.md](SERVER.md#phone-access-over-tailscale-serve). |
+| `POCKETROCKET_PUSH_SUBJECT` | `https://github.com/AlexGaledo/pocketrocket` | P9. VAPID `sub` claim sent to browser push services with every Web Push. The VAPID key pair itself is minted locally into `<data>/vapid.json` (0600) the first time someone subscribes. |
 
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 

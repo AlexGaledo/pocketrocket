@@ -133,3 +133,17 @@ button { font-family: inherit; }
 .md table { border-collapse: collapse; margin: 0.5em 0; font-size: 13px; } .md th, .md td { border: 1px solid var(--line); padding: 4px 9px; }
 .md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
 .md strong { font-weight: 600; }
+
+/* ---- P9: phone ---- */
+/* Touch screens get 44px targets where a wrong tap is costly (approval cards). */
+@media (pointer: coarse) {
+  .touch-target { min-height: 44px; padding-left: 1rem; padding-right: 1rem; font-size: 14px; }
+}
+/* Installed web app: keep the canvas from rubber-banding behind the fixed layout. */
+@media (display-mode: standalone) {
+  html, body { overscroll-behavior: none; }
+}
+/* iOS zooms the page into any focused field under 16px; on a phone, fields are 16px instead. */
+@media (pointer: coarse) and (max-width: 640px) {
+  input, select, textarea { font-size: 16px; }
+}

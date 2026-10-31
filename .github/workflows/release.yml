@@ -124,3 +124,98 @@ jobs:
           name: pocketrocket-crew-windows-installer
           path: packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+
+  # P9: Linux (AppImage + deb) and macOS (unsigned dmg). They run after the Windows job, which holds every
+  # gate (version sync, tag == package.json, tests, CHANGELOG section) and creates the GitHub release; these
+  # build natively and upload into that same release (tauri-action reuses the release for the tag).
+  release-unix:
+    name: Build + release (${{ matrix.name }})
+    if: github.repository == 'AlexGaledo/pocketrocket-crew'
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04
+            bundles: appimage,deb
+            artifact: pocketrocket-crew-linux
+            paths: |
+              packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+              packages/desktop/src-tauri/target/release/bundle/deb/*.deb
+          - name: macOS
+            os: macos-14
+            bundles: dmg
+            artifact: pocketrocket-crew-macos
+            paths: |
+              packages/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-03 (moving branch, resolved via `commits/stable`)
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/desktop/src-tauri -> target
+
+      # WebKitGTK for the webview, ayatana-appindicator for the tray, patchelf/xdg-utils for the AppImage.
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf build-essential libssl-dev libxdo-dev xdg-utils
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # fetch-node picks the Node sidecar for this runner (node-x86_64-unknown-linux-gnu / node-aarch64-apple-darwin).
+      - name: Prepare desktop bundle (hub build + web build + Node sidecar)
+        run: pnpm desktop:prepare
+
+      # Unsigned on purpose (decision Q11): no Apple identity is configured, so the dmg is ad-hoc signed and
+      # Gatekeeper asks the user to allow it once (docs/RELEASING.md).
+      - name: Build + upload to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: packages/desktop
+          owner: AlexGaledo
+          repo: pocketrocket-crew
+          tagName: v__VERSION__
+          releaseName: 'PocketRocket Crew v__VERSION__'
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: false
+          args: --bundles ${{ matrix.bundles }}
+
+      - name: Install tauri-cli (dispatch dry run only)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        # Same exact pin as the Windows job.
+        run: cargo install tauri-cli --locked --version 2.11.4
+
+      - name: Build only (no publish)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        working-directory: packages/desktop
+        run: cargo tauri build --bundles ${{ matrix.bundles }}
+
+      - name: Upload bundles as workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.paths }}
+          if-no-files-found: error

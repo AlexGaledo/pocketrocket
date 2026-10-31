@@ -38,7 +38,7 @@ const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 const MAX_TICKETS = 64;
 const MAX_SESSIONS = 32;
 
-interface Entry { value: string; expires: number; scope: string | null }
+interface Entry { value: string; expires: number; scope: string | null; /** P9: the paired device that minted it, if any. */ owner?: string }
 
 /**
  * Why a ticket at all: an `<iframe>` cannot send an Authorization header, so the only way the hub token could
@@ -53,11 +53,11 @@ export class ScreenSessions {
   constructor(private now: () => number = Date.now) {}
 
   /** Mint a one-shot ticket for one screen (null = the shared screen, else a bot id) and the URL that redeems it. */
-  mintTicket(scope: string | null = null): { ticket: string; url: string } {
+  mintTicket(scope: string | null = null, owner?: string | null): { ticket: string; url: string } {
     if (scope !== null && !SCOPE_RE.test(scope)) throw new Error('bad screen scope');
     this.sweep();
     const ticket = randomBytes(32).toString('base64url');
-    this.tickets.push({ value: ticket, expires: this.now() + TICKET_TTL_MS, scope });
+    this.tickets.push({ value: ticket, expires: this.now() + TICKET_TTL_MS, scope, ...(owner ? { owner } : {}) });
     if (this.tickets.length > MAX_TICKETS) this.tickets.splice(0, this.tickets.length - MAX_TICKETS);
     return { ticket, url: '/screen/session?ticket=' + encodeURIComponent(ticket) };
   }
@@ -76,9 +76,9 @@ export class ScreenSessions {
     const i = this.find(this.tickets, ticket);
     if (i < 0) return null;
     // Single use: the ticket is burnt here, whether or not the browser ever follows the redirect.
-    const [{ scope }] = this.tickets.splice(i, 1);
+    const [{ scope, owner }] = this.tickets.splice(i, 1);
     const value = randomBytes(32).toString('base64url');
-    this.sessions.push({ value, expires: this.now() + SESSION_TTL_MS, scope });
+    this.sessions.push({ value, expires: this.now() + SESSION_TTL_MS, scope, ...(owner ? { owner } : {}) });
     if (this.sessions.length > MAX_SESSIONS) this.sessions.splice(0, this.sessions.length - MAX_SESSIONS);
     return { cookie: cookieHeader(value, Math.floor(SESSION_TTL_MS / 1000), scope), scope };
   }
@@ -88,6 +88,19 @@ export class ScreenSessions {
     this.sweep();
     const i = this.find(this.sessions, cookie);
     return i >= 0 && this.sessions[i].scope === scope;
+  }
+
+  /** P9: the device behind a still-valid session cookie (null for the hub token's own sessions). */
+  ownerOf(cookie: string | null, scope: string | null = null): string | null {
+    this.sweep();
+    const i = this.find(this.sessions, cookie);
+    return i >= 0 && this.sessions[i].scope === scope ? this.sessions[i].owner ?? null : null;
+  }
+
+  /** P9: a revoked device loses every ticket and Screen session it minted, at once. */
+  revokeOwner(owner: string): void {
+    this.tickets = this.tickets.filter((e) => e.owner !== owner);
+    this.sessions = this.sessions.filter((e) => e.owner !== owner);
   }
 
   /** Deliberately no early exit: a near miss must not be measurably faster than a wild guess. */

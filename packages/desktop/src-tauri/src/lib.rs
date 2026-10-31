@@ -16,7 +16,7 @@ mod proc;
 mod scan;
 mod ssh;
 
-use proc::{kill_tree, no_window, Tail};
+use proc::{kill_tree, no_window, own_process_group, Tail};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -25,7 +25,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewWindowBuilder};
 
@@ -38,12 +39,26 @@ pub struct Config {
     /// Repo root containing packages/hub, for development only; see [`hub_dir_override`].
     #[serde(default)]
     pub hub_dir: Option<String>,
+    /// P9: closing the window hides it to the tray instead of quitting. None = the mode's default, see
+    /// [`close_to_tray`]. Absent from older config.json files.
+    #[serde(default)]
+    pub close_to_tray: Option<bool>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { mode: "local".into(), ssh_host: "".into(), port: 7790, hub_dir: None }
+        Self { mode: "local".into(), ssh_host: "".into(), port: 7790, hub_dir: None, close_to_tray: None }
     }
+}
+
+/// Whether closing the window keeps the app (and so the hub) running in the tray.
+///
+/// Default on in local mode: there the hub and every bot turn are this app's children, so quitting on
+/// close stops the bots, which is what "works 24/7 with the laptop open" must not do. Default off for
+/// server and attach modes: the hub runs elsewhere and keeps going anyway, so the only thing a hidden
+/// window would keep alive is an SSH tunnel nobody is looking at.
+fn close_to_tray(cfg: &Config) -> bool {
+    cfg.close_to_tray.unwrap_or(cfg.mode == "local")
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -465,6 +480,7 @@ fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, Strin
     cmd.env("NODE_NO_WARNINGS", "1");
     cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(log_err));
     no_window(&mut cmd);
+    own_process_group(&mut cmd);
     let child = cmd.spawn().map_err(|e| format!("cannot start the hub runtime: {e}"))?;
     proc::job::assign(&child);
     Ok((child, runtime))
@@ -872,6 +888,10 @@ fn get_status(state: State<AppState>) -> Status {
 async fn save_config(app: AppHandle, state: State<'_, AppState>, mut config: Config) -> Result<(), String> {
     config.ssh_host = config.ssh_host.trim().to_string();
     validate_config(&config)?;
+    // The connection form does not send the close behaviour; keep the one already chosen.
+    if config.close_to_tray.is_none() {
+        config.close_to_tray = state.0.lock().unwrap().config.close_to_tray;
+    }
     save_config_file(&app, &config);
     let mode = config.mode.clone();
     {
@@ -880,8 +900,58 @@ async fn save_config(app: AppHandle, state: State<'_, AppState>, mut config: Con
         inner.first_run = false;
     }
     sync_mode_menu(&app, &mode);
+    // A mode switch can change the default close behaviour; keep the tray's check item truthful.
+    if let Some(check) = app.try_state::<TrayCheck>() {
+        let _ = check.0.set_checked(close_to_tray(&state.0.lock().unwrap().config));
+    }
     connect(app.clone(), state.inner().clone(), false);
     Ok(())
+}
+
+/// P9: the effective close behaviour (explicit choice, else the mode's default).
+#[tauri::command]
+fn get_close_to_tray(state: State<AppState>) -> bool {
+    close_to_tray(&state.0.lock().unwrap().config)
+}
+
+/// P9: "Minimize to tray" (true) or "Quit" (false) when the window is closed. Saved to config.json and
+/// mirrored on the tray's check item. Takes effect on the next close; nothing reconnects.
+#[tauri::command]
+fn set_close_to_tray(app: AppHandle, state: State<AppState>, on: bool) {
+    set_close_behaviour(&app, &state, on);
+}
+
+fn set_close_behaviour(app: &AppHandle, state: &AppState, on: bool) {
+    let cfg = {
+        let mut inner = state.0.lock().unwrap();
+        inner.config.close_to_tray = Some(on);
+        inner.config.clone()
+    };
+    save_config_file(app, &cfg);
+    if let Some(check) = app.try_state::<TrayCheck>() {
+        let _ = check.0.set_checked(on);
+    }
+}
+
+/// The tray's "Keep running when window closes" item, so the splash page's checkbox can update it.
+struct TrayCheck(CheckMenuItem<tauri::Wry>);
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// The one way out: from the tray, the View menu or Ctrl/Cmd+Q. `quitting` first, so the close handler
+/// never hides the window on the way out; `RunEvent::Exit` then kills the hub / tunnel tree, and on Windows
+/// the kill-on-close Job Object catches anything left when the process ends.
+fn quit_app(app: &AppHandle) {
+    if let Some(st) = app.try_state::<AppState>() {
+        st.0.lock().unwrap().quitting = true;
+    }
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -997,11 +1067,8 @@ pub fn run() {
         // First, so a second launch hands over before building anything: it focuses this window instead
         // of starting another hub that would fight over port 7790.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            // Also brings the window back when it is hidden in the tray.
+            show_main_window(app);
         }))
         // Rust-side confirm dialogs only; no capability grants the pages dialog access.
         .plugin(tauri_plugin_dialog::init())
@@ -1010,6 +1077,8 @@ pub fn run() {
             get_config,
             get_status,
             save_config,
+            get_close_to_tray,
+            set_close_to_tray,
             retry,
             open_hub,
             open_log,
@@ -1065,11 +1134,47 @@ pub fn run() {
             let m_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
             let m_about = MenuItem::with_id(app, "about", "About PocketRocket Crew", true, None::<&str>)?;
             let conn = Submenu::with_items(app, "Connection", true, &[&m_settings])?;
-            let view = Submenu::with_items(app, "View", true, &[&m_reload, &m_data, &m_log, &PredefinedMenuItem::separator(app)?, &PredefinedMenuItem::quit(app, Some("Quit"))?])?;
+            // Our own Quit rather than the predefined one: it must set `quitting` (see quit_app), and the
+            // predefined item does nothing on Linux.
+            let m_quit = MenuItem::with_id(app, "quit", "Quit", true, Some("CmdOrCtrl+Q"))?;
+            let view = Submenu::with_items(app, "View", true, &[&m_reload, &m_data, &m_log, &PredefinedMenuItem::separator(app)?, &m_quit])?;
             let help = Submenu::with_items(app, "Help", true, &[&m_updates, &m_about])?;
             let menu = Menu::with_items(app, &[&conn, &view, &help])?;
             app.set_menu(menu)?;
             sync_mode_menu(&handle, &initial_mode);
+
+            // P9: tray icon. Left click (Windows/macOS) shows the window; the menu has Show, the close
+            // behaviour and Quit. Linux tray menus need libayatana-appindicator3 (a deb dependency), and
+            // there a click always opens the menu, which is why Show is in it.
+            let keep = close_to_tray(&state.0.lock().unwrap().config);
+            let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket Crew", true, None::<&str>)?;
+            let t_keep = CheckMenuItem::with_id(app, "tray_keep", "Keep running when window closes", true, keep, None::<&str>)?;
+            let t_quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&t_show, &PredefinedMenuItem::separator(app)?, &t_keep, &PredefinedMenuItem::separator(app)?, &t_quit])?;
+            app.manage(TrayCheck(t_keep.clone()));
+            let tray_state = state.clone();
+            let mut tray = TrayIconBuilder::with_id("main")
+                .tooltip("PocketRocket Crew")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(move |app, event| match event.id().as_ref() {
+                    "tray_show" => show_main_window(app),
+                    "tray_keep" => {
+                        let on = !close_to_tray(&tray_state.0.lock().unwrap().config);
+                        set_close_behaviour(app, &tray_state, on);
+                    }
+                    "tray_quit" => quit_app(app),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        show_main_window(tray.app_handle());
+                    }
+                });
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+            tray.build(app)?;
 
             // First run: start nothing until the person has picked where to run (the splash asks).
             if !first_run {
@@ -1097,6 +1202,7 @@ pub fn run() {
                         }
                     });
                 }
+                "quit" => quit_app(app),
                 "open_data" => open_data_folder(app),
                 "open_log" => open_log_file(app),
                 "settings" => show_splash(app),
@@ -1119,6 +1225,25 @@ pub fn run() {
                     }
                 }
                 _ => {}
+            }
+        })
+        // P9: close-to-tray. Closing the main window hides it while the app (and in local mode the hub and
+        // its bots) keeps running; the tray or a second launch brings it back, and only Quit really exits.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return;
+                }
+                let app = window.app_handle();
+                let Some(st) = app.try_state::<AppState>() else { return };
+                let hide = {
+                    let inner = st.0.lock().unwrap();
+                    !inner.quitting && close_to_tray(&inner.config)
+                };
+                if hide {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .build(tauri::generate_context!())
@@ -1226,5 +1351,17 @@ mod tests {
         assert!(!may_open_externally(&u("ms-settings:privacy")));
         assert!(!may_open_externally(&u("about:blank")));
         assert!(!may_open_externally(&u("data:text/html,hi")));
+    }
+
+    #[test]
+    fn close_to_tray_defaults_follow_the_mode() {
+        assert!(close_to_tray(&Config::default()));
+        assert!(!close_to_tray(&Config { mode: "remote".into(), ..Default::default() }));
+        assert!(!close_to_tray(&Config { mode: "attach".into(), ..Default::default() }));
+        assert!(!close_to_tray(&Config { close_to_tray: Some(false), ..Default::default() }));
+        assert!(close_to_tray(&Config { mode: "remote".into(), close_to_tray: Some(true), ..Default::default() }));
+        // An older config.json without the field still loads.
+        let old: Config = serde_json::from_str(r#"{"mode":"local","sshHost":"","port":7790}"#).unwrap();
+        assert_eq!(old.close_to_tray, None);
     }
 }

@@ -167,4 +167,35 @@ export const api = {
     fires: (id: string) => req<TriggerFire[]>('GET', '/api/triggers/' + id + '/fires'),
     test: (id: string, body: TriggerTestInput = {}) => req<TriggerFire>('POST', '/api/triggers/' + id + '/test', body),
   },
+  // ---- P9: paired devices and opt-in Web Push ----
+  devices: {
+    list: () => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),
+    // Hub token only. The answer carries a one-time code, never the hub token.
+    pairing: () => req<PairingCode>('POST', '/api/devices/pairing', {}),
+    rename: (id: string, name: string) => req<DeviceInfo>('PATCH', '/api/devices/' + encodeURIComponent(id), { name }),
+    revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/devices/' + encodeURIComponent(id)),
+  },
+  push: {
+    status: () => req<{ publicKey: string; subscriptions: number }>('GET', '/api/push'),
+    subscribe: (sub: PushSubscriptionJSON) => req<{ ok: true }>('POST', '/api/push/subscribe', sub),
+    unsubscribe: (endpoint: string) => req<{ ok: boolean }>('POST', '/api/push/unsubscribe', { endpoint }),
+    test: () => req<{ sent: number; failed: number }>('POST', '/api/push/test', {}),
+  },
 };
+
+// ---- P9 ----
+/** A paired device as the hub lists it (never its token or hash). */
+export interface DeviceInfo {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastSeenAt: number | null;
+  revoked: boolean;
+}
+/** A fresh pairing code; `hosts` are the hub's POCKETROCKET_ALLOWED_HOSTS (where a phone can reach it). */
+export interface PairingCode {
+  code: string;
+  expiresAt: number;
+  ttlMs: number;
+  hosts: string[];
+}
