@@ -1,9 +1,11 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import type { Skill } from '@pocketrocket/shared';
+import type { Skill, SkillGitImportResult } from '@pocketrocket/shared';
 import { SKILLS_DIR, USER_SKILLS_DIR, botPluginDir } from '../config.js';
 import { isInside } from '../permissions/pathRules.js';
 import type { Repos } from '../db/repos.js';
+import { parseGitSource, runGit, type GitRunner } from './git.js';
 
 /** The only shape a skill directory name may take. Anchored, so `../../etc` and `a/b` are both rejected. */
 export const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{1,48}$/;
@@ -79,6 +81,47 @@ export class SkillService {
     });
   }
 
+  /**
+   * P7 (7.4): import skills from a git repo (a local "marketplace"). A URL is shallow-cloned into a temp
+   * folder that is always removed afterwards; an absolute local folder is scanned in place. Every valid skill
+   * is copied into the pool as `imported` + **pending**: nothing from a repo reaches a bot until the user
+   * approves it. Names already in the pool are skipped, never overwritten.
+   */
+  async importFromGit(source: string, git: GitRunner = runGit): Promise<SkillGitImportResult> {
+    const src = parseGitSource(source);
+    if (typeof src === 'string') throw new Error(src);
+    let tmp: string | null = null;
+    try {
+      let root = src.value;
+      if (src.kind === 'url') {
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prc-skills-'));
+        root = path.join(tmp, 'repo');
+        await git(['clone', '--depth', '1', '--single-branch', '--no-tags', '--', src.value, root], { cwd: tmp });
+      }
+      const imported: Skill[] = [];
+      const skipped: { name: string; reason: string }[] = [];
+      const pool = new Set(this.repos.listSkills().map((s) => s.name));
+      for (const dir of findSkillDirs(root)) {
+        const md = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8');
+        const fm = parseFrontmatter(md);
+        const name = fm.name && SKILL_NAME_RE.test(fm.name) ? fm.name : path.basename(dir);
+        const bad = checkSkillDir(dir, name, md, fm);
+        if (bad) { skipped.push({ name, reason: bad }); continue; }
+        if (pool.has(name)) { skipped.push({ name, reason: 'already in the pool' }); continue; }
+        if (imported.length >= MAX_GIT_SKILLS) { skipped.push({ name, reason: 'import limit (' + MAX_GIT_SKILLS + ') reached' }); continue; }
+        const dest = resolveSkillDir(name);
+        fs.cpSync(dir, dest, { recursive: true, force: true, dereference: false, filter: (p) => path.basename(p) !== '.git' });
+        pool.add(name);
+        imported.push(this.repos.upsertSkill({
+          name, description: (fm.description ?? '').slice(0, 300), path: dest, source: 'imported', reviewStatus: 'pending', createdByBot: null,
+        }));
+      }
+      return { imported, skipped };
+    } finally {
+      if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
   readMarkdown(skill: Skill): string {
     try {
       return fs.readFileSync(path.join(skill.path, 'SKILL.md'), 'utf8');
@@ -147,4 +190,66 @@ export class SkillService {
     }
     return plugin;
   }
+}
+
+// ---- P7 (7.4): skill import from git ----
+/** Skills one import may add. */
+export const MAX_GIT_SKILLS = 50;
+/** A SKILL.md larger than this is refused. */
+export const MAX_SKILL_MD_BYTES = 64 * 1024;
+/** A whole skill folder (SKILL.md plus its files) larger than this is refused. */
+export const MAX_SKILL_DIR_BYTES = 1024 * 1024;
+const MAX_SKILL_FILES = 200;
+/** How deep below the repo root SKILL.md folders are looked for (skills/<n>, plugins/<p>/skills/<n>, ...). */
+const SCAN_DEPTH = 4;
+
+/** Folders under `root` (root included) that hold a SKILL.md, without following links or entering .git/node_modules. */
+export function findSkillDirs(root: string): string[] {
+  const out: string[] = [];
+  let visited = 0;
+  const walk = (dir: string, depth: number) => {
+    if (++visited > 5000 || out.length > MAX_GIT_SKILLS * 4) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    if (entries.some((e) => e.isFile() && e.name === 'SKILL.md')) {
+      out.push(dir);
+      return; // a skill's own subfolders are its resources, not more skills
+    }
+    if (depth >= SCAN_DEPTH) return;
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name === '.git' || e.name === 'node_modules') continue;
+      walk(path.join(dir, e.name), depth + 1);
+    }
+  };
+  walk(root, 0);
+  return out.sort();
+}
+
+/** Why the skill folder at `dir` cannot be imported, or null when it can. */
+export function checkSkillDir(dir: string, name: string, md: string, fm: { name?: string; description?: string }): string | null {
+  if (!SKILL_NAME_RE.test(name)) return 'invalid name (lowercase letters, digits and dashes, 2-49 chars)';
+  if (!fm.description) return 'SKILL.md has no description in its frontmatter';
+  if (Buffer.byteLength(md, 'utf8') > MAX_SKILL_MD_BYTES) return 'SKILL.md is larger than 64 KB';
+  let bytes = 0;
+  let files = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const d = stack.pop()!;
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (e.name === '.git') continue;
+      const p = path.join(d, e.name);
+      const st = fs.lstatSync(p);
+      // A link could point anywhere on this machine; the copy would carry its target into the pool.
+      if (st.isSymbolicLink()) return 'contains a symbolic link (' + path.relative(dir, p) + ')';
+      if (st.isDirectory()) { stack.push(p); continue; }
+      bytes += st.size;
+      if (++files > MAX_SKILL_FILES) return 'more than ' + MAX_SKILL_FILES + ' files';
+      if (bytes > MAX_SKILL_DIR_BYTES) return 'larger than 1 MB';
+    }
+  }
+  return null;
 }
