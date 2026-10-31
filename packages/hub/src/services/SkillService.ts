@@ -6,6 +6,11 @@ import { SKILLS_DIR, USER_SKILLS_DIR, botPluginDir } from '../config.js';
 import { isInside } from '../permissions/pathRules.js';
 import type { Repos } from '../db/repos.js';
 import { parseGitSource, runGit, type GitRunner } from './git.js';
+// P6: skill versions
+import type { SkillVersion, SkillVersionDetail, SkillVersionOrigin } from '@pocketrocket/shared';
+import { SkillVersionsRepo } from '../db/skillVersions.js';
+import { events } from '../events.js';
+import { lineDiff } from './lineDiff.js';
 
 /** The only shape a skill directory name may take. Anchored, so `../../etc` and `a/b` are both rejected. */
 export const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{1,48}$/;
@@ -25,7 +30,7 @@ export function resolveSkillDir(name: string): string {
   return dir;
 }
 
-function parseFrontmatter(md: string): { name?: string; description?: string } {
+export function parseFrontmatter(md: string): { name?: string; description?: string } {
   const m = md.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!m) return {};
   const out: Record<string, string> = {};
@@ -81,6 +86,12 @@ export class SkillService {
 
   save(name: string, description: string, markdown: string, opts: { source: 'authored' | 'bot'; createdByBot?: string }): Skill {
     const dir = resolveSkillDir(name);
+    // P6: a bot never rewrites a skill that is already in the pool; its text becomes a pending version instead.
+    const existing = opts.source === 'bot' ? this.repos.getSkillByName(name) : undefined;
+    if (existing) {
+      this.proposeVersion(existing.id, markdown, { origin: 'bot', note: '', createdByBot: opts.createdByBot ?? null, description });
+      return this.repos.getSkill(existing.id)!;
+    }
     fs.mkdirSync(dir, { recursive: true });
     const body = markdown.trimStart().startsWith('---')
       ? markdown
@@ -153,6 +164,12 @@ export class SkillService {
       }
     }
     this.repos.deleteSkill(id);
+    // P6: its candidate versions go with it.
+    if (!s.parentId) {
+      this.versionsRepo.deleteAll(id);
+      const vdir = path.join(SKILLS_DIR, VERSIONS_DIR, s.name);
+      if (SKILL_NAME_RE.test(s.name) && isInside(vdir, [SKILLS_DIR])) fs.rmSync(vdir, { recursive: true, force: true });
+    }
   }
 
   /**
@@ -167,7 +184,7 @@ export class SkillService {
    */
   materialize(botId: string, botHandle: string): string | null {
     const ids = this.repos.botSkillIds(botId);
-    const skills = ids.map((id) => this.repos.getSkill(id)).filter((s): s is Skill => !!s && s.reviewStatus === 'approved');
+    const skills = ids.map((id) => this.repos.getSkill(id)).filter((s): s is Skill => !!s && s.reviewStatus === 'approved' && !s.parentId);
     const plugin = botPluginDir(botId);
     const skillsDir = path.join(plugin, 'skills');
     if (fs.existsSync(skillsDir)) {
@@ -210,6 +227,99 @@ export class SkillService {
       .filter((s): s is Skill => !!s && s.reviewStatus === 'approved')
       .filter((s) => skillWantsOpus(this.readMarkdown(s)))
       .map((s) => s.name);
+  }
+
+  // ---- P6: skill versions (corrections, reflection, re-taught demos). Never applied without the user. ----
+  private _versions?: SkillVersionsRepo;
+  get versionsRepo(): SkillVersionsRepo {
+    return (this._versions ??= new SkillVersionsRepo(this.repos.db));
+  }
+
+  /**
+   * Proposes `markdown` as the next version of pool skill `skillId`. It is stored next to the pool
+   * (`<SKILLS_DIR>/.versions/<name>/v<n>/`) with a snapshot of the live SKILL.md it revises, and starts
+   * pending; the live skill, and every bot using it, are untouched until the user approves it.
+   */
+  proposeVersion(skillId: string, markdown: string, o: { origin: SkillVersionOrigin; note?: string; createdByBot?: string | null; description?: string }): SkillVersion {
+    const live = this.repos.getSkill(skillId);
+    if (!live || live.parentId) throw new Error('Skill not found');
+    const fm = parseFrontmatter(markdown);
+    const description = (fm.description || o.description || live.description).replace(/\s+/g, ' ').trim().slice(0, 300);
+    const md = withFrontmatter(markdown, live.name, description);
+    if (Buffer.byteLength(md, 'utf8') > MAX_SKILL_MD_BYTES) throw new Error('SKILL.md is larger than 64 KB');
+    const base = this.readMarkdown(live);
+    if (md.trim() === base.trim()) throw new Error('The proposal is the same as the live version');
+    const repo = this.versionsRepo;
+    if (repo.pendingCount(live.id) >= MAX_PENDING_VERSIONS) throw new Error('"' + live.name + '" already has ' + MAX_PENDING_VERSIONS + ' versions waiting for review');
+    const version = repo.nextVersion(live.id);
+    const dir = versionDir(live.name, version);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), md);
+    fs.writeFileSync(path.join(dir, 'BASE.md'), base);
+    const v = repo.insert({
+      skillId: live.id, skillName: live.name, version, path: dir, description, origin: o.origin,
+      note: (o.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 500), createdByBot: o.createdByBot ?? null,
+    });
+    events.emitEvent({ type: 'skills.changed', skillId: live.id });
+    return v;
+  }
+
+  listVersions(skillId: string): SkillVersion[] {
+    return this.versionsRepo.list(skillId);
+  }
+
+  versionDetail(skillId: string, versionId: string): SkillVersionDetail | null {
+    const v = this.versionsRepo.get(versionId);
+    const live = this.repos.getSkill(skillId);
+    if (!v || !live || v.skillId !== live.id || !isInside(v.path, [SKILLS_DIR])) return null;
+    const read = (f: string) => { try { return fs.readFileSync(path.join(v.path, f), 'utf8'); } catch { return ''; } };
+    const markdown = read('SKILL.md');
+    const base = read('BASE.md');
+    const { path: _p, ...pub } = v;
+    return { ...pub, markdown, base, diff: lineDiff(base, markdown), stale: v.status === 'pending' && this.readMarkdown(live).trim() !== base.trim() };
+  }
+
+  /**
+   * The user's answer to a pending version. Approve: its SKILL.md replaces the live one (the skill's other
+   * files stay), the skill becomes that version and approved, and every bot using it gets it from its next turn.
+   * Reject: it stays in the history as rejected.
+   */
+  decideVersion(skillId: string, versionId: string, decision: 'approve' | 'reject'): { skill: Skill; version: SkillVersion } {
+    const v = this.versionsRepo.get(versionId);
+    const live = this.repos.getSkill(skillId);
+    if (!v || !live || v.skillId !== live.id) throw new Error('Version not found');
+    if (v.status !== 'pending') throw new Error('Version ' + v.version + ' was already ' + v.status);
+    if (decision === 'approve') {
+      if (!isInside(v.path, [SKILLS_DIR])) throw new Error('Version path escapes the skill pool');
+      const md = fs.readFileSync(path.join(v.path, 'SKILL.md'), 'utf8');
+      const dir = resolveSkillDir(live.name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), md);
+      this.versionsRepo.setLive(live.id, v.version, parseFrontmatter(md).description || live.description);
+      this.versionsRepo.decide(v.id, 'approved');
+      for (const b of this.repos.listBots()) if (this.repos.botSkillIds(b.id).includes(live.id)) this.materialize(b.id, b.handle);
+    } else {
+      this.versionsRepo.decide(v.id, 'rejected');
+    }
+    events.emitEvent({ type: 'skills.changed', skillId: live.id });
+    return { skill: this.repos.getSkill(live.id)!, version: this.versionsRepo.get(v.id)! };
+  }
+
+  /**
+   * A demonstrated or distilled skill: a new pool skill through the bot-authored flow (pending review), or,
+   * when the name is already taken, a pending version of that skill.
+   */
+  proposeSkill(name: string, description: string, markdown: string, o: { origin: SkillVersionOrigin; createdByBot: string | null; note?: string }): { skill: Skill; version: SkillVersion | null } {
+    const existing = this.repos.getSkillByName(name);
+    if (existing && !existing.parentId) {
+      const version = this.proposeVersion(existing.id, markdown, { origin: o.origin, note: o.note, createdByBot: o.createdByBot, description });
+      return { skill: this.repos.getSkill(existing.id)!, version };
+    }
+    const md = withFrontmatter(markdown, name, description);
+    if (Buffer.byteLength(md, 'utf8') > MAX_SKILL_MD_BYTES) throw new Error('SKILL.md is larger than 64 KB');
+    const skill = this.save(name, description, md, { source: 'bot', createdByBot: o.createdByBot ?? undefined });
+    events.emitEvent({ type: 'skills.changed', skillId: skill.id });
+    return { skill, version: null };
   }
 }
 
@@ -273,4 +383,29 @@ export function checkSkillDir(dir: string, name: string, md: string, fm: { name?
     }
   }
   return null;
+}
+
+// ---- P6: skill versions ----
+/** Candidate versions one skill may have waiting at once. */
+export const MAX_PENDING_VERSIONS = 10;
+/** Under SKILLS_DIR; starts with a dot, so it can never be a skill name. */
+const VERSIONS_DIR = '.versions';
+
+function versionDir(name: string, version: number): string {
+  if (!SKILL_NAME_RE.test(name) || !Number.isInteger(version) || version < 1) throw new Error('Invalid skill version');
+  const root = path.join(SKILLS_DIR, VERSIONS_DIR);
+  // A junction planted at .versions would carry the write anywhere.
+  if (fs.existsSync(root) && !isInside(root, [SKILLS_DIR])) throw new Error('Skill versions folder escapes the skill pool');
+  return path.join(root, name, 'v' + version);
+}
+
+/** `markdown` with frontmatter whose `name` is `name` (a version can never rename its skill). */
+export function withFrontmatter(markdown: string, name: string, description: string): string {
+  const body = markdown.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const m = body.match(/^---\s*\n([\s\S]*?)\n---[ \t]*\n?/);
+  const desc = description.replace(/\s+/g, ' ').trim();
+  if (!m) return '---\nname: ' + name + '\ndescription: ' + desc + '\n---\n\n' + body.trimStart();
+  const lines = m[1].split('\n').filter((l) => !/^name:/.test(l));
+  if (!lines.some((l) => /^description:/.test(l))) lines.push('description: ' + desc);
+  return '---\nname: ' + name + '\n' + lines.join('\n') + '\n---\n' + body.slice(m[0].length);
 }
