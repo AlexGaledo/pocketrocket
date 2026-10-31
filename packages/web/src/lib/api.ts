@@ -2,6 +2,7 @@ import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
   ComputerStatus,
+  IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
@@ -142,4 +143,18 @@ export const api = {
   },
   notes: (botId: string) => req<{ name: string; bytes: number; mtime: number }[]>('GET', '/api/bots/' + botId + '/notes'),
   importSkillsFromGit: (url: string) => req<SkillGitImportResult>('POST', '/api/skills/import-git', { url }),
+  // P4: integrations. The hub keeps every credential; these answers never carry one.
+  integrations: {
+    get: () => req<IntegrationsState>('GET', '/api/integrations'),
+    setApp: (p: IntegrationProvider, app: OAuthAppInput) => req<OAuthAppStatus>('PUT', '/api/integrations/apps/' + p, app),
+    removeApp: (p: IntegrationProvider) => req<OAuthAppStatus>('DELETE', '/api/integrations/apps/' + p),
+    // Not under /api: the hub mints state + PKCE and answers the provider's authorize URL.
+    startOAuth: (p: IntegrationProvider) => req<{ url: string; redirectUri: string }>('POST', '/oauth/start/' + p, {}),
+    startDevice: (p: IntegrationProvider) => req<PendingConnect>('POST', '/api/integrations/device/' + p, {}),
+    cancel: (p: IntegrationProvider) => req<{ ok: true }>('POST', '/api/integrations/cancel/' + p, {}),
+    connectToken: (p: IntegrationProvider, body: TokenConnectInput) => req<IntegrationInfo>('POST', '/api/integrations/token/' + p, body),
+    test: (id: string) => req<IntegrationInfo>('POST', '/api/integrations/' + id + '/test', {}),
+    setGrants: (id: string, botIds: string[]) => req<IntegrationInfo>('PUT', '/api/integrations/' + id + '/grants', { botIds }),
+    disconnect: (id: string) => req<{ ok: true }>('DELETE', '/api/integrations/' + id),
+  },
 };

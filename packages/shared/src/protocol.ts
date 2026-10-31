@@ -34,7 +34,9 @@ export type ServerEvent =
   /** voice.md or its pending proposals changed; clients refetch GET /api/bots/:id/voice. */
   | { type: 'voice.updated'; botId: string }
   // P1: a bot's computer changed state (asleep/starting/live), keep-awake or disk usage.
-  | { type: 'computer.state'; status: ComputerStatus };
+  | { type: 'computer.state'; status: ComputerStatus }
+  // P4: integrations. A connection, grant, OAuth app or pending sign-in changed; clients refetch GET /api/integrations.
+  | { type: 'integrations.changed' };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [

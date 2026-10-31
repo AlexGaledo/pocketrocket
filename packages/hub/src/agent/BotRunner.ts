@@ -18,6 +18,8 @@ import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, type RouteChoice, type RouteRequest } from './ModelRouter.js';
 import { desktopTools, sharedDesktop } from './desktopTools.js';
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
+import type { IntegrationService } from '../services/IntegrationService.js';
+import { createIntegrationTools } from '../integrations/tools.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -77,6 +79,8 @@ export class BotRunner {
   lastInit: ProviderInit = {};
   /** P8: picks the model for bots on `auto`. hub.ts replaces it with one that has the optional classifier. */
   router = new ModelRouter();
+  /** P4: set by createHub. Adds the tools of the integrations this bot was granted to every turn. */
+  integrations?: IntegrationService;
 
   constructor(
     private repos: Repos,
@@ -182,6 +186,11 @@ export class BotRunner {
       tools.push(...desktopTools(computer?.perBot
         ? { display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [] }
         : sharedDesktop()));
+    }
+
+    // P4: integration tools, only for connections granted to this bot. Writes ask on every call (also under bypass).
+    if (this.integrations) {
+      tools.push(...createIntegrationTools(this.integrations, bot.id, (a) => this.broker.askIntegrationWrite(permCtx, a.tool, a.input, a.reason, ac.signal)));
     }
 
     const knowledgeDir = this.p7.knowledgeDir?.() ?? null;

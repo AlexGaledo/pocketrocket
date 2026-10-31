@@ -286,3 +286,8 @@ export const COMPUTER_QUOTA_BYTES = posInt(process.env.COMPUTER_QUOTA_GB, 10) * 
 export function botRoots(botId: string): string[] {
   return [WORKSPACE_DIR, botHome(botId), ...(COMPUTERS_ENABLED ? [computerFilesDir(botId)] : [])];
 }
+
+// P4: integrations. Tokens live AES-256-GCM encrypted in integrations.json; the key in vault.key (0600),
+// which deploy/backup.sh leaves out of every archive so a leaked backup holds no usable token.
+export const VAULT_KEY_PATH = path.join(DATA_DIR, 'vault.key');
+export const INTEGRATIONS_PATH = path.join(DATA_DIR, 'integrations.json');

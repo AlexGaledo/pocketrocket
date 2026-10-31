@@ -6,6 +6,8 @@
 # Optional and off by default: incremental, deduplicated snapshots with restic into a repository on this VPS
 # (see docs/SERVER.md). Put RESTIC_REPOSITORY and RESTIC_PASSWORD_FILE in /etc/default/pocketrocket-crew-backup;
 # when both are set and restic is installed, a restic snapshot (7 daily kept) replaces the tarball.
+# data/vault.key is left out on purpose: it decrypts data/integrations.json (OAuth/API tokens for GitHub,
+# Google, Slack, ...), so an archive alone must hold no usable token. Back the key up separately.
 set -euo pipefail
 if [ -r /etc/default/pocketrocket-crew-backup ]; then . /etc/default/pocketrocket-crew-backup; fi
 ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket-crew/pocketrocket-crew}"
@@ -18,6 +20,7 @@ EXCLUDES=(
   'data/computers/*/browser/*/Cache' 'data/computers/*/browser/*/Code Cache'
   'data/computers/*/browser/*/GPUCache' 'data/computers/*/browser/*/Service Worker'
   'data/computers/*/home/.cache'
+  'data/vault.key'
 )
 
 if [ -n "${RESTIC_REPOSITORY:-}" ] && [ -n "${RESTIC_PASSWORD_FILE:-}" ] && command -v restic >/dev/null 2>&1; then

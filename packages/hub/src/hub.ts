@@ -36,6 +36,10 @@ import { addSecret } from './providers/redact.js';
 import { ComputersRepo } from './db/computers.js';
 import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
+import { IntegrationService } from './services/IntegrationService.js';
+import { createIntegrationsApi } from './api/integrations.js';
+import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
+import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
 
 export interface HubOptions {
   port?: number;
@@ -49,6 +53,8 @@ export interface HubOptions {
   account?: AccountService;
   /** Per-bot computers (P1); tests hand in one over a fake systemctl. Built from the environment otherwise. */
   computers?: (db: Db) => ComputerManager;
+  /** P4 integrations, built on the hub's db; tests hand in a factory with a temp vault and a fake fetch. */
+  integrations?: (db: Db) => IntegrationService;
 }
 
 export interface Hub {
@@ -62,6 +68,7 @@ export interface Hub {
   turns: TurnRegistry;
   runner: BotRunner;
   computers: ComputerManager;
+  integrations: IntegrationService;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -133,6 +140,13 @@ export function createHub(opts: HubOptions = {}): Hub {
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
   const followUp = new FollowUp({ repos, router });
+
+  // P4: integrations. Shared connections, per-bot grants; grants of deleted bots are dropped as bots change.
+  const integrations = opts.integrations ? opts.integrations(db) : new IntegrationService({ db });
+  runner.integrations = integrations;
+  integrations.pruneGrants(repos.listBots().map((b) => b.id));
+  const offBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') integrations.pruneGrants(ev.bots.map((b) => b.id)); });
+  const integrationsApi = createIntegrationsApi({ integrations, repos });
 
   const screenSessions = new ScreenSessions();
   const rest = createRest({
@@ -249,6 +263,11 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleAuthCallback(req, res, url, { account, limiter });
         return;
       }
+      // P4: same footing as /auth/callback (token-exempt, feeds the limiter when nothing is pending).
+      if (url.pathname.startsWith(OAUTH_CALLBACK_PREFIX) && (req.method ?? 'GET') === 'GET') {
+        await handleOAuthCallback(req, res, url, { integrations, limiter });
+        return;
+      }
       if (presentsHubToken(req, url, token)) limiter.succeed(ip);
       const ct = checkContentType(req, url);
       if (!ct.ok) {
@@ -271,6 +290,11 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleMcp(req, res, body);
         return;
       }
+      if (url.pathname.startsWith(OAUTH_START_PREFIX)) {
+        await handleOAuthStart(req, res, url, { integrations });
+        return;
+      }
+      if (await integrationsApi(req, res)) return;
       if (await rest(req, res)) return;
       if (url.pathname.startsWith('/screen/')) {
         const route = screenRoute(url.pathname);
@@ -331,7 +355,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -372,6 +396,9 @@ export function createHub(opts: HubOptions = {}): Hub {
       offComputers();
       // Timers only: the computers are systemd units and keep running across a hub restart.
       computers.stopBackground();
+      // P4: stop listening for bot changes and drop any OAuth/device sign-in still waiting.
+      offBots();
+      for (const p of integrations.pending()) integrations.cancel(p.provider);
       account.stop();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).
       router.freeze();

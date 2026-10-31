@@ -73,14 +73,14 @@ describe('Db migrations', () => {
 
   it('runs a later block even when a higher version is already applied, and rolls back a failing one', () => {
     const file = tmpFile();
-    const later: Migration = { version: 30, name: 't30', up: (r) => r.exec('CREATE TABLE IF NOT EXISTS t30 (x)') };
+    const later: Migration = { version: 1030, name: 't1030', up: (r) => r.exec('CREATE TABLE IF NOT EXISTS t1030 (x)') };
     new Db(file, [...P0, later]).raw.close();
-    const earlier: Migration = { version: 10, name: 't10', up: (r) => r.exec('CREATE TABLE IF NOT EXISTS t10 (x)') };
-    const broken: Migration = { version: 11, name: 'broken', up: (r) => { r.exec('CREATE TABLE t11 (x)'); throw new Error('boom'); } };
+    const earlier: Migration = { version: 1010, name: 't1010', up: (r) => r.exec('CREATE TABLE IF NOT EXISTS t1010 (x)') };
+    const broken: Migration = { version: 1011, name: 'broken', up: (r) => { r.exec('CREATE TABLE t1011 (x)'); throw new Error('boom'); } };
     expect(() => new Db(file, [...P0, later, earlier, broken])).toThrow('boom');
     const db = new Db(file, [...P0, later, earlier]);
-    expect(db.schemaVersions()).toEqual([...P0_VERSIONS, 10, 30]);
-    expect(db.get("SELECT name FROM sqlite_master WHERE name = 't11'")).toBeUndefined();
+    expect(db.schemaVersions()).toEqual([...P0_VERSIONS, 1010, 1030]);
+    expect(db.get("SELECT name FROM sqlite_master WHERE name = 't1011'")).toBeUndefined();
     db.raw.close();
   });
 

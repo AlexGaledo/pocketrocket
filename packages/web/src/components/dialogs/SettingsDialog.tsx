@@ -1,12 +1,13 @@
 /**
  * Settings: a wide dialog with a section list on the left (a tab strip across the top in a narrow
- * window) — Account · Claude · Bots · Appearance · About. Each section lives in components/settings/.
+ * window) — Account · Claude · Bots · Integrations · Knowledge · Appearance · About. Each section lives in
+ * components/settings/.
  * The list is Radix Tabs, which brings arrow-key navigation, aria-selected and the tab/tabpanel wiring.
  * The last section opened is remembered until the page reloads.
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { BookOpen, Info, Palette, ShieldCheck, Sparkles, UserRound, type LucideIcon } from 'lucide-react';
+import { BookOpen, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon } from 'lucide-react';
 import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { useMediaQuery } from '../../lib/useMediaQuery';
@@ -17,17 +18,22 @@ import { BotsSection } from '../settings/BotsSection';
 import { AppearanceSection } from '../settings/AppearanceSection';
 import { AboutSection } from '../settings/AboutSection';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
+import { IntegrationsSection } from '../settings/IntegrationsSection';
 
-type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge';
+type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
+  // P4
+  | 'integrations';
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'account', label: 'Account', icon: UserRound },
   { id: 'claude', label: 'Claude', icon: Sparkles },
   { id: 'bots', label: 'Bots', icon: ShieldCheck },
+  // P4
+  { id: 'integrations', label: 'Integrations', icon: Plug },
+  // P7
+  { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'about', label: 'About', icon: Info },
-  // ---- P7 ----
-  { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
 ];
 
 /** Matches Tailwind's `sm` breakpoint, where the section list moves from the top to the left. */
@@ -85,7 +91,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 value={id}
                 className="flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] font-medium text-muted hover:bg-card2/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 data-[state=active]:bg-card2 data-[state=active]:text-fg sm:gap-2.5 sm:px-3 sm:py-2 sm:data-[state=active]:bg-panel sm:data-[state=active]:shadow-[var(--shadow)]"
               >
-                {/* Icons only in the side list; the top strip needs the room to fit all five names. */}
+                {/* Icons only in the side list; the top strip needs the room to fit every name (it scrolls when it cannot). */}
                 <Icon size={15} aria-hidden className="hidden shrink-0 sm:block" />
                 {id === 'claude' && list.length > 1 ? 'Connection' : label}
                 {id === 'claude' && claudeNeedsAttention && (
@@ -106,10 +112,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <TabsPrimitive.Content value="account" tabIndex={-1} className={PANEL}><AccountSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="claude" tabIndex={-1} className={PANEL}><ClaudeSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="bots" tabIndex={-1} className={PANEL}><BotsSection health={health} onHealthStale={refreshHealth} /></TabsPrimitive.Content>
-            <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection /></TabsPrimitive.Content>
-            <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
+            {/* P4 */}
+            <TabsPrimitive.Content value="integrations" tabIndex={-1} className={PANEL}><IntegrationsSection /></TabsPrimitive.Content>
             {/* P7 */}
             <TabsPrimitive.Content value="knowledge" tabIndex={-1} className={PANEL}><KnowledgeSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
           </div>
         </div>
       </TabsPrimitive.Root>
