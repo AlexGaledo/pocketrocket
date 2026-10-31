@@ -14,6 +14,8 @@ import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import { createHubTools } from './botTools.js';
+import type { IntegrationService } from '../services/IntegrationService.js';
+import { createIntegrationTools } from '../integrations/tools.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -56,6 +58,8 @@ export class BotRunner {
   private aborts = new Map<string, AbortController>();
   /** Last init info reported by the active provider (GET /api/health). */
   lastInit: ProviderInit = {};
+  /** P4: set by createHub. Adds the tools of the integrations this bot was granted to every turn. */
+  integrations?: IntegrationService;
 
   constructor(
     private repos: Repos,
@@ -115,6 +119,11 @@ export class BotRunner {
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
       confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
     });
+
+    // P4: integration tools, only for connections granted to this bot. Writes ask on every call (also under bypass).
+    if (this.integrations) {
+      tools.push(...createIntegrationTools(this.integrations, bot.id, (a) => this.broker.askIntegrationWrite(permCtx, a.tool, a.input, a.reason, ac.signal)));
+    }
 
     const mcpToken = this.turns.registerTurn(tools);
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it

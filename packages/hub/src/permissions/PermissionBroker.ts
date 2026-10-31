@@ -7,6 +7,7 @@ import type { Repos } from '../db/repos.js';
 import { isInside, pathsFromInput } from './pathRules.js';
 import { classifyBash } from './bashRules.js';
 import { DESKTOP_TOOL_NAMES } from '../agent/desktopTools.js';
+import { INTEGRATION_READ_TOOLS, INTEGRATION_WRITE_TOOLS } from '../integrations/toolNames.js';
 
 export interface PermCtx {
   bot: Bot;
@@ -40,6 +41,8 @@ const HUB_PREFIX = 'mcp__pocketrocket__';
 const SILENT_HUB_TOOLS = new Set([
   'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
   'list_rooms', 'request_approval', ...DESKTOP_TOOL_NAMES,
+  // P4: integration reads (granted per bot; untrusted output is labelled as such).
+  ...INTEGRATION_READ_TOOLS,
 ]);
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
@@ -47,7 +50,11 @@ const SILENT_HUB_TOOLS = new Set([
  * touch `decide()`, are gated identically. Before the audit every `mcp__pocketrocket__*` call was allowed
  * unconditionally and a Read-only bot could grant itself Bash (audit 2026-09-09, B6).
  */
-const GATED_HUB_TOOLS = new Set(['create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room']);
+const GATED_HUB_TOOLS = new Set([
+  'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
+  // P4: integration writes; their handlers call askIntegrationWrite.
+  ...INTEGRATION_WRITE_TOOLS,
+]);
 
 /** How long a `request_approval` grant stays valid. */
 export const GRANT_TTL_MS = 10 * 60 * 1000;
@@ -178,6 +185,29 @@ export class PermissionBroker {
       message: decision === 'timeout'
         ? 'No response from the user within 10 minutes; the change was not made.'
         : 'The user declined this change. Do not retry it; say so in the room.',
+    };
+  }
+
+  /**
+   * P4: approval card for an integration write (send mail, post to Slack, comment on GitHub, ...). Unlike the
+   * other gates this one asks on EVERY call: approvals bypass does not skip it, and "Always" counts as a
+   * single allow and is not remembered. Acting as the user towards third parties is never pre-approved
+   * (spec §2.5); persisted policies that could relax it belong to P2.
+   */
+  async askIntegrationWrite(
+    ctx: PermCtx,
+    toolName: string,
+    input: Record<string, unknown>,
+    reason: string,
+    signal: AbortSignal,
+  ): Promise<{ allowed: boolean; message: string }> {
+    const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });
+    if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
+    return {
+      allowed: false,
+      message: decision === 'timeout'
+        ? 'No response from the user within 10 minutes; nothing was sent.'
+        : 'The user declined this. Nothing was sent; do not retry it, say so in the room.',
     };
   }
 
