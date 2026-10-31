@@ -1,4 +1,4 @@
-import type { Bot, BotState, CauseKind, Message, Room } from '@pocketrocket/shared';
+import type { Bot, BotState, CauseKind, Message, Room, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { settings } from '../services/SettingsStore.js';
 import type { Repos } from '../db/repos.js';
@@ -7,6 +7,7 @@ import type { BotRunner, TurnRequest, TurnResult } from '../agent/BotRunner.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { AutoMemory } from '../services/AutoMemory.js';
 import { parseMentions } from './mentions.js';
+import { triggerText } from './untrusted.js';
 
 interface LaneItem {
   causeId: string;
@@ -24,6 +25,9 @@ interface LaneItem {
   journalId?: string;
   /** Restarts this item was already resumed across (journaled). */
   attempts?: number;
+  // ---- P5 ----
+  /** Most this item's turn may spend (a trigger's remaining daily budget); the cause cap still applies. */
+  budgetUsd?: number;
 }
 interface Lane {
   running: boolean;
@@ -34,13 +38,13 @@ const STATE_RANK: Record<BotState, number> = { idle: 0, done: 1, thinking: 2, wo
 
 /** Messages a bot is shown as conversation: text, handoffs and routine prompts (not tool chips or system notes). */
 export function isConversation(m: Message): boolean {
-  return m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine';
+  return m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine' || m.kind === 'trigger';
 }
 /** One transcript line as bots see it: `#seq [author]: text`. */
 export function formatMessage(repos: Repos, m: Message, text: string = m.text): string {
   let who: string;
   if (m.authorType === 'user') who = settings.get().userName;
-  else if (m.authorType === 'system') who = m.kind === 'routine' ? 'routine' : 'system';
+  else if (m.authorType === 'system') who = m.kind === 'routine' ? 'routine' : m.kind === 'trigger' ? 'trigger' : 'system';
   else {
     const b = repos.getBot(m.authorId ?? '');
     who = b ? '@' + b.handle : 'bot';
@@ -199,7 +203,8 @@ export class RoomRouter {
           startSeq = this.repos.maxSeq(room.id);
           const notes = [...new Set(items.map((i) => i.note).filter((n): n is string => !!n))];
           const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq)) + (notes.length ? '\n\n' + notes.join('\n') : '');
-          const causeBudgetUsd = CAUSE_COST_CAP_USD - this.usage.causeCost(causeId);
+          // P5: a trigger item also brings its own remaining daily budget; the turn gets the tighter of the two.
+          const causeBudgetUsd = Math.min(CAUSE_COST_CAP_USD - this.usage.causeCost(causeId), ...items.map((i) => i.budgetUsd ?? Infinity));
           // A person's message in the batch outranks automation, so a routine never drags a reply down to triage.
           const causeKind = items.find((i) => i.causeKind === 'user')?.causeKind ?? items[0].causeKind;
           // Decision Q6: a turn any of whose causes the human did not start (a routine, later a trigger)
@@ -326,5 +331,26 @@ export class RoomRouter {
   /** Posts a system note into a room (FollowUp says what it did). */
   systemNote(room: Room, text: string, causeId: string | null, hop: number) {
     this.note(room, text, causeId, hop);
+  }
+
+  // ---------- P5: event triggers ----------
+  /**
+   * Fires an outside event into a room for one bot, like `fireRoutine` but with its own message kind and with
+   * the event fenced as untrusted data (`untrusted.ts`). The cause message is a system message, so the turn and
+   * every hop it causes are strict (approvals on even under bypass, decision Q6); `budgetUsd` caps the turn at
+   * the trigger's remaining daily budget on top of the cause cap. Rate limits are the caller's (TriggerService).
+   */
+  fireTrigger(
+    room: Room,
+    bot: Bot,
+    t: { name: string; prompt: string; event: TriggerEvent; payload: TriggerPayload; budgetUsd?: number; onDone?: (r: TurnResult) => void; nonce?: string },
+  ): Message {
+    const text = triggerText(t.name, t.prompt, t.event, t.nonce);
+    const msg = this.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'trigger', text, payload: t.payload, causeId: null, hop: 0, turnId: null });
+    this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
+    msg.causeId = msg.id;
+    events.emitEvent({ type: 'message.new', message: msg });
+    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone: t.onDone, causeKind: 'trigger', budgetUsd: t.budgetUsd });
+    return msg;
   }
 }
