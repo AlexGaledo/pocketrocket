@@ -4,7 +4,7 @@ import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS,
-  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES,
+  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH,
 } from './config.js';
 import { Db } from './db/db.js';
 import { Repos } from './db/repos.js';
@@ -189,10 +189,12 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
-  const followUp = new FollowUp({ repos, router, heldRuns: () => approvalStore.parkedRunIds() });
+  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedRunIds(), ...control.parkedRunIds()] });
 
   // P2: take over / hand back / pause, and resuming turns that parked on the user.
   const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
+  const restoredTakeovers = control.restoreParked();
+  if (restoredTakeovers) console.log('restored ' + restoredTakeovers + ' parked takeover(s) from the previous run');
   runner.control = control;
   router.control = control;
   broker.onParkedDecision = (p, decision) => {
@@ -553,9 +555,8 @@ export function createHub(opts: HubOptions = {}): Hub {
               (settings.approvalsLocked ? 'set by POCKETROCKET_BYPASS_PERMISSIONS; =0 to restore' : 'turn approvals back on in Settings') + ')',
             );
           }
-          // The token lives in the URL fragment, so it never reaches the server as a query string and the
-          // web client moves it straight into sessionStorage. This line is how a human opens the UI.
-          if (token) console.log('[pocketrocket] open: http://' + HOST + ':' + port + '/#token=' + token);
+          // Say where the token is, never what it is: this output ends up in the journal and in hub.log.
+          if (token) console.log('[pocketrocket] open: http://' + HOST + ':' + port + '/  (sign in with the token from ' + (HUB_TOKEN ? 'POCKETROCKET_TOKEN' : HUB_TOKEN_PATH) + ')');
           resolve(port);
         });
       }),

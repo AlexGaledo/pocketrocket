@@ -24,5 +24,10 @@
     "typescript": "^7.0.2",
     "ws": "^8.18.0"
   },
-  "packageManager": "pnpm@10.0.0"
+  "packageManager": "pnpm@10.0.0",
+  "pnpm": {
+    "patchedDependencies": {
+      "playwright-core@1.63.0-alpha-2026-08-31": "patches/playwright-core@1.63.0-alpha-2026-08-31.patch"
+    }
+  }
 }

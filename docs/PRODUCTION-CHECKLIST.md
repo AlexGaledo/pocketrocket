@@ -1,13 +1,13 @@
 # PocketRocket production checklist
 
-Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-16 (v0.2.0, pre-release); fork phases P0–P9 added 2026-11-01 (section 7b). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
+Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-11-03 (live VPS results at commits 724677b and 40373b2, sections 7 and 7b); v0.2.0 pre-release pass 2026-09-16; fork phases P0–P9 added 2026-11-01 (section 7b). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
 
 ## 1. Build and quality gates
 
 | Item | Status | How to verify |
 |---|---|---|
 | Typecheck + Vite build clean | ☑ | `pnpm -r build` |
-| Unit tests green | ☑ see CI | `pnpm test` |
+| Unit tests green | ◐ one known failure on master since 2026-11-02, see 7b finding 5 | `pnpm test` |
 | Versions in sync (root, packages, tauri.conf, Cargo.toml) | ☑ | `pnpm version:sync --check` |
 | `Cargo.lock` refreshed after a version bump | ☐ per release | `cargo check` then commit |
 | CI green on `main` (`ci.yml`: ubuntu tests + windows desktop:prepare + cargo check) | ☑ run 34250487822 | GitHub Actions tab |
@@ -134,8 +134,8 @@ The accessibility pass covered, and fixed:
 
 | Item | Status |
 |---|---|
-| `scripts/deploy.sh <host>` requires a host and installs as `pocketrocket-crew` (no Claudebot/stock migration; a stock PocketRocket on the same VPS is left alone) | ☑ code, ☐ run against the VPS |
-| Screen service + backups renamed and running | ☐ verify after redeploy |
+| `scripts/deploy.sh <host>` requires a host and installs as `pocketrocket-crew` (no Claudebot/stock migration; a stock PocketRocket on the same VPS is left alone) | ☑ code, ☐ run against the VPS: nobody watched the script run. On 2026-11-02 Crew was found installed at `/home/pocketrocket-crew/pocketrocket-crew` on 724677b, service up since 2026-10-31 |
+| Screen service + backups renamed and running | ☐ verify after redeploy. 2026-11-02: Crew's screen service is installed but disabled because per-bot computers are on; backups not checked |
 | Hub token: **always required in server mode too**, minted to `<data>/hub-token` on the VPS and stable across restarts; docs insist on tunnel-only access | ☑ |
 
 ## 7b. PocketRocket Crew phases: checks that need a VPS, a phone or a real account
@@ -144,23 +144,46 @@ Each phase's tests use fakes for these (`docs/changes/pN.md` → "Not verified" 
 
 | Phase | Item | Status | How to verify |
 |---|---|---|---|
-| P0 | Crew and stock PocketRocket side by side on one VPS: separate users, units, ports (7790 vs 7788), screens (`:98` vs `:99`) | ☐ | deploy both; `systemctl status pocketrocket-crew pocketrocket`; `ss -ltnp` shows only 127.0.0.1 |
-| P1 | Per-bot computers: `pocketrocket-crew-computer@<slot>-<bot>` starts on first Browser/Desktop use, sleeps after `COMPUTER_IDLE_MIN`, at most `MAX_RUNNING_COMPUTERS` run, quota warning at 80% | ☐ | two Browser bots; watch `systemctl --user list-units 'pocketrocket-crew-computer@*'` as the service user |
-| P1 | Every computer port on loopback (CDP 9400+n, VNC 5800+n, noVNC 6200+n; X no TCP) | ☑ static test, ☐ on the VPS | `deployScripts.test.ts`; with a computer awake, `ss -ltnp` lists its 94xx/58xx/62xx ports on `127.0.0.1` only |
-| P1 | Shared screen's logins move to the oldest Browser bot once; RAM sizing table holds | ☐ | first start with computers on; `docs/SERVER.md` table |
-| P2 | `x11vnc -R viewonly/noviewonly` toggles a running computer, and a viewer really cannot click while the bot has control | ☐ | Screen tab: try to click while bot has control; Take over; click works |
-| P2 | Claude CLI honours the PreToolUse `deny` for `mcp__browser__*` in bypass mode | ☐ | bypass on, Take over, ask the bot to browse → refused |
-| P2 | A real login through `request_takeover` (card → take over → hand back with note → bot continues) | ☐ | spec manual test |
-| P3 | Routines fire in `settings.timezone` on a UTC server; a turn cut off by `systemctl restart` resumes once | ☐ | daily 09:00 Asia/Manila routine; restart mid-turn |
+| P0 | Crew and stock PocketRocket side by side on one VPS: separate users, units, ports (7790 vs 7788), screens (`:98` vs `:99`) | ◐ live 2026-11-02 on `crm-agency`: `pocketrocket` (7788) and `pocketrocket-crew` (7790) both active, separate users, all listening on loopback, stock untouched throughout. `:98` not exercised: Crew's screen service is disabled while per-bot computers are on | deploy both; `systemctl status pocketrocket-crew pocketrocket`; `ss -ltnp` shows only 127.0.0.1 |
+| P1 | Per-bot computers: `pocketrocket-crew-computer@<slot>-<bot>` starts on first Browser/Desktop use, sleeps after `COMPUTER_IDLE_MIN`, at most `MAX_RUNNING_COMPUTERS` run, quota warning at 80% | ◐ live 2026-11-02. Start: two Browser bots each got their own unit, own tabs on separate CDP ports, correct answers from real turns. Sleep: an idle computer was found asleep with no unit running at 42 min idle (default 30); exact moment not observed. Cap: with `MAX_RUNNING_COMPUTERS=2`, waking a third put the idle one to sleep rather than refusing. Quota, live 2026-11-03 with a temporary 1 GB quota: badge turns amber at 88%, wake refused over 100% with the reason, and the bot says its computer tools are off. See finding 14 | two Browser bots; watch `systemctl --user list-units 'pocketrocket-crew-computer@*'` as the service user |
+| P1 | Every computer port on loopback (CDP 9400+n, VNC 5800+n, noVNC 6200+n; X no TCP) | ☑ static test, ◐ on the VPS 2026-11-02: with computers awake, 58xx, 62xx and 94xx listen only on 127.0.0.1 (58xx also on [::1]); X no-TCP not checked live | `deployScripts.test.ts`; with a computer awake, `ss -ltnp` lists its 94xx/58xx/62xx ports on `127.0.0.1` only |
+| P1 | Shared screen's logins move to the oldest Browser bot once; RAM sizing table holds | ◐ live 2026-11-03 with marker files, not a real profile: both folders moved to the oldest Browser bot once, `.legacy-migrated` written. RAM table not checked | first start with computers on; `docs/SERVER.md` table |
+| P2 | `x11vnc -R viewonly/noviewonly` toggles a running computer, and a viewer really cannot click while the bot has control | ☑ live 2026-11-03 through the real Screen tab in Chrome: under user control clicks and keys reached the page; after Hand back a click and typing changed nothing | Screen tab: try to click while bot has control; Take over; click works |
+| P2 | Claude CLI honours the PreToolUse `deny` for `mcp__browser__*` in bypass mode | ☑ live 2026-11-02, `browser_navigate` only: with control=user it was refused under approvals=ask and approvals=bypass, tab unchanged; setting restored to ask | bypass on, Take over, ask the bot to browse → refused |
+| P2 | A real login through `request_takeover` (card → take over → hand back with note → bot continues) | ◐ live 2026-11-03 on a local test form: typed into the Screen tab, handed back with a note, bot continued. Parked path passed: after the 10 minute wait the card parks, and a later hand-back starts a new turn with the note. It also survives a restart, finding 11. No real site login yet | spec manual test |
+| P3 | Routines fire in `settings.timezone` on a UTC server; a turn cut off by `systemctl restart` resumes once | ☑ live 2026-11-03 on UTC: cron and `onceAt` in Asia/Manila fired on the minute, `onceAt` disabled itself. `systemctl restart` mid-turn: one system note, one resume, one complete reply. A routine parked on a card survived a restart and finished after allow. Stalled-handoff nudge not tested live | daily 09:00 Asia/Manila routine; restart mid-turn |
 | P4 | A real OAuth round trip per provider (GitHub, Google, Slack, ClickUp, Teams); ClickUp accepts the loopback redirect; Microsoft device flow on a single-tenant app | ☐ | Settings › Integrations › Connect, Test connection |
-| P4 | `vault.key` absent from backups (tar and restic) | ☑ static test, ☐ on the VPS | `tar -tzf /var/backups/pocketrocket-crew/data-*.tgz \| grep vault.key` → nothing |
-| P5 | Slack Socket Mode against a live app (connect, ack, reconnect on `disconnect`); GitHub `X-Poll-Interval` on `/repos/*/events`; ClickUp `date_updated_gt` over 100 tasks | ☐ | one trigger per source; Automations › Triggers shows last check and fires |
+| P4 | `vault.key` absent from backups (tar and restic) | ☑ static test, ◐ on the VPS 2026-11-03: real `backup.sh` run against a dummy tree left `vault.key` out. restic path not run. See findings 7 and 12 | `tar -tzf /var/backups/pocketrocket-crew/data-*.tgz \| grep vault.key` → nothing |
+| P5 | Slack Socket Mode against a live app (connect, ack, reconnect on `disconnect`); GitHub `X-Poll-Interval` on `/repos/*/events`; ClickUp `date_updated_gt` over 100 tasks | ☐ needs real accounts. Live 2026-11-03 through test fire only: injected text ran no tool, rate limit skipped the third fire, a Bash request under approvals=bypass still raised a card | one trigger per source; Automations › Triggers shows last check and fires |
 | P5 | Trigger turn resumed after a restart or a parked approval stays inside the trigger's daily budget | ☑ tests | `rooms/triggerBudget.test.ts` |
-| P7 | Knowledge repo clones over ssh with a deploy key non-interactively (BatchMode) and pulls on the timer | ☐ | Settings › Knowledge with a private `git@` URL; Sync now |
-| P7 | A shell write into the knowledge repo is refused under bypass (and cards otherwise) | ☑ tests | `permissions/knowledgeReadOnly.test.ts` |
-| P9 | Phone over Tailscale Serve with `POCKETROCKET_ALLOWED_HOSTS`: pair by QR, chat, answer a card; settings writes refused; revoke closes the phone's socket | ☐ | `tailscale serve --bg 7790`; pair an iPhone and an Android phone |
-| P9 | Web Push delivered on iOS (installed PWA) and Android; payload has no content; `vapid.json` 0600 and kept in backups | ☐ push, ☑ static test for the file | Settings › Devices › Send a test; `stat -c %a data/vapid.json` → 600 |
+| P6 | Teach: password absent from the trace, distill to a pending skill, correction to a pending version, replay | ◐ live 2026-11-03 on one task (spec asks three): password field masked and its frame dropped, live skill unchanged until the version was approved, replay handed off for secrets and finished. Other fields leak, finding 10 | Teach on a form, Done, Distill, correct, approve, replay |
+| P7 | Knowledge repo clones over ssh with a deploy key non-interactively (BatchMode) and pulls on the timer | ◐ live 2026-11-03 over `file://`: clone, pull on Sync now, bot answered from it. `ext::` refused. ssh deploy key and the timer not tested | Settings › Knowledge with a private `git@` URL; Sync now |
+| P7 | A shell write into the knowledge repo is refused under bypass (and cards otherwise) | ☑ tests, ☑ live 2026-11-03: Bash write carded under ask and refused under bypass, file unchanged. Write tool under bypass not exercised (bot lacked the tool) | `permissions/knowledgeReadOnly.test.ts` |
+| P8 | Auto model picks per turn; usage by model and cause | ◐ live 2026-11-03: routine and trigger on Haiku, chat on Sonnet, "think hard" on Opus; `/api/usage` returns `byModel` and `byCause`. Escalation on retry not exercised | one `auto` bot |
+| P9 | Phone over Tailscale Serve with `POCKETROCKET_ALLOWED_HOSTS`: pair by QR, chat, answer a card; settings writes refused; revoke closes the phone's socket | ◐ live 2026-11-03 without a phone or Tailscale: pairing code single use; device token refused on settings, secrets, bot writes, pairing, git import and `/mcp`; revoke closed its socket in 23 ms and its next request got 401. Allowed host needs forwarded https, other hosts 403 | `tailscale serve --bg 7790`; pair an iPhone and an Android phone |
+| P9 | Web Push delivered on iOS (installed PWA) and Android; payload has no content; `vapid.json` 0600 and kept in backups | ☐ push, ☑ `vapid.json` 600 on the VPS 2026-11-03 | Settings › Devices › Send a test; `stat -c %a data/vapid.json` → 600 |
 | P9 | Tray and close-to-tray on Windows; Linux AppImage/deb and unsigned macOS dmg from the release workflow install and start the hub | ☐ | release workflow artifacts on each OS |
+
+Findings from the 2026-11-02 tests (open unless stated):
+
+1. One earlier run flagged a hand-back note as prompt injection. That run's prompt said "then stop" and its note asked for an odd word. Not reproduced in 8 normal runs. The note reaches the bot as a tool result (`agent/takeoverTool.ts:56-58`).
+2. Cards and refusals name `pocketrocket-crew` because `settings.userName` is the OS user on a server that skipped onboarding (seen in `GET /api/settings`; used in `agent/takeoverTool.ts`).
+3. Browser tools run with no approval card under approvals=ask. Open decision.
+4. Fixed and live in 22e9ec0: Playwright output now lives in the bot's home, so deleting the bot removes it. Claude session transcripts in the service user's `~/.claude/projects` still outlive the bot.
+5. `RoutineScheduler.test.ts` "resolves a local once_at" fails since 2026-11-02, also on master. The test hardcodes `2026-11-02T09:00` (line 76), and `resolveSchedule` reads the real clock through `Cron`, not its `now` (`services/RoutineScheduler.ts:43-44`).
+6. Fixed and live in 40373b2: the startup line no longer holds the token and the token was rotated. Old journal lines hold the dead token. Stock still has the leak at `packages/hub/src/hub.ts:295`.
+7. Fixed and live in 22e9ec0: `data/hub-token` is left out of the tarball and restic paths. A real run on the VPS: 0 matches in the archive.
+8. Fixed and live in 40373b2: bots run real Google Chrome with no `--test-type` or `--no-sandbox`. Stock still runs Chrome for Testing.
+
+Findings from the 2026-11-03 tests (open):
+
+9. Fixed and live in 22e9ec0: a patch to `playwright-core` leaves `type=password` values out of snapshots (live: not in chat, not on disk), and output moved to the bot's home. **Still open:** a key typed into an ordinary visible text field does appear in the snapshot and so reaches the model and its Claude transcript, like anything else on the page. The patch is tied to this `playwright-core` version; `deployScripts.test.ts` fails if an upgrade drops it.
+10. Fixed and live in 22e9ec0: key and token fields are secret by name, id, label or placeholder; pages whose URL holds a credential keep no frames; window titles are scrubbed. Live: 0 secrets in the trace, 0 frames kept.
+11. Fixed and live in 22e9ec0: a parked takeover is restored from its card. Live: control stayed with the user over `systemctl restart`, and a hand-back started a new turn with the note. Clicking through the viewer right after a restart not re-checked. A takeover still waiting inside its turn expires on restart; that turn resumes and can ask again.
+12. Fixed and live in 22e9ec0: archives 600 and the folder 700, older archives included (`sudo -u nobody` refused). Archives still hold `secrets.json`, `integrations.json` and `vapid.json`, readable by root only.
+13. Page URLs with secret query values appear in chat tool output through `browser_snapshot`.
+14. The "% full" warning text is not shown while the computer is live (`RightPanel.tsx:714` area); only the amber badge is.
+15. A bot waiting on a person shows "Waiting on a teammate" in the sidebar. A revoked device stays in the device list.
 
 ## 8. Release day
 

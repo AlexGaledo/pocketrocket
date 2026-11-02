@@ -37,7 +37,9 @@ sudo -u pocketrocket-crew -H claude
 The service (`/etc/systemd/system/pocketrocket-crew.service`) binds `127.0.0.1:7790` only and requires
 the hub token like every other mode: read it with
 `sudo cat /home/pocketrocket-crew/pocketrocket-crew/data/hub-token` and open
-`http://127.0.0.1:7790/#token=<token>` through the tunnel. **Never expose the port directly**;
+`http://127.0.0.1:7790/#token=<token>` through the tunnel (the hub does not print it to the journal).
+To replace it, `sudo rm` that file and `sudo systemctl restart pocketrocket-crew`: the hub mints a new
+one and the old value stops working. **Never expose the port directly**;
 reach it over an SSH tunnel or Tailscale. Data lives in `/home/pocketrocket-crew/pocketrocket-crew/data/` on
 the VPS. Logs: `journalctl -u pocketrocket-crew -f`.
 
@@ -56,6 +58,7 @@ What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket-
 - `data/desktop-home`: XFCE settings, panel layout, app config, and the X auth cookie
 - `data/browser-profile`: Chrome logins, cookies, history
 - `data/pocketrocket.db`, `data/bots/<id>` (memory), `data/skills`
+- Backups are readable by root only. `data/hub-token` is **not** in them: after a restore the hub writes a new one, so sign in with that.
 - `data/integrations.json` (encrypted integration tokens). Its key, `data/vault.key`, is **not** in the backup: copy it off the VPS yourself (`scp`), or reconnect the integrations after a restore
 
 Using it: the hub proxies noVNC at `/screen/`, so the same SSH tunnel is enough. Open the

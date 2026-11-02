@@ -258,9 +258,38 @@ export class ComputerControlService {
     const e = this.entries.get(botId);
     if (!e?.takeover) return false;
     e.takeover.parked = true;
-    this.updateCard(e.takeover, { status: 'parked' });
+    this.updateCard(e.takeover, { status: 'parked', runId: e.takeover.runId });
     this.emit(botId);
     return true;
+  }
+
+  /**
+   * After a restart: takeovers that were parked are live again. The user keeps control and a later hand-back
+   * still starts the bot's turn. A card for a bot that no longer exists expires.
+   */
+  restoreParked(): number {
+    let restored = 0;
+    for (const m of this.repos.parkedTakeovers()) {
+      const p = m.payload as TakeoverPayload;
+      const t: TakeoverRecord = {
+        messageId: m.id, roomId: m.roomId, reason: p.reason, causeId: m.causeId ?? '', hop: m.hop, runId: p.runId ?? null,
+        parked: true, createdAt: m.createdAt,
+      };
+      if (!this.repos.getBot(p.botId)) {
+        this.updateCard(t, { status: 'expired' });
+        continue;
+      }
+      const prev = this.entries.get(p.botId)?.takeover;
+      if (prev) this.updateCard(prev, { status: 'expired' });
+      else restored++;
+      this.entries.set(p.botId, { control: 'user', holder: null, since: m.createdAt, takeover: t });
+    }
+    return restored;
+  }
+
+  /** Routine runs held open by a parked takeover; a restart must not close them. */
+  parkedRunIds(): string[] {
+    return [...this.entries.values()].map((e) => (e.takeover?.parked ? e.takeover.runId : null)).filter((id): id is string => !!id);
   }
 
   /** The bot's turn ended without parking (interrupted): the card stays, but nobody is waiting on it. */

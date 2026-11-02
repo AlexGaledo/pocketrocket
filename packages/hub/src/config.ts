@@ -133,7 +133,8 @@ export function ensureHubToken(): string {
     fs.writeFileSync(HUB_TOKEN_PATH, token, { mode: 0o600 });
     restrictFile(HUB_TOKEN_PATH);
   } catch (e) {
-    console.error('[pocketrocket] could not write ' + HUB_TOKEN_PATH + ': ' + String((e as Error).message ?? e));
+    // The token is never logged, so this file is the only way to learn a minted one.
+    console.error('[pocketrocket] could not write ' + HUB_TOKEN_PATH + ': ' + String((e as Error).message ?? e) + '. Nobody can sign in until that is fixed or POCKETROCKET_TOKEN is set.');
   }
   return token;
 }

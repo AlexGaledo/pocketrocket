@@ -52,6 +52,17 @@ fi
 # Newer Ubuntu (23.10+) gates unprivileged userns behind AppArmor instead; we don't weaken that
 # system-wide policy automatically. screen.sh detects it at runtime and falls back to --no-sandbox.
 
+# Bots browse in real Google Chrome (deploy/screen.sh). Its package also adds Google's apt repo, so apt updates it.
+if [ "$(dpkg --print-architecture)" = "amd64" ] && ! command -v google-chrome-stable >/dev/null 2>&1; then
+  echo "==> installing Google Chrome"
+  chrome_deb="$(mktemp --suffix=.deb)"
+  curl -fsSL -o "$chrome_deb" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+  chmod 644 "$chrome_deb"
+  apt-get install -y -qq "$chrome_deb" >/dev/null
+  rm -f "$chrome_deb"
+fi
+
+# Chrome for Testing is the fallback where Chrome has no build; install-deps below also covers Xvfb-side libraries.
 if ! sudo -u "$APP_USER" -H bash -lc 'ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome' >/dev/null 2>&1; then
   echo "==> installing Chromium $PLAYWRIGHT_VERSION (system deps as root, browser cache as $APP_USER)"
   export PATH="$HOME/.local/bin:$PATH"

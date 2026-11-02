@@ -6,7 +6,7 @@ import { SECRET_PLACEHOLDER } from '@pocketrocket/shared';
  * that lies, or a script bug, still cannot put a value in the trace). Over-redacting is fine; a leak is not.
  */
 export const SECRET_AUTOCOMPLETE_RE = /password|(^|\s)cc-|one-time-code/i;
-export const SECRET_NAME_RE = /passw(or)?d|pwd|passcode|cvv|cvc|csc|card.?num|cc.?num|cc.?number|security.?code|one.?time|otp/i;
+export const SECRET_NAME_RE = /passw(or)?d|pwd|passcode|cvv|cvc|csc|card.?num|cc.?num|cc.?number|security.?code|one.?time|otp|api.?key|access.?key|private.?key|secret|token|bearer|credential|passphrase/i;
 
 /** The element description the page script sends (never an input's value). */
 export interface ElementDesc {
@@ -31,7 +31,7 @@ export function isSecretField(d: ElementDesc | undefined | null): boolean {
   if (tag !== 'input' && tag !== 'textarea') return false;
   if (String(d.type ?? '').toLowerCase() === 'password') return true;
   if (SECRET_AUTOCOMPLETE_RE.test(String(d.autocomplete ?? ''))) return true;
-  return SECRET_NAME_RE.test(String(d.name ?? '') + ' ' + String(d.id ?? ''));
+  return SECRET_NAME_RE.test([d.name, d.id, d.label, d.placeholder].map((v) => String(v ?? '')).join(' '));
 }
 
 /** The CDP binding the page script reports through. It lives only in the recorder's isolated world. */
@@ -58,7 +58,8 @@ export const PAGE_SCRIPT = `(() => {
     if (!isField(el)) return false;
     if (attr(el, 'type').toLowerCase() === 'password') return true;
     if (AC_RE.test(attr(el, 'autocomplete'))) return true;
-    return NAME_RE.test(attr(el, 'name') + ' ' + (el.id || ''));
+    const label = el.labels && el.labels[0] ? el.labels[0].textContent : '';
+    return NAME_RE.test([attr(el, 'name'), el.id, attr(el, 'aria-label'), attr(el, 'placeholder'), label].join(' '));
   };
   const editable = (el) => !!el && (isField(el) && !/^(button|submit|reset|checkbox|radio|file|image|hidden)$/i.test(attr(el, 'type')) || el.isContentEditable);
   const esc = (s) => (window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\\\$&'));

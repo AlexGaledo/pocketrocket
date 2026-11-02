@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ComputerControl, ControlStatus } from '@pocketrocket/shared';
-import { Recorder, RecorderError, scrubUrl, type RecorderDeps } from './Recorder.js';
+import { Recorder, RecorderError, scrubUrl, type RecorderDeps, scrubTitle, urlHasSecret } from './Recorder.js';
 import { PAGE_SCRIPT, RECORDER_BINDING, RECORDER_WORLD, isSecretField } from './recorderPage.js';
 import type { ComputerEndpoint } from './ComputerManager.js';
 import { events } from '../events.js';
@@ -213,6 +213,7 @@ describe('Recorder: redaction at capture time', () => {
   it('never writes a password, card number or one-time code into the trace or a kept frame, even when the page sends them', async () => {
     const { rec } = recorder();
     await rec.start('bot1');
+    cdp.emit('Page.frameNavigated', { frame: { id: 'F1', url: 'https://shop.example/login' } }, 'S-T1');
     // 1. Click into the email field and type: kept, with the value.
     screen = 'login page';
     cdp.page({ t: 'focus', el: email });
@@ -270,9 +271,23 @@ describe('Recorder: redaction at capture time', () => {
     expect(JSON.stringify(meta)).not.toContain(PASSWORD);
   });
 
+  it('keeps no frame while the address bar shows a credential', async () => {
+    const { rec } = recorder();
+    await rec.start('bot1');
+    cdp.page({ t: 'click', el: { tag: 'button', text: 'on session url' }, x: 0, y: 0 });
+    await tick();
+    cdp.emit('Page.frameNavigated', { frame: { id: 'F1', url: 'https://shop.example/login' } }, 'S-T1');
+    cdp.page({ t: 'click', el: { tag: 'button', text: 'on clean url' }, x: 0, y: 0 });
+    await tick();
+    const info = (await rec.stop('bot1'))!;
+    expect(info.frames).toBe(1);
+    expect(info.framesDropped).toBe(1);
+  });
+
   it('runs scrot on the bot\'s own display with its X cookie', async () => {
     const { rec, execs } = recorder();
     await rec.start('bot1');
+    cdp.emit('Page.frameNavigated', { frame: { id: 'F1', url: 'https://shop.example/login' } }, 'S-T1');
     cdp.page({ t: 'click', el: { tag: 'button', text: 'Go' }, x: 0, y: 0 });
     await tick();
     await rec.stop('bot1');
@@ -339,6 +354,7 @@ describe('Recorder: caps', () => {
   it('keeps at most maxFrames screenshots', async () => {
     const { rec } = recorder({ caps: { maxFrames: 2, frameIntervalMs: 0 } });
     await rec.start('bot1');
+    cdp.emit('Page.frameNavigated', { frame: { id: 'F1', url: 'https://shop.example/login' } }, 'S-T1');
     for (let i = 0; i < 5; i++) { cdp.page({ t: 'click', el: { tag: 'button', text: 'b' + i }, x: 0, y: 0 }); await tick(15); }
     const info = (await rec.stop('bot1'))!;
     expect(info.frames).toBe(2);
@@ -479,5 +495,28 @@ describe('Recorder: finished recordings', () => {
     expect(rec.get('bot1', id)?.skillId).toBe('sk1');
     expect(rec.remove('bot1', id)).toBe(true);
     expect(rec.list('bot1')).toEqual([]);
+  });
+});
+
+describe('secret fields and titles (2026-11-03 live findings)', () => {
+  it('treats key and token fields as secret, by name, id, label or placeholder', () => {
+    expect(isSecretField({ tag: 'input', name: 'api_key' })).toBe(true);
+    expect(isSecretField({ tag: 'input', name: 'access_token' })).toBe(true);
+    expect(isSecretField({ tag: 'input', id: 'apikey' })).toBe(true);
+    expect(isSecretField({ tag: 'input', label: 'Client secret' })).toBe(true);
+    expect(isSecretField({ tag: 'input', placeholder: 'Paste your API key' })).toBe(true);
+    expect(isSecretField({ tag: 'input', name: 'search', label: 'Search orders' })).toBe(false);
+  });
+  it('scrubs query values from a URL used as a window title', () => {
+    const t = scrubTitle('127.0.0.1:8765/page.html?secret_token=TITLELEAK777 - Google Chrome');
+    expect(t).not.toContain('TITLELEAK777');
+    expect(t).toContain('127.0.0.1:8765/page.html');
+    expect(t).toContain('- Google Chrome');
+    expect(scrubTitle('Order 1234 - Google Chrome')).toBe('Order 1234 - Google Chrome');
+  });
+  it('knows which URLs show a credential in the address bar', () => {
+    expect(urlHasSecret('https://a.example/x?session=abc')).toBe(true);
+    expect(urlHasSecret('https://user:pw@a.example/')).toBe(true);
+    expect(urlHasSecret('https://a.example/orders?page=2')).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,16 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const read = (rel: string) => fs.readFileSync(path.join(repo, rel), 'utf8');
 /** Script lines without comments, so a "127.0.0.1" in a comment proves nothing. */
 const code = (rel: string) => read(rel).split(/\r?\n/).filter((l) => !/^\s*#/.test(l)).join('\n');
+
+describe('bots browse in a normal browser', () => {
+  it('prefers real Google Chrome and never starts it in test mode', () => {
+    const screen = code('deploy/screen.sh');
+    expect(screen).toContain('command -v google-chrome-stable');
+    expect(screen).not.toContain('--test-type');
+    expect(screen).not.toContain('--enable-automation');
+    expect(code('deploy/setup-vps.sh')).toContain('google-chrome-stable_current_amd64.deb');
+  });
+});
 
 describe('per-bot computers stay on loopback (P1)', () => {
   const screen = code('deploy/screen.sh');
@@ -66,5 +77,28 @@ describe('backups (P4, P9)', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('backups stay private (2026-11-03 live findings)', () => {
+  const backup = code('deploy/backup.sh');
+  it('leaves the hub token and browser snapshots out, and is readable by root only', () => {
+    expect(backup).toMatch(/'data\/hub-token'/);
+    expect(backup).toMatch(/'data\/bots\/\*\/playwright-output'/);
+    expect(backup).toMatch(/^umask 077$/m);
+    expect(backup).toMatch(/chmod 700 "\$OUT"/);
+    expect(backup).toMatch(/-exec chmod 600/);
+  });
+});
+
+describe('browser snapshots (2026-11-03 live findings)', () => {
+  it('go to the bot home, not the shared workspace', () => {
+    expect(code('packages/hub/src/providers/claude.ts')).toMatch(/'--output-dir', path\.join\(ctx\.botHome, 'playwright-output'\)/);
+  });
+  it('the playwright-core that @playwright/mcp loads leaves password values out', () => {
+    const mcp = createRequire(import.meta.url).resolve('@playwright/mcp/package.json');
+    const core = createRequire(fs.realpathSync(mcp)).resolve('playwright-core/package.json');
+    const bundle = fs.readFileSync(path.join(path.dirname(core), 'lib', 'coreBundle.js'), 'utf8');
+    expect(bundle).toContain('element.type !== "file" && element.type !== "password")');
   });
 });

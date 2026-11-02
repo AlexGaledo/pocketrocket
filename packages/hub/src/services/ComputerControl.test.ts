@@ -250,3 +250,43 @@ describe('REST control route and the screen ticket', () => {
     expect(hub.control.get(A).control).toBe('agent');
   });
 });
+
+describe('a parked takeover and a hub restart', () => {
+  it('keeps the user in control and still resumes the bot on hand-back', () => {
+    const s = setup(true);
+    const bot = s.mk('parked');
+    const room = s.repos.createRoom({ kind: 'dm', name: 'r', memberIds: [bot.id], coordinatorBotId: null });
+    const payload: TakeoverPayload = { botId: bot.id, reason: 'log in', status: 'waiting' };
+    const msg = s.repos.insertMessage({ roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'takeover', text: 'x', payload, causeId: 'c1', hop: 2, turnId: 't1' });
+    s.control.beginTakeover(bot.id, { messageId: msg.id, roomId: room.id, reason: 'log in', causeId: 'c1', hop: 2, runId: 'run1' });
+    s.control.parkTakeover(bot.id);
+
+    // What a new process does on start, against the same database.
+    expect(s.repos.expirePendingApprovals()).toEqual([]);
+    const next = new ComputerControlService({ computers: s.computers, repos: s.repos, vnc: fakeVnc().vnc });
+    expect(next.restoreParked()).toBe(1);
+    expect(next.get(bot.id).control).toBe('user');
+    expect(next.get(bot.id).takeover?.parked).toBe(true);
+    expect(next.parkedRunIds()).toEqual(['run1']);
+    expect(next.blockedReason(bot.id)).toBe(USER_HAS_CONTROL);
+
+    const resumed: { note: string | null; cause: string; hop: number; run: string | null }[] = [];
+    next.onParkedHandBack = (_b, t, note) => resumed.push({ note, cause: t.causeId, hop: t.hop, run: t.runId });
+    next.set(bot.id, 'agent', { note: 'done' });
+    expect(resumed).toEqual([{ note: 'done', cause: 'c1', hop: 2, run: 'run1' }]);
+    expect((s.repos.getMessage(msg.id)!.payload as TakeoverPayload).status).toBe('done');
+    expect(next.parkedRunIds()).toEqual([]);
+  });
+
+  it('expires a takeover that was still waiting in its turn, and one whose bot is gone', () => {
+    const s = setup(true);
+    const bot = s.mk('waiting');
+    const room = s.repos.createRoom({ kind: 'dm', name: 'r', memberIds: [bot.id], coordinatorBotId: null });
+    const waiting = s.repos.insertMessage({ roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'takeover', text: 'x', payload: { botId: bot.id, reason: 'a', status: 'waiting' }, causeId: 'c', hop: 0, turnId: 't' });
+    const orphan = s.repos.insertMessage({ roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'takeover', text: 'x', payload: { botId: 'nobody', reason: 'b', status: 'parked' }, causeId: 'c', hop: 0, turnId: 't' });
+    expect(s.repos.expirePendingApprovals().map((m) => m.id)).toEqual([waiting.id]);
+    expect(s.control.restoreParked()).toBe(0);
+    expect((s.repos.getMessage(orphan.id)!.payload as TakeoverPayload).status).toBe('expired');
+    expect(s.control.get(bot.id).control).toBe('agent');
+  });
+});

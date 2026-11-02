@@ -24,7 +24,13 @@ WS="$DATA/workspace"
 DESK="${SCREEN_DESKTOP_DIR:-$WS}"
 DL="${SCREEN_DOWNLOAD_DIR:-$WS/downloads}"
 W="${SCREEN_W:-1280}"; H="${SCREEN_H:-800}"
-CHROME="${CHROME_BIN:-$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1)}"
+# Real Google Chrome, the browser a person would use: logins go through it. Playwright's Chrome for Testing is
+# labelled "only for automated testing", so it is only the fallback where Chrome has no build (Linux on ARM).
+CHROME="${CHROME_BIN:-$(command -v google-chrome-stable || true)}"
+if [ -z "$CHROME" ]; then
+  CHROME="$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1)"
+  [ -z "$CHROME" ] || echo "screen.sh: google-chrome-stable not found; falling back to Chrome for Testing (run deploy/setup-vps.sh as root)" >&2
+fi
 if [ -z "$CHROME" ] || [ ! -x "$CHROME" ]; then echo "chromium not found; run deploy/setup-vps.sh" >&2; exit 1; fi
 
 mkdir -p "$PROFILE" "$WS" "$DESK" "$DL" "$DHOME/.config/xfce4/xfconf/xfce-perchannel-xml" "$DHOME/.cache" "$DHOME/.local/share"
@@ -95,6 +101,11 @@ fi
 if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = "1" ]; then
   userns_ok=0
 fi
+# Ubuntu 23.10+ restricts user namespaces per program and ships a profile allowing them for Google Chrome alone,
+# which also works under the unit's NoNewPrivileges (Chrome's setuid helper would not).
+if [ "$(readlink -f "$CHROME")" = "/opt/google/chrome/google-chrome" ] && grep -qs "/opt/google/chrome/chrome" /etc/apparmor.d/chrome; then
+  userns_ok=1
+fi
 if [ "$userns_ok" != "1" ]; then
   echo "screen.sh: unprivileged user namespaces are restricted; Chromium's sandbox needs them as a non-root user. Falling back to --no-sandbox (re-run deploy/setup-vps.sh as root to enable kernel.unprivileged_userns_clone)." >&2
   SANDBOX_ARGS=(--no-sandbox)
@@ -104,7 +115,7 @@ fi
 # no Origin header, which Chromium's remote-debugging Origin allowlist only checks/enforces when
 # an Origin header is present (i.e. a browser page trying to reach it) — see deploy/setup-vps.sh
 # header comment and the PocketRocket audit item 8 for the verification notes.
-"$CHROME" "${SANDBOX_ARGS[@]}" --test-type --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check \
+"$CHROME" "${SANDBOX_ARGS[@]}" --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check \
   --disable-session-crashed-bubble --disable-features=TranslateUI --password-store=basic \
   --remote-debugging-port="$CDP_PORT" --remote-debugging-address=127.0.0.1 \
   --user-data-dir="$PROFILE" --window-position=0,0 --window-size="$W,$((H-40))" \

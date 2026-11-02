@@ -403,14 +403,20 @@ export class Repos {
    */
   expirePendingApprovals(): Message[] {
     return this.db.tx(() => {
-      // P2: a parked card (its routine turn ended and waits for the answer) survives a restart.
+      // P2: a parked card or takeover (its turn ended and waits for the user) survives a restart.
       this.db.run("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending' AND parked_at IS NULL", now());
       const open = "((kind='approval' AND json_extract(payload, '$.status')='pending' AND json_extract(payload, '$.parked') IS NOT 1) OR " +
-        "(kind='takeover' AND json_extract(payload, '$.status') IN ('waiting','parked')))";
+        "(kind='takeover' AND json_extract(payload, '$.status')='waiting'))";
       const ids = this.db.all<{ id: string }>('SELECT id FROM messages WHERE ' + open).map((r) => r.id);
       this.db.run("UPDATE messages SET payload=json_set(payload, '$.status', 'expired') WHERE " + open);
       return ids.map((id) => this.getMessage(id)).filter((m): m is Message => !!m);
     });
+  }
+
+  /** Takeover cards whose turn ended and which still wait for the user to hand back. */
+  parkedTakeovers(): Message[] {
+    return this.db.all<{ id: string }>("SELECT id FROM messages WHERE kind='takeover' AND json_extract(payload, '$.status')='parked' ORDER BY rowid")
+      .map((r) => this.getMessage(r.id)).filter((m): m is Message => !!m);
   }
 
   // ---------- usage ----------
