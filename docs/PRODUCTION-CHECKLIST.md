@@ -1,13 +1,13 @@
 # PocketRocket production checklist
 
-Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-09-16 (v0.2.0, pre-release); fork phases P0–P9 added 2026-11-01 (section 7b). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
+Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-11-02 (live VPS results at commit 724677b, sections 7 and 7b); v0.2.0 pre-release pass 2026-09-16; fork phases P0–P9 added 2026-11-01 (section 7b). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
 
 ## 1. Build and quality gates
 
 | Item | Status | How to verify |
 |---|---|---|
 | Typecheck + Vite build clean | ☑ | `pnpm -r build` |
-| Unit tests green | ☑ see CI | `pnpm test` |
+| Unit tests green | ◐ one known failure on master since 2026-11-02, see 7b finding 5 | `pnpm test` |
 | Versions in sync (root, packages, tauri.conf, Cargo.toml) | ☑ | `pnpm version:sync --check` |
 | `Cargo.lock` refreshed after a version bump | ☐ per release | `cargo check` then commit |
 | CI green on `main` (`ci.yml`: ubuntu tests + windows desktop:prepare + cargo check) | ☑ run 34250487822 | GitHub Actions tab |
@@ -134,8 +134,8 @@ The accessibility pass covered, and fixed:
 
 | Item | Status |
 |---|---|
-| `scripts/deploy.sh <host>` requires a host and installs as `pocketrocket-crew` (no Claudebot/stock migration; a stock PocketRocket on the same VPS is left alone) | ☑ code, ☐ run against the VPS |
-| Screen service + backups renamed and running | ☐ verify after redeploy |
+| `scripts/deploy.sh <host>` requires a host and installs as `pocketrocket-crew` (no Claudebot/stock migration; a stock PocketRocket on the same VPS is left alone) | ☑ code, ☐ run against the VPS: nobody watched the script run. On 2026-11-02 Crew was found installed at `/home/pocketrocket-crew/pocketrocket-crew` on 724677b, service up since 2026-10-31 |
+| Screen service + backups renamed and running | ☐ verify after redeploy. 2026-11-02: Crew's screen service is installed but disabled because per-bot computers are on; backups not checked |
 | Hub token: **always required in server mode too**, minted to `<data>/hub-token` on the VPS and stable across restarts; docs insist on tunnel-only access | ☑ |
 
 ## 7b. PocketRocket Crew phases: checks that need a VPS, a phone or a real account
@@ -144,13 +144,13 @@ Each phase's tests use fakes for these (`docs/changes/pN.md` → "Not verified" 
 
 | Phase | Item | Status | How to verify |
 |---|---|---|---|
-| P0 | Crew and stock PocketRocket side by side on one VPS: separate users, units, ports (7790 vs 7788), screens (`:98` vs `:99`) | ☐ | deploy both; `systemctl status pocketrocket-crew pocketrocket`; `ss -ltnp` shows only 127.0.0.1 |
-| P1 | Per-bot computers: `pocketrocket-crew-computer@<slot>-<bot>` starts on first Browser/Desktop use, sleeps after `COMPUTER_IDLE_MIN`, at most `MAX_RUNNING_COMPUTERS` run, quota warning at 80% | ☐ | two Browser bots; watch `systemctl --user list-units 'pocketrocket-crew-computer@*'` as the service user |
-| P1 | Every computer port on loopback (CDP 9400+n, VNC 5800+n, noVNC 6200+n; X no TCP) | ☑ static test, ☐ on the VPS | `deployScripts.test.ts`; with a computer awake, `ss -ltnp` lists its 94xx/58xx/62xx ports on `127.0.0.1` only |
-| P1 | Shared screen's logins move to the oldest Browser bot once; RAM sizing table holds | ☐ | first start with computers on; `docs/SERVER.md` table |
-| P2 | `x11vnc -R viewonly/noviewonly` toggles a running computer, and a viewer really cannot click while the bot has control | ☐ | Screen tab: try to click while bot has control; Take over; click works |
-| P2 | Claude CLI honours the PreToolUse `deny` for `mcp__browser__*` in bypass mode | ☐ | bypass on, Take over, ask the bot to browse → refused |
-| P2 | A real login through `request_takeover` (card → take over → hand back with note → bot continues) | ☐ | spec manual test |
+| P0 | Crew and stock PocketRocket side by side on one VPS: separate users, units, ports (7790 vs 7788), screens (`:98` vs `:99`) | ◐ live 2026-11-02 on `crm-agency`: `pocketrocket` (7788) and `pocketrocket-crew` (7790) both active, separate users, all listening on loopback, stock untouched throughout. `:98` not exercised: Crew's screen service is disabled while per-bot computers are on | deploy both; `systemctl status pocketrocket-crew pocketrocket`; `ss -ltnp` shows only 127.0.0.1 |
+| P1 | Per-bot computers: `pocketrocket-crew-computer@<slot>-<bot>` starts on first Browser/Desktop use, sleeps after `COMPUTER_IDLE_MIN`, at most `MAX_RUNNING_COMPUTERS` run, quota warning at 80% | ◐ live 2026-11-02. Start: two Browser bots each got their own unit, own tabs on separate CDP ports, correct answers from real turns. Sleep: an idle computer was found asleep with no unit running at 42 min idle (default 30); exact moment not observed. Cap: with `MAX_RUNNING_COMPUTERS=2`, waking a third put the idle one to sleep rather than refusing. Quota warning not tested | two Browser bots; watch `systemctl --user list-units 'pocketrocket-crew-computer@*'` as the service user |
+| P1 | Every computer port on loopback (CDP 9400+n, VNC 5800+n, noVNC 6200+n; X no TCP) | ☑ static test, ◐ on the VPS 2026-11-02: with computers awake, 58xx, 62xx and 94xx listen only on 127.0.0.1 (58xx also on [::1]); X no-TCP not checked live | `deployScripts.test.ts`; with a computer awake, `ss -ltnp` lists its 94xx/58xx/62xx ports on `127.0.0.1` only |
+| P1 | Shared screen's logins move to the oldest Browser bot once; RAM sizing table holds | ☐ login move not tested 2026-11-02: fresh install, no prior logins | first start with computers on; `docs/SERVER.md` table |
+| P2 | `x11vnc -R viewonly/noviewonly` toggles a running computer, and a viewer really cannot click while the bot has control | ◐ live 2026-11-02: an RFB pointer event sent straight to the VNC port was ignored under agent control, moved the pointer under user control, ignored again after hand-back. Pointer movement only (no click), not through the Screen tab | Screen tab: try to click while bot has control; Take over; click works |
+| P2 | Claude CLI honours the PreToolUse `deny` for `mcp__browser__*` in bypass mode | ☑ live 2026-11-02, `browser_navigate` only: with control=user it was refused under approvals=ask and approvals=bypass, tab unchanged; setting restored to ask | bypass on, Take over, ask the bot to browse → refused |
+| P2 | A real login through `request_takeover` (card → take over → hand back with note → bot continues) | ◐ live 2026-11-02 on example.com: card posted, control moved to user, hand-back with a note let the same turn continue; 8 of 8 runs across two note wordings followed the note. No real login performed; parked-turn path (hand-back after the turn ended) not exercised. See finding 1 | spec manual test |
 | P3 | Routines fire in `settings.timezone` on a UTC server; a turn cut off by `systemctl restart` resumes once | ☐ | daily 09:00 Asia/Manila routine; restart mid-turn |
 | P4 | A real OAuth round trip per provider (GitHub, Google, Slack, ClickUp, Teams); ClickUp accepts the loopback redirect; Microsoft device flow on a single-tenant app | ☐ | Settings › Integrations › Connect, Test connection |
 | P4 | `vault.key` absent from backups (tar and restic) | ☑ static test, ☐ on the VPS | `tar -tzf /var/backups/pocketrocket-crew/data-*.tgz \| grep vault.key` → nothing |
@@ -161,6 +161,17 @@ Each phase's tests use fakes for these (`docs/changes/pN.md` → "Not verified" 
 | P9 | Phone over Tailscale Serve with `POCKETROCKET_ALLOWED_HOSTS`: pair by QR, chat, answer a card; settings writes refused; revoke closes the phone's socket | ☐ | `tailscale serve --bg 7790`; pair an iPhone and an Android phone |
 | P9 | Web Push delivered on iOS (installed PWA) and Android; payload has no content; `vapid.json` 0600 and kept in backups | ☐ push, ☑ static test for the file | Settings › Devices › Send a test; `stat -c %a data/vapid.json` → 600 |
 | P9 | Tray and close-to-tray on Windows; Linux AppImage/deb and unsigned macOS dmg from the release workflow install and start the hub | ☐ | release workflow artifacts on each OS |
+
+Findings from the 2026-11-02 tests (open unless stated):
+
+1. One earlier run flagged a hand-back note as prompt injection. That run's prompt said "then stop" and its note asked for an odd word. Not reproduced in 8 normal runs. The note reaches the bot as a tool result (`agent/takeoverTool.ts:56-58`).
+2. Refusal text named `pocketrocket-crew` as holding control when the holder was set to `tester`. Source not traced: the fixed strings at `services/ComputerControl.ts:68-74` say "the user".
+3. Browser tools run with no approval card under approvals=ask. Open decision.
+4. Deleting a bot removes its unit and its `data/computers` and `data/bots` folders, but leaves Playwright snapshots in `data/workspace/.playwright-mcp/`.
+5. `RoutineScheduler.test.ts` "resolves a local once_at" fails since 2026-11-02, also on master. The test hardcodes `2026-11-02T09:00` (line 76), and `resolveSchedule` reads the real clock through `Cron`, not its `now` (`services/RoutineScheduler.ts:43-44`).
+6. Hub token: the startup `open:` line (`hub.ts:558`) wrote the token to the journal and desktop `hub.log`. Fix written, not yet committed or deployed. Old journal entries still hold the token, so rotate after deploy (`POCKETROCKET_ROTATE_TOKEN=1`). Stock has the same leak at `packages/hub/src/hub.ts:295` in its own repo.
+7. `deploy/backup.sh:16-24` excludes `data/vault.key` but not `data/hub-token`, in both the tarball and restic paths, so backups hold the hub token. Confirmed by reading the script, not by opening an archive.
+8. Bots ran Chrome for Testing with `--test-type` and, on this Ubuntu, `--no-sandbox`. Replaced with real Google Chrome; verified on `crm-agency` once deployed.
 
 ## 8. Release day
 

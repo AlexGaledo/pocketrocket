@@ -16,6 +16,16 @@ const read = (rel: string) => fs.readFileSync(path.join(repo, rel), 'utf8');
 /** Script lines without comments, so a "127.0.0.1" in a comment proves nothing. */
 const code = (rel: string) => read(rel).split(/\r?\n/).filter((l) => !/^\s*#/.test(l)).join('\n');
 
+describe('bots browse in a normal browser', () => {
+  it('prefers real Google Chrome and never starts it in test mode', () => {
+    const screen = code('deploy/screen.sh');
+    expect(screen).toContain('command -v google-chrome-stable');
+    expect(screen).not.toContain('--test-type');
+    expect(screen).not.toContain('--enable-automation');
+    expect(code('deploy/setup-vps.sh')).toContain('google-chrome-stable_current_amd64.deb');
+  });
+});
+
 describe('per-bot computers stay on loopback (P1)', () => {
   const screen = code('deploy/screen.sh');
   const computer = code('deploy/computer.sh');

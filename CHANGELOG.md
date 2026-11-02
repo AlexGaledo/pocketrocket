@@ -153,6 +153,11 @@ connection modes once one is set up.
 
 ### Fixed
 
+
+- The hub no longer writes its token to the journal or the desktop app's `hub.log`. The startup line says where
+  the token is instead. Rotate the token on any server that ran an earlier build: `docs/SERVER.md`.
+- On a server, bots browse in real Google Chrome, not Playwright's Chrome for Testing started with `--test-type`.
+  Chrome keeps its sandbox on Ubuntu 23.10+ instead of falling back to `--no-sandbox`.
 - Approval cards left open when the hub stopped now show "Expired — the hub restarted. Ask the bot to
   retry." instead of staying clickable forever.
 - Editing a DM can no longer give it more or fewer than one bot.

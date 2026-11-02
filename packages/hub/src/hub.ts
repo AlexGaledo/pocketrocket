@@ -4,7 +4,7 @@ import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS,
-  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES,
+  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH,
 } from './config.js';
 import { Db } from './db/db.js';
 import { Repos } from './db/repos.js';
@@ -553,9 +553,8 @@ export function createHub(opts: HubOptions = {}): Hub {
               (settings.approvalsLocked ? 'set by POCKETROCKET_BYPASS_PERMISSIONS; =0 to restore' : 'turn approvals back on in Settings') + ')',
             );
           }
-          // The token lives in the URL fragment, so it never reaches the server as a query string and the
-          // web client moves it straight into sessionStorage. This line is how a human opens the UI.
-          if (token) console.log('[pocketrocket] open: http://' + HOST + ':' + port + '/#token=' + token);
+          // Say where the token is, never what it is: this output ends up in the journal and in hub.log.
+          if (token) console.log('[pocketrocket] open: http://' + HOST + ':' + port + '/  (sign in with the token from ' + (HUB_TOKEN ? 'POCKETROCKET_TOKEN' : HUB_TOKEN_PATH) + ')');
           resolve(port);
         });
       }),

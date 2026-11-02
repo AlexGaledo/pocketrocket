@@ -37,7 +37,9 @@ sudo -u pocketrocket-crew -H claude
 The service (`/etc/systemd/system/pocketrocket-crew.service`) binds `127.0.0.1:7790` only and requires
 the hub token like every other mode: read it with
 `sudo cat /home/pocketrocket-crew/pocketrocket-crew/data/hub-token` and open
-`http://127.0.0.1:7790/#token=<token>` through the tunnel. **Never expose the port directly**;
+`http://127.0.0.1:7790/#token=<token>` through the tunnel (the hub does not print it to the journal).
+To replace it, `sudo rm` that file and `sudo systemctl restart pocketrocket-crew`: the hub mints a new
+one and the old value stops working. **Never expose the port directly**;
 reach it over an SSH tunnel or Tailscale. Data lives in `/home/pocketrocket-crew/pocketrocket-crew/data/` on
 the VPS. Logs: `journalctl -u pocketrocket-crew -f`.
 
