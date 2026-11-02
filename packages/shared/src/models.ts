@@ -273,6 +273,8 @@ export interface TakeoverPayload {
   status: 'waiting' | 'parked' | 'done' | 'expired';
   /** The user's hand-back note, once handed back. */
   note?: string;
+  /** Routine run the parked turn belongs to, so a restart can still close it. */
+  runId?: string | null;
 }
 
 /**

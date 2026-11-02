@@ -58,6 +58,7 @@ What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket-
 - `data/desktop-home`: XFCE settings, panel layout, app config, and the X auth cookie
 - `data/browser-profile`: Chrome logins, cookies, history
 - `data/pocketrocket.db`, `data/bots/<id>` (memory), `data/skills`
+- Backups are readable by root only. `data/hub-token` is **not** in them: after a restore the hub writes a new one, so sign in with that.
 - `data/integrations.json` (encrypted integration tokens). Its key, `data/vault.key`, is **not** in the backup: copy it off the VPS yourself (`scp`), or reconnect the integrations after a restore
 
 Using it: the hub proxies noVNC at `/screen/`, so the same SSH tunnel is enough. Open the

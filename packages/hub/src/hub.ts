@@ -189,10 +189,12 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
-  const followUp = new FollowUp({ repos, router, heldRuns: () => approvalStore.parkedRunIds() });
+  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedRunIds(), ...control.parkedRunIds()] });
 
   // P2: take over / hand back / pause, and resuming turns that parked on the user.
   const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
+  const restoredTakeovers = control.restoreParked();
+  if (restoredTakeovers) console.log('restored ' + restoredTakeovers + ' parked takeover(s) from the previous run');
   runner.control = control;
   router.control = control;
   broker.onParkedDecision = (p, decision) => {

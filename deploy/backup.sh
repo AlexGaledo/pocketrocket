@@ -8,7 +8,10 @@
 # when both are set and restic is installed, a restic snapshot (7 daily kept) replaces the tarball.
 # data/vault.key is left out on purpose: it decrypts data/integrations.json (OAuth/API tokens for GitHub,
 # Google, Slack, ...), so an archive alone must hold no usable token. Back the key up separately.
+# data/hub-token is left out too: the hub writes a new one on start if a restore has none.
+# Archives still hold data/secrets.json, so they are readable by root only.
 set -euo pipefail
+umask 077
 if [ -r /etc/default/pocketrocket-crew-backup ]; then . /etc/default/pocketrocket-crew-backup; fi
 ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket-crew/pocketrocket-crew}"
 OUT="${POCKETROCKET_BACKUPS:-/var/backups/pocketrocket-crew}"
@@ -20,7 +23,8 @@ EXCLUDES=(
   'data/computers/*/browser/*/Cache' 'data/computers/*/browser/*/Code Cache'
   'data/computers/*/browser/*/GPUCache' 'data/computers/*/browser/*/Service Worker'
   'data/computers/*/home/.cache'
-  'data/vault.key'
+  'data/vault.key' 'data/hub-token'
+  'data/bots/*/playwright-output' 'data/workspace/.playwright-mcp'
 )
 
 if [ -n "${RESTIC_REPOSITORY:-}" ] && [ -n "${RESTIC_PASSWORD_FILE:-}" ] && command -v restic >/dev/null 2>&1; then
@@ -35,6 +39,8 @@ if [ -n "${RESTIC_REPOSITORY:-}" ] && [ -n "${RESTIC_PASSWORD_FILE:-}" ] && comm
 fi
 
 mkdir -p "$OUT"
+chmod 700 "$OUT"
+find "$OUT" -maxdepth 1 -name 'data-*.tgz' -exec chmod 600 {} +
 stamp="$(date +%F-%H%M)"
 args=()
 for e in "${EXCLUDES[@]}"; do args+=(--exclude="$e"); done

@@ -112,13 +112,33 @@ const defaultExec: ExecFn = (cmd, args, env) =>
 
 const clip = (v: unknown, n: number) => redact(String(v ?? '').replace(/\s+/g, ' ').trim()).slice(0, n);
 
+const SECRET_QUERY_RE = /token|code|key|secret|sig|auth|pass|session|otp|nonce|state|ticket|jwt/i;
+
+/** Whether a URL carries a credential, so a screenshot of its address bar would show it. */
+export function urlHasSecret(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return !!(u.username || u.password) || [...u.searchParams.keys()].some((k) => SECRET_QUERY_RE.test(k)) || SECRET_QUERY_RE.test(u.hash);
+  } catch {
+    return false;
+  }
+}
+
+/** A window title can be a URL (Chrome uses it for a page with no title): its query is scrubbed like any other. */
+export function scrubTitle(title: string): string {
+  return title.replace(/\S+\?\S+/g, (tok) => {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(tok)) return scrubUrl(tok);
+    return scrubUrl('http://' + tok).replace(/^http:\/\//, '');
+  });
+}
+
 /** Query values that look like credentials are replaced; the rest of the URL is kept for the skill. */
 export function scrubUrl(raw: string): string {
   try {
     const u = new URL(raw);
     if (u.username || u.password) { u.username = ''; u.password = ''; }
     for (const k of [...u.searchParams.keys()]) {
-      if (/token|code|key|secret|sig|auth|pass|session|otp|nonce|state|ticket|jwt/i.test(k)) u.searchParams.set(k, SECRET_PLACEHOLDER);
+      if (SECRET_QUERY_RE.test(k)) u.searchParams.set(k, SECRET_PLACEHOLDER);
     }
     if (u.hash.length > 1 && /token|code|key|secret|auth|session|jwt/i.test(u.hash)) u.hash = '';
     return redact(u.toString()).slice(0, 1000);
@@ -318,7 +338,10 @@ export class Recorder {
       } catch { /* a frame that went away */ }
     }
     const top = frames.find((f) => !f.parentId);
-    if (top?.url && t.type === 'page') this.write(s, { t: 'nav', url: scrubUrl(top.url), initial: true });
+    if (top?.url && t.type === 'page') {
+      if (urlHasSecret(top.url)) s.visibleSecret.set(sessionId ?? '', true);
+      this.write(s, { t: 'nav', url: scrubUrl(top.url), initial: true });
+    }
   }
 
   private onCdp(s: Session, method: string, params: Record<string, unknown>, sessionId?: string) {
@@ -340,7 +363,7 @@ export class Recorder {
         const frame = params.frame as { parentId?: string; url?: string } | undefined;
         if (!frame || frame.parentId) return;
         // A new document: whatever secret was on screen is gone.
-        s.visibleSecret.set(sessionId ?? '', false);
+        s.visibleSecret.set(sessionId ?? '', !!frame.url && urlHasSecret(frame.url));
         s.secretFocus.set(sessionId ?? '', false);
         if (frame.url && frame.url !== 'about:blank') this.write(s, { t: 'nav', url: scrubUrl(frame.url) });
         return;
@@ -441,7 +464,7 @@ export class Recorder {
     }
     if (!title || title === s.lastWindow) return;
     s.lastWindow = title;
-    this.write(s, { t: 'window', title: clip(title, 200) });
+    this.write(s, { t: 'window', title: clip(scrubTitle(title), 200) });
   }
 
   // ---- trace ---------------------------------------------------------------------------------------

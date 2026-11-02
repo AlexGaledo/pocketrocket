@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import {
   createSdkMcpServer, query, tool,
@@ -212,7 +213,12 @@ export class ClaudeProvider implements AgentProvider {
     if (browserOn) {
       mcpServers.browser = {
         type: 'stdio', command: process.execPath,
-        args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', ctx.cdpUrl ?? CDP_URL, '--caps', 'vision'],
+        // Snapshots hold what fields on the page contain, so they stay in the bot's own home (removed with the
+        // bot, left out of backups) instead of the workspace every bot shares.
+        args: [
+          PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', ctx.cdpUrl ?? CDP_URL, '--caps', 'vision',
+          '--output-dir', path.join(ctx.botHome, 'playwright-output'), '--output-max-size', String(64 * 1024 * 1024),
+        ],
       };
     }
 

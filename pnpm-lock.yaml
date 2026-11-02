@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  playwright-core@1.63.0-alpha-2026-08-31:
+    hash: 168aa56c2ed901eef0ad3891f96947df00e214987556d489598aaf17cadff6f0
+    path: patches/playwright-core@1.63.0-alpha-2026-08-31.patch
+
 importers:
 
   .:
@@ -2952,7 +2957,7 @@ snapshots:
   '@playwright/mcp@0.0.80':
     dependencies:
       playwright: 1.63.0-alpha-2026-08-31
-      playwright-core: 1.63.0-alpha-2026-08-31
+      playwright-core: 1.63.0-alpha-2026-08-31(patch_hash=168aa56c2ed901eef0ad3891f96947df00e214987556d489598aaf17cadff6f0)
 
   '@radix-ui/primitive@1.1.7': {}
 
@@ -4477,11 +4482,11 @@ snapshots:
 
   pkce-challenge@5.0.1: {}
 
-  playwright-core@1.63.0-alpha-2026-08-31: {}
+  playwright-core@1.63.0-alpha-2026-08-31(patch_hash=168aa56c2ed901eef0ad3891f96947df00e214987556d489598aaf17cadff6f0): {}
 
   playwright@1.63.0-alpha-2026-08-31:
     dependencies:
-      playwright-core: 1.63.0-alpha-2026-08-31
+      playwright-core: 1.63.0-alpha-2026-08-31(patch_hash=168aa56c2ed901eef0ad3891f96947df00e214987556d489598aaf17cadff6f0)
 
   postcss@8.5.28:
     dependencies:

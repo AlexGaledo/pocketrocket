@@ -153,6 +153,13 @@ connection modes once one is set up.
 
 ### Fixed
 
+- Password field values no longer appear in browser page snapshots, through a small patch to `playwright-core`.
+- Browser snapshots and other Playwright output moved from the shared workspace to each bot's home, so they
+  are removed with the bot and left out of backups.
+- Backups are readable by root only and no longer include `data/hub-token`.
+- Teach: fields for API keys, tokens and similar secrets are redacted in the trace and stop screenshots, as
+  are pages whose URL holds a credential, and URL query values no longer reach the trace through window titles.
+- A takeover waiting for the user survives a hub restart; the hand-back still starts the bot's turn.
 
 - The hub no longer writes its token to the journal or the desktop app's `hub.log`. The startup line says where
   the token is instead. Rotate the token on any server that ran an earlier build: `docs/SERVER.md`.
