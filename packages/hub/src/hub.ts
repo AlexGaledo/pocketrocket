@@ -59,6 +59,7 @@ import { handBackNote } from './rooms/RoomRouter.js';
 import { Recorder, type RecorderDeps } from './services/Recorder.js';
 import { SkillDistiller } from './services/SkillDistiller.js';
 import { SkillReflection } from './services/SkillReflection.js';
+import { Training, type TrainingDeps } from './services/Training.js';
 import { createTeachApi } from './api/teach.js';
 import { MEDIA_SWEEP_MS, MediaStore, referencedMedia } from './services/MediaStore.js';
 import { createMediaApi } from './api/media.js';
@@ -93,6 +94,8 @@ export interface HubOptions {
   // ---- P6 ----
   /** Recorder overrides (tests: availability, a fake CDP, fake scrot/xdotool, a temp folder). */
   recorder?: Partial<Omit<RecorderDeps, 'computers' | 'control'>>;
+  /** Bot training overrides (tests: a fake one-shot runner, a fixed clock or zone). */
+  training?: Partial<Pick<TrainingDeps, 'run' | 'exeExists' | 'now' | 'timezone'>>;
   /** Uploaded pictures; tests hand in a temp folder. Defaults to data/media. */
   mediaDir?: string;
 }
@@ -241,9 +244,16 @@ export function createHub(opts: HubOptions = {}): Hub {
   const activeModels = () => providers.modelsSync(providers.active().id);
   const distiller = new SkillDistiller({ repos, skills, recorder, usage, activeProvider: () => providers.active().id, models: activeModels });
   router.skillReflection = new SkillReflection({ repos, skills, usage, activeProvider: () => providers.active().id, models: activeModels });
+  // Bot training: opt-in per bot, weekly, and only the owner's Approve changes a bot.
+  const training = new Training({ repos, memory, usage, activeProvider: () => providers.active().id, models: activeModels, ...opts.training });
   skills.versionsRepo.prune(repos.listBots().map((b) => b.id));
-  const offP6 = events.onEvent((ev) => { if (ev.type === 'bots.changed') skills.versionsRepo.prune(ev.bots.map((b) => b.id)); });
-  const teachApi = createTeachApi({ repos, skills, recorder, distiller });
+  training.prune(repos.listBots().map((b) => b.id));
+  const offP6 = events.onEvent((ev) => {
+    if (ev.type !== 'bots.changed') return;
+    skills.versionsRepo.prune(ev.bots.map((b) => b.id));
+    training.prune(ev.bots.map((b) => b.id));
+  });
+  const teachApi = createTeachApi({ repos, skills, recorder, distiller, training });
 
   // P4: integrations. Shared connections, per-bot grants; grants of deleted bots are dropped as bots change.
   const integrations = opts.integrations ? opts.integrations(db) : new IntegrationService({ db });
@@ -562,6 +572,7 @@ export function createHub(opts: HubOptions = {}): Hub {
           mediaTimer ??= setInterval(sweepMedia, MEDIA_SWEEP_MS);
           mediaTimer.unref();
           scheduler.start();
+          training.start();
           // P5: after resumeInterrupted, so a resumed trigger turn is not also re-fired from the inbox.
           triggers.start();
           // P9: content-free pushes for approval cards and finished routines (only to opted-in subscriptions).
@@ -591,6 +602,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       }),
     async shutdown() {
       scheduler.stop();
+      training.stop();
       triggers.stop();
       followUp.stop();
       control.stop();

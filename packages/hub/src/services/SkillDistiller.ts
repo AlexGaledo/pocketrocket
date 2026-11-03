@@ -137,7 +137,7 @@ const CORRECT_SYSTEM = [
 ].join('\n');
 
 /** Keeps data from closing the tag it is wrapped in. */
-const fence = (tag: string, body: string) => '<' + tag + '>\n' + body.replace(new RegExp('</' + tag, 'gi'), '<\\/' + tag) + '\n</' + tag + '>';
+export const fence = (tag: string, body: string) => '<' + tag + '>\n' + body.replace(new RegExp('</' + tag, 'gi'), '<\\/' + tag) + '\n</' + tag + '>';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 

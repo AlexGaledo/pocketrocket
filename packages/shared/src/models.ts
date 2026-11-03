@@ -223,9 +223,10 @@ export const MAX_ROUTING_BYTES = 2048;
 
 /**
  * What started a turn. `user` a person's message, `bot` a hand-off from another bot, `routine` a scheduled
- * routine, `trigger` an outside event (P5), `memory` the auto-memory pass, `reflection` a skill reflection pass.
+ * routine, `trigger` an outside event (P5), `memory` the auto-memory pass, `reflection` a skill reflection pass,
+ * `training` a bot training pass.
  */
-export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'memory', 'reflection'] as const;
+export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'memory', 'reflection', 'training'] as const;
 export type CauseKind = (typeof CAUSE_KINDS)[number];
 
 /** One row of a usage breakdown: `key` is a model id or a cause kind; '' for rows recorded before P8. */

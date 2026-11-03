@@ -53,7 +53,9 @@ export type ServerEvent =
   /** A recording started, stopped or grew (sent at most every few seconds while recording). */
   | { type: 'recorder.state'; status: RecorderStatus }
   /** The skill pool or a skill's versions changed; clients refetch GET /api/skills (and the open versions list). */
-  | { type: 'skills.changed'; skillId?: string };
+  | { type: 'skills.changed'; skillId?: string }
+  /** A bot's training setting or proposals changed; clients refetch GET /api/bots/:id/training. */
+  | { type: 'training.changed'; botId: string };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
@@ -80,11 +82,14 @@ export const MediaUploadSchema = z.object({
   data: z.string().max(Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
 });
 
+/** The longest a bot's description may be, however it is written. */
+export const MAX_BOT_DESCRIPTION_CHARS = 4000;
+
 export const BotInputSchema = z.object({
   name: z.string().min(1).max(40),
   handle: z.string().regex(/^[a-z0-9_-]{2,24}$/),
   title: z.string().max(80).default(''),
-  description: z.string().max(4000).default(''),
+  description: z.string().max(MAX_BOT_DESCRIPTION_CHARS).default(''),
   avatar: AvatarSchema.default(''),
   model: z.string().default('claude-sonnet-5'),
   allowedTools: z.array(z.string()).default(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch']),

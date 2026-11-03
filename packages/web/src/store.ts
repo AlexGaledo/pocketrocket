@@ -163,6 +163,8 @@ interface State {
   recorder: Record<string, RecorderStatus>;
   /** Bumped on `skills.changed`, so the Skills tab and an open version list refetch. */
   skillsRev: number;
+  /** Bumped per bot on `training.changed`, so its Training section refetches. */
+  trainingRev: Record<string, number>;
 
   setConnected: (v: boolean) => void;
   setHubIssue: (issue: HubIssue | null) => void;
@@ -240,6 +242,7 @@ export const useStore = create<State>((set, get) => ({
   policiesRev: 0,
   recorder: {},
   skillsRev: 0,
+  trainingRev: {},
 
   setConnected: (connected) => {
     const was = get().connected;
@@ -418,6 +421,9 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'skills.changed':
         set({ skillsRev: s.skillsRev + 1 });
+        return;
+      case 'training.changed':
+        set({ trainingRev: { ...s.trainingRev, [ev.botId]: (s.trainingRev[ev.botId] ?? 0) + 1 } });
         return;
       default:
         return;

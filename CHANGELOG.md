@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 PocketRocket is now called **Homeroom** in the app. Website, repository, server names and the app ID keep
 the old name for now. Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Bot training
+
+- **Training (pilot):** off by default, per bot, in the bot's Memory tab. Once a week a cheap pass reads that bot's own
+  denied approvals, failed turns and your replies, and may propose one short rule. A separate check passes or blocks it. A
+  rule reaches the bot only when you approve it, as a line under `## Lessons` in its description, and Undo takes out just
+  that line. At most $0.10 a pass and $0.25 a week per bot, shown in Usage.
+
 ### Profile pictures and group details
 
 - **Your profile:** Edit profile in the menu at the bottom left sets your name and picture. They show there and on your
