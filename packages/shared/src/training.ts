@@ -32,8 +32,8 @@ export interface TrainingProposal {
   /** What the pass read, as counts. The evidence itself is not stored. */
   evidenceSummary: string;
   verifierNote: string;
-  /** The description just before this rule was approved; null until then. A record: undo does not restore it. */
-  descriptionBefore: string | null;
+  /** Approved only: false when the owner has since edited or removed the line, so Undo has nothing exact to take out. */
+  inDescription?: boolean;
   createdAt: number;
   decidedAt: number | null;
   undoneAt: number | null;
@@ -46,8 +46,6 @@ export interface TrainingState {
   /** The end of the evidence window of the last pass that finished; null before the first. */
   lastRunAt: number | null;
   proposals: TrainingProposal[];
-  /** What this bot's passes cost in the last 7 days. */
-  spentThisWeekUsd: number;
 }
 
 /** How a pass ended. Only `proposed` and `blocked` add a proposal; REST refuses `off` and `unavailable` with a 409. */

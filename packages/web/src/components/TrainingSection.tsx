@@ -1,8 +1,9 @@
 /**
  * Bot page, Memory tab, below the writing style: the per-bot training opt-in, its proposals, and Approve / Reject /
- * Undo. Nothing here changes the bot without one of those buttons. A paired phone can read it but not act.
+ * Undo. Nothing here changes the bot without one of those buttons. A paired phone can read it but not act. BotPage keys
+ * this by bot, so a state, a busy flag or a click can never carry over from one bot's page to another's.
  */
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Check, Undo2, X } from 'lucide-react';
 import { TRAINING_PASS_BUDGET_USD, TRAINING_WEEKLY_CAP_USD, type TrainingDecision, type TrainingProposal, type TrainingState } from '@pocketrocket/shared';
 import { useStore } from '../store';
@@ -30,18 +31,19 @@ export function TrainingSection({ botId }: { botId: string }) {
   const [refused, setRefused] = useState('');
   const labelId = useId();
 
+  const latest = useRef(0);
   const load = useCallback(() => {
-    api.training.get(botId).then(setState).catch(() => setState(null));
+    const asked = ++latest.current; // an older answer never replaces a newer one
+    api.training.get(botId).then((s) => { if (asked === latest.current) setState(s); }).catch(() => { if (asked === latest.current) setState(null); });
   }, [botId]);
   useEffect(load, [load, rev]);
-  useEffect(() => setRefused(''), [botId]);
 
   if (!state) return null;
   const pending = state.proposals.filter((p) => p.status === 'pending');
   const approved = state.proposals.filter((p) => p.status === 'approved');
   const blocked = state.proposals.filter((p) => p.status === 'blocked');
 
-  /** The hub's answer says what to do next, so a refusal stays beside the buttons. */
+  /** The hub's answer says what to do next, so a refusal stays beside the buttons. `training.changed` refreshes the rest. */
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     setRefused('');
@@ -51,12 +53,14 @@ export function TrainingSection({ botId }: { botId: string }) {
       setRefused((e as Error).message);
     } finally {
       setBusy(false);
-      load();
     }
   };
-  const decide = (p: TrainingProposal, decision: TrainingDecision) => act(() => api.training.decide(botId, p.id, decision));
+  const decide = (p: TrainingProposal, decision: TrainingDecision) => act(async () => {
+    const next = await api.training.decide(botId, p.id, decision);
+    setState((s) => s && { ...s, proposals: s.proposals.map((x) => (x.id === next.id ? next : x)) });
+  });
   const runNow = () => act(async () => toast((await api.training.run(botId)).message));
-  const setEnabled = (on: boolean) => act(() => api.training.setEnabled(botId, on));
+  const setEnabled = (on: boolean) => act(async () => setState(await api.training.setEnabled(botId, on)));
 
   return (
     <section aria-label="Training" className="flex flex-col gap-2 px-3 pb-3 text-hint">
@@ -95,9 +99,9 @@ export function TrainingSection({ botId }: { botId: string }) {
         <ul aria-label="Approved lessons" className="flex flex-col gap-1">
           {approved.map((p) => (
             <li key={p.id} className="flex items-center gap-2 rounded-lg bg-card2/60 px-2 py-1">
-              <Badge tone="ok">Approved</Badge>
+              {p.inDescription === false ? <Badge>You changed this</Badge> : <Badge tone="ok">Approved</Badge>}
               <span className="min-w-0 flex-1 break-words">{p.rule}</span>
-              {!device && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide(p, 'undo')}><Undo2 size={13} aria-hidden /> Undo</Button>}
+              {!device && p.inDescription !== false && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void decide(p, 'undo')}><Undo2 size={13} aria-hidden /> Undo</Button>}
             </li>
           ))}
         </ul>

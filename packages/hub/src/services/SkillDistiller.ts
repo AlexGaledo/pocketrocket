@@ -30,6 +30,8 @@ export interface OneShotOptions {
   model: string;
   budgetUsd: number;
   system: string;
+  /** Ends the call early (the hub is shutting down). */
+  signal?: AbortSignal;
 }
 /** One model call; tests pass a fake. Must not throw (report `ok: false`). */
 export type OneShotRunner = (prompt: string, o: OneShotOptions) => Promise<PassOutcome>;
@@ -62,6 +64,8 @@ export const runOneShot: OneShotRunner = async (prompt, o) => {
   const started = Date.now();
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), PASS_TIMEOUT_MS);
+  if (o.signal?.aborted) ac.abort();
+  else o.signal?.addEventListener('abort', () => ac.abort(), { once: true });
   let ok = false;
   let error: string | undefined;
   let text = '';

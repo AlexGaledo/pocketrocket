@@ -602,7 +602,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       }),
     async shutdown() {
       scheduler.stop();
-      training.stop();
+      // Aborts a running pass and waits for it, so nothing writes to the database after it closes below.
+      await training.stop();
       triggers.stop();
       followUp.stop();
       control.stop();

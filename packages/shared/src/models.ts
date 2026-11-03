@@ -121,7 +121,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, null for user/system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;
@@ -319,6 +319,15 @@ export interface ControlStatus {
 }
 
 /** `kind: 'takeover'` message: a bot asked the user to take over its computer (log in, solve a captcha, ...). */
+/**
+ * On the system note of a turn that ended in an error. `behaviour`: something the bot itself could do differently.
+ * `external`: it was stopped, signed out, out of budget or could not reach its provider.
+ */
+export const TURN_FAILURE_BEHAVIOUR = 'behaviour';
+export interface TurnFailurePayload {
+  turnFailure: typeof TURN_FAILURE_BEHAVIOUR | 'external';
+}
+
 export interface TakeoverPayload {
   botId: string;
   reason: string;

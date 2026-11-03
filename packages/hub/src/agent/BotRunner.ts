@@ -24,6 +24,7 @@ import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
+import { turnFailureNote } from './turnFailure.js';
 import { computerToolGuard } from '../permissions/controlInterlock.js';
 
 export interface TurnRequest {
@@ -516,7 +517,7 @@ export class BotRunner {
     if (error) error = redact(error);
     if (error) {
       const msg = this.repos.insertMessage({
-        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: bot.name + ' turn ended: ' + error, payload: null,
+        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', ...turnFailureNote(bot.name, error, ac.signal.aborted),
         causeId: req.causeId, hop: req.hop, turnId,
       });
       events.emitEvent({ type: 'message.new', message: msg });

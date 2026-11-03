@@ -363,4 +363,16 @@ registerMigrations([110, 119], [
           'CREATE INDEX IF NOT EXISTS idx_training_proposals_bot ON training_proposals(bot_id, status)',
       ),
   },
+  {
+    version: 111,
+    name: 'training window, unjudged proposals, who answered an approval',
+    up: (db) => {
+      // Evidence only counts from when training was last switched on. Bots already on start from now.
+      addColumnIfMissing(db, 'training_config', 'window_start', 'INTEGER');
+      db.prepare('UPDATE training_config SET window_start=? WHERE enabled=1 AND window_start IS NULL').run(Date.now());
+      // retry: blocked only because the verifier never judged it, so it may be proposed again.
+      addColumnIfMissing(db, 'training_proposals', 'retry', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'approvals', 'decided_by', 'TEXT');
+    },
+  },
 ]);

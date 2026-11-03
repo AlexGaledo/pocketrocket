@@ -30,6 +30,8 @@ const MAX_ITEM_CHARS = 2000;
 const MAX_NOTE_CHARS = 300;
 const LESSONS_HEADING = '## Lessons';
 const LESSONS_RE = /^##[ \t]+Lessons[ \t]*\r?$/;
+const RETRY_LATER = 'Nothing changes. It will be tried again.';
+const UNREADABLE_VERDICT = "Not checked: the verifier's reply could not be read. " + RETRY_LATER;
 
 const PROPOSER_SYSTEM = [
   'You review how one AI agent (the "bot") has been doing and decide whether one short standing rule, added to its description, would stop a failure from repeating.',
@@ -55,8 +57,10 @@ const VERIFIER_SYSTEM = [
 ].join('\n');
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim();
-/** Redact first, then cut: a cut can leave half a secret that no longer looks like one. */
-const clean = (s: string, max: number) => redact(oneLine(s)).slice(0, max);
+/** Redact first: collapsing whitespace would hide a multi-line secret, and a cut can leave half of one. */
+const clean = (s: string, max: number) => oneLine(redact(s)).slice(0, max);
+/** Stored tool input is JSON, where a line break is the two characters `\n`. A multi-line secret needs the real ones. */
+const decodeBreaks = (json: string) => json.replace(/\\r/g, '\r').replace(/\\n/g, '\n');
 const count = (n: number, one: string, many = one + 's') => n + ' ' + (n === 1 ? one : many);
 
 export interface TrainingEvidence {
@@ -70,16 +74,15 @@ export interface TrainingEvidence {
 /** The bot's own evidence in the window (since, until]. Only its current rooms count. */
 export function gatherEvidence(repo: TrainingRepo, repos: Repos, botId: string, since: number, until: number): TrainingEvidence {
   const rooms = repos.listRooms().filter((r) => r.memberIds.includes(botId));
-  const inRoom = new Set(rooms.map((r) => r.id));
-  const declined = repo.declinedApprovals(botId, since, until).filter((a) => inRoom.has(a.roomId));
-  const failed = repo.failedTurns(botId, since, until).filter((f) => inRoom.has(f.roomId));
+  const declined = repo.declinedApprovals(botId, since, until);
+  const failed = repo.failedTurns(botId, since, until);
   const replies = rooms.flatMap((r) => repo.ownerReplies(r.id, botId, since, until));
   const denied = declined.filter((a) => a.status === 'deny').length;
 
   const all: { at: number; line: string }[] = [
     ...declined.map((a) => ({
       at: a.at,
-      line: '[approval ' + (a.status === 'deny' ? 'denied' : 'timed out') + '] tool ' + clean(a.toolName, 100) + ': ' + clean(a.toolInput, 600) + (a.reason ? ' (asked because: ' + clean(a.reason, 300) + ')' : ''),
+      line: '[approval ' + (a.status === 'deny' ? 'denied' : 'timed out') + '] tool ' + clean(a.toolName, 100) + ': ' + clean(decodeBreaks(a.toolInput), 600) + (a.reason ? ' (asked because: ' + clean(a.reason, 300) + ')' : ''),
     })),
     ...failed.map((f) => ({ at: f.at, line: '[failed turn] ' + clean(f.text, 800) })),
     ...replies.map((r) => ({ at: r.at, line: '[owner reply] after the bot said "' + clean(r.botText, 400) + '", the owner said "' + clean(r.text, 1400) + '"' })),
@@ -104,41 +107,58 @@ export function gatherEvidence(repo: TrainingRepo, repos: Repos, botId: string, 
   return { text, summary, items: kept.length };
 }
 
-/** One JSON object and nothing else, code fences allowed. A reply that wraps it in prose does not count. */
-function strictJson(raw: string): Record<string, unknown> | null {
-  const text = raw.trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '');
-  try {
-    const v = JSON.parse(text) as unknown;
-    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
-  } catch {
-    return null;
+/** The first JSON object `accept` takes, tolerating prose and code fences around it, the way parseReflection does. */
+function scanJson<T>(raw: string, accept: (v: Record<string, unknown>) => T | undefined): T | undefined {
+  const text = raw.replace(/```[a-z]*/gi, '');
+  const end = text.lastIndexOf('}');
+  for (let start = text.indexOf('{'); start >= 0 && start < end; start = text.indexOf('{', start + 1)) {
+    try {
+      const v = JSON.parse(text.slice(start, end + 1)) as unknown;
+      if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+      const out = accept(v as Record<string, unknown>);
+      if (out !== undefined) return out;
+    } catch {
+      /* try the next brace */
+    }
   }
+  return undefined;
 }
 
-/** The proposer's reply; null when it is not the promised JSON or the rule breaks the limit. */
-export function parseProposal(raw: string): { change: false } | { change: true; rule: string; reason: string } | null {
-  const v = strictJson(raw);
-  if (!v) return null;
-  if (v.change === false) return { change: false };
-  if (v.change !== true || typeof v.rule !== 'string' || typeof v.reason !== 'string') return null;
-  const rule = oneLine(v.rule);
-  const reason = oneLine(v.reason).slice(0, MAX_NOTE_CHARS);
-  if (!rule || !reason || rule.length > TRAINING_RULE_MAX_CHARS) return null;
-  return { change: true, rule, reason };
+type ParsedProposal = { change: false } | { change: true; rule: string; reason: string; secret: boolean };
+
+/**
+ * The proposer's reply; null when there is no such JSON or the rule breaks the limit. Rule and reason come back
+ * redacted (before their whitespace collapses); `secret` says redaction found something.
+ */
+export function parseProposal(raw: string): ParsedProposal | null {
+  const out = scanJson<ParsedProposal | null>(raw, (v) => {
+    if (typeof v.change !== 'boolean') return undefined;
+    if (!v.change) return { change: false };
+    if (typeof v.rule !== 'string' || typeof v.reason !== 'string') return null;
+    const rule = clean(v.rule, Infinity);
+    const reason = clean(v.reason, MAX_NOTE_CHARS);
+    if (!rule || !reason || rule.length > TRAINING_RULE_MAX_CHARS) return null;
+    return { change: true, rule, reason, secret: redact(v.rule) !== v.rule || redact(v.reason) !== v.reason };
+  });
+  return out ?? null;
 }
 
-/** The verifier's reply. Anything but a clear pass is a block: that is the whole point of having one. */
-export function parseVerdict(raw: string): { pass: boolean; note: string } {
-  const v = strictJson(raw);
-  const note = typeof v?.note === 'string' ? clean(v.note, MAX_NOTE_CHARS) : '';
-  if (v?.verdict === 'pass') return { pass: true, note };
-  if (v?.verdict === 'block') return { pass: false, note: note || 'Blocked by the verifier.' };
-  return { pass: false, note: "Blocked: the verifier's reply could not be read." };
+/**
+ * The verifier's reply. `judged` false: nothing readable came back. Anything but a clear pass is not a pass, so a
+ * reply that contains a block anywhere is a block, even if it also quotes a pass.
+ */
+export function parseVerdict(raw: string): { judged: boolean; pass: boolean; note: string } {
+  const v = scanJson(raw, (o) => (o.verdict === 'pass' || o.verdict === 'block' ? o : undefined));
+  if (!v) return { judged: false, pass: false, note: UNREADABLE_VERDICT };
+  const note = typeof v.note === 'string' ? clean(v.note, MAX_NOTE_CHARS) : '';
+  if (v.verdict === 'block' || /"verdict"\s*:\s*"block"/.test(raw)) return { judged: true, pass: false, note: note || 'Blocked by the verifier.' };
+  return { judged: true, pass: true, note };
 }
 
 // ---- the "## Lessons" section. Every edit is a splice of whole lines, so the other bytes never change. ----
 const lessonLine = (rule: string) => '- ' + rule;
 const sameLine = (line: string, want: string) => line.replace(/\r$/, '') === want;
+const hasLesson = (description: string, rule: string) => description.split('\n').some((l) => sameLine(l, lessonLine(rule)));
 function lastLine(lines: string[], want: string, from = 0, to = lines.length): number {
   for (let i = to - 1; i >= from; i--) if (sameLine(lines[i], want)) return i;
   return -1;
@@ -166,7 +186,7 @@ export function appendLesson(description: string, rule: string): { text: string;
 
 /**
  * The description without this rule's line; null when that exact line is gone. `dropHeading`: the rule owns the
- * heading, so if the heading is now the last line it goes too, with the blank line appendLesson put before it.
+ * heading, so if nothing but blank lines follows the heading it goes too, with the blank line appendLesson put before it.
  */
 export function removeLesson(description: string, rule: string, dropHeading: boolean): string | null {
   const line = lessonLine(rule);
@@ -176,9 +196,10 @@ export function removeLesson(description: string, rule: string, dropHeading: boo
   const at = inSection >= 0 ? inSection : lastLine(lines, line);
   if (at < 0) return null;
   lines.splice(at, 1);
-  if (dropHeading && lessonsSection(lines)?.start === lines.length - 1) {
-    lines.pop();
-    if (lines.length >= 2 && !lines[lines.length - 1]) lines.pop();
+  const left = dropHeading ? lessonsSection(lines) : null;
+  if (left && left.end === lines.length && lines.slice(left.start + 1).every((l) => !l.trim())) {
+    lines.splice(left.start, 1);
+    if (left.start >= 2 && !lines[left.start - 1]) lines.splice(left.start - 1, 1);
   }
   return lines.join('\n');
 }
@@ -209,6 +230,7 @@ export class Training {
   private job: Cron | null = null;
   private offSettings: (() => void) | null = null;
   private stopped = false;
+  private abort = new AbortController();
 
   constructor(private deps: TrainingDeps) {
     this.repo = new TrainingRepo(deps.repos.db, deps.now);
@@ -224,6 +246,7 @@ export class Training {
   // ---- schedule ----
   start() {
     this.stopped = false;
+    this.abort = new AbortController();
     this.schedule();
     let zone = this.timezone();
     this.offSettings ??= events.onEvent((ev) => {
@@ -233,12 +256,15 @@ export class Training {
       }
     });
   }
-  stop() {
+  /** Aborts the running pass, skips the queued ones, and resolves when none is left touching the database. */
+  async stop() {
     this.stopped = true;
+    this.abort.abort();
     this.job?.stop();
     this.job = null;
     this.offSettings?.();
     this.offSettings = null;
+    await this.queue;
   }
   private schedule() {
     this.job?.stop();
@@ -258,6 +284,7 @@ export class Training {
   /** The weekly run: every enabled bot, one at a time. One bot's error does not stop the others. */
   async runAll(): Promise<TrainingPassResult[]> {
     const out: TrainingPassResult[] = [];
+    if (this.stopped) return out;
     for (const id of this.repo.enabledBotIds()) {
       if (this.stopped) break;
       try {
@@ -278,8 +305,11 @@ export class Training {
 
   // ---- the pass ----
   private recordCall(botId: string, model: string, reason: string, u: TurnUsage) {
-    if (u.costUsd || u.inputTokens || u.outputTokens) {
+    if (!u.costUsd && !u.inputTokens && !u.outputTokens) return;
+    try {
       this.deps.usage.record(botId, '', 'train-' + nanoid(8), null, u, { model, routeReason: reason, causeKind: 'training' });
+    } catch (e) {
+      logError('[training ' + botId + '] could not record usage', e); // never lose the pass over its bookkeeping
     }
   }
   private spentThisWeek(botId: string) {
@@ -291,6 +321,7 @@ export class Training {
   }
 
   private async pass(botId: string): Promise<TrainingPassResult> {
+    if (this.stopped) return { outcome: 'off', message: 'The hub is shutting down.' };
     const { repos } = this.deps;
     const bot = repos.getBot(botId);
     const cfg = this.repo.config(botId);
@@ -303,7 +334,7 @@ export class Training {
     }
     // The window ends here, not when the pass does: what arrives during the calls is next week's evidence.
     const until = this.now();
-    const evidence = gatherEvidence(this.repo, repos, botId, cfg.lastRunAt ?? 0, until);
+    const evidence = gatherEvidence(this.repo, repos, botId, Math.max(cfg.lastRunAt ?? 0, cfg.windowStart ?? 0), until);
     if (!evidence.items) return { outcome: 'no_evidence', message: 'Nothing new to learn from.' };
     const spent = this.spentThisWeek(botId);
     if (spent + TRAINING_PASS_BUDGET_USD > TRAINING_WEEKLY_CAP_USD) {
@@ -315,7 +346,7 @@ export class Training {
     const description = redact(bot.description);
     const first = await run(
       [fence('description', description), fence('evidence', evidence.text), 'Should one rule be added? Reply with the JSON.'].join('\n\n'),
-      { model: choice.model, budgetUsd: TRAINING_PASS_BUDGET_USD / 2, system: PROPOSER_SYSTEM },
+      { model: choice.model, budgetUsd: TRAINING_PASS_BUDGET_USD / 2, system: PROPOSER_SYSTEM, signal: this.abort.signal },
     );
     this.recordCall(botId, choice.model, choice.reason, first.usage);
     if (this.abandoned(botId)) return { outcome: 'off', message: 'Training was switched off during the pass.' };
@@ -324,55 +355,66 @@ export class Training {
     const proposed = parseProposal(first.text);
     if (!proposed) return { outcome: 'failed', message: "The model's reply could not be read." };
     if (!proposed.change || this.alreadyKnown(bot, proposed.rule)) {
+      this.repo.clearRetries(botId);
       this.repo.setLastRun(botId, until);
       this.changed(botId);
       return { outcome: 'no_change', message: 'No change suggested.' };
     }
 
-    const rule = redact(proposed.rule);
-    const reason = redact(proposed.reason);
+    const { rule, reason } = proposed;
     let pass = false;
+    let judged = true;
     let note: string;
     const left = Math.min(TRAINING_PASS_BUDGET_USD, TRAINING_WEEKLY_CAP_USD - spent) - first.usage.costUsd;
-    if (rule !== proposed.rule || reason !== proposed.reason) {
+    if (proposed.secret) {
       note = 'Blocked: it contains something that looks like a secret.';
     } else if (left <= 0) {
-      note = 'Blocked: the budget ran out before the verifier could check it.';
+      judged = false;
+      note = 'Not checked: the budget ran out before the verifier could run. ' + RETRY_LATER;
     } else {
       // The verifier gets the rule and what to check it against. The proposer's reason stays out.
       const second = await run(
         [fence('description', description), fence('rule', rule), fence('evidence', evidence.text), 'Pass or block this rule. Reply with the JSON.'].join('\n\n'),
-        { model: choice.model, budgetUsd: left, system: VERIFIER_SYSTEM },
+        { model: choice.model, budgetUsd: left, system: VERIFIER_SYSTEM, signal: this.abort.signal },
       );
       this.recordCall(botId, choice.model, choice.reason, second.usage);
       if (this.abandoned(botId)) return { outcome: 'off', message: 'Training was switched off during the pass.' };
-      if (second.ok) ({ pass, note } = parseVerdict(second.text));
-      else note = 'Blocked: the verifier could not run.';
+      if (second.ok) ({ judged, pass, note } = parseVerdict(second.text));
+      else {
+        judged = false;
+        note = 'Not checked: the verifier could not run. ' + RETRY_LATER;
+      }
     }
 
-    const proposal = this.repo.insert({ botId, status: pass ? 'pending' : 'blocked', rule, reason, evidenceSummary: evidence.summary, verifierNote: note });
-    this.repo.setLastRun(botId, until);
+    // Fail closed either way: only a verifier's pass makes a proposal the owner can approve. A real block is final and
+    // closes the window. One that was never judged is shown as blocked, keeps the window open and is replaced next time.
+    this.repo.clearRetries(botId);
+    const proposal = this.repo.insert({ botId, status: pass ? 'pending' : 'blocked', rule, reason, evidenceSummary: evidence.summary, verifierNote: note, retry: !judged });
+    if (judged) this.repo.setLastRun(botId, until);
     this.changed(botId);
-    this.noteInTrainingRoom(bot, pass);
-    return { outcome: pass ? 'proposed' : 'blocked', message: pass ? 'One proposal is waiting for you.' : 'The verifier blocked the proposal.', proposal: publicProposal(proposal) };
+    this.noteInTrainingRoom(bot, pass ? 'pending' : judged ? 'blocked' : 'unchecked');
+    const message = pass ? 'One proposal is waiting for you.' : judged ? 'The verifier blocked the proposal.' : 'The verifier could not check the proposal. It will be tried again.';
+    return { outcome: pass ? 'proposed' : 'blocked', message, proposal: publicProposal(proposal, bot.description) };
   }
 
-  /** The description already says it, or it was already proposed. */
+  /** The description already says it, or it was decided before. A rule the owner took out of an approved lesson may come back. */
   private alreadyKnown(bot: Bot, rule: string) {
     const key = rule.toLowerCase();
     return bot.description.split('\n').some((l) => oneLine(l.replace(/^[\s\-*]+/, '')).toLowerCase() === key)
-      || this.repo.list(bot.id).some((p) => p.rule.toLowerCase() === key);
+      || this.repo.list(bot.id).some((p) => p.rule.toLowerCase() === key && !p.retry && p.status !== 'approved');
   }
 
   /** Into a group named "Training", if there is one. A system note with no @ and no rule text: it triggers nobody. */
-  private noteInTrainingRoom(bot: Bot, pending: boolean) {
+  private noteInTrainingRoom(bot: Bot, what: 'pending' | 'blocked' | 'unchecked') {
     const { repos } = this.deps;
     const room = repos.listRooms().find((r) => r.kind === 'group' && r.name.trim().toLowerCase() === 'training');
     if (!room) return;
     const name = bot.name.replace(/@/g, '');
     const msg = repos.insertMessage({
       roomId: room.id, authorType: 'system', authorId: null, kind: 'system',
-      text: pending ? 'Training: ' + name + ' has a proposal for you to review on its bot page.' : 'Training: the verifier blocked a proposal for ' + name + '. It is on the bot page.',
+      text: what === 'pending' ? 'Training: ' + name + ' has a proposal for you to review on its bot page.'
+        : what === 'blocked' ? 'Training: the verifier blocked a proposal for ' + name + '. It is on the bot page.'
+        : 'Training: a proposal for ' + name + ' could not be checked. It will be tried again.',
       payload: null, causeId: null, hop: 0, turnId: null,
     });
     events.emitEvent({ type: 'message.new', message: msg });
@@ -384,8 +426,9 @@ export class Training {
 
   // ---- REST ----
   state(botId: string): TrainingState {
-    const cfg = this.repo.config(botId);
-    return { botId, ...cfg, proposals: this.repo.list(botId).map(publicProposal), spentThisWeekUsd: this.spentThisWeek(botId) };
+    const { enabled, lastRunAt } = this.repo.config(botId);
+    const description = this.deps.repos.getBot(botId)?.description ?? '';
+    return { botId, enabled, lastRunAt, proposals: this.repo.list(botId).map((p) => publicProposal(p, description)) };
   }
   setEnabled(botId: string, enabled: boolean): TrainingState {
     this.repo.setEnabled(botId, enabled);
@@ -402,7 +445,7 @@ export class Training {
     else if (decision === 'approve') this.approve(bot, p);
     else this.repo.markRejected(p.id);
     this.changed(botId);
-    return publicProposal(this.repo.get(id)!);
+    return publicProposal(this.repo.get(id)!, this.deps.repos.getBot(botId)?.description ?? '');
   }
 
   private approve(bot: Bot, p: StoredTrainingProposal) {
@@ -410,12 +453,13 @@ export class Training {
     if (text.length > MAX_BOT_DESCRIPTION_CHARS) {
       throw new TrainingError(409, 'This lesson would make the description ' + text.length + ' characters, over the limit of ' + MAX_BOT_DESCRIPTION_CHARS + '. Shorten the description first. Nothing changed.');
     }
-    if (bot.description.split('\n').some((l) => sameLine(l, lessonLine(p.rule)))) {
+    if (hasLesson(bot.description, p.rule)) {
       throw new TrainingError(409, 'The description already has this lesson. Nothing changed.');
     }
     this.deps.repos.db.tx(() => {
       this.writeDescription(bot.id, text);
       this.repo.markApproved(p.id, bot.description, headingAdded);
+      this.repo.supersede(bot.id, p.rule, p.id);
     });
     events.emitEvent({ type: 'bots.changed', bots: this.deps.repos.listBots() });
   }
@@ -444,7 +488,7 @@ export class Training {
   }
 }
 
-function publicProposal(p: StoredTrainingProposal): TrainingProposal {
-  const { headingAdded: _, ...rest } = p;
-  return rest;
+function publicProposal(p: StoredTrainingProposal, description: string): TrainingProposal {
+  const { headingAdded: _h, descriptionBefore: _d, retry: _r, ...rest } = p;
+  return p.status === 'approved' ? { ...rest, inDescription: hasLesson(description, p.rule) } : rest;
 }
