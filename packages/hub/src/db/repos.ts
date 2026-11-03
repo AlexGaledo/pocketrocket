@@ -403,8 +403,9 @@ export class Repos {
       a.id, a.botId, a.roomId, a.turnId, a.toolName, JSON.stringify(a.toolInput ?? null), a.reason, 'pending', now(),
     );
   }
-  decideApproval(id: string, status: string) {
-    this.db.run('UPDATE approvals SET status=?, decided_at=? WHERE id=?', status, now(), id);
+  /** `decidedBy`: 'owner' when a person answered the card. An aborted turn records `deny` with no one behind it. */
+  decideApproval(id: string, status: string, decidedBy: 'owner' | null = null) {
+    this.db.run('UPDATE approvals SET status=?, decided_at=?, decided_by=? WHERE id=?', status, now(), decidedBy, id);
   }
   /** Cards still waiting for an answer, parked ones included (expirePendingApprovals clears the rest at startup). */
   openApprovals(): OpenApproval[] {

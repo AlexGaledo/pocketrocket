@@ -342,3 +342,37 @@ registerMigrations([100, 109], [
   // bots.avatar needs no change: it is plain TEXT, and only BotInputSchema ever held it to 8 characters.
   { version: 102, name: 'rooms.avatar', up: (db) => addColumnIfMissing(db, 'rooms', 'avatar', "TEXT NOT NULL DEFAULT ''") },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+// [110, 119]: bot training pilot (services/Training.ts). `heading_added`: this approved rule owns the "## Lessons"
+// heading it created, so undoing the last lesson can take the heading away too.
+registerMigrations([110, 119], [
+  {
+    version: 110,
+    name: 'bot training',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS training_config (' +
+          'bot_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, last_run_at INTEGER);' +
+          'CREATE TABLE IF NOT EXISTS training_proposals (' +
+          'id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, ' +
+          "status TEXT NOT NULL CHECK(status IN ('pending','blocked','approved','rejected','undone')), " +
+          "rule TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', evidence_summary TEXT NOT NULL DEFAULT '', " +
+          "verifier_note TEXT NOT NULL DEFAULT '', description_before TEXT, heading_added INTEGER NOT NULL DEFAULT 0, " +
+          'created_at INTEGER NOT NULL, decided_at INTEGER, undone_at INTEGER);' +
+          'CREATE INDEX IF NOT EXISTS idx_training_proposals_bot ON training_proposals(bot_id, status)',
+      ),
+  },
+  {
+    version: 111,
+    name: 'training window, unjudged proposals, who answered an approval',
+    up: (db) => {
+      // Evidence only counts from when training was last switched on. Bots already on start from now.
+      addColumnIfMissing(db, 'training_config', 'window_start', 'INTEGER');
+      db.prepare('UPDATE training_config SET window_start=? WHERE enabled=1 AND window_start IS NULL').run(Date.now());
+      // retry: blocked only because the verifier never judged it, so it may be proposed again.
+      addColumnIfMissing(db, 'training_proposals', 'retry', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'approvals', 'decided_by', 'TEXT');
+    },
+  },
+]);

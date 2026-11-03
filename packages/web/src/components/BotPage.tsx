@@ -8,6 +8,7 @@ import { api, ApiError } from '../lib/api';
 import { hasComputer } from '../lib/screenView';
 import { Avatar, Badge, Button, Input, Label, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn } from './ui';
 import { VoicePanel } from './VoicePanel';
+import { TrainingSection } from './TrainingSection';
 import { SkillGitImport } from './SkillGitImport';
 import { TriggersSection } from './TriggersSection';
 import { TeachBar } from './TeachControls';
@@ -55,7 +56,7 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
           </TabsList>
         </div>
         <PageBody>
-          <TabsContent value="memory"><MemoryTab botId={bot.id} /><VoicePanel botId={bot.id} /></TabsContent>
+          <TabsContent value="memory"><MemoryTab botId={bot.id} /><VoicePanel botId={bot.id} /><TrainingSection key={bot.id} botId={bot.id} /></TabsContent>
           <TabsContent value="skills"><SkillsTab botId={bot.id} /></TabsContent>
           <TabsContent value="automations"><RoutinesSection botId={bot.id} /><TriggersSection botId={bot.id} /></TabsContent>
           <TabsContent value="computer"><ComputerTab bot={bot} /></TabsContent>

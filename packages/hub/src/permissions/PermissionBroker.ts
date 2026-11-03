@@ -270,7 +270,7 @@ export class PermissionBroker {
     const store = this.opts.store;
     const p = store?.getParked(approvalId);
     if (!store || !p) return false;
-    this.repos.decideApproval(approvalId, decision);
+    this.repos.decideApproval(approvalId, decision, decision === 'timeout' ? null : 'owner');
     const input = (p.toolInput ?? {}) as Record<string, unknown>;
     if (decision === 'allow' || decision === 'always') {
       this.parkedGrants.set(this.grantKey(p.botId, p.toolName, input), this.now() + PARKED_GRANT_TTL_MS);
@@ -525,6 +525,7 @@ export class PermissionBroker {
     events.emitEvent({ type: 'approval.request', roomId: ctx.room.id, botId: ctx.bot.id, messageId: msg.id, approval: payload });
     ctx.setState('blocked');
 
+    let aborted = false;
     const decision = await new Promise<Decision>((resolve) => {
       const finish = (d: Decision) => {
         clearTimeout(timer);
@@ -532,7 +533,7 @@ export class PermissionBroker {
         this.pending.delete(approvalId);
         resolve(d);
       };
-      const onAbort = () => finish('deny');
+      const onAbort = () => { aborted = true; finish('deny'); };
       // P2: a strict (routine/trigger) turn nobody is watching parks instead of timing out: the card stays
       // pending, the turn ends and frees its slot, and the answer resumes the bot later (resolveParked).
       const canPark = !!(ctx.strictApprovals && ctx.park && this.opts.store);
@@ -552,7 +553,7 @@ export class PermissionBroker {
       ctx.park?.('waiting for an answer to "' + toolName + '"');
       return { decision, approvalId };
     }
-    this.repos.decideApproval(approvalId, decision);
+    this.repos.decideApproval(approvalId, decision, aborted || decision === 'timeout' ? null : 'owner');
     if (decision === 'always') this.rememberSession(ctx.bot.id, toolName, input, danger);
     const updated = this.repos.updateMessage(msg.id, { payload: { ...payload, status: decision } });
     if (updated) events.emitEvent({ type: 'message.update', id: msg.id, roomId: ctx.room.id, patch: { payload: updated.payload } });

@@ -8,6 +8,7 @@ import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pock
 import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
+import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -225,6 +226,13 @@ export const api = {
     reflection: (botId: string) => req<SkillReflectionConfig>('GET', '/api/bots/' + encodeURIComponent(botId) + '/skill-reflection'),
     setReflection: (botId: string, patch: Partial<Omit<SkillReflectionConfig, 'botId'>>) =>
       req<SkillReflectionConfig>('PUT', '/api/bots/' + encodeURIComponent(botId) + '/skill-reflection', patch),
+  },
+  training: {
+    get: (botId: string) => req<TrainingState>('GET', '/api/bots/' + encodeURIComponent(botId) + '/training'),
+    setEnabled: (botId: string, enabled: boolean) => req<TrainingState>('PUT', '/api/bots/' + encodeURIComponent(botId) + '/training', { enabled }),
+    run: (botId: string) => req<TrainingPassResult>('POST', '/api/bots/' + encodeURIComponent(botId) + '/training/run', {}),
+    decide: (botId: string, id: string, decision: TrainingDecision) =>
+      req<TrainingProposal>('POST', '/api/bots/' + encodeURIComponent(botId) + '/training/proposals/' + encodeURIComponent(id), { decision }),
   },
 };
 

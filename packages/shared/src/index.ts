@@ -10,3 +10,5 @@ export * from './integrations.js';
 export * from './triggers.js';
 // P6
 export * from './teach.js';
+// Bot training pilot
+export * from './training.js';

@@ -121,7 +121,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, null for user/system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;
@@ -223,9 +223,10 @@ export const MAX_ROUTING_BYTES = 2048;
 
 /**
  * What started a turn. `user` a person's message, `bot` a hand-off from another bot, `routine` a scheduled
- * routine, `trigger` an outside event (P5), `memory` the auto-memory pass, `reflection` a skill reflection pass.
+ * routine, `trigger` an outside event (P5), `memory` the auto-memory pass, `reflection` a skill reflection pass,
+ * `training` a bot training pass.
  */
-export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'memory', 'reflection'] as const;
+export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'memory', 'reflection', 'training'] as const;
 export type CauseKind = (typeof CAUSE_KINDS)[number];
 
 /** One row of a usage breakdown: `key` is a model id or a cause kind; '' for rows recorded before P8. */
@@ -318,6 +319,15 @@ export interface ControlStatus {
 }
 
 /** `kind: 'takeover'` message: a bot asked the user to take over its computer (log in, solve a captcha, ...). */
+/**
+ * On the system note of a turn that ended in an error. `behaviour`: something the bot itself could do differently.
+ * `external`: it was stopped, signed out, out of budget or could not reach its provider.
+ */
+export const TURN_FAILURE_BEHAVIOUR = 'behaviour';
+export interface TurnFailurePayload {
+  turnFailure: typeof TURN_FAILURE_BEHAVIOUR | 'external';
+}
+
 export interface TakeoverPayload {
   botId: string;
   reason: string;

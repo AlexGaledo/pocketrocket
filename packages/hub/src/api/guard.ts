@@ -345,6 +345,8 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/skills\/[^/]+\/versions$/],
   ['GET', /^\/api\/skills\/[^/]+\/versions\/[^/]+$/],
   ['GET', /^\/api\/bots\/[^/]+\/skill-reflection$/],
+  // Bot training: a phone may read it. The switch, Run now and Approve / Reject / Undo stay desktop actions.
+  ['GET', /^\/api\/bots\/[^/]+\/training$/],
 ];
 
 /**

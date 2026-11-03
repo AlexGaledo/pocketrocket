@@ -148,6 +148,7 @@ export function route(req: RouteRequest): RouteChoice {
   if (!isAuto(req.bot)) return pinned(req);
   if (req.causeKind === 'memory') return choose(req, 'haiku', 'background', 'for the auto-memory pass');
   if (req.causeKind === 'reflection') return choose(req, 'haiku', 'background', 'for the skill reflection pass');
+  if (req.causeKind === 'training') return choose(req, 'haiku', 'background', 'for the bot training pass');
   const asked = req.causeKind === 'user' ? explicitRequest(req.latestUserText ?? '') : null;
   if (asked) return choose(req, 'opus', 'explicit', 'because the message asked ("' + asked + '")');
   const ownText = req.causeKind === 'user' ? req.latestUserText : req.causeKind === 'routine' ? req.routinePrompt : undefined;

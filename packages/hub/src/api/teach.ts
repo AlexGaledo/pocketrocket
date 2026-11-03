@@ -2,12 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { z } from 'zod';
 import {
   DistillInputSchema, RecorderStartSchema, SkillCorrectionSchema, SkillReflectionPatchSchema, SkillVersionDecisionSchema,
+  TrainingDecisionSchema, TrainingPatchSchema,
 } from '@pocketrocket/shared';
 import { readBody } from './body.js';
 import type { Repos } from '../db/repos.js';
 import { RecorderError, type Recorder } from '../services/Recorder.js';
 import { DistillError, type SkillDistiller } from '../services/SkillDistiller.js';
 import type { SkillService } from '../services/SkillService.js';
+import { TrainingError, type Training } from '../services/Training.js';
 import { events } from '../events.js';
 
 class HttpError extends Error {
@@ -35,9 +37,16 @@ interface Route { method: string; pattern: RegExp; keys: string[]; handler: (c: 
  *   POST   /api/skills/:id/versions/:vid                  { decision: approve|reject }
  *   POST   /api/skills/:id/corrections                    { text }  → SkillVersion (pending)
  *   GET|PUT /api/bots/:id/skill-reflection                SkillReflectionConfig
+ *
+ * The bot training pilot lives here too. A phone may read it; everything that spends or changes a bot is desktop.
+ *
+ *   GET    /api/bots/:id/training                         TrainingState
+ *   PUT    /api/bots/:id/training                         { enabled }  → TrainingState
+ *   POST   /api/bots/:id/training/run                     TrainingPassResult
+ *   POST   /api/bots/:id/training/proposals/:pid          { decision: approve|reject|undo }  → TrainingProposal
  */
-export function createTeachApi(deps: { repos: Repos; skills: SkillService; recorder: Recorder; distiller: SkillDistiller }) {
-  const { repos, skills, recorder, distiller } = deps;
+export function createTeachApi(deps: { repos: Repos; skills: SkillService; recorder: Recorder; distiller: SkillDistiller; training: Training }) {
+  const { repos, skills, recorder, distiller, training } = deps;
   const routes: Route[] = [];
   const add = (method: string, path: string, handler: Route['handler']) => {
     const keys: string[] = [];
@@ -110,6 +119,12 @@ export function createTeachApi(deps: { repos: Repos; skills: SkillService; recor
     return out;
   });
 
+  add('GET', '/api/bots/:id/training', ({ params }) => training.state(bot(params.id).id));
+  add('PUT', '/api/bots/:id/training', ({ params, body }) => training.setEnabled(bot(params.id).id, parse(TrainingPatchSchema, body).enabled));
+  add('POST', '/api/bots/:id/training/run', ({ params }) => training.runNow(bot(params.id).id));
+  add('POST', '/api/bots/:id/training/proposals/:pid', ({ params, body }) =>
+    training.decide(bot(params.id).id, params.pid, parse(TrainingDecisionSchema, body).decision));
+
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const method = req.method ?? 'GET';
@@ -129,7 +144,7 @@ export function createTeachApi(deps: { repos: Repos; skills: SkillService; recor
       try {
         return send(res, 200, (await r.handler({ params, body })) ?? { ok: true });
       } catch (e) {
-        const status = e instanceof HttpError || e instanceof RecorderError || e instanceof DistillError ? e.status : 500;
+        const status = e instanceof HttpError || e instanceof RecorderError || e instanceof DistillError || e instanceof TrainingError ? e.status : 500;
         if (status === 500) console.error(e);
         return send(res, status, { error: (e as Error).message ?? String(e) });
       }

@@ -289,6 +289,7 @@ const CAUSE_LABEL: Record<CauseKind, string> = {
   bot: 'Passed between bots',
   routine: 'Schedules',
   trigger: 'Triggers',
+  training: 'Training',
   memory: 'Auto-memory',
   reflection: 'Skill fixes',
 };
