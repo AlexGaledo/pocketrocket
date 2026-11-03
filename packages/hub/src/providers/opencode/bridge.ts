@@ -140,8 +140,8 @@ export class McpBridge {
       res.end(JSON.stringify({
         jsonrpc: '2.0',
         error: ambiguous
-          ? { code: -32004, message: 'Homeroom could not tell which bot this tool call belongs to (several turns are running). Retry it on its own.' }
-          : { code: -32002, message: 'no active Homeroom turn' },
+          ? { code: -32004, message: 'PocketRocket could not tell which bot this tool call belongs to (several turns are running). Retry it on its own.' }
+          : { code: -32002, message: 'no active PocketRocket turn' },
         id: null,
       }));
       return;

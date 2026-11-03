@@ -39,7 +39,7 @@ export function resolveGrokExe(): string {
  */
 export function grokConfigToml(): string {
   return [
-    '# Written by Homeroom. Edits are overwritten on the next turn.',
+    '# Written by PocketRocket. Edits are overwritten on the next turn.',
     '[cli]',
     'auto_update = false',
     '',

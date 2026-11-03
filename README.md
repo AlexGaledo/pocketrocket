@@ -1,6 +1,6 @@
-<p align="center"><img src="packages/site/assets/rocket.svg" alt="Homeroom logo" width="96" height="96" /></p>
+<p align="center"><img src="packages/site/assets/rocket.svg" alt="PocketRocket logo" width="96" height="96" /></p>
 
-# Homeroom
+# PocketRocket
 
 **Your pocket fleet of AI agents.**
 
@@ -10,13 +10,13 @@
 [![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket?include_prereleases&label=release)](https://github.com/AlexGaledo/pocketrocket/releases)
 ![Desktop](https://img.shields.io/badge/desktop-Windows-blue)
 
-Homeroom is a messenger for a team of AI bots that run on your own computer with your Claude
+PocketRocket is a messenger for a team of AI bots that run on your own computer with your Claude
 subscription. Each bot has its own name, memory, skills and routines. Message one directly, put a
 few in a group chat to hand work to each other, and approve anything risky before it happens.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="packages/site/assets/app-dark.png" />
-  <img alt="Homeroom: a DM with a bot that writes a file in the workspace, showing the tool step inline, with the room's estimated usage in the right panel." src="packages/site/assets/app.png" />
+  <img alt="PocketRocket: a DM with a bot that writes a file in the workspace, showing the tool step inline, with the room's estimated usage in the right panel." src="packages/site/assets/app.png" />
 </picture>
 
 ## Install and set up
@@ -40,20 +40,20 @@ Double-click the file. The installer isn't code-signed yet, so Windows SmartScre
 protected your PC"*: click **More info** → **Run anyway**. It installs for your user only, adds a
 Start menu shortcut, and doesn't need administrator rights.
 
-### 3. Choose where Homeroom runs
+### 3. Choose where PocketRocket runs
 
 On first launch the app shows **Where your bots run** and waits for you to pick:
 
 - **This PC** (recommended to start). Everything runs and stays on this computer.
-- **Server over SSH.** If you already run Homeroom on a Linux server, press **Find my servers**:
+- **Server over SSH.** If you already run PocketRocket on a Linux server, press **Find my servers**:
   the app lists the hosts in your `~/.ssh/config` without connecting to any of them. Tick the ones
   to check and press **Scan**. Each shows **Running**, **Installed, not running**, **No
-  Homeroom**, **Needs your SSH key**, **New host key**, **Host key changed** or
+  PocketRocket**, **Needs your SSH key**, **New host key**, **Host key changed** or
   **Unreachable**. Pick a running one to connect. It only ever uses your SSH key, never a password.
   A new host key shows its fingerprint for you to confirm; a changed key is refused. Setting up a
   server is covered in [docs/SERVER.md](docs/SERVER.md).
 
-You can switch later from the **Connection** menu.
+You can switch later: **Connection settings** in the tray icon menu.
 
 ### 4. Connect Claude
 
@@ -75,7 +75,7 @@ key instead? Choose **Skip for now** and add it later in **Settings → Claude**
 ### 5. Finish the wizard
 
 1. **Your name**: what bots call you.
-2. **Account** (optional): a Homeroom account is only for future paid plans. **Skip for now**
+2. **Account** (optional): a PocketRocket account is only for future paid plans. **Skip for now**
    is fine; everything works signed out.
 3. **Your first bot**: pick **Assistant**, **Coder** or **Researcher**. You can rename and retune it
    any time. Its chat opens straight away.
@@ -91,18 +91,18 @@ key instead? Choose **Skip for now** and add it later in **Settings → Claude**
   it.
 - **Right panel**: each bot's memory, skills, routines (scheduled check-ins) and usage.
 
-What bots can and can't do, and everything else Homeroom offers, is in
+What bots can and can't do, and everything else PocketRocket offers, is in
 [docs/GUIDE.md](docs/GUIDE.md). Read [SECURITY.md](SECURITY.md) before giving a bot the Browser
 or Desktop tool.
 
 ## Updating
 
-There's no auto-updater yet. **Help → Check for updates** opens the releases page: download the
+There's no auto-updater yet. **Check for updates** in the tray icon menu opens the releases page: download the
 newer installer and run it over the existing install. Your bots, chats and settings are kept.
 
 ## Uninstalling
 
-**Settings → Apps → Installed apps → Homeroom → Uninstall.** The installer only ever added the
+**Settings → Apps → Installed apps → PocketRocket → Uninstall.** The installer only ever added the
 app folder and its shortcuts: no service, no scheduled task, no autostart entry.
 
 **Your data is kept by default.** Uninstalling removes the program, not
@@ -118,18 +118,18 @@ delete all bots, conversations and settings"** in the uninstaller (unchecked by 
 | *Claude Code isn't set up on this computer yet* | Run the PowerShell install command from step 4; the wizard picks it up by itself. |
 | *Found Claude Code but it didn't respond* | Wait a moment and choose **Check again**. The first start after installing can be slow. |
 | *Claude needs sign-in* in the sidebar | Run `claude` in a terminal and log in. |
-| *Can't reach the hub* | Choose **Retry**. If it keeps failing, **View → Open hub log** shows why. |
+| *Can't reach the hub* | Choose **Retry**. If it keeps failing, **Open hub log** in the tray icon menu shows why. |
 | A server shows *Needs your SSH key* | Start the **OpenSSH Authentication Agent** service and run `ssh-add`, then scan again. |
 | A server shows *New host key* | Compare the fingerprint with the one your hosting provider shows, then confirm. |
 | A server shows *Host key changed* | Don't connect. Check with whoever runs the server; this can mean someone is intercepting the connection. |
-| Connection settings open while you're connected | Press **Back to Homeroom**. |
+| Connection settings open while you're connected | Press **Back to PocketRocket**. |
 
 Still stuck? [Open an issue](https://github.com/AlexGaledo/pocketrocket/issues/new/choose).
 
 ## More
 
 - [docs/GUIDE.md](docs/GUIDE.md): features, how bots, rooms, memory and approvals work
-- [docs/SERVER.md](docs/SERVER.md): run Homeroom on a Linux server
+- [docs/SERVER.md](docs/SERVER.md): run PocketRocket on a Linux server
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): run from source (macOS, Linux) and build the installer
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): every setting and environment variable
 - [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md)

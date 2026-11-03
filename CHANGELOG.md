@@ -7,8 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-PocketRocket is now called **Homeroom** in the app. Website, repository, server names and the app ID keep
-the old name for now. Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
+Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
+
+### Identity and permissions
+
+- The owner has a stable user id, separate from the display name. Renaming no longer makes bots treat the owner as a stranger; earlier names are kept. `GET /api/me` returns the current user.
+- New permission level, Read only, beside Approval and Full permission. Pick it next to the model above the Send button or in Settings. It applies to all bots.
+
+### Desktop
+
+- No menu bar, and the app opens full screen. Connection settings, Reload, logs, updates, About and Quit are in the tray menu.
+
+### Group chats and defaults
+
+- The bot list leaves out bots already in a group, and every group chat is always shown with an edit button. The message box grows with your text, and the status shows a colored dot.
+- New bots default to a $50 budget.
 
 ### Bot training
 

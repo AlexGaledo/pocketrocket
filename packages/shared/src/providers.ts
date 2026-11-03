@@ -76,11 +76,13 @@ export interface ProvidersResponse {
 
 // ---------- Settings (global, stored in the `settings` table) ----------
 /**
- * 'ask' = the approval flow: anything outside the workspace, risky shell commands and fleet changes raise a
- * card. 'bypass' = no cards at all. `POCKETROCKET_BYPASS_PERMISSIONS` on the hub overrides the stored value
- * and locks it (GET /api/health → `approvalsLocked`).
+ * 'read-only' = nothing writes: file edits, shell commands not on the safe/read allowlist, fleet/room/routine
+ * changes and integration sends are all refused with no card, not even asked. 'ask' = the approval flow:
+ * anything outside the workspace, risky shell commands and fleet changes raise a card. 'bypass' = no cards
+ * at all. `POCKETROCKET_BYPASS_PERMISSIONS` on the hub overrides the stored value and locks it to 'ask' or
+ * 'bypass' (GET /api/health → `approvalsLocked`); it has no read-only setting.
  */
-export const APPROVALS = ['ask', 'bypass'] as const;
+export const APPROVALS = ['read-only', 'ask', 'bypass'] as const;
 export type Approvals = (typeof APPROVALS)[number];
 
 /** True for a time zone this runtime knows (`Asia/Manila`, `UTC`, …). */

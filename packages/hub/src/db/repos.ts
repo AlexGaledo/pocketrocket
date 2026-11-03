@@ -3,6 +3,7 @@ import {
   AUTO_MEMORY_EVERY,
   type Bot, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
   type CauseKind, type UsageGroup, type OpenApproval,
+  type User,
 } from '@pocketrocket/shared';
 import type { Db, Row } from './db.js';
 
@@ -14,6 +15,28 @@ const SUM =
 
 export class Repos {
   constructor(readonly db: Db) {}
+
+  /** The hub's owner. Created by migration 112, so it always exists. */
+  owner(): User {
+    const r = this.db.get("SELECT * FROM users WHERE role='owner' ORDER BY created_at LIMIT 1") as Record<string, unknown>;
+    return {
+      id: r.id as string,
+      displayName: r.display_name as string,
+      role: r.role as User['role'],
+      previousNames: JSON.parse(r.previous_names as string) as string[],
+      createdAt: r.created_at as number,
+    };
+  }
+
+  /** Changes the owner's name and keeps the old one, so notes written under it still point at them. The id never changes. */
+  renameOwner(name: string): User {
+    const cur = this.owner();
+    if (name === cur.displayName) return cur;
+    const kept = cur.displayName && !cur.previousNames.includes(cur.displayName) ? [...cur.previousNames, cur.displayName] : cur.previousNames;
+    const previous = kept.filter((n) => n !== name);
+    this.db.run('UPDATE users SET display_name=?, previous_names=? WHERE id=?', name, JSON.stringify(previous), cur.id);
+    return this.owner();
+  }
 
   // ---------- bots ----------
   private rowToBot(r: Row): Bot {

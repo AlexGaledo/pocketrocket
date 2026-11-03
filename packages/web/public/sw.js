@@ -1,5 +1,5 @@
 /*
- * Homeroom service worker (P9).
+ * PocketRocket service worker (P9).
  *
  * Caches the APP SHELL only: index.html, the hashed /assets/* bundles, icons and the manifest, so the app
  * opens instantly and installs as a PWA. It never caches what the hub says: /api/*, /ws, /screen/*, /auth/*,
@@ -62,9 +62,9 @@ self.addEventListener('fetch', (event) => {
 });
 
 const TEXT = {
-  approval: { title: 'A bot needs your approval', body: 'Open Homeroom to review it.' },
-  routine: { title: 'Routine finished', body: 'Open Homeroom to see the result.' },
-  test: { title: 'Test notification from Homeroom', body: 'Notifications work on this device.' },
+  approval: { title: 'A bot needs your approval', body: 'Open PocketRocket to review it.' },
+  routine: { title: 'Routine finished', body: 'Open PocketRocket to see the result.' },
+  test: { title: 'Test notification from PocketRocket', body: 'Notifications work on this device.' },
 };
 
 self.addEventListener('push', (event) => {

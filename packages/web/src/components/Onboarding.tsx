@@ -97,7 +97,7 @@ export function Onboarding() {
     const saved = await updateSettings({ onboarded: true, userName: name.trim() || settings.userName });
     setBusy(false);
     if (saved) play('connected');
-    else setError("Couldn't save. Check Homeroom is running.");
+    else setError("Couldn't save. Check PocketRocket is running.");
   };
 
   const createBot = async (tpl: (typeof TEMPLATES)[number]) => {
@@ -130,13 +130,13 @@ export function Onboarding() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up Homeroom">
+    <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
       {/* m-auto rather than centring from the overlay: a card taller than a small window can still scroll to its top. */}
       <div className="panel m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8">
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
             <RocketMark />
-            <div className="text-title">Homeroom</div>
+            <div className="text-title">PocketRocket</div>
             <div className="text-ui font-medium text-muted">Your pocket fleet of AI agents</div>
             <p className="max-w-[42ch] text-ui leading-relaxed text-muted">
               AI bots that work for you. You approve risky steps.
@@ -245,7 +245,7 @@ export function Onboarding() {
               {botCreated ? "Your first bot is ready — say hi." : 'Create a bot whenever you like from the sidebar.'}
             </p>
             <Button variant="primary" autoFocus disabled={busy} onClick={() => void finish()}>
-              {busy ? 'Saving…' : error ? 'Try again' : 'Start using Homeroom'}
+              {busy ? 'Saving…' : error ? 'Try again' : 'Start using PocketRocket'}
             </Button>
           </div>
         )}

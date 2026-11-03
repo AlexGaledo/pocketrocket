@@ -8,7 +8,7 @@ import { restrictFile } from '../config.js';
  *   - RFC 8292 (VAPID): an ES256 JWT signed with a key pair minted on this machine, so the push service knows
  *     which application server is talking. Nothing is registered anywhere.
  *   - RFC 8291 (message encryption, `aes128gcm` from RFC 8188): the payload is encrypted to the browser's own
- *     key, so Apple/Google/Mozilla carry ciphertext only. And Homeroom's payloads are content-free anyway
+ *     key, so Apple/Google/Mozilla carry ciphertext only. And PocketRocket's payloads are content-free anyway
  *     (decision Q10): `{"kind":"approval"}` and nothing else.
  */
 

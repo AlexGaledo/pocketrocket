@@ -93,7 +93,7 @@ export const BotInputSchema = z.object({
   avatar: AvatarSchema.default(''),
   model: z.string().default('claude-sonnet-5'),
   allowedTools: z.array(z.string()).default(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch']),
-  maxBudgetUsd: z.number().min(0.05).max(50).default(2),
+  maxBudgetUsd: z.number().min(0.05).max(50).default(50),
   // Optional rather than defaulted: the hub fills them in (on, every 10), so existing clients and
   // templates need not send them.
   autoMemory: z.boolean().optional(),

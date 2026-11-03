@@ -282,6 +282,7 @@ export class BotRunner {
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
+        owner: this.repos.owner(),
         bot, room, members: req.members, hop: req.hop, memory: memoryText, identity,
         browser: browserOn, desktop: desktopOn,
         toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',

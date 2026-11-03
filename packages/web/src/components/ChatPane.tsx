@@ -3,7 +3,7 @@ import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Info, Monitor, Se
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
 import { RocketMark } from './RocketMark';
 import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload } from '@pocketrocket/shared';
-import type { TriggerPayload } from '@pocketrocket/shared';
+import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
 import { Avatar, Badge, Button, Menu, MenuContent, RoomAvatar, UserAvatar, cn, fmtTime } from './ui';
@@ -492,11 +492,30 @@ function Composer({ members }: { members: Bot[] }) {
   const control = useStore((s) => s.control);
   // Hidden on a paired phone, and on a provider whose models the picker's options do not name.
   const showPicker = useStore((s) => !s.device && s.settings.provider === 'claude');
+  // A paired phone may not change settings, and the hub would refuse it.
+  const showPermissions = useStore((s) => !s.device);
   const [text, setText] = useState('');
   const [mentionIdx, setMentionIdx] = useState(0);
   // Escape hides the popup for the @word being typed; typing on reopens it.
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+
+  // Grows with the text like a chat app's composer usually does, instead of stopping at a fixed line
+  // count: tall on a tall screen, never past a third of the viewport, scrollable past that.
+  const resize = () => {
+    const el = ref.current;
+    if (!el) return;
+    const cap = Math.round(window.innerHeight / 3);
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, cap) + 'px';
+    el.style.overflowY = el.scrollHeight > cap ? 'auto' : 'hidden';
+  };
+  useLayoutEffect(resize, [text]);
+  // The cap is a third of the window, so rotating a tablet or resizing the window should move it too.
+  useEffect(() => {
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
 
   const activeTurns = Object.entries(streaming).filter(([, v]) => v.roomId === roomId);
   const mentionQuery = useMemo(() => {
@@ -556,14 +575,17 @@ function Composer({ members }: { members: Bot[] }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKey}
-            rows={Math.min(8, Math.max(1, text.split('\n').length))}
+            rows={1}
             placeholder={hint}
             aria-label={room?.kind === 'group' ? 'Message #' + room.name : 'Message ' + (members[0]?.name ?? '')}
             aria-description={secretsHint ?? undefined}
-            // A long placeholder wraps in a narrow composer, and must not lose its second line. It can be a safety note.
-            className={cn('max-h-48 w-full resize-none bg-transparent pt-1.5 pb-1 text-body placeholder:text-dim focus-visible:outline-none', !text && hint.length > 24 && '@max-[480px]:min-h-[64px]')}
+            // Height is set in JS, up to a third of the viewport (see the effect above); resize-none because
+            // the drag handle a free-form textarea gets would fight that. A long placeholder wraps in a
+            // narrow composer, and must not lose its second line. It can be a safety note.
+            className={cn('w-full resize-none bg-transparent pt-1.5 pb-1 text-body placeholder:text-dim focus-visible:outline-none', !text && hint.length > 24 && '@max-[480px]:min-h-[64px]')}
           />
           <div className="flex items-center justify-end gap-1.5">
+            {showPermissions && <PermissionPicker textarea={ref} />}
             {showPicker && room && <ModelPicker room={room} members={members} busy={activeTurns.length > 0} textarea={ref} />}
             {activeTurns.length > 0 && (
               <Button variant="ghost" size="icon" title="Stop running bots" onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
@@ -573,6 +595,83 @@ function Composer({ members }: { members: Bot[] }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- the permission picker, by the model picker ----------
+const PERMISSIONS: { id: Approvals; label: string; note: string }[] = [
+  { id: 'read-only', label: 'Read only', note: 'Bots look around. Every write is refused.' },
+  { id: 'ask', label: 'Approval', note: 'Risky actions show a card first.' },
+  { id: 'bypass', label: 'Full permission', note: 'No cards. Bots run everything.' },
+];
+
+/**
+ * How much all bots may do. Unlike the model beside it, this is one hub-wide setting, not a per-chat one, so the
+ * menu says so. Same second step as Settings before approvals go off. A level the server pins comes back as an
+ * error from updateSettings, which rolls back and says why.
+ */
+function PermissionPicker({ textarea }: { textarea: React.RefObject<HTMLTextAreaElement | null> }) {
+  const current = useStore((s) => s.settings.approvals);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const save = async (next: Approvals) => {
+    setSaving(true);
+    await updateSettings({ approvals: next });
+    setSaving(false);
+    setConfirming(false);
+  };
+  const choose = (next: string) => {
+    if (next === current) return;
+    if (next === 'bypass') return setConfirming(true);
+    void save(next as Approvals);
+  };
+  const label = PERMISSIONS.find((p) => p.id === current)?.label ?? current;
+  const row = 'flex cursor-default select-none items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-ui outline-none data-[highlighted]:bg-hover';
+  return (
+    <>
+      {confirming && (
+        <span role="alert" className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 text-hint text-warn">
+          <ShieldAlert size={14} aria-hidden className="shrink-0" />
+          <span>Hidden web instructions could run commands here.</span>
+          <Button variant="ghost" autoFocus disabled={saving} onClick={() => setConfirming(false)}>Cancel</Button>
+          <Button variant="danger" disabled={saving} onClick={() => void save('bypass')}>{saving ? 'Saving…' : 'Allow all'}</Button>
+        </span>
+      )}
+      <Menu.Root>
+        <Menu.Trigger
+          aria-label={'Permission level for all bots: ' + label}
+          className={cn(
+            'touch-target flex h-8 min-w-0 items-center gap-1 rounded-md pl-2.5 pr-2 text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            current === 'bypass' ? 'text-warn' : 'text-muted hover:text-fg',
+          )}
+        >
+          <span className="truncate">{label}</span>
+          <ChevronDown size={14} aria-hidden className="shrink-0" />
+        </Menu.Trigger>
+        <Menu.Portal>
+          <MenuContent
+            side="top"
+            align="end"
+            className="w-[min(280px,calc(100vw-1.5rem))]"
+            onCloseAutoFocus={(e) => { if (!confirming && window.matchMedia('(pointer: fine)').matches) { e.preventDefault(); textarea.current?.focus(); } }}
+          >
+            <p className="px-2.5 py-1 text-hint text-muted">Applies to all bots and chats</p>
+            <Menu.RadioGroup value={current} onValueChange={choose}>
+              {PERMISSIONS.map((p) => (
+                <Menu.RadioItem key={p.id} value={p.id} className={row}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block">{p.label}</span>
+                    <span className="block text-hint text-muted">{p.note}</span>
+                  </span>
+                  <Menu.ItemIndicator className="shrink-0 text-accent"><Check size={16} aria-hidden /></Menu.ItemIndicator>
+                </Menu.RadioItem>
+              ))}
+            </Menu.RadioGroup>
+          </MenuContent>
+        </Menu.Portal>
+      </Menu.Root>
+    </>
   );
 }
 

@@ -13,6 +13,15 @@ export const BUILTIN_TOOLS = [
 ] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 
+/** A person on this hub. The id is who they are; the display name can change at any time. */
+export interface User {
+  id: string;
+  displayName: string;
+  role: 'owner' | 'admin' | 'member';
+  previousNames: string[];
+  createdAt: number;
+}
+
 export const MODELS = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5 (default)' },
   { id: 'claude-opus-5', label: 'Opus 5' },
@@ -118,7 +127,7 @@ export interface Message {
   roomId: string;
   seq: number;
   authorType: AuthorType;
-  authorId: string | null; // bot id for bots, null for user/system
+  authorId: string | null; // bot id for bots, user id for people, null for system
   kind: MessageKind;
   text: string;
   payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | null;

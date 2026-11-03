@@ -1,4 +1,4 @@
-//! First-run discovery: which servers in ~/.ssh/config already run Homeroom, and whether Claude Code is
+//! First-run discovery: which servers in ~/.ssh/config already run PocketRocket, and whether Claude Code is
 //! signed in on this PC.
 //!
 //! Safety rules this module is built around:
@@ -579,23 +579,23 @@ pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[
         if let Some(v) = f.health.as_deref().and_then(health_version) {
             r.version_matches = (!v.is_empty()).then(|| v == mine);
             let detail = if v.is_empty() {
-                "Homeroom hub is running.".to_string()
+                "PocketRocket hub is running.".to_string()
             } else if v == mine {
-                format!("Homeroom {v} is running.")
+                format!("PocketRocket {v} is running.")
             } else {
-                format!("Homeroom {v} is running (this app is {mine}).")
+                format!("PocketRocket {v} is running (this app is {mine}).")
             };
             r.version = (!v.is_empty()).then_some(v);
             set(&mut r, "running", detail);
         } else if f.unit_pocketrocket || f.dir.is_some() {
             let state = f.active.as_deref().unwrap_or("unknown");
             set(&mut r, "stopped", format!(
-                "Homeroom is installed but its hub isn't answering on 127.0.0.1:7788 (service: {state}). On the server: systemctl status pocketrocket"
+                "PocketRocket is installed but its hub isn't answering on 127.0.0.1:7788 (service: {state}). On the server: systemctl status pocketrocket"
             ));
         } else if timed_out {
             set(&mut r, "unreachable", "The server answered but the check didn't finish within 8 seconds. Try again.".into());
         } else {
-            set(&mut r, "none", "Reachable, no Homeroom here yet. Deploy it with scripts/deploy.sh.".into());
+            set(&mut r, "none", "Reachable, no PocketRocket here yet. Deploy it with scripts/deploy.sh.".into());
         }
         return r;
     }
@@ -605,7 +605,7 @@ pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[
     }
     match ssh::classify_failure(stderr) {
         ssh::SshFailure::HostKeyChanged => set(&mut r, "hostKeyChanged", format!(
-            "{alias}'s host key has CHANGED. This can mean the connection is being intercepted. Homeroom won't connect or \
+            "{alias}'s host key has CHANGED. This can mean the connection is being intercepted. PocketRocket won't connect or \
              replace the key. If you rebuilt the server, verify the new key with your provider and fix known_hosts yourself."
         )),
         ssh::SshFailure::HostKeyUnknown => set(&mut r, "hostKeyUnknown", "This PC hasn't seen this server's host key before.".into()),
@@ -686,7 +686,7 @@ fn verify_accepted_key(alias: &str) -> Option<String> {
     let expected = shown_fingerprints().lock().unwrap_or_else(|e| e.into_inner()).get(alias).cloned()?;
     let Some(info) = ssh_g(alias) else {
         return Some(format!(
-            "Homeroom couldn't re-read the ssh settings for {alias} (`ssh -G {alias}` failed), so it can't tell whether the \
+            "PocketRocket couldn't re-read the ssh settings for {alias} (`ssh -G {alias}` failed), so it can't tell whether the \
              key that was just stored is the one you confirmed. Nothing was saved. Run `ssh {alias}` in a terminal instead."
         ));
     };
@@ -709,7 +709,7 @@ fn verify_accepted_key(alias: &str) -> Option<String> {
     match judge_stored_key(&expected, &stored) {
         StoredKey::Confirmed => None,
         StoredKey::Unreadable => Some(format!(
-            "Homeroom couldn't read back the host key that was just stored for {alias} (looked for {spec} in \
+            "PocketRocket couldn't read back the host key that was just stored for {alias} (looked for {spec} in \
              {}), so it can't confirm it's the one you approved. Nothing was saved. Run `ssh {alias}` in a terminal instead.",
             if info.known_hosts.is_empty() { "no known_hosts file".to_string() } else { info.known_hosts.join(", ") }
         )),
@@ -719,12 +719,12 @@ fn verify_accepted_key(alias: &str) -> Option<String> {
             let removed: Vec<String> =
                 found.iter().filter(|(f, _)| remove_host_key(&spec, f)).map(|(f, _)| f.to_string_lossy().into_owned()).collect();
             let cleanup = if removed.len() == found.len() {
-                format!("Homeroom has removed it again from {}.", removed.join(", "))
+                format!("PocketRocket has removed it again from {}.", removed.join(", "))
             } else {
                 format!("Remove it yourself with `ssh-keygen -R {spec}`.")
             };
             Some(format!(
-                "The key {alias} presented doesn't match the fingerprint you confirmed, so Homeroom won't use it. \
+                "The key {alias} presented doesn't match the fingerprint you confirmed, so PocketRocket won't use it. \
                  {cleanup} Check the server."
             ))
         }

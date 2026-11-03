@@ -1,4 +1,4 @@
-/** The Homeroom app mark (same drawing as the app icon). Decorative, so hidden from screen readers. */
+/** The PocketRocket app mark (same drawing as the app icon). Decorative, so hidden from screen readers. */
 export function RocketMark({ size = 88 }: { size?: number }) {
   return (
     <svg aria-hidden viewBox="0 0 1024 1024" width={size} height={size} className="shrink-0">

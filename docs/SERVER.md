@@ -1,4 +1,4 @@
-# Run Homeroom on a server
+# Run PocketRocket on a server
 
 The hub is the shared computer: run it on a Linux box and every bot works there, routines fire
 while your laptop is closed, and a full Linux shell is available to bots. The desktop app then
@@ -7,7 +7,7 @@ only the installer (see the [README](../README.md)).
 
 ## Connection modes in the desktop app
 
-Switch from the **Connection** menu:
+Switch from **Connection settings** in the tray icon menu:
 
 | Mode | What happens | State lives in |
 |---|---|---|
@@ -187,7 +187,7 @@ off until you create that file. Offsite copies are up to you.
 
 ## Phone access over Tailscale Serve
 
-The hub still binds `127.0.0.1` only. To use Homeroom from a phone, put
+The hub still binds `127.0.0.1` only. To use PocketRocket from a phone, put
 [Tailscale Serve](https://tailscale.com/kb/1312/serve) in front of it: Serve terminates HTTPS for your
 machine's tailnet name and forwards to the loopback port, so only devices **signed in to your own tailnet**
 can reach it.

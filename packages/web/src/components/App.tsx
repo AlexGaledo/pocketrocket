@@ -248,13 +248,13 @@ function HubStatus() {
   }
 
   const cause =
-    issue?.kind === 'unreachable' ? (issue.detail ? issue.detail + ' ' : '') + 'Check that Homeroom is running.'
+    issue?.kind === 'unreachable' ? (issue.detail ? issue.detail + ' ' : '') + 'Check that PocketRocket is running.'
     : issue?.kind === 'rateLimited' ? 'Too many failed sign-ins. Retrying in ' + Math.ceil(issue.retryInMs / 1000) + 's.'
     : issue?.kind === 'refused' ? 'Connection refused. Reload this page.'
     : 'Still trying to connect.';
   return (
     <div role="alert" className="fixed left-1/2 top-4 z-[100] w-[360px] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg bg-panel p-4 shadow-[var(--shadow-overlay)] ring-1 ring-line">
-      <div className="text-ui font-semibold">Can't reach Homeroom</div>
+      <div className="text-ui font-semibold">Can't reach PocketRocket</div>
       <p className="mt-1 text-ui leading-relaxed text-muted">{cause}</p>
       <div className="mt-3 flex justify-end">
         <Button size="sm" variant="primary" onClick={reconnectWsNow}>Retry</Button>

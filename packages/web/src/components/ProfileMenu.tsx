@@ -27,7 +27,8 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
   const dark = resolveDark(theme);
   const signedIn = !device && account.enabled && account.signedIn;
   const canSignIn = !device && account.enabled && !account.signedIn;
-  const server = connected ? 'Server online' : hubIssue ? 'Server offline' : 'Connecting…';
+  const server = connected ? 'Online' : hubIssue ? 'Offline' : 'Connecting…';
+  const serverDot = connected ? 'bg-ok' : hubIssue ? 'bg-bad' : 'bg-dim';
 
   /**
    * The shared folder lives on whatever machine the hub runs on, so the hub is what opens it. On a server hub
@@ -77,7 +78,10 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
         <UserAvatar name={name} avatar={avatar} size={30} />
         <span className="block min-w-0 flex-1">
           <span className="block truncate text-ui font-medium">{name}</span>
-          <span className={cn('block truncate text-hint', connected ? 'text-muted' : 'text-warn')}>{server}</span>
+          <span className={cn('flex items-center gap-1.5 truncate text-hint', connected ? 'text-muted' : 'text-warn')}>
+            <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', serverDot)} />
+            <span className="truncate">{server}</span>
+          </span>
         </span>
         <ChevronsUpDown size={14} aria-hidden className="shrink-0 text-dim" />
       </Menu.Trigger>

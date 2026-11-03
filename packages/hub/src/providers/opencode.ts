@@ -56,7 +56,7 @@ const MODELS_TTL_MS = 5 * 60 * 1000;
 /** Appended to the bot's system prompt: OpenCode exposes MCP tools as `<server>_<tool>`. */
 export const TOOL_NAMING_NOTE =
   '\n\n## Tool names\n' +
-  'The Homeroom tools above reach you through an MCP server named `pocketrocket`, so their real names ' +
+  'The PocketRocket tools above reach you through an MCP server named `pocketrocket`, so their real names ' +
   'are prefixed: call `pocketrocket_send_message`, `pocketrocket_update_memory`, `pocketrocket_create_bot` ' +
   'and so on.';
 
