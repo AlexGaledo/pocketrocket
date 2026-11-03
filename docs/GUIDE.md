@@ -50,7 +50,7 @@ Custom tools every bot gets: `send_message`, `handoff`, `update_memory`, `read_m
 `list_bots`, `read_room`, and full team CRUD: `create_bot`, `update_bot`, `delete_bot` (any bot,
 including itself, `confirm: true` required), `create_room`, `list_rooms`, `delete_room`,
 `add_to_room`, `remove_from_room` (all room tools take an optional `room` so a bot can manage any
-room, not just the one it's replying in). A coordinator can recruit its own specialists, put them
+room, not just the one it's replying in; reading or posting in a chat the bot isn't in shows an approval card). A coordinator can recruit its own specialists, put them
 in a group chat of its own making, retune them, and retire them ("create a researcher and a
 writer, start a room with them, then draft the post"). Limits: 50 bots per account, 6 per room.
 The system prompt tells bots not to delete or rewrite a bot unless you asked.

@@ -139,6 +139,14 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     const r = await ctx.confirmFleetChange({ tool, reason, input });
     return r.allowed ? null : err(r.message);
   };
+  /**
+   * A bot reads and posts freely in a room it belongs to, or the one this turn runs in. Any other room belongs to
+   * other bots' work, and a bot may be acting on text it picked up elsewhere, so the owner decides.
+   */
+  const gateOutsideRoom = async (tool: string, verb: string, room: Room, input: Record<string, unknown>) =>
+    room.id === ctx.room.id || room.memberIds.includes(ctx.bot.id)
+      ? null
+      : gate(tool, '@' + ctx.bot.handle + ' wants to ' + verb + ' "' + room.name + '", a chat it is not in', input);
   const modelHint = ctx.models.length ? ' One of: ' + ctx.models.join(', ') + '.' : '';
   const checkModel = (m: string | undefined) =>
     !m || !ctx.models.length || ctx.models.includes(m)
@@ -152,6 +160,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     async (a) => {
       const r = resolveRoom(a.room);
       if (!r.ok) return r.out;
+      const denied = await gateOutsideRoom('send_message', 'post in', r.room, a as unknown as Record<string, unknown>);
+      if (denied) return denied;
       const msg = post('text', a.text, null, r.room);
       const dispatched = ctx.dispatchFromBot(parseMentions(a.text, r.members, ctx.bot.id), r.room);
       return text(JSON.stringify({ posted: true, room: r.room.name, seq: msg.seq, dispatched }));
@@ -328,6 +338,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     async (a) => {
       const r = resolveRoom(a.room);
       if (!r.ok) return r.out;
+      const denied = await gateOutsideRoom('read_room', 'read', r.room, a as unknown as Record<string, unknown>);
+      if (denied) return denied;
       const msgs = ctx.repos
         .listMessages(r.room.id, { limit: a.limit ?? 30 })
         .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine' || m.kind === 'trigger');
