@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowRightLeft, Clock, Info, Monitor, Send, Settings2, ShieldAlert, Square, Users, Zap } from 'lucide-react';
-import { MODELS } from '@pocketrocket/shared';
-import type { ApprovalPayload, Bot, HandoffPayload, Message, RoutinePayload, TakeoverPayload } from '@pocketrocket/shared';
+import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Info, Monitor, Send, Settings2, ShieldAlert, Square, Users, Zap } from 'lucide-react';
+import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
+import { RocketMark } from './RocketMark';
+import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload } from '@pocketrocket/shared';
 import type { TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
-import { Avatar, Badge, Button, cn, fmtTime } from './ui';
+import { api } from '../lib/api';
+import { Avatar, Badge, Button, Menu, MenuContent, RoomAvatar, UserAvatar, cn, fmtTime } from './ui';
 import { Markdown } from './Markdown';
 import { RuleOffer, TakeoverCard } from './ComputerControl';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
@@ -59,7 +61,7 @@ export function ChatPane() {
   if (!room) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-ink text-2xl text-ink-fg">⚡</div>
+        <RocketMark size={56} />
         <div>
           <div className="text-title-sm">Your team is empty</div>
           <div className="mt-1 max-w-[38ch] text-ui text-muted">Create a bot, then message it.</div>
@@ -85,11 +87,14 @@ export function ChatPane() {
   return (
     <>
       <header className="flex h-14 shrink-0 items-center gap-3 px-5">
+        {room.kind === 'group' && <RoomAvatar room={room} size={30} />}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             {room.kind === 'dm' && members[0]
               ? <button type="button" className="min-w-24 truncate rounded-xs text-left text-body font-semibold hover:underline" title={'Open ' + members[0].name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: members[0].id, tab: 'memory' })}>{room.name}</button>
-              : <span className="min-w-24 truncate text-body font-semibold">{room.kind === 'group' ? '# ' : ''}{room.name}</span>}
+              : room.kind === 'group' && !device
+                ? <button type="button" className="min-w-24 truncate rounded-xs text-left text-body font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" title="Group details" onClick={() => openDialog({ kind: 'room', room })}>{room.name}</button>
+                : <span className="min-w-24 truncate text-body font-semibold">{room.name}</span>}
             <span className="flex min-w-0 items-center gap-2 overflow-hidden @max-[640px]:hidden">
               {room.coordinatorBotId && <Badge tone="accent">coordinator @{botById(bots, room.coordinatorBotId)?.handle}</Badge>}
               {held.map((m) => <Badge key={m.id} tone="warn">@{m.handle} {control[m.id]?.control === 'paused' ? 'paused' : 'screen: you'}</Badge>)}
@@ -101,7 +106,8 @@ export function ChatPane() {
             {working.length > 0 && <span className="ml-2 text-ok">{working.length} working</span>}
           </div>
         </div>
-        <div className="flex shrink-0 -space-x-2">
+        {/* A narrow group header has the group's own picture, and the sidebar lists its bots: the name keeps the room. */}
+        <div className={cn('flex shrink-0 -space-x-2', room.kind === 'group' && '@max-[480px]:hidden')}>
           {members.slice(0, HEADER_AVATARS).map((m) => (
             <button key={m.id} type="button" className="rounded-full ring-2 ring-bg" aria-label={'Open ' + m.name + "'s page"} title={'Open ' + m.name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: m.id, tab: 'memory' })}>
               <Avatar bot={m} {...avatarStatus(statusOf(m.id))} size={26} />
@@ -112,7 +118,7 @@ export function ChatPane() {
           )}
         </div>
         {room.kind === 'group' && !device && (
-          <Button variant="ghost" size="icon" title="Edit group chat" onClick={() => openDialog({ kind: 'room', room })}><Users size={16} /></Button>
+          <Button variant="ghost" size="icon" title="Group details" aria-label="Group details" onClick={() => openDialog({ kind: 'room', room })}><Users size={16} /></Button>
         )}
         {room.kind === 'dm' && members[0] && (
           <Button variant="ghost" size="icon" title="Memory, skills and automations" aria-label={'Open ' + members[0].name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: members[0].id, tab: 'memory' })}><Settings2 size={16} /></Button>
@@ -259,7 +265,7 @@ function groupMessages(msgs: Message[]): Group[] {
   return out;
 }
 
-type Segment = { kind: 'work'; key: string; items: Message[] } | { kind: 'one'; item: Message };
+type Segment = { kind: 'work'; key: string; items: Message[]; startedAt: number; endedAt: number } | { kind: 'one'; item: Message };
 
 /**
  * One work line per turn, first in the turn, and then what the user came for. Text that a later step and a later
@@ -274,7 +280,7 @@ function segments(items: Message[]): Segment[] {
     const turn = items.slice(start, end);
     const folds = (m: Message, i: number) => isStep(m) || (m.kind === 'text' && turn.slice(i + 1).some(isStep) && turn.slice(i + 1).some((x) => x.kind === 'text'));
     const work = turn.filter(folds);
-    if (work.some(isStep)) out.push({ kind: 'work', key: 'work-' + work[0].id, items: work });
+    if (work.some(isStep)) out.push({ kind: 'work', key: 'work-' + work[0].id, items: work, startedAt: turn[0].createdAt, endedAt: turn[turn.length - 1].createdAt });
     for (const [i, m] of turn.entries()) if (!folds(m, i) && m.kind !== 'tool') out.push({ kind: 'one', item: m });
     start = end;
   }
@@ -283,16 +289,21 @@ function segments(items: Message[]): Segment[] {
 
 function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
   const first = group.items[0];
+  const userName = useStore((s) => s.settings.userName);
+  const userAvatar = useStore((s) => s.settings.userAvatar);
   if (first.kind === 'trigger') return <TriggerLine m={first} bots={bots} />;
   if (first.kind === 'system' || first.kind === 'routine') return <SystemLine m={first} bots={bots} />;
   const bot = group.authorType === 'bot' || group.authorType === 'system' ? botById(bots, group.authorId) : undefined;
   if (group.authorType === 'user') {
     return (
-      <div className="flex flex-col items-end gap-1.5 pl-16 @max-[560px]:pl-6">
-        {group.items.map((m) => (
-          <div key={m.id} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body"><RichText text={m.text} bots={bots} /></div>
-        ))}
-        <span className="pr-1 text-hint text-dim">{fmtTime(first.createdAt)}</span>
+      <div className="flex justify-end gap-3 pl-16 @max-[560px]:pl-6">
+        <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
+          {group.items.map((m) => (
+            <div key={m.id} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body"><RichText text={m.text} bots={bots} /></div>
+          ))}
+          <span className="pr-1 text-hint text-dim">{fmtTime(first.createdAt)}</span>
+        </div>
+        <UserAvatar name={userName} avatar={userAvatar} size={30} />
       </div>
     );
   }
@@ -306,7 +317,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
         </div>
         <div className="flex flex-col gap-2">
           {segments(group.items).map((seg) =>
-            seg.kind === 'work' ? <WorkLine key={seg.key} items={seg.items} /> : (
+            seg.kind === 'work' ? <WorkLine key={seg.key} items={seg.items} startedAt={seg.startedAt} endedAt={seg.endedAt} /> : (
               <div key={seg.item.id} className="flex flex-col gap-1">
                 <Item m={seg.item} bots={bots} />
                 {chipAfter(group.items, seg.item) && <ModelChip m={seg.item} />}
@@ -324,9 +335,23 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
     case 'approval': return <ApprovalCard m={m} />;
     case 'takeover': return <TakeoverCard m={m} />;
     case 'handoff': return <HandoffCard m={m} bots={bots} />;
-    default:
-      return <div className="md text-body"><RichText text={m.text} bots={bots} /></div>;
+    default: {
+      // A bot outside this chat reporting back: its work is in its own chat.
+      const work = m.kind === 'text' ? (m.payload as HandoffResultPayload | null)?.workRoomId : undefined;
+      return (
+        <div className="md text-body">
+          <RichText text={m.text} bots={bots} />
+          {work && <OpenChat roomId={work} />}
+        </div>
+      );
+    }
   }
+}
+
+function OpenChat({ roomId }: { roomId: string }) {
+  const setActiveRoom = useStore((s) => s.setActiveRoom);
+  const exists = useStore((s) => s.rooms.some((r) => r.id === roomId));
+  return exists ? <button type="button" className="touch-target rounded-xs text-hint text-muted underline hover:text-fg" onClick={() => setActiveRoom(roomId)}>Open its chat</button> : null;
 }
 
 function SystemLine({ m, bots }: { m: Message; bots: Bot[] }) {
@@ -375,6 +400,14 @@ function TriggerLine({ m, bots }: { m: Message; bots: Bot[] }) {
 
 // ---------- approval + handoff ----------
 
+/** A hand-off or routing card reads as words: the whole task, or the exact line. Anything unexpected stays raw. */
+function cardWords(p: ApprovalPayload): { main: string; more?: string } | null {
+  const input = (p.toolInput ?? {}) as Record<string, unknown>;
+  const [main, more] = p.toolName === 'handoff' ? [input.task, input.context] : [input.line, input.reason];
+  if (typeof main !== 'string' || !main) return null;
+  return { main, more: typeof more === 'string' && more ? more : undefined };
+}
+
 function ApprovalCard({ m }: { m: Message }) {
   const p = m.payload as ApprovalPayload;
   const decide = useStore((s) => s.decide);
@@ -383,41 +416,60 @@ function ApprovalCard({ m }: { m: Message }) {
   const [answered, setAnswered] = useState(false);
   const pending = p.status === 'pending';
   const device = useStore((s) => s.device);
-  const outcome = p.status === 'allow' ? 'Allowed once' : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? 'Denied' : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired after restart. Ask the bot to retry.' : null;
+  // These two are yes or no, once. A "yes" to a hand-off covers the pair, as a rule the hub records and Settings lists.
+  const handoff = p.toolName === 'handoff';
+  const proposal = p.toolName === 'propose_routing_change';
+  const yesOrNo = handoff || proposal;
+  const words = yesOrNo ? cardWords(p) : null;
+  const outcome = p.status === 'allow' ? (handoff ? 'Sent' : proposal ? 'Added' : 'Allowed once') : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? (handoff ? 'Kept here' : proposal ? 'Not added' : 'Denied') : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired after restart. Ask the bot to retry.' : null;
   return (
     <div className={cn('max-w-[640px] overflow-hidden rounded-lg ring-1', p.danger ? 'ring-bad/40' : pending ? 'ring-warn/40' : 'ring-line')}>
       <div className="flex items-center gap-2 px-4 pt-3 text-ui">
         <ShieldAlert size={15} className={p.danger ? 'text-bad' : pending ? 'text-warn' : 'text-muted'} />
-        <span className="font-medium">{p.danger ? 'Risky action needs your OK' : 'Needs your OK'}</span>
-        <span className="font-mono text-hint text-muted">{p.toolName}</span>
+        <span className="font-medium">{handoff ? 'Pass this to another bot?' : proposal ? 'Add a routing rule?' : p.danger ? 'Risky action needs your OK' : 'Needs your OK'}</span>
+        {!yesOrNo && <span className="font-mono text-hint text-muted">{p.toolName}</span>}
         {outcome && <span className="ml-auto text-hint text-muted">{outcome}</span>}
       </div>
       <div className="px-4 py-1.5 text-ui text-muted">{p.reason}</div>
       {pending && p.parked && <div className="px-4 pb-1.5 text-ui text-warn">Run paused until you answer.</div>}
-      <pre className="mx-4 mb-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-card2 p-2.5 font-mono text-hint">{fmtInput(p.toolInput)}</pre>
+      {words ? (
+        <div className="mx-4 mb-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-card2 p-2.5 text-ui">
+          {words.main}
+          {words.more && <div className="mt-1.5 text-muted">{words.more}</div>}
+        </div>
+      ) : (
+        <pre className="mx-4 mb-3 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-card2 p-2.5 font-mono text-hint">{fmtInput(p.toolInput)}</pre>
+      )}
       {pending && (
         // P9: wraps on a phone, and touch targets grow to 44px (`.touch-target` in index.css).
         <div className="flex flex-wrap gap-2 px-4 pb-4">
-          <Button size="sm" variant="primary" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'allow'); }}>Allow once</Button>
+          <Button size="sm" variant="primary" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'allow'); }}>{handoff ? 'Send it' : proposal ? 'Add it' : 'Allow once'}</Button>
           {/* A paired device answers once; the hub refuses a standing grant from one (and approval rules). */}
-          {!device && <Button size="sm" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'always'); }}>Allow for this session</Button>}
-          <Button size="sm" variant="danger" className="touch-target" onClick={() => decide(p.approvalId, 'deny')}>Deny</Button>
-          {device && <span className="basis-full text-hint text-muted">Session-wide allow is desktop only.</span>}
+          {!device && !yesOrNo && <Button size="sm" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'always'); }}>Allow for this session</Button>}
+          <Button size="sm" variant={yesOrNo ? 'outline' : 'danger'} className="touch-target" onClick={() => decide(p.approvalId, 'deny')}>{handoff ? 'Keep it here' : proposal ? 'Leave it out' : 'Deny'}</Button>
+          {device && !yesOrNo && <span className="basis-full text-hint text-muted">Session-wide allow is desktop only.</span>}
         </div>
       )}
-      {answered && !device && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}
+      {answered && !device && !yesOrNo && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}
     </div>
   );
 }
 
+/** One line in the chat. The whole task and its context fold out of it. */
 function HandoffCard({ m, bots }: { m: Message; bots: Bot[] }) {
   const p = m.payload as HandoffPayload;
   const to = botById(bots, p.toBotId);
   return (
-    <div className="max-w-[640px] rounded-lg bg-accent/8 p-3.5 text-ui">
-      <div className="mb-1 flex items-center gap-2 font-medium"><ArrowRightLeft size={14} className="text-accent" /> Passed to {to ? to.avatar + ' ' + to.name : p.toBotId}</div>
-      <div className="md"><RichText text={p.task} bots={bots} /></div>
-      {p.context && <div className="mt-2 whitespace-pre-wrap pt-2 text-ui text-muted">{p.context}</div>}
+    <div className="max-w-[640px] text-ui text-muted">
+      <details>
+        <summary className="flex min-w-0 cursor-pointer select-none items-center gap-2 rounded-xs [&::-webkit-details-marker]:hidden">
+          <ArrowRightLeft size={14} aria-hidden className="shrink-0 text-accent" />
+          <span className="min-w-0 truncate"><span className="font-medium text-fg">Passed to {to ? to.name : p.toBotId}:</span> {p.task.split('\n')[0]}</span>
+        </summary>
+        <div className="md mt-1.5 pl-[22px]"><RichText text={p.task} bots={bots} /></div>
+        {p.context && <div className="mt-2 whitespace-pre-wrap pl-[22px]">{p.context}</div>}
+      </details>
+      {p.workRoomId && <div className="pl-[22px]"><OpenChat roomId={p.workRoomId} /></div>}
     </div>
   );
 }
@@ -438,6 +490,8 @@ function Composer({ members }: { members: Bot[] }) {
   const roomId = useStore((s) => s.activeRoomId);
   const room = useStore(selectActiveRoom);
   const control = useStore((s) => s.control);
+  // Hidden on a paired phone, and on a provider whose models the picker's options do not name.
+  const showPicker = useStore((s) => !s.device && s.settings.provider === 'claude');
   const [text, setText] = useState('');
   const [mentionIdx, setMentionIdx] = useState(0);
   // Escape hides the popup for the @word being typed; typing on reopens it.
@@ -491,12 +545,12 @@ function Composer({ members }: { members: Bot[] }) {
           <div className="absolute bottom-full left-0 mb-2 w-[320px] max-w-full rounded-xl bg-panel p-1.5 shadow-[var(--shadow)]">
             {suggestions.map((b, i) => (
               <div key={b.id} className={cn('flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-1.5 text-ui', i === mentionIdx && 'bg-active')} onMouseDown={(e) => { e.preventDefault(); insertMention(b); }}>
-                <span>{b.avatar}</span><span className="font-medium">@{b.handle}</span><span className="truncate text-hint text-muted">{b.title || b.name}</span>
+                <span aria-hidden><Avatar bot={b} size={20} /></span><span className="font-medium">@{b.handle}</span><span className="truncate text-hint text-muted">{b.title || b.name}</span>
               </div>
             ))}
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent">
+        <div className="flex flex-col gap-1 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent">
           <textarea
             ref={ref}
             value={text}
@@ -506,15 +560,93 @@ function Composer({ members }: { members: Bot[] }) {
             placeholder={hint}
             aria-label={room?.kind === 'group' ? 'Message #' + room.name : 'Message ' + (members[0]?.name ?? '')}
             aria-description={secretsHint ?? undefined}
-            className="max-h-48 min-w-0 flex-1 resize-none bg-transparent py-2 text-body placeholder:text-dim"
+            // A long placeholder wraps in a narrow composer, and must not lose its second line. It can be a safety note.
+            className={cn('max-h-48 w-full resize-none bg-transparent pt-1.5 pb-1 text-body placeholder:text-dim focus-visible:outline-none', !text && hint.length > 24 && '@max-[480px]:min-h-[64px]')}
           />
-          {activeTurns.length > 0 && (
-            <Button variant="ghost" size="icon" title="Stop running bots" onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
-          )}
-          <Button variant="primary" size="icon" className="h-9 w-9" title="Send (Enter)" onClick={submit} disabled={!text.trim()}><Send size={15} /></Button>
+          <div className="flex items-center justify-end gap-1.5">
+            {showPicker && room && <ModelPicker room={room} members={members} busy={activeTurns.length > 0} textarea={ref} />}
+            {activeTurns.length > 0 && (
+              <Button variant="ghost" size="icon" title="Stop running bots" onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
+            )}
+            <Button variant="primary" size="icon" className="h-9 w-9" title="Send (Enter)" onClick={submit} disabled={!text.trim()}><Send size={15} /></Button>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- the model picker, by Send ----------
+/**
+ * This chat's model. It is stored on the chat, never on the bot, so schedules and hand-offs keep each bot's own model.
+ * A pick stays until changed. Choosing what the bot already uses clears the pick rather than storing a copy of it.
+ */
+function ModelPicker({ room, members, busy, textarea }: { room: Room; members: Bot[]; busy: boolean; textarea: React.RefObject<HTMLTextAreaElement | null> }) {
+  const providers = useStore((s) => s.providers);
+  const toast = useStore((s) => s.toast);
+  // Beside the picker, not a toast: a toast sits on top of Send, the next thing the user reaches for.
+  const [applies, setApplies] = useState(false);
+  useEffect(() => {
+    if (!applies) return;
+    const t = setTimeout(() => setApplies(false), 4000);
+    return () => clearTimeout(t);
+  }, [applies]);
+  const nameOf = (id: string) => CHAT_MODELS.find((m) => m.id === id)?.label
+    ?? (providers?.providers.flatMap((p) => p.models).find((m) => m.id === id)?.label ?? MODELS.find((m) => m.id === id)?.label ?? id).replace(/\s*\(.*\)\s*$/, '');
+  const own = [...new Set(members.map((m) => m.model))];
+  const ownId = own.length === 1 ? own[0] : null;
+  const ownListed = !!ownId && CHAT_MODELS.some((m) => m.id === ownId);
+  const defaultName = ownId ? nameOf(ownId) : 'Bot models';
+  const current = room.chatModel ? nameOf(room.chatModel) : defaultName;
+  const value = room.chatModel ?? (ownListed ? ownId : '');
+
+  const choose = async (next: string) => {
+    try {
+      const saved = await api.rooms.setModel(room.id, !next || next === ownId ? null : next);
+      useStore.setState((s) => ({ rooms: s.rooms.map((r) => (r.id === saved.id ? saved : r)) }));
+      if (busy) setApplies(true);
+    } catch (e) {
+      toast("Couldn't change the model: " + (e as Error).message, true);
+    }
+  };
+  const row = 'flex cursor-default select-none items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-ui outline-none data-[highlighted]:bg-hover';
+  const item = (id: string, label: string, note: string) => (
+    <Menu.RadioItem key={id || 'own'} value={id} className={row}>
+      <span className="min-w-0 flex-1">
+        <span className="block">{label}</span>
+        <span className="block text-hint text-muted">{note}</span>
+      </span>
+      <Menu.ItemIndicator className="shrink-0 text-accent"><Check size={16} aria-hidden /></Menu.ItemIndicator>
+    </Menu.RadioItem>
+  );
+  return (
+    <>
+    <span role="status" className="min-w-0 truncate text-hint text-muted">{applies && 'From the next reply'}</span>
+    <Menu.Root>
+      <Menu.Trigger
+        aria-label={'Model for this chat: ' + current}
+        className="touch-target flex h-8 min-w-0 max-w-[11rem] items-center gap-1 rounded-md pl-2.5 pr-2 text-ui text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=open]:bg-hover data-[state=open]:text-fg"
+      >
+        <span className="truncate">{current}</span>
+        <ChevronDown size={14} aria-hidden className="shrink-0" />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <MenuContent
+          side="top"
+          align="end"
+          className="w-[min(280px,calc(100vw-1.5rem))]"
+          // Back to typing, except on touch, where focusing the box would bring the keyboard back up.
+          onCloseAutoFocus={(e) => { if (window.matchMedia('(pointer: fine)').matches) { e.preventDefault(); textarea.current?.focus(); } }}
+        >
+          <Menu.RadioGroup value={value ?? ''} onValueChange={(v) => void choose(v)}>
+            {CHAT_MODELS.map((m) => item(m.id, m.label, m.note))}
+            {/* Only when the bots' own setting is not one of the four, so there is still a way back to it. */}
+            {!ownListed && item('', defaultName, ownId ? "This bot's setting" : "Each bot's setting")}
+          </Menu.RadioGroup>
+        </MenuContent>
+      </Menu.Portal>
+    </Menu.Root>
+    </>
   );
 }
 

@@ -91,13 +91,13 @@ export class FollowUp {
         if (row.runId) repos.finishRun(row.runId, 'error', null);
         if (bot && room && !noted.has(bot.id + ':' + room.id)) {
           noted.add(bot.id + ':' + room.id);
-          router.systemNote(room, '@' + bot.handle + ' was cut off by a hub restart again, so it was not resumed. Send a message to continue.', row.causeId, row.hop);
+          router.systemNote(room, '@' + bot.handle + ' was cut off by a server restart again, so it was not resumed. Send a message to continue.', row.causeId, row.hop);
         }
         continue;
       }
       if (!noted.has(bot.id + ':' + room.id)) {
         noted.add(bot.id + ':' + room.id);
-        router.systemNote(room, 'The hub restarted while @' + bot.handle + ' was working; resuming.', row.causeId, row.hop);
+        router.systemNote(room, 'The server restarted while @' + bot.handle + ' was working; resuming.', row.causeId, row.hop);
       }
       const runId = row.runId ?? undefined;
       router.resume(bot, room, {
@@ -114,7 +114,8 @@ export class FollowUp {
   /** Starts watching a handoff message (called for every `message.new` of kind handoff). */
   watch(m: Message) {
     const p = m.payload as HandoffPayload | null;
-    if (!p?.toBotId || !m.causeId) return;
+    // `workRoomId`: the target works in its own chat and is watched there; it never answers in this one.
+    if (!p?.toBotId || !m.causeId || p.workRoomId) return;
     this.watches.set(m.id, {
       messageId: m.id, roomId: m.roomId, seq: m.seq, fromBotId: p.fromBotId, toBotId: p.toBotId,
       causeId: m.causeId, hop: m.hop, dueAt: this.now() + this.nudgeAfterMs,

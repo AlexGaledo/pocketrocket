@@ -43,6 +43,12 @@ describe('default bots', () => {
     expect(seedDefaultBots(s.repos, s.memory, s.opts)).toEqual([]);
   });
 
+  it('gives each seeded bot its own icon', () => {
+    const s = setup();
+    const made = seedDefaultBots(s.repos, s.memory, s.opts);
+    expect(Object.fromEntries(made.map((b) => [b.handle, b.avatar]))).toEqual({ [SUPPORT_HANDLE]: 'shield', [DATA_ENGINEER_HANDLE]: 'database' });
+  });
+
   it('leaves a user bot with the same handle alone', () => {
     const s = setup();
     s.repos.createBot({ name: 'Mine', handle: SUPPORT_HANDLE, title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1 });

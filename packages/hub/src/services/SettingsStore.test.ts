@@ -129,7 +129,7 @@ describe('SettingsStore with only Claude enabled (the v1 default)', () => {
 
     settings.ensureEnabledProvider();
 
-    expect(settings.get()).toMatchObject({ provider: 'claude', defaultModel: 'claude-sonnet-5' });
+    expect(settings.get()).toMatchObject({ provider: 'claude', defaultModel: 'auto' });
     expect(new SettingsStore({ repos, enabled: ['claude'] }).get().provider).toBe('claude');
     expect(repos.getBot(bot.id)!.model).toBe('claude-sonnet-5');
     const sys = repos.listMessages(room.id, { limit: 10 }).filter((m) => m.kind === 'system');

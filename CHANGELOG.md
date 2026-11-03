@@ -12,13 +12,61 @@ below are fork changes, grouped by feature area; the per-phase notes live in `do
 Upstream changes after 0.2.0 that the fork already includes: the desktop app stops offering the other
 connection modes once one is set up.
 
+### Profile pictures and group details
+
+- **Your profile:** Edit profile in the menu at the bottom left sets your name and picture. They show there and on your
+  messages. With no picture you get your initial on a neutral tint.
+- **Bot pictures:** a bot can wear an uploaded picture instead of a line icon. Icons stay the default.
+- **Group details:** click a group's name in the chat header to change its name, picture or icon, its bots and its
+  coordinator. A group keeps at least one bot and at most 10. Removing a bot stops what it was doing in that chat.
+  Name and membership changes show as a line in the chat.
+- Pictures live on your hub, under `data/media`. PNG, JPEG and WebP only, checked by content, at most 512 px and 512 KB.
+  They need your hub token or a paired device's to view. A paired phone can see them but not change them, and no bot can
+  upload or set one. Pictures nothing uses any more are removed after a day.
+
+### Computers start themselves
+
+- Opening the app starts the computer of the bot you have open and of the most recently used other bot. Selecting
+  a bot starts its computer after 1.5 seconds. One place always stays free, and a computer a person controls or a
+  bot is using is never stopped for this. The Wake button is gone; a failed start says why, with **Try again**.
+- **Keep awake is now Always on.** It starts the computer, brings it back after a server reboot, and is limited to
+  `MAX_RUNNING_COMPUTERS` minus 1 (2 by default). Past that the switch refuses and says why.
+- Low memory (under 1.6 GB available) stops these automatic starts. A bot's turn still gets its computer.
+- A paired phone wakes a computer only when you open that bot's screen.
+- The embedded screen no longer shows noVNC's side menu or its "unencrypted" banner. Pop-out still has them.
+- Needs you is right straight after a reload, including rooms not opened yet.
+- Trigger prompts no longer need to mention `NO_REPLY`; the app adds the way out itself.
+
+### Model picker and Auto routing
+
+- A model picker sits under the message box, next to Send: Auto, Sonnet 5, Opus 5 or Haiku. It changes this chat only,
+  never the bot, so schedules and hand-offs keep each bot's own model. A pick stays on, with its label by Send, until
+  you change it. It is hidden on paired phones and on providers other than Claude.
+- Auto now decides inside the turn. Sonnet 5 runs it and can move itself up to Opus 5 in the same session, for that turn
+  only, or hand off to a better bot. Each shows as one line in the chat. The Smarter Auto routing switch is gone.
+- A first hand-off to a bot outside the chat asks you, because that bot has different logins and tools. From a direct
+  chat, it works in its own chat and its result comes back as one message. Your yes is an approval rule in Settings.
+- Routing rules: `data/routing.md`, edited in Settings. Bots read them every turn and can only propose a line, which you
+  approve on a card. No bot can write the file, whatever the approvals setting.
+- A skill named in a forwarded email can no longer pick Opus. Only your own newest message or a routine's prompt can.
+
 ### Name and install
 
+- The screen's size follows what you do: a small thumbnail while a bot uses its computer, a split when you click to
+  watch, and the full pane when you take over. Hand back returns to the size you came from. The Zoom in and Fit view
+  is gone; Expand and Pop out replace it.
+- One control bar, on the screen, with one Hand back and its note. Take over on a bot's request card claims control
+  and opens the screen in one click, and the card adds "I can't do this", which goes back to the bot as your note.
+- The screen follows the chat. If you hold a screen and open another chat, it stays up and says so, with a link back.
+- A Bot page holds Memory, Writing style, Skills, a bot's Automations and its Computer (disk, Keep awake, Teach,
+  recordings). Open it from the bot's name. Automations and Usage are fleet pages in the menu at the bottom left, and
+  the estimate moved out of the chat header onto Usage.
+- Each turn shows one work line in place of the tool pills: "Worked for 1m 12s · 14 steps · 1 retried", which expands
+  to the steps. Answers, cards and failures the bot did not recover from stay visible.
 - Settings has a Connections screen: one Connect button for GitHub and Google after a one-time app setup. WhatsApp
   and social media stay in a bot's browser.
 - Drag the sidebar's and side panel's edges to resize them, or use the arrow keys. Enter collapses, double-click
-  resets, sizes are remembered per browser, and the chat always keeps 440px. Group chats and the screen's controls
-  fold away, and the side panel can expand.
+  resets, sizes are remembered per browser, and the chat always keeps 440px. Group chats fold away.
 - A menu at the bottom left shows your name and the server's state, and holds Usage, Settings, Open workspace, the
   theme and Sign out. Text no longer wraps or clips in narrow panes.
 - The app font is Google Sans, with Figtree as a choice in Appearance. Fonts are bundled, not fetched from Google.
@@ -34,6 +82,9 @@ connection modes once one is set up.
   `/home/pocketrocket-crew/pocketrocket-crew` install, `pocketrocket-crew*.service` units and screen
   (display `:98`, CDP 9223, VNC 5901, noVNC 6081). Releases come from `AlexGaledo/pocketrocket-crew`.
 - Room members can be set up to 10 bots over REST (was 6), matching what bots can do.
+
+- Bots wear a line icon on a soft tint instead of an emoji. Each bot gets one from its ID, and you can pick another in
+  its settings. On upgrade, known emoji become the matching icon and custom emoji or short text become automatic.
 
 ### Each bot's own computer (server)
 

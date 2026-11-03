@@ -16,7 +16,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
   },
 }));
 
-import { WORKSPACE_DIR } from '../config.js';
+import { ROUTING_PATH, WORKSPACE_DIR } from '../config.js';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -173,7 +173,8 @@ describe('Claude SDK wiring', () => {
       hooks?: { PreToolUse: { matcher: string; hooks: ((i: unknown) => Promise<{ hookSpecificOutput?: { permissionDecision: string } }>)[] }[] };
     };
   }
-  const writeHook = (o: Awaited<ReturnType<typeof runTurn>>) => o.hooks!.PreToolUse.find((h) => h.matcher.includes('Write'))!.hooks[0];
+  // The last one: the routing.md guard, always present, comes first.
+  const writeHook = (o: Awaited<ReturnType<typeof runTurn>>) => o.hooks!.PreToolUse.filter((h) => h.matcher.includes('Write')).at(-1)!.hooks[0];
 
   it('adds the knowledge folder to additionalDirectories and escalates writes there to a card', async () => {
     const o = await runTurn(false, kdir);
@@ -200,6 +201,19 @@ describe('Claude SDK wiring', () => {
   it('adds nothing when no knowledge repo is synced', async () => {
     const o = await runTurn(false, null);
     expect(o.additionalDirectories).toHaveLength(1);
-    expect(o.hooks!.PreToolUse.some((h) => h.matcher.includes('Write'))).toBe(false);
+    // Only the guard for the owner's routing.md, which is there on every turn.
+    expect(o.hooks!.PreToolUse.filter((h) => h.matcher.includes('Write'))).toHaveLength(1);
+    expect(await writeHook(o)({ tool_name: 'Write', tool_input: { file_path: path.join(WORKSPACE_DIR, 'x.md') } })).toEqual({});
+  });
+
+  it('denies a bot writing routing.md in every approvals mode, with no way to ask', async () => {
+    for (const bypass of [false, true]) {
+      const o = await runTurn(bypass, null);
+      const guard = o.hooks!.PreToolUse[0].hooks[0];
+      for (const [tool_name, tool_input] of [['Write', { file_path: ROUTING_PATH }], ['Bash', { command: 'echo x > ' + ROUTING_PATH }]] as const) {
+        const out = await guard({ tool_name, tool_input, cwd: WORKSPACE_DIR });
+        expect(out.hookSpecificOutput?.permissionDecision, tool_name + ' bypass=' + bypass).toBe('deny');
+      }
+    }
   });
 });

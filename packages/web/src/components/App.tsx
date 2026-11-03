@@ -13,9 +13,11 @@ import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
 import { BotDialog } from './dialogs/BotDialog';
 import { RoomDialog } from './dialogs/RoomDialog';
+import { ProfileDialog } from './dialogs/ProfileDialog';
 import { SettingsDialog } from './dialogs/SettingsDialog';
 import { Onboarding } from './Onboarding';
 import { TokenPrompt } from './TokenPrompt';
+import { useFocusWake } from '../lib/focusWake';
 import { Button, cn } from './ui';
 
 /** Below these the sidebar becomes a drawer over the chat, and a screen the user opens covers the window. */
@@ -39,6 +41,7 @@ export function App() {
   const device = useStore((s) => s.device);
   // P9: a paired phone cannot write settings, so it never gets the first-run setup.
   const showOnboarding = helloReceived && settings.onboarded === false && !device;
+  useFocusWake();
   // Side by side needs room: the panes' minimums plus the chat's must fit, or the panel's close button ends
   // up off-screen.
   const sidebarInline = useMediaQuery(SIDEBAR_QUERY);
@@ -173,6 +176,7 @@ export function App() {
 
       {dialog?.kind === 'bot' && <BotDialog bot={dialog.bot} onClose={() => openDialog(null)} />}
       {dialog?.kind === 'room' && <RoomDialog room={dialog.room} onClose={() => openDialog(null)} />}
+      {dialog?.kind === 'profile' && <ProfileDialog onClose={() => openDialog(null)} />}
       {dialog?.kind === 'settings' && <SettingsDialog section={dialog.section} onClose={() => openDialog(null)} />}
 
       {showOnboarding && <Onboarding />}
@@ -267,8 +271,10 @@ function HubStatus() {
 function Toasts() {
   const toasts = useStore((s) => s.toasts);
   const dismissToast = useStore((s) => s.dismissToast);
+  // Hand back and Done are at the bottom right while the user drives, and an error toast stays until dismissed.
+  const driving = useStore(selectScreenSize) === 'focus';
   return (
-    <div role="status" aria-live="polite" className="pointer-events-none fixed bottom-5 right-5 z-[100] flex max-w-[calc(100vw-2.5rem)] flex-col items-end gap-2">
+    <div role="status" aria-live="polite" className={cn('pointer-events-none fixed right-5 z-[100] flex max-w-[calc(100vw-2.5rem)] flex-col items-end gap-2', driving ? 'bottom-24' : 'bottom-5')}>
       {toasts.map((t) => (
         <div
           key={t.id}

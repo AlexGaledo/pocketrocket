@@ -13,7 +13,7 @@
 # Per-bot computers (default): every bot with Browser/Desktop gets its own display, Chromium profile and
 # loopback ports (deploy/computer.sh, a systemd *user* unit the hub starts and stops itself). They all run as
 # the same pocketrocket-crew uid, so this separates bots but does not isolate them from each other.
-# POCKETROCKET_COMPUTERS=0 bash deploy/setup-vps.sh keeps the one shared screen instead.
+# POCKETROCKET_COMPUTERS=0 bash deploy/setup-vps.sh turns them off: the hub then refuses Browser and Desktop.
 #
 # Run as root on Ubuntu/Debian from the repo dir: bash deploy/setup-vps.sh
 set -euo pipefail

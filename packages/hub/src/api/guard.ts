@@ -294,6 +294,8 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/bots\/[^/]+\/(memory|skills|voice|notes)$/],
   ['GET', /^\/api\/rooms$/],
   ['GET', /^\/api\/rooms\/[^/]+\/messages$/],
+  // Pictures: a phone sees them. Uploading (POST /api/media) is not listed, so it stays with the hub token.
+  ['GET', /^\/api\/media\/[0-9a-f]{64}$/],
   ['POST', /^\/api\/rooms\/[^/]+\/messages$/],
   ['GET', /^\/api\/skills$/],
   ['GET', /^\/api\/skills\/[^/]+$/],

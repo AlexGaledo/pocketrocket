@@ -167,6 +167,6 @@ describe('FollowUp: nudge a stalled handoff once', () => {
     s.f.watch(s.handoff(MAX_HOPS));
     s.advance(N);
     expect(s.f.sweep()).toEqual([]);
-    expect(s.repos.listMessages(s.room.id, { limit: 50 }).some((m) => m.text.includes('was not nudged'))).toBe(true);
+    expect(s.repos.listMessages(s.room.id, { limit: 50 }).some((m) => m.text.includes('was not reminded'))).toBe(true);
   });
 });

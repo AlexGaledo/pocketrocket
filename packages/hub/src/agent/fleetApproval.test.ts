@@ -107,11 +107,46 @@ describe('fleet changes go through an approval card', () => {
 
   it('lets a bot edit its own name/title/avatar/description with no card', async () => {
     const s = setup('deny');
-    const out = await s.tool('update_bot').handler({ bot: 'me', name: 'Scout II', title: 'Lead', avatar: '🛰️', description: 'a new self description' });
+    const out = await s.tool('update_bot').handler({ bot: 'me', name: 'Scout II', title: 'Lead', avatar: 'radar', description: 'a new self description' });
     s.off();
     expect(s.cards).toHaveLength(0);
     expect(out.isError).toBeFalsy();
     expect(s.repos.getBot(s.bot.id)!.name).toBe('Scout II');
+  });
+
+  it('cannot set a picture reference: not through create_bot, and not on itself', async () => {
+    const s = setup('allow');
+    const ref = 'img:' + 'a'.repeat(64);
+    const self = await s.tool('update_bot').handler({ bot: 'me', avatar: ref });
+    const made = await s.tool('create_bot').handler({ name: 'Pip', handle: 'pip', title: '', description: 'a new specialist bot', avatar: ref });
+    s.off();
+    expect(self.isError).toBe(true);
+    expect(made.isError).toBe(true);
+    expect(s.repos.getBot(s.bot.id)!.avatar).toBe('🔎');
+    expect(s.repos.getBotByHandle('pip')).toBeUndefined();
+    expect(s.cards).toHaveLength(0);
+  });
+
+  it('asks before replacing the picture its owner uploaded', async () => {
+    const s = setup('deny');
+    const ref = 'img:' + 'a'.repeat(64);
+    s.repos.updateBot(s.bot.id, { avatar: ref });
+    const out = await s.tool('update_bot').handler({ bot: 'me', avatar: 'radar' });
+    s.off();
+    expect(s.cards.map((c) => c.toolName)).toEqual(['update_bot']);
+    expect(out.isError).toBe(true);
+    expect(s.repos.getBot(s.bot.id)!.avatar).toBe(ref);
+  });
+
+  it('refuses an emoji avatar, and stores nothing', async () => {
+    const s = setup('deny');
+    const out = await s.tool('update_bot').handler({ bot: 'me', avatar: '🛰️' });
+    const made = await s.tool('create_bot').handler({ name: 'Pip', handle: 'pip', title: '', description: 'a new specialist bot', avatar: '🤖' });
+    s.off();
+    expect(out.isError).toBe(true);
+    expect(made.isError).toBe(true);
+    expect(s.repos.getBot(s.bot.id)!.avatar).toBe('🔎');
+    expect(s.repos.getBotByHandle('pip')).toBeFalsy();
   });
 
   it('asks when a bot renames its own handle (identity, not presentation)', async () => {

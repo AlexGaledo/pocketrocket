@@ -214,7 +214,7 @@ export class SkillDistiller {
 
   private ready() {
     if (this.deps.activeProvider() !== 'claude') throw new DistillError(409, 'Distilling a skill needs the Claude provider.');
-    if (!(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) throw new DistillError(409, 'The Claude CLI was not found on the hub.');
+    if (!(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) throw new DistillError(409, 'The Claude CLI was not found on the server.');
   }
 
   private model(): string {

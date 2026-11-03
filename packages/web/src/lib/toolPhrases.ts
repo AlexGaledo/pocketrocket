@@ -32,6 +32,8 @@ const APP: Record<string, Phrase> = {
   request_takeover: ['Asked you to step in', 'Asking you to step in'],
   request_approval: ['Asked for approval', 'Asking for approval'],
   handoff: ['Passed work', 'Passing work'],
+  use_stronger_model: ['Moved to a stronger model', 'Moving to a stronger model'],
+  propose_routing_change: ['Proposed a routing rule', 'Proposing a routing rule'],
   send_message: ['Sent message', 'Sending message'],
   update_memory: ['Updated memory', 'Updating memory'],
   read_memory: ['Read memory', 'Reading memory'],

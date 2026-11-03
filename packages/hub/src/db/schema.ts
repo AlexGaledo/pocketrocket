@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS bots (
 );
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('dm','group')), name TEXT NOT NULL,
-  coordinator_bot_id TEXT, created_at INTEGER NOT NULL
+  coordinator_bot_id TEXT, created_at INTEGER NOT NULL, chat_model TEXT
 );
 CREATE TABLE IF NOT EXISTS room_members (
   room_id TEXT NOT NULL, bot_id TEXT NOT NULL, PRIMARY KEY (room_id, bot_id)

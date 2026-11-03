@@ -33,6 +33,8 @@ interface LaneItem {
 interface Lane {
   running: boolean;
   pending: LaneItem[];
+  /** The owner removed this bot from the room while a turn ran; whatever that turn says hands nothing on. */
+  left?: boolean;
 }
 
 const STATE_RANK: Record<BotState, number> = { idle: 0, done: 1, thinking: 2, working: 3, waiting: 4, blocked: 5, error: 6 };
@@ -150,23 +152,23 @@ export class RoomRouter {
   }
 
   /** Bot -> bot routing (after a turn or from tools). Returns dispatched handles. */
-  dispatchFromBot(req: TurnRequest, targets: Bot[]): string[] {
+  dispatchFromBot(req: TurnRequest, targets: Bot[], onDone?: (r: TurnResult) => void): string[] {
     const hop = req.hop + 1;
     const room = this.repos.getRoom(req.room.id) ?? req.room;
     const members = this.members(room);
     const valid = targets.filter((t) => t.id !== req.bot.id && members.some((m) => m.id === t.id));
     if (!valid.length) return [];
     if (hop > MAX_HOPS) {
-      this.note(room, 'Hop budget exhausted (' + MAX_HOPS + '). @' + req.bot.handle + ' cannot pass work to ' + valid.map((v) => '@' + v.handle).join(', ') + ' on this thread.', req.causeId, hop);
+      this.note(room, 'Too many hand-offs in a row (' + MAX_HOPS + '). @' + req.bot.handle + ' cannot pass this to ' + valid.map((v) => '@' + v.handle).join(', ') + '. Send a new message to continue.', req.causeId, hop);
       return [];
     }
     const spent = this.usage.causeCost(req.causeId);
     if (spent >= CAUSE_COST_CAP_USD) {
-      this.note(room, 'Cost cap reached for this thread ($' + spent.toFixed(2) + ' >= $' + CAUSE_COST_CAP_USD + '). Send a new message to continue.', req.causeId, hop);
+      this.note(room, 'Spending limit reached for this request ($' + spent.toFixed(2) + ' of $' + CAUSE_COST_CAP_USD + '). Send a new message to continue.', req.causeId, hop);
       return [];
     }
     const seq = this.repos.maxSeq(room.id);
-    for (const t of valid) this.enqueue(t, room, { causeId: req.causeId, hop, triggerSeq: seq, causeKind: 'bot' });
+    for (const t of valid) this.enqueue(t, room, { causeId: req.causeId, hop, triggerSeq: seq, causeKind: 'bot', onDone });
     return valid.map((v) => v.handle);
   }
 
@@ -232,7 +234,12 @@ export class RoomRouter {
           const strictApprovals = items.some((i) => this.requiresApprovals(i.causeId));
           // Only a person's own newest words can ask for a stronger model, never a forwarded trigger payload.
           const latestUserText = this.repos.messagesAfter(room.id, session.lastSeenSeq).filter((m) => m.authorType === 'user').at(-1)?.text;
-          req = { bot, room, members: this.members(room), hop, causeId, injected, latestUserText, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
+          // A routine's own prompt may invoke a skill. Its owner wrote it, unlike anything else in the transcript.
+          const cause = causeKind === 'routine' ? this.repos.getMessage(causeId) : undefined;
+          const routinePrompt = cause?.kind === 'routine' ? cause.text : undefined;
+          // The composer's pick is for what a person starts here. Hand-offs and schedules keep each bot's own model.
+          const chatModel = items.some((i) => i.causeKind === 'user' && i.hop === 0) ? room.chatModel ?? undefined : undefined;
+          req = { bot, room, members: this.members(room), hop, causeId, injected, latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
@@ -240,6 +247,8 @@ export class RoomRouter {
         // Shutting down: the hub interrupted the turn, it did not finish. Leave its journal rows (and the
         // session cursor) alone so the next start resumes it (services/FollowUp.ts).
         if (this.frozen) return;
+        const left = lane.left;
+        lane.left = false;
         this.repos.journalRemove(items.map((i) => i.journalId).filter((id): id is string => !!id));
         this.repos.saveSession(bot.id, room.id, { lastSeenSeq: startSeq });
         // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
@@ -248,7 +257,7 @@ export class RoomRouter {
         try { this.skillReflection?.afterTurn(bot.id, room.id, result); } catch (e) { console.error('[skill-reflection]', e); }
         // P2: a parked turn is not finished; its routine run stays open until the resumed turn ends.
         for (const i of items) if (!(result.parked && i.runId)) i.onDone?.(result);
-        if (result.ok && result.finalText) {
+        if (result.ok && result.finalText && !left) {
           // re-read members: the turn may have created or added bots
           const freshRoom = this.repos.getRoom(roomId) ?? room;
           const targets = parseMentions(result.finalText, this.members(freshRoom), bot.id);
@@ -272,7 +281,7 @@ export class RoomRouter {
         const spent = this.usage.causeCost(i.causeId);
         spentBy.set(i.causeId, spent);
         if (spent >= CAUSE_COST_CAP_USD) {
-          this.note(room, 'Cost cap reached for this thread ($' + spent.toFixed(2) + ' >= $' + CAUSE_COST_CAP_USD + '), so @' + bot.handle + ' did not start. Send a new message to continue.', i.causeId, i.hop);
+          this.note(room, 'Spending limit reached for this request ($' + spent.toFixed(2) + ' of $' + CAUSE_COST_CAP_USD + '), so @' + bot.handle + ' did not start. Send a new message to continue.', i.causeId, i.hop);
         }
       }
       if (spentBy.get(i.causeId)! >= CAUSE_COST_CAP_USD) {
@@ -351,6 +360,21 @@ export class RoomRouter {
   freeze() {
     this.frozen = true;
   }
+  /**
+   * The owner took a bot out of a room: work queued for it there is dropped and a running turn is stopped, so it
+   * does not keep talking in a chat it has left. Parked work is covered too: `resumeParked` refuses a non-member.
+   */
+  botLeftRoom(botId: string, roomId: string) {
+    const lane = this.lanes.get(botId + ':' + roomId);
+    if (!lane) return;
+    for (const i of lane.pending.splice(0)) {
+      if (i.journalId) this.repos.journalRemove([i.journalId]);
+      i.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'removed from the room' });
+    }
+    if (!lane.running) return;
+    lane.left = true;
+    this.runner.interruptLane(botId, roomId);
+  }
   /** Whether a bot has a turn running or queued in a room. */
   isBusy(botId: string, roomId: string): boolean {
     const lane = this.lanes.get(botId + ':' + roomId);
@@ -358,7 +382,8 @@ export class RoomRouter {
   }
   /** Re-queues a journaled item after a restart (FollowUp). It keeps its cause and hop; `attempts` is journaled. */
   resume(bot: Bot, room: Room, item: { causeId: string; hop: number; triggerSeq: number; attempts: number; runId?: string; note?: string; onDone?: (r: TurnResult) => void }) {
-    this.enqueue(bot, room, { ...item });
+    // It keeps its kind too: a routine cut off by a restart is still a routine, on the routine's model.
+    this.enqueue(bot, room, { ...item, causeKind: item.hop > 0 ? 'bot' : this.resumedCauseKind(item.causeId) });
   }
   /**
    * A turn nobody @mentioned (FollowUp's stalled-handoff nudge). It is one more hop on the thread, so it is
@@ -367,12 +392,12 @@ export class RoomRouter {
   followUp(room: Room, bot: Bot, o: { causeId: string; hop: number; note: string }): boolean {
     const hop = o.hop + 1;
     if (hop > MAX_HOPS) {
-      this.note(room, 'Hop budget exhausted (' + MAX_HOPS + '), so @' + bot.handle + ' was not nudged.', o.causeId, hop);
+      this.note(room, 'Too many hand-offs in a row (' + MAX_HOPS + '), so @' + bot.handle + ' was not reminded.', o.causeId, hop);
       return false;
     }
     const spent = this.usage.causeCost(o.causeId);
     if (spent >= CAUSE_COST_CAP_USD) {
-      this.note(room, 'Cost cap reached for this thread ($' + spent.toFixed(2) + '), so @' + bot.handle + ' was not nudged.', o.causeId, hop);
+      this.note(room, 'Spending limit reached for this request ($' + spent.toFixed(2) + '), so @' + bot.handle + ' was not reminded.', o.causeId, hop);
       return false;
     }
     this.enqueue(bot, room, { causeId: o.causeId, hop, triggerSeq: this.repos.maxSeq(room.id), note: o.note });

@@ -54,7 +54,11 @@ export const DATA_DIR = process.env.POCKETROCKET_DATA ? path.resolve(process.env
 export const WORKSPACE_DIR = path.join(DATA_DIR, 'workspace');
 export const BOTS_DIR = path.join(DATA_DIR, 'bots');
 export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
+/** Uploaded pictures. Outside WORKSPACE_DIR and BOTS_DIR, so it is in no bot's roots. */
+export const MEDIA_DIR = path.join(DATA_DIR, 'media');
 export const DB_PATH = path.join(DATA_DIR, 'pocketrocket.db');
+/** The owner's routing rules. No bot may write it (`permissions/readOnlyRoots.ts`). */
+export const ROUTING_PATH = path.join(DATA_DIR, 'routing.md');
 export const WEB_DIST = process.env.POCKETROCKET_WEB_DIST
   ? path.resolve(process.env.POCKETROCKET_WEB_DIST)
   : path.join(ROOT_DIR, 'packages', 'web', 'dist');

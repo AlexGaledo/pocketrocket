@@ -1,15 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import {
-  BotInputSchema, RoomInputSchema, RoutineInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  type HealthInfo, type ProviderId,
+  BotInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
+  isMediaRef, mediaHash,
+  type HealthInfo, type ProviderId, type Room,
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
 import { WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
 import { openWorkspace, workspaceTarget } from './openWorkspace.js';
 import { SCREEN_VIEWER_PATH, screenViewerPath, type ScreenSessions } from './screenSession.js';
-import type { ComputerManager } from '../services/ComputerManager.js';
+import { AlwaysOnRefused, type ComputerManager } from '../services/ComputerManager.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -35,8 +36,10 @@ import type { ProviderRegistry } from '../providers/registry.js';
 import { AccountError, type AccountService } from '../services/AccountService.js';
 import { AUTH_CALLBACK_PATH, deviceIdOf } from './guard.js';
 import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
+import type { RoutingRules } from '../services/RoutingRules.js';
 import type { VoiceProposals } from '../services/VoiceProposals.js';
 import { logError } from '../providers/redact.js';
+import type { MediaStore } from '../services/MediaStore.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
@@ -58,8 +61,12 @@ export interface RestDeps {
   voice?: VoiceProposals;
   /** Per-bot computers (P1): Screen tab status, Wake, Keep awake. */
   computers: ComputerManager;
+  /** The owner's routing rules. */
+  routing?: RoutingRules;
   /** P2: true while the viewer of this screen (bot id, or null for the shared one) may only watch. */
   viewOnly?: (scope: string | null) => boolean;
+  /** Uploaded pictures: a reference is only stored once its file is here. */
+  media?: MediaStore;
 }
 
 export function createRest(deps: RestDeps) {
@@ -85,6 +92,24 @@ export function createRest(deps: RestDeps) {
     const parsed = parse(schema, body) as Record<string, unknown>;
     const sent = new Set(Object.keys((body ?? {}) as Record<string, unknown>));
     return Object.fromEntries(Object.entries(parsed).filter(([k]) => sent.has(k))) as Partial<T>;
+  };
+
+  /** A picture reference must name a file this hub holds. Icon keys and '' pass; the schemas have dropped the rest. */
+  const needPicture = (avatar: string | undefined) => {
+    if (isMediaRef(avatar) && !deps.media?.has(mediaHash(avatar))) throw new HttpError(400, 'That picture is gone. Upload it again.');
+  };
+  /** What the owner changed in a group, as the lines the chat shows. */
+  const roomChanges = (before: Room, after: Room): string[] => {
+    const who = settings.get().userName;
+    const label = (id: string) => { const b = repos.getBot(id); return b ? b.name + ' (@' + b.handle + ')' : 'A bot'; };
+    const lines: string[] = [];
+    if (after.name !== before.name) lines.push(who + ' renamed this chat to "' + after.name + '".');
+    for (const id of after.memberIds) if (!before.memberIds.includes(id)) lines.push(who + ' added ' + label(id) + '.');
+    for (const id of before.memberIds) if (!after.memberIds.includes(id)) lines.push(who + ' removed ' + label(id) + '.');
+    if (after.coordinatorBotId !== before.coordinatorBotId) {
+      lines.push(after.coordinatorBotId ? 'Coordinator is now ' + label(after.coordinatorBotId) + '.' : 'This chat has no coordinator now.');
+    }
+    return lines;
   };
 
   // ---- health
@@ -127,7 +152,7 @@ export function createRest(deps: RestDeps) {
     const owner = deviceIdOf(req);
     if (botId && computers.enabled) {
       need(repos.getBot(botId), 'Bot');
-      if (!computers.existingEndpoint(botId)) throw new HttpError(409, 'This bot has no computer yet; wake it first');
+      if (!computers.existingEndpoint(botId)) throw new HttpError(409, 'This bot has no computer yet');
       return { url: screenSessions.mintTicket(botId, owner).url };
     }
     return { url: screenSessions.mintTicket(null, owner).url };
@@ -135,17 +160,33 @@ export function createRest(deps: RestDeps) {
 
   // ---- per-bot computers (P1). Human-only: no bot tool reaches these.
   add('GET', '/api/computers/:botId', ({ params }) => computers.status(need(repos.getBot(params.botId), 'Bot').id));
-  add('POST', '/api/computers/:botId/wake', async ({ params }) => {
+  // The app opened: warm the bot in `botId` and one more recent one, in empty places only. Answers at once; the
+  // starts show up as computer.state events. Not on DEVICE_ALLOW: opening the app on a phone wakes nothing.
+  add('POST', '/api/computers/warm', ({ body }) => {
+    const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
+    void computers.warm(botId && repos.getBot(botId) ? botId : null).catch((e) => console.warn('[computers] ' + (e as Error).message));
+    return { ok: true };
+  });
+  // `auto`: nobody pressed anything (a bot was selected, a screen was opened), so the memory guard applies and only
+  // a cold computer may be evicted. A paired device always gets those rules. Without it this is the Retry button.
+  add('POST', '/api/computers/:botId/wake', async ({ params, body, req }) => {
     const bot = need(repos.getBot(params.botId), 'Bot');
-    if (!computers.enabled) throw new HttpError(409, 'This hub has no per-bot computers');
-    await computers.ensureRunning(bot.id);
+    const { auto } = parse(z.object({ auto: z.boolean().optional() }), body ?? {});
+    if (!computers.enabled) throw new HttpError(409, 'This server has no per-bot computers');
+    if (auto || deviceIdOf(req)) await computers.wakeFocused(bot.id);
+    else await computers.ensureRunning(bot.id);
     return computers.status(bot.id);
   });
   add('PUT', '/api/computers/:botId/keep-awake', ({ params, body }) => {
     const bot = need(repos.getBot(params.botId), 'Bot');
     const { on } = parse(z.object({ on: z.boolean() }), body);
-    if (!computers.enabled) throw new HttpError(409, 'This hub has no per-bot computers');
-    return computers.setKeepAwake(bot.id, on);
+    if (!computers.enabled) throw new HttpError(409, 'This server has no per-bot computers');
+    try {
+      return computers.setKeepAwake(bot.id, on);
+    } catch (e) {
+      if (e instanceof AlwaysOnRefused) throw new HttpError(409, e.message);
+      throw e;
+    }
   });
   add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR, version: VERSION }));
   // Opens the workspace on the machine the HUB runs on, which is the only machine it exists on: the user's
@@ -163,6 +204,7 @@ export function createRest(deps: RestDeps) {
   // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
   add('PUT', '/api/settings', ({ body }) => {
     const patch = parsePatch(SettingsPatchSchema, body);
+    needPicture(patch.userAvatar);
     const before = settings.approvals();
     try {
       const next = settings.patch(patch);
@@ -208,6 +250,7 @@ export function createRest(deps: RestDeps) {
   add('GET', '/api/bots', () => repos.listBots());
   add('POST', '/api/bots', ({ body }) => {
     const input = parse(BotInputSchema, body);
+    needPicture(input.avatar);
     if (repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
     const bot = repos.createBot(input);
     memory.ensureHome(bot.id);
@@ -218,6 +261,7 @@ export function createRest(deps: RestDeps) {
   add('PATCH', '/api/bots/:id', ({ params, body }) => {
     const cur = need(repos.getBot(params.id), 'Bot');
     const input = parsePatch(BotInputSchema.partial(), body);
+    needPicture(input.avatar);
     if (input.handle && input.handle !== cur.handle && repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
     const bot = repos.updateBot(params.id, input)!;
     if (input.description !== undefined) memory.writeIdentity(bot.id, input.description);
@@ -260,6 +304,8 @@ export function createRest(deps: RestDeps) {
     const input = parse(RoomInputSchema, body);
     for (const id of input.memberIds) need(repos.getBot(id), 'Bot ' + id);
     if (input.kind === 'dm' && input.memberIds.length !== 1) throw new HttpError(400, 'DM needs exactly one bot');
+    if (input.coordinatorBotId && !input.memberIds.includes(input.coordinatorBotId)) throw new HttpError(400, 'The coordinator must be in the chat');
+    needPicture(input.avatar);
     const room = repos.createRoom(input);
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return room;
@@ -269,7 +315,21 @@ export function createRest(deps: RestDeps) {
     const input = parsePatch(RoomInputSchema.partial(), body);
     for (const id of input.memberIds ?? []) need(repos.getBot(id), 'Bot ' + id);
     if ((input.kind ?? cur.kind) === 'dm' && (input.memberIds ?? cur.memberIds).length !== 1) throw new HttpError(400, 'DM needs exactly one bot');
-    const room = repos.updateRoom(params.id, input)!;
+    needPicture(input.avatar);
+    const memberIds = input.memberIds ?? cur.memberIds;
+    if (input.coordinatorBotId && !memberIds.includes(input.coordinatorBotId)) throw new HttpError(400, 'The coordinator must be in the chat');
+    // A coordinator who leaves stops being one. An empty `memberIds` never gets here: the schema wants at least one bot.
+    const coordinatorBotId = input.coordinatorBotId === undefined && cur.coordinatorBotId && !memberIds.includes(cur.coordinatorBotId) ? null : input.coordinatorBotId;
+    const room = repos.updateRoom(params.id, { ...input, coordinatorBotId })!;
+    for (const id of cur.memberIds) if (!room.memberIds.includes(id)) router.botLeftRoom(id, room.id);
+    events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
+    if (room.kind === 'group') for (const line of roomChanges(cur, room)) router.systemNote(room, line, null, 0);
+    return room;
+  });
+  // The composer's model pick for this chat. Human-only: no bot tool reaches it, and a paired device is refused.
+  add('PUT', '/api/rooms/:id/model', ({ params, body }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const room = repos.setRoomChatModel(params.id, parse(RoomModelInputSchema, body).model)!;
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return room;
   });
@@ -342,6 +402,21 @@ export function createRest(deps: RestDeps) {
   add('DELETE', '/api/routines/:id', ({ params }) => { repos.deleteRoutine(params.id); scheduler.reload(); return { ok: true }; });
   add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id, { manual: true }) }));
   add('GET', '/api/routines/:id/runs', ({ params }) => repos.listRuns(params.id));
+
+  // ---- the owner's routing rules. Human-only, like settings; a bot can only propose a line, on an approval card.
+  if (deps.routing) {
+    const routing = deps.routing;
+    add('GET', '/api/routing', () => ({ text: routing.read() }));
+    add('PUT', '/api/routing', ({ body }) => {
+      const { text } = parse(RoutingInputSchema, body);
+      try {
+        routing.write(text);
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+      return { text };
+    });
+  }
 
   // ---- P7: knowledge repo, voice, notes, skill import from git
   // Human-only, like settings: no bot tool reaches the knowledge sync or the voice approvals.

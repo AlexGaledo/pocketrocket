@@ -52,7 +52,7 @@ export function createProviders(deps: RegistryDeps): ProviderRegistry {
 
   const check = async (id: ProviderId, force = false): Promise<ProviderCheck> => {
     // Checking spawns the provider's CLI (`opencode --version`, `codex login status`, ...); a disabled one never runs.
-    if (!enabled.includes(id)) return { ok: false, auth: 'unknown', error: id + ' is not enabled on this hub' };
+    if (!enabled.includes(id)) return { ok: false, auth: 'unknown', error: id + ' is not enabled on this server' };
     const hit = cache.get(id);
     if (!force && hit && Date.now() - hit.at < CHECK_TTL_MS) return hit.check;
     let result: ProviderCheck;

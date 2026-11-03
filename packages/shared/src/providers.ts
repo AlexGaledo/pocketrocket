@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_AVATAR_LENGTH, isMediaRef } from './models.js';
 
 // ---------- Providers (global choice) ----------
 // The hub runs every bot through ONE provider at a time (settings.provider). Models are chosen per bot
@@ -95,10 +96,12 @@ export function isTimeZone(tz: string): boolean {
 
 export const SettingsSchema = z.object({
   provider: z.enum(PROVIDER_IDS).default('claude'),
-  /** Default model id for new bots (must belong to `provider`). */
-  defaultModel: z.string().default('claude-sonnet-5'),
+  /** Default model for new bots: `auto`, or an id that belongs to `provider`. */
+  defaultModel: z.string().default('auto'),
   /** How bots address the human. */
   userName: z.string().min(1).max(40).default('you'),
+  /** The human's picture (an uploaded reference, see isMediaRef), or '' for their initial. */
+  userAvatar: z.string().max(MAX_AVATAR_LENGTH).refine((v) => v === '' || isMediaRef(v), 'not an uploaded picture').default(''),
   sounds: z.boolean().default(true),
   onboarded: z.boolean().default(false),
   theme: z.enum(['system', 'light', 'dark']).default('system'),
@@ -106,8 +109,7 @@ export const SettingsSchema = z.object({
   /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
   approvals: z.enum(APPROVALS).default('ask'),
   /**
-   * P8: for bots on the `auto` model, ask a one-shot Haiku classifier (at most $0.002 a turn) to pick the model
-   * when no free rule applies. Off by default because it spends money on every such turn.
+   * Retired: Auto decides inside the turn, with no call before it. Kept so saved settings still parse; nothing reads it.
    */
   routerClassifier: z.boolean().default(false),
   // ---- P3: routines v2 ----

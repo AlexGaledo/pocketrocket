@@ -1,28 +1,36 @@
 import { useState } from 'react';
-import { AUTO_MODEL_INFO, BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, type Bot, type BotInput } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, isBotIconKey, isMediaRef, type Bot, type BotInput } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
+import { iconGlyph } from '../../lib/botIcon';
+import { BotIconPicker } from './BotIconPicker';
 import { Button, Dialog, Field, Input, Label, Select, Textarea, cn } from '../ui';
 
 /** Starter bots. `userName` is settings.userName, so the coordinator reports to whoever runs this hub. */
 const presets = (userName: string): { label: string; v: Partial<BotInput> }[] => [
-  { label: 'Chief of staff', v: { name: 'Chief', handle: 'chief', title: 'Chief of staff / coordinator', avatar: '🧭', description: 'You coordinate the other bots. Break requests into tasks, hand them off with @handle or the handoff tool, then summarize results for ' + (userName.trim() || 'the user') + '. If a needed role is missing, create it with create_bot (focused role, clear instructions) or add an existing bot with add_to_room. Do not do specialist work yourself when a specialist is in the room.' } },
-  { label: 'Researcher', v: { name: 'Researcher', handle: 'researcher', title: 'Web research', avatar: '🔎', description: 'You research using WebSearch/WebFetch and write concise findings with sources into the shared workspace as markdown.', allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'] } },
-  { label: 'Developer', v: { name: 'Dev', handle: 'dev', title: 'Software engineer', avatar: '🛠️', description: 'You implement and test code in the shared workspace. Prefer small verified changes; run tests with Bash before reporting done.' } },
-  { label: 'Writer', v: { name: 'Writer', handle: 'writer', title: 'Copy & docs', avatar: '✍️', description: 'You write and edit prose: docs, emails, posts. Keep a consistent voice; ask for the audience if unclear.', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch'] } },
+  { label: 'Chief of staff', v: { name: 'Chief', handle: 'chief', title: 'Chief of staff / coordinator', avatar: 'compass', description: 'You coordinate the other bots. Break requests into tasks, hand them off with @handle or the handoff tool, then summarize results for ' + (userName.trim() || 'the user') + '. If a needed role is missing, create it with create_bot (focused role, clear instructions) or add an existing bot with add_to_room. Do not do specialist work yourself when a specialist is in the room.' } },
+  { label: 'Researcher', v: { name: 'Researcher', handle: 'researcher', title: 'Web research', avatar: 'search', description: 'You research using WebSearch/WebFetch and write concise findings with sources into the shared workspace as markdown.', allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'] } },
+  { label: 'Developer', v: { name: 'Dev', handle: 'dev', title: 'Software engineer', avatar: 'wrench', description: 'You implement and test code in the shared workspace. Prefer small verified changes; run tests with Bash before reporting done.' } },
+  { label: 'Writer', v: { name: 'Writer', handle: 'writer', title: 'Copy & docs', avatar: 'pen', description: 'You write and edit prose: docs, emails, posts. Keep a consistent voice; ask for the audience if unclear.', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch'] } },
 ];
 const DEFAULT_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'];
+
+function PresetIcon({ icon }: { icon?: string }) {
+  const Glyph = iconGlyph(icon);
+  return <Glyph aria-hidden size={14} strokeWidth={1.75} />;
+}
 
 export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => void }) {
   const toast = useStore((s) => s.toast);
   const providers = useStore((s) => s.providers);
   const settings = useStore((s) => s.settings);
+  const device = useStore((s) => s.device);
   const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
   const providerModels = activeProvider?.models.length ? activeProvider.models : MODELS.map((m) => ({ id: m.id, label: m.label as string, note: undefined as string | undefined }));
   // "Auto" first: the hub picks from the provider's own list per turn (P8 model router).
   const models: { id: string; label: string; note?: string }[] = [AUTO_MODEL_INFO, ...providerModels];
   const [f, setF] = useState<BotInput>({
-    name: bot?.name ?? '', handle: bot?.handle ?? '', title: bot?.title ?? '', description: bot?.description ?? '', avatar: bot?.avatar ?? '🤖',
+    name: bot?.name ?? '', handle: bot?.handle ?? '', title: bot?.title ?? '', description: bot?.description ?? '', avatar: bot && (isBotIconKey(bot.avatar) || isMediaRef(bot.avatar)) ? bot.avatar : '',
     model: bot?.model ?? settings.defaultModel ?? DEFAULT_MODEL, allowedTools: bot?.allowedTools ?? DEFAULT_TOOLS, maxBudgetUsd: bot?.maxBudgetUsd ?? 2,
   });
   const [busy, setBusy] = useState(false);
@@ -64,14 +72,15 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
     <Dialog open onOpenChange={(o) => !o && onClose()} title={bot ? 'Edit ' + bot.name : 'New bot'} wide>
       {!bot && (
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {presets(settings.userName).map((p) => <Button key={p.label} size="sm" onClick={() => set({ ...p.v, allowedTools: p.v.allowedTools ?? DEFAULT_TOOLS })}>{p.v.avatar} {p.label}</Button>)}
+          {presets(settings.userName).map((p) => <Button key={p.label} size="sm" onClick={() => set({ ...p.v, allowedTools: p.v.allowedTools ?? DEFAULT_TOOLS })}><PresetIcon icon={p.v.avatar} />{p.label}</Button>)}
         </div>
       )}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[64px_1fr_1fr]">
-        <Field><Label>Avatar</Label><Input value={f.avatar} onChange={(e) => set({ avatar: e.target.value })} className="text-center text-lg" maxLength={4} /></Field>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field><Label>Name</Label><Input value={f.name} onChange={(e) => set({ name: e.target.value, handle: bot ? f.handle : autoHandle(e.target.value) })} placeholder="Researcher" autoFocus /></Field>
         <Field><Label hint="mention as @handle">Handle</Label><Input value={f.handle} onChange={(e) => set({ handle: e.target.value.toLowerCase() })} placeholder="researcher" className="font-mono" /></Field>
       </div>
+      {/* A paired phone cannot edit bots at all (guard.ts); this keeps the picker off it if the dialog ever opens there. */}
+      {!device && <BotIconPicker botId={bot?.id ?? null} value={f.avatar} onChange={(avatar) => set({ avatar })} />}
       <Field className="mt-3"><Label>Title</Label><Input value={f.title} onChange={(e) => set({ title: e.target.value })} placeholder="Web research & summaries" /></Field>
       <Field className="mt-3">
         <Label hint="The bot's instructions">Role description</Label>

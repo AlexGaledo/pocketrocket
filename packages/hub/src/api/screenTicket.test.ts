@@ -268,6 +268,20 @@ describe('per-bot screens', () => {
     expect(JSON.parse((await r2('/api/computers/' + A, auth2)).body)).toMatchObject({ keepAwake: true });
   });
 
+  it('warm start answers at once; Always on past the limit is a 409 with the reason', async () => {
+    const warm = await r2('/api/computers/warm', auth2, 'POST', { botId: B });
+    expect(warm.status).toBe(200);
+    expect(JSON.parse(warm.body)).toEqual({ ok: true });
+    expect((await r2('/api/computers/warm', { 'content-type': 'application/json' }, 'POST', {})).status).toBe(401);
+    expect((await r2('/api/computers/' + B + '/keep-awake', auth2, 'PUT', { on: true })).status).toBe(200);
+    const c = await newBot('epsilon');
+    const r = await r2('/api/computers/' + c.id + '/keep-awake', auth2, 'PUT', { on: true });
+    expect(r.status).toBe(409);
+    expect(JSON.parse(r.body).error).toContain('Only 2 can be Always on');
+    await r2('/api/computers/' + B + '/keep-awake', auth2, 'PUT', { on: false });
+    await r2('/api/bots/' + c.id, auth2, 'DELETE');
+  });
+
   it('erases the computer of a deleted bot', async () => {
     const c = await newBot('delta');
     await r2('/api/computers/' + c.id + '/wake', auth2, 'POST', {});

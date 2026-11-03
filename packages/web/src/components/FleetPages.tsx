@@ -7,7 +7,7 @@ import { MODELS, type CauseKind, type Routine, type RoutineRun, type UsageGroup,
 import { MONTHS, SCHEDULE_PRESETS, WEEKDAYS, cronToPreset, describeCron, presetToCron, zonedParts, type SchedulePreset, type ScheduleParts } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
-import { Button, Input, Label, Select, Textarea, cn, fmtUsd } from './ui';
+import { Avatar, Button, Input, Label, Select, Textarea, cn, fmtUsd } from './ui';
 import { TriggersSection } from './TriggersSection';
 
 /** The scrolling column under a page's header, as wide as the chat column. */
@@ -140,7 +140,7 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
         <div className="flex flex-col gap-2 rounded-lg bg-card2/60 p-2">
           <Input placeholder="Name" aria-label="Schedule name" value={form.name} onChange={(e) => set({ name: e.target.value })} />
           <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
-            <Select aria-label="Bot" value={form.botId} onChange={(e) => set({ botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}</Select>
+            <Select aria-label="Bot" value={form.botId} onChange={(e) => set({ botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
             <Select aria-label="Chat" value={form.roomId} onChange={(e) => set({ roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
           </div>
           <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
@@ -218,7 +218,7 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
                 <button className="min-w-0 flex-1 text-left" onClick={() => openEdit(r)}>
                   <div className="truncate font-medium">{r.name}</div>
                   <div className="truncate text-muted">{scheduleLabel(r, tz)}</div>
-                  <div className="truncate text-muted">{b?.avatar} @{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
+                  <div className="truncate text-muted">@{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
                 </button>
                 <Button size="icon" variant="ghost" title="Run now. This does real work." aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button>
                 <Button size="icon" variant="ghost" title="Run history" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button>
@@ -267,7 +267,7 @@ function UsageSection() {
       <ul className="flex flex-col gap-1">
         {byBot.map(({ b, cost, turns }) => (
           <li key={b.id} className="flex items-center gap-2 rounded-lg bg-card2/60 px-2 py-1.5">
-            <span className="shrink-0">{b.avatar}</span><span className="min-w-0 flex-1 truncate font-medium">{b.name}</span><span className="shrink-0 text-muted">{turns} replies</span><span className="shrink-0 font-mono">{fmtUsd(cost)}</span>
+            <span aria-hidden className="shrink-0"><Avatar bot={b} size={20} /></span><span className="min-w-0 flex-1 truncate font-medium">{b.name}</span><span className="shrink-0 text-muted">{turns} replies</span><span className="shrink-0 font-mono">{fmtUsd(cost)}</span>
           </li>
         ))}
       </ul>

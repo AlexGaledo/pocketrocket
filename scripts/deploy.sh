@@ -17,7 +17,7 @@ ssh "$HOST" "id -u $APP_USER >/dev/null 2>&1 || useradd --system --create-home -
 
 echo "==> uploading to $HOST:$DIR"
 ssh "$HOST" "mkdir -p '$DIR'"
-tar --exclude=node_modules --exclude=data --exclude=dist --exclude=.env \
+tar --exclude=node_modules --exclude=data --exclude=dist --exclude=.env --exclude='packages/desktop/src-tauri/target' \
     --exclude='packages/*/node_modules' --exclude='packages/web/dist' -czf - . \
   | ssh "$HOST" "tar -xzf - -C '$DIR'"
 

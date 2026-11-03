@@ -5,7 +5,7 @@ import { Hand, MonitorUp, Pause, Play } from 'lucide-react';
 import type { ApprovalPayload, Bot, ComputerControl, ControlStatus, Message, TakeoverPayload } from '@pocketrocket/shared';
 import { useStore, botById } from '../store';
 import { api } from '../lib/api';
-import { deviceId, holdsScreen } from '../lib/screenView';
+import { deviceId, hasComputer, holdsScreen } from '../lib/screenView';
 import { Button, Input, cn } from './ui';
 
 const DEFAULT: Omit<ControlStatus, 'botId'> = { control: 'agent', holder: null, since: 0, takeover: null };
@@ -16,7 +16,7 @@ export function useControl(botId: string | undefined): ControlStatus {
 }
 
 /** True when the bot can use a computer at all (Browser or Desktop). */
-export const hasComputer = (b: Bot | undefined) => !!b && (b.allowedTools.includes('Browser') || b.allowedTools.includes('Desktop'));
+export { hasComputer };
 
 /** PUT the new state; the store follows the `computer.control` event. Errors become a toast. */
 function useSetControl(bot: Bot) {

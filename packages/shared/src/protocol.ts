@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AUTO_MEMORY_EVERY, MAX_ROOM_BOTS, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload } from './models.js';
+import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval } from './models.js';
 import type { KnowledgeStatus } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
@@ -10,7 +10,7 @@ import type { RecorderStatus } from './teach.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
-  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings; /** Who this connection is (P9): a paired device has narrower rights (guard.ts DEVICE_ALLOW). */ principal?: 'hub' | 'device' }
+  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings; /** Who this connection is (P9): a paired device has narrower rights (guard.ts DEVICE_ALLOW). */ principal?: 'hub' | 'device'; /** Every card still waiting, including ones in rooms this client has not loaded. */ openApprovals?: OpenApproval[] }
   | { type: 'settings.changed'; settings: Settings }
   /** Provider switched (or its check changed); clients refetch GET /api/providers. */
   | { type: 'providers.changed'; active: ProviderId }
@@ -68,12 +68,24 @@ export const ClientEventSchema = z.discriminatedUnion('type', [
 export type ClientEvent = z.infer<typeof ClientEventSchema>;
 
 // ---------- REST bodies ----------
+// Anything but a key or a picture reference becomes '' (automatic), so a client cached from before icons can still save.
+const AvatarSchema = z.string().max(MAX_AVATAR_LENGTH).transform((v): string => (isBotIconKey(v) || isMediaRef(v) ? v : ''));
+
+/**
+ * POST /api/media. Biggest picture the hub stores. The bytes travel as base64 in JSON, so the request stays inside
+ * the 1 MB body cap and the JSON-only rule on mutating routes (guard.ts) needs no exception.
+ */
+export const MAX_MEDIA_BYTES = 512 * 1024;
+export const MediaUploadSchema = z.object({
+  data: z.string().max(Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
+});
+
 export const BotInputSchema = z.object({
   name: z.string().min(1).max(40),
   handle: z.string().regex(/^[a-z0-9_-]{2,24}$/),
   title: z.string().max(80).default(''),
   description: z.string().max(4000).default(''),
-  avatar: z.string().max(8).default('🤖'),
+  avatar: AvatarSchema.default(''),
   model: z.string().default('claude-sonnet-5'),
   allowedTools: z.array(z.string()).default(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch']),
   maxBudgetUsd: z.number().min(0.05).max(50).default(2),
@@ -89,8 +101,17 @@ export const RoomInputSchema = z.object({
   name: z.string().min(1).max(60),
   memberIds: z.array(z.string()).min(1).max(MAX_ROOM_BOTS),
   coordinatorBotId: z.string().nullable().default(null),
+  avatar: AvatarSchema.optional(),
 });
 export type RoomInput = z.infer<typeof RoomInputSchema>;
+
+/** PUT /api/rooms/:id/model: the composer's pick for this chat. null goes back to each bot's own model. */
+export const RoomModelInputSchema = z.object({
+  model: z.string().refine(isChatModel, 'Not a model the picker offers').nullable(),
+});
+
+/** PUT /api/routing: the owner's rules. Bots only ever propose a line, through an approval card. */
+export const RoutingInputSchema = z.object({ text: z.string().max(MAX_ROUTING_BYTES) });
 
 export const RoutineInputSchema = z.object({
   botId: z.string(),

@@ -26,7 +26,7 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
     // P9: a paired phone answers cards once; a standing "always" grant is the desktop's call.
     const device = req ? deviceIdOf(req) : null;
     // The client hides what a device is refused from this one flag rather than guessing per button.
-    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: deps.settings.get(), principal: device ? 'device' : 'hub' });
+    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: deps.settings.get(), principal: device ? 'device' : 'hub', openApprovals: deps.repos.openApprovals() });
     ws.on('message', (raw) => {
       let data: unknown;
       try {
@@ -41,7 +41,7 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
         if (ev.type === 'message.send') deps.router.onUserMessage(ev.roomId, ev.text);
         else if (ev.type === 'approval.decide') {
           if (device && ev.decision === 'always') return send(ws, { type: 'error', message: '"Always allow" can only be granted from the desktop app', context: ev.approvalId });
-          if (!deps.broker.resolve(ev.approvalId, ev.decision)) send(ws, { type: 'error', message: 'Approval no longer pending', context: ev.approvalId });
+          if (!deps.broker.resolve(ev.approvalId, ev.decision, { device: !!device })) send(ws, { type: 'error', message: 'Approval no longer pending', context: ev.approvalId });
         } else if (ev.type === 'turn.interrupt') {
           if (!deps.router.interrupt(ev.turnId)) send(ws, { type: 'error', message: 'Turn not active', context: ev.turnId });
         }

@@ -4,11 +4,11 @@
  * developer build enables more than one.
  */
 import { useEffect, useState } from 'react';
-import { AUTO_MODEL_INFO, MODELS } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, MAX_ROUTING_BYTES, MODELS } from '@pocketrocket/shared';
 import type { ModelInfo, ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
-import { Button, Field, Label, Select, Switch } from '../ui';
+import { Button, Field, Label, Select, Textarea } from '../ui';
 import { ProviderCard } from '../ProviderCard';
 import { ApiKeyField } from './ApiKeyField';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -69,26 +69,7 @@ export function ClaudeSection() {
         </Card>
       </Group>
 
-      {settings.provider === 'claude' && (
-        <Group>
-          <Card>
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <div id="router-classifier-label" className="text-ui font-medium">Smarter Auto routing</div>
-                <p id="router-classifier-hint" className="mt-0.5 text-hint text-muted">
-                  Haiku picks models on Auto. Max $0.002 per reply.
-                </p>
-              </div>
-              <Switch
-                checked={settings.routerClassifier}
-                aria-labelledby="router-classifier-label"
-                aria-describedby="router-classifier-hint"
-                onChange={(next) => void updateSettings({ routerClassifier: next })}
-              />
-            </div>
-          </Card>
-        </Group>
-      )}
+      <RoutingRulesGroup />
 
       {active && active.secretKeys.length > 0 && (
         <Group>
@@ -127,5 +108,45 @@ function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; cur
         </div>
       )}
     </>
+  );
+}
+
+/** The owner's routing.md. Bots read it every turn and can only propose a line, on a card. */
+function RoutingRulesGroup() {
+  const toast = useStore((s) => s.toast);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.routing.get().then((r) => { setSaved(r.text); setDraft(r.text); }).catch(() => undefined);
+  }, []);
+  if (saved === null) return null;
+  const size = new TextEncoder().encode(draft).length;
+  const tooLong = size > MAX_ROUTING_BYTES;
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await api.routing.save(draft);
+      setSaved(r.text);
+      toast('Routing rules saved');
+    } catch (e) {
+      toast("Couldn't save the rules: " + (e as Error).message, true);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Group>
+      <Card>
+        <Field>
+          <Label hint="Bots follow these; they can only propose changes">Routing rules</Label>
+          <Textarea rows={6} value={draft} onChange={(e) => setDraft(e.target.value)} className="font-mono text-hint" aria-invalid={tooLong} />
+        </Field>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className={tooLong ? 'text-hint text-bad' : 'text-hint text-muted'}>{size} of {MAX_ROUTING_BYTES} bytes</p>
+          <Button size="sm" disabled={saving || tooLong || draft === saved} onClick={() => void save()}>Save rules</Button>
+        </div>
+      </Card>
+    </Group>
   );
 }

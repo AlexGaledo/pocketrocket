@@ -102,6 +102,9 @@ describe('trigger turns and prompt injection', () => {
 
   it('fences the event text with a nonce the event cannot forge and keeps it out of the trusted part', () => {
     const text = triggerText('Issue comments', 'Triage {{event.title}} from {{event.from}}; body: {{event.text}}', injected, 'abc123abc123');
+    // The way out of a reply is the hub's, ahead of the fence, whatever the user's prompt says.
+    expect(text.indexOf('Reply NO_REPLY if nothing needs doing.')).toBeGreaterThan(-1);
+    expect(text.indexOf('Reply NO_REPLY if nothing needs doing.')).toBeLessThan(text.indexOf('abc123abc123'));
     const open = text.indexOf('<<<UNTRUSTED EVENT abc123abc123>>>');
     const close = text.indexOf('<<<END UNTRUSTED EVENT abc123abc123>>>');
     expect(open).toBeGreaterThan(0);

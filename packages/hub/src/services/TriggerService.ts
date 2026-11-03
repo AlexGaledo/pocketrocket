@@ -90,7 +90,7 @@ export class TriggerService {
   // ---------------------------------------------------------------- lifecycle
   start() {
     // Fires left running by the previous process lost their callback; close them so the history is honest.
-    for (const f of this.repo.runningFires()) this.repo.finishFire(f.id, 'error', null, 'The hub restarted during this turn.', this.now());
+    for (const f of this.repo.runningFires()) this.repo.finishFire(f.id, 'error', null, 'The server restarted during this run.', this.now());
     // Events stored but never matched (the hub stopped in between) are matched now.
     for (const row of this.repo.pendingEvents()) this.process(row);
     this.timer ??= setInterval(() => void this.tick(), TICK_MS);

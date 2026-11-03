@@ -19,7 +19,7 @@ type Form = {
   botId: string; roomId: string; prompt: string; maxPerHour: number; budgetUsd: number; enabled: boolean;
 };
 
-const DEFAULT_PROMPT = 'New event: {{event.title}} from {{event.from}}. Decide whether anything needs doing; reply NO_REPLY if not.';
+const DEFAULT_PROMPT = 'New event: {{event.title}} from {{event.from}}. Decide whether anything needs doing.';
 const BASE_PLACEHOLDERS = ['title', 'from', 'text', 'url'];
 
 function when(ms: number, tz: string) {
@@ -164,7 +164,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
             </div>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <Select aria-label="Bot" value={form.botId} onChange={(e) => set({ botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}</Select>
+            <Select aria-label="Bot" value={form.botId} onChange={(e) => set({ botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</Select>
             <Select aria-label="Chat" value={form.roomId} onChange={(e) => set({ roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
           </div>
           {noAccess && (
@@ -222,7 +222,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
                 <button className="min-w-0 flex-1 text-left" onClick={() => openEdit(t)}>
                   <div className="flex items-center gap-1 font-medium"><Zap size={11} className="shrink-0 text-accent" />{t.name}</div>
                   <div className="truncate text-muted">{TRIGGER_SOURCE_LABEL[t.source]} · {filterSummary(t)}</div>
-                  <div className="truncate text-muted">{b?.avatar} @{b?.handle} in {rm?.name}</div>
+                  <div className="truncate text-muted">@{b?.handle} in {rm?.name}</div>
                   {st && (
                     <div className="truncate text-dim">
                       {st.firesLastHour}/{t.maxPerHour} this hour · {fmtUsd(st.spentLastDayUsd)} of {fmtUsd(t.budgetUsd)} today

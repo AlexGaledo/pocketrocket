@@ -78,11 +78,13 @@ pocketrocket-crew:pocketrocket-crew` it, start them again.
 
 ## Per-bot computers
 
-With per-bot computers on (the default from `deploy/setup-vps.sh`; `POCKETROCKET_COMPUTERS=0 bash
-deploy/setup-vps.sh` keeps the one shared screen above), every bot that has the **Browser** or **Desktop**
+With per-bot computers on (the default from `deploy/setup-vps.sh`; with `POCKETROCKET_COMPUTERS=0 bash
+deploy/setup-vps.sh` they are off and the hub refuses Browser and Desktop, so a turn runs without them and
+says why), every bot that has the **Browser** or **Desktop**
 tool gets its own computer: its own virtual display, XFCE desktop, Chromium profile (its own logins) and
-disk. The shared screen unit is turned off. The Screen tab shows the bot selected in the right panel, with
-its state (Asleep, Starting, Live), **Wake**, **Keep awake** and a disk badge.
+disk. The shared screen unit is turned off. The screen on the right follows the open chat and shows its state
+(Starting, Ready, or why it did not start, with **Try again**). **Always on** and the disk badge are on the bot's
+page, under Computer.
 
 **Not isolation.** Every computer runs as the same `pocketrocket-crew` user as the hub, so a bot with
 shell access can read another bot's files, cookies and logins, exactly as it could read the one shared
@@ -101,14 +103,25 @@ How it runs:
   (`:98`, 9223, 5901, 6081) and of stock PocketRocket (`:99`, 9222, 5900, 6080).
 - The hub proxies `/screen/<botId>/*` to that bot's noVNC. A Screen tab ticket opens one bot's screen and
   nothing else.
-- A computer starts the first time its bot uses Browser or Desktop in a turn (or when you press Wake). It
-  stops after `COMPUTER_IDLE_MIN` minutes (default 30) with no tool use, nobody watching, no routine due
-  within 10 minutes and Keep awake off. Its disk is kept.
+- A computer starts when its bot uses Browser or Desktop in a turn, and without being asked in three cases:
+  - **The app opens:** the bot you have open and the most recently used other bot, in empty places only. One
+    place stays free, nothing is ever stopped for this, and it stops short if the server is low on memory
+    (under 1.6 GB available: 600 MB assumed per computer, 1 GB left for everything else).
+  - **You settle on a bot:** after 1.5 seconds, or at once when you open its screen. This may take the last
+    place, and may stop a computer nobody used for 2 minutes. The same memory limit applies, and it says so.
+  - **Always on:** at hub start, after a server reboot, and whenever one is found down.
+- A paired phone wakes a computer only when you open that bot's screen there. Opening the app wakes nothing.
+- A turn is never held back by the memory limit.
+- A computer stops after `COMPUTER_IDLE_MIN` minutes (default 30) with no tool use, nobody watching, no routine
+  due within 10 minutes and Always on off. Its disk is kept. A window hidden for 5 minutes lets go of its viewer.
+- **Always on** keeps a computer running and brings it back after a reboot. At most `MAX_RUNNING_COMPUTERS` minus
+  1 can be on (2 by default); past that the switch refuses and says why, so a working bot always has a place. If
+  the cap is lowered later, the ones that no longer fit stay marked but do not start, and say so.
 - At most `MAX_RUNNING_COMPUTERS` (default 3) run at once. When another one is needed, the least recently
   used idle one is stopped; if all of them are busy, the bot runs that turn without Browser and Desktop and
   says why.
 - Soft disk quota: `COMPUTER_QUOTA_GB` (default 10) per computer, measured hourly. At 80% the bot is warned
-  in its prompt and the Screen tab badge turns amber; at 100% the computer does not start until space is
+  in its prompt and the badge on its page turns amber; at 100% the computer does not start until space is
   freed. There is no hard quota (that needs root; see containers in the spec).
 - The first time the hub starts with per-bot computers on, it moves the shared screen's
   `data/browser-profile` and `data/desktop-home` to the oldest bot with the Browser tool, so existing

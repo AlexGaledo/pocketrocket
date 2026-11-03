@@ -36,7 +36,7 @@ import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, ty
 export const CODEX_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   id: 'codex',
   label: 'OpenAI Codex',
-  blurb: 'The Codex CLI in headless mode (`codex exec`). Sign in with ChatGPT or an OpenAI API key.',
+  blurb: 'OpenAI Codex. Sign in with ChatGPT or an OpenAI API key.',
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['OPENAI_API_KEY'],
   permissions: 'best-effort',

@@ -99,7 +99,7 @@ export class SettingsStore {
     const prev = this.get();
     const next = SettingsSchema.parse({ ...prev, ...p });
     if (p.provider !== undefined && !this.enabled.includes(p.provider)) {
-      throw new SettingsRejected('provider: ' + p.provider + ' is not enabled on this hub');
+      throw new SettingsRejected('provider: ' + p.provider + ' is not enabled on this server');
     }
     if (this.approvalsLocked && next.approvals !== prev.approvals) {
       throw new SettingsRejected('approvals: set by the server environment (POCKETROCKET_BYPASS_PERMISSIONS)', 409);

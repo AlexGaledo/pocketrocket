@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { ChevronRight, Plus, Hash, Hand, Settings2, PanelLeftClose } from 'lucide-react';
+import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
-import { Avatar, cn } from './ui';
+import { Avatar, RoomAvatar, cn } from './ui';
 import { BotGroupHeader, useBotGroups } from './BotGroups';
 import { ProfileMenu } from './ProfileMenu';
 import { RocketMark } from './RocketMark';
@@ -308,10 +308,10 @@ function RoomItem({ room, statusOf, active, unread, onClick }: { room: Room; sta
   return (
     <li>
       <button className={cn(ROW, 'hover:bg-hover', active && 'bg-active')} aria-current={active ? 'page' : undefined} onClick={onClick}>
-        <span aria-hidden className={cn('flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-card2', busy ? 'text-ok' : 'text-muted')}><Hash size={15} /></span>
+        <RoomAvatar room={room} size={34} className={busy ? 'text-ok' : 'text-muted'} />
         <span className="block min-w-0 flex-1">
           <span className="block truncate text-ui font-medium">{room.name}</span>
-          <span className={cn('block truncate text-hint', needs ? 'text-warn' : 'text-muted')}>{needs ? needs + (needs === 1 ? ' needs you' : ' need you') : busy ? busy + ' of ' + room.memberIds.length + ' working' : room.memberIds.map((id) => botById(bots, id)?.avatar ?? '').join(' ')}</span>
+          <span className={cn('block truncate text-hint', needs ? 'text-warn' : 'text-muted')}>{needs ? needs + (needs === 1 ? ' needs you' : ' need you') : busy ? busy + ' of ' + room.memberIds.length + ' working' : room.memberIds.map((id) => botById(bots, id)?.name).filter(Boolean).join(', ')}</span>
         </span>
         {unread > 0 && <span className="rounded-full bg-ink px-1.5 text-hint font-medium text-ink-fg">{unread}<span className="sr-only"> unread</span></span>}
       </button>

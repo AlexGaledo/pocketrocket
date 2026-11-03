@@ -7,7 +7,7 @@ import { Db } from '../db/db.js';
 import { ComputersRepo } from '../db/computers.js';
 import { events } from '../events.js';
 import {
-  ComputerManager, MAX_SLOT, SLOT_BASE, duBytes, slotPorts, unitName, type ComputerManagerOptions, type Systemctl,
+  AlwaysOnRefused, ComputerManager, MAX_SLOT, SLOT_BASE, duBytes, slotPorts, unitName, type ComputerManagerOptions, type Systemctl,
 } from './ComputerManager.js';
 
 /** In-memory systemd: records every call and tracks which units are active. */
@@ -299,6 +299,193 @@ describe('ComputerManager', () => {
     const off = setup({ enabled: false });
     fs.mkdirSync(path.join(off.data, 'browser-profile'));
     expect(await off.cm.migrateLegacy([bot('x')], async () => false)).toBeNull();
+  });
+});
+
+describe('warm start', () => {
+  const GB = 1024 ** 3;
+  const used = async (cm: ComputerManager, advance: (ms: number) => void, ...ids: string[]) => {
+    for (const id of ids) {
+      (await cm.acquire(id)).release();
+      advance(1000);
+    }
+  };
+
+  it('wakes the focused bot and the most recent other one, leaving a place free', async () => {
+    const { cm, advance } = setup({ memAvailable: () => 4 * GB });
+    for (const id of ['a', 'b', 'c', 'd']) cm.endpoint(id);
+    await used(cm, advance, 'a', 'b', 'c');
+    for (const id of ['a', 'b', 'c']) await cm.stop(id);
+    expect(await cm.warm('d')).toEqual(['d', 'c']);
+    expect(cm.status('b').state).toBe('asleep');
+    expect(cm.status('a').state).toBe('asleep');
+  });
+
+  it('never evicts, however often it is called, and a full pool is left alone', async () => {
+    const { cm, sys, advance } = setup({ memAvailable: () => 4 * GB });
+    await used(cm, advance, 'a', 'b');
+    advance(60 * 60_000);
+    for (let i = 0; i < 5; i++) expect(await cm.warm('c')).toEqual([]);
+    expect(sys.calls.filter((c) => c.startsWith('stop'))).toEqual([]);
+    expect(cm.status('c').state).toBe('asleep');
+  });
+
+  it('leaves out bots without Browser or Desktop and never-used computers', async () => {
+    const { cm } = setup({ memAvailable: () => 4 * GB });
+    cm.wire({ usesComputer: (id) => id !== 'chat' });
+    cm.endpoint('never');
+    expect(await cm.warm('chat')).toEqual([]);
+    expect(cm.status('chat').state).toBe('asleep');
+    expect(cm.status('never').state).toBe('asleep');
+  });
+
+  it('stops on low memory, but a real turn still gets its computer', async () => {
+    let mem = 1.5 * GB;
+    const { cm } = setup({ memAvailable: () => mem });
+    expect(await cm.warm('a')).toEqual([]);
+    const r = await cm.wakeFocused('a');
+    expect(r.ok).toBe(false);
+    expect(cm.status('a')).toMatchObject({ state: 'asleep', reason: expect.stringContaining('low on memory') });
+    const turn = await cm.acquire('a');
+    expect(turn.ok).toBe(true);
+    turn.release();
+    expect(cm.status('a')).toMatchObject({ state: 'live' });
+    expect(cm.status('a').reason).toBeUndefined();
+    mem = 1.7 * GB;
+    expect(await cm.warm('b')).toEqual(['b']);
+  });
+
+  it('an unreadable meminfo does not block a start', async () => {
+    const { cm } = setup({ memAvailable: () => null });
+    expect(await cm.warm('a')).toEqual(['a']);
+  });
+
+  it('selecting a bot takes the last place, and evicts only a cold computer', async () => {
+    const { cm, sys, advance } = setup({ memAvailable: () => 4 * GB });
+    await used(cm, advance, 'a', 'b');
+    expect((await cm.wakeFocused('c')).ok).toBe(true);
+    const clicked = await cm.wakeFocused('d');
+    expect(clicked.ok).toBe(false);
+    expect(cm.status('d').reason).toContain('Try again');
+    expect(sys.calls.filter((c) => c.startsWith('stop'))).toEqual([]);
+    advance(3 * 60_000);
+    expect((await cm.wakeFocused('d')).ok).toBe(true);
+    expect(cm.status('a').state).toBe('asleep');
+    expect(cm.status('d').reason).toBeUndefined();
+  });
+
+  it('clicking around cannot evict in a loop', async () => {
+    const { cm, sys, advance } = setup({ memAvailable: () => 4 * GB });
+    await used(cm, advance, 'a', 'b', 'c');
+    advance(3 * 60_000);
+    const ring = ['d', 'e', 'a', 'b', 'c', 'd', 'e', 'a', 'b', 'c', 'd', 'e'];
+    for (const id of ring) {
+      await cm.wakeFocused(id);
+      advance(1500);
+    }
+    // Everything that started counts as used, so nothing it started is cold yet: at most the three old ones go.
+    expect(sys.calls.filter((c) => c.startsWith('stop')).length).toBeLessThanOrEqual(3);
+    expect(sys.active.size).toBe(3);
+  });
+
+  it('never evicts a computer a person controls, a bot is using or someone is watching', async () => {
+    const held = new Set(['held']);
+    const { cm, advance } = setup({ maxRunning: 3, memAvailable: () => 4 * GB });
+    cm.wire({ personHolds: (id) => held.has(id) });
+    await cm.ensureRunning('held');
+    const turn = await cm.acquire('busy');
+    await cm.ensureRunning('watched');
+    const close = cm.viewerOpened('watched');
+    advance(60 * 60_000);
+    for (const r of [await cm.wakeFocused('x'), await cm.ensureRunning('y')]) expect(r.ok).toBe(false);
+    expect(cm.status('held').state).toBe('live');
+    expect(cm.status('busy').state).toBe('live');
+    expect(cm.status('watched').state).toBe('live');
+    turn.release();
+    close();
+  });
+});
+
+describe('Always on', () => {
+  const bots = (...ids: string[]) => ids.map((id) => bot(id));
+  /** A second manager over the same database, as after a restart, on a machine whose units all died. */
+  const reboot = (s: ReturnType<typeof setup>, opts: ComputerManagerOptions = {}) => {
+    s.sys.active.clear();
+    return new ComputerManager(s.repo, {
+      enabled: true, maxRunning: 3, dir: path.join(s.data, 'computers'), dataDir: s.data, systemctl: s.sys, probe: async () => true,
+      diskUsage: async () => 0, now: s.at, startTimeoutMs: 50, pollMs: 1, memAvailable: () => 4 * 1024 ** 3, ...opts,
+    });
+  };
+
+  it('starts when switched on', async () => {
+    const { cm } = setup();
+    expect(cm.setKeepAwake('a', true).keepAwake).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(cm.status('a')).toMatchObject({ state: 'live', alwaysOn: { used: 1, limit: 2 } });
+  });
+
+  it('refuses past cap - 1, and turning one off makes room', () => {
+    const { cm } = setup();
+    cm.setKeepAwake('a', true);
+    cm.setKeepAwake('b', true);
+    expect(() => cm.setKeepAwake('c', true)).toThrow(AlwaysOnRefused);
+    expect(() => cm.setKeepAwake('c', true)).toThrow(/Only 2 can be Always on/);
+    expect(cm.status('c').keepAwake).toBe(false);
+    cm.setKeepAwake('a', true); // already on: not a new one
+    cm.setKeepAwake('a', false);
+    expect(cm.setKeepAwake('c', true).keepAwake).toBe(true);
+  });
+
+  it('refuses outright with one computer at a time, and for a bot with no computer', () => {
+    expect(() => setup({ maxRunning: 1 }).cm.setKeepAwake('a', true)).toThrow(/one computer at a time/);
+    const s = setup();
+    s.cm.wire({ usesComputer: () => false });
+    expect(() => s.cm.setKeepAwake('a', true)).toThrow(/no Browser or Desktop/);
+  });
+
+  it('comes back after a server reboot; a computer that was not Always on does not', async () => {
+    const s = setup();
+    await s.cm.ensureRunning('a');
+    await s.cm.ensureRunning('b');
+    s.cm.setKeepAwake('a', true);
+    const after = reboot(s);
+    await after.startBackground(bots('a', 'b'));
+    after.stopBackground();
+    expect(after.status('a').state).toBe('live');
+    expect(after.status('b').state).toBe('asleep');
+  });
+
+  it('leaves extras from a lowered cap asleep, with a reason, and does not protect them', async () => {
+    const s = setup();
+    s.cm.setKeepAwake('a', true);
+    s.cm.setKeepAwake('b', true);
+    await new Promise((r) => setTimeout(r, 20));
+    const after = reboot(s, { maxRunning: 2 });
+    await after.startBackground(bots('a', 'b'));
+    after.stopBackground();
+    const states = [after.status('a'), after.status('b')];
+    expect(states.filter((c) => c.state === 'live')).toHaveLength(1);
+    expect(states.find((c) => c.state === 'asleep')!.reason).toContain('only 1 fit');
+  });
+
+  it('holds back on low memory, and waits after a failed start instead of spinning', async () => {
+    const s = setup();
+    s.cm.setKeepAwake('a', true);
+    await new Promise((r) => setTimeout(r, 20));
+    let mem = 1024 ** 3;
+    const low = reboot(s, { memAvailable: () => mem });
+    await low.reconcile();
+    expect(await low.restoreAlwaysOn()).toEqual([]);
+    expect(low.status('a').reason).toContain('low on memory');
+    mem = 4 * 1024 ** 3;
+    s.sys.failStart = true;
+    expect(await low.restoreAlwaysOn()).toEqual([]);
+    const tried = s.sys.calls.length;
+    expect(await low.restoreAlwaysOn()).toEqual([]);
+    expect(s.sys.calls.length).toBe(tried);
+    s.advance(3 * 60_000);
+    s.sys.failStart = false;
+    expect(await low.restoreAlwaysOn()).toEqual(['a']);
   });
 });
 

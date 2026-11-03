@@ -23,7 +23,7 @@ export function knowledgeSourceError(raw: string): string | null {
   if (typeof src === 'string') return src;
   // Linking the data folder (or a parent of it) would let every bot read secrets.json and the hub token.
   if (src.kind === 'path' && (isInside(src.value, [DATA_DIR]) || isInside(DATA_DIR, [src.value]))) {
-    return 'The knowledge folder may not contain, or sit inside, the hub data folder';
+    return 'The knowledge folder may not contain, or sit inside, the app\'s data folder';
   }
   return null;
 }

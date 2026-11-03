@@ -1,6 +1,6 @@
 // The screen, and nothing else. Memory, Skills and Automations are on the Bot page; Usage has its own page.
 // lib/screenView.ts decides whose screen and what size. This draws it.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import { AlertTriangle, ExternalLink, Maximize2, Minimize2, MonitorPlay, RefreshCw, X } from 'lucide-react';
 import type { Bot, ComputerStatus } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
@@ -11,6 +11,27 @@ import { avatarStatus, useBotStatus } from '../lib/botStatus';
 import { Avatar, Button, cn } from './ui';
 import { ControlBar, hasComputer, useControl } from './ComputerControl';
 import { RecordingBar, useRecorder } from './TeachControls';
+
+/** How long a hidden window keeps its viewer connected. */
+const HIDDEN_DROP_MS = 5 * 60_000;
+
+/**
+ * noVNC's own side menu slides out over the screen on hover, and its banner says "unencrypted" about the last hop
+ * on this machine. Both go in the embedded viewer, where the app has its own controls. Pop-out keeps them, since it
+ * has no app around it (and it is where the clipboard and extra keys panels stay reachable). Same origin, as the hub
+ * proxies noVNC and sends X-Frame-Options: SAMEORIGIN.
+ */
+const VNC_EMBED_CSS = '#noVNC_control_bar_anchor,#noVNC_status,#noVNC_hint_anchor{display:none!important}';
+function hideVncChrome(e: SyntheticEvent<HTMLIFrameElement>) {
+  try {
+    const doc = e.currentTarget.contentDocument;
+    if (!doc?.head || doc.getElementById('pr-embed')) return;
+    const style = doc.createElement('style');
+    style.id = 'pr-embed';
+    style.textContent = VNC_EMBED_CSS;
+    doc.head.append(style);
+  } catch { /* not the viewer: nothing to hide */ }
+}
 
 export function RightPanel({ inline }: { inline: boolean }) {
   const botId = useStore(selectScreenBotId);
@@ -56,7 +77,6 @@ function ScreenPane(props: PaneProps) {
 }
 
 function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PaneProps & { perBot: boolean }) {
-  const toast = useStore((s) => s.toast);
   const room = useStore(selectActiveRoom);
   const rooms = useStore((s) => s.rooms);
   const page = useStore((s) => !!s.page);
@@ -74,12 +94,27 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
 
   const [info, setInfo] = useState<{ screen: boolean; cdp: boolean; computer?: ComputerStatus } | null>(null);
   const [waking, setWaking] = useState(false);
+  // A hidden window lets go of the viewer after a while, or a forgotten tab holds a computer's place for good.
+  const [hiddenLong, setHiddenLong] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const onChange = () => {
+      clearTimeout(t);
+      if (document.visibilityState === 'hidden') t = setTimeout(() => setHiddenLong(true), HIDDEN_DROP_MS);
+      else setHiddenLong(false);
+    };
+    document.addEventListener('visibilitychange', onChange);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onChange); };
+  }, []);
   const [src, setSrc] = useState('');
   const [nonce, setNonce] = useState(0);
+  const [wakeError, setWakeError] = useState('');
   const c = info?.computer;
   const state = !perBot ? (info === null ? undefined : info.screen ? 'live' : 'off')
     : waking && c?.state === 'asleep' ? 'starting' : c?.state;
   const live = state === 'live' && !!info?.screen;
+  const failure = c?.reason || wakeError;
+  const viewerUp = live && !(hiddenLong && !holdsScreen(ctl));
 
   const refresh = useCallback(async () => {
     try {
@@ -96,29 +131,42 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
     const id = setInterval(refresh, state === 'starting' ? 1500 : 10000);
     return () => clearInterval(id);
   }, [refresh, state]);
+  const pushed = useStore((s) => s.computers[bot.id]);
+  useEffect(() => { if (pushed) void refresh(); }, [pushed, refresh]);
   // An iframe cannot send an Authorization header, so the hub token used to ride this URL. Instead each viewer load
   // spends the token on a single-use ticket, which /screen/session trades for an httpOnly cookie scoped to /screen.
   // The token never enters an iframe src or a popup URL. A new ticket when control changes, so the viewer switches
   // between view-only and interactive. Size is not a dependency: changing size must not reload the viewer.
   useEffect(() => {
-    if (!live) { setSrc(''); return; }
+    if (!viewerUp) { setSrc(''); return; }
     let alive = true;
     api.screenTicket(scope).then((t) => alive && setSrc(t.url)).catch(() => alive && setSrc(''));
     return () => { alive = false; };
-  }, [live, nonce, scope, ctl.control]);
+  }, [viewerUp, nonce, scope, ctl.control]);
 
-  const wake = async () => {
+  const wake = useCallback(async (auto: boolean) => {
     setWaking(true);
+    setWakeError('');
     try {
-      const s = await api.computers.wake(bot.id);
-      if (s.reason && s.state === 'asleep') toast("Couldn't wake " + bot.name + "'s screen: " + s.reason, true);
+      await api.computers.wake(bot.id, auto ? { auto } : {});
     } catch (e) {
-      toast("Couldn't wake " + bot.name + "'s screen: " + (e as Error).message, true);
+      setWakeError((e as Error).message);
     } finally {
       setWaking(false);
       void refresh();
     }
-  };
+  }, [bot.id, refresh]);
+  // Looking at a screen starts it. A failed start stays down with its reason and a Retry; it is not retried here.
+  const usable = perBot && hasComputer(bot);
+  const watching = size !== 'glance';
+  const asked = useRef(false);
+  useEffect(() => { asked.current = false; setWakeError(''); }, [bot.id]);
+  useEffect(() => {
+    if (c?.state !== 'asleep') { asked.current = false; return; }
+    if (!usable || !watching || failure || asked.current || document.visibilityState !== 'visible') return;
+    asked.current = true;
+    void wake(true);
+  }, [c?.state, usable, watching, failure, wake]);
   const popOut = async () => {
     // Ticket first, then open: the desktop app hands new windows to the default browser by URL, so a blank window
     // that is pointed somewhere afterwards never gets anywhere. The click's user activation outlives the round-trip.
@@ -126,7 +174,6 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
   };
 
   const glance = size === 'glance';
-  const focus = size === 'focus';
   const held = holdsScreen(ctl);
   const recording = recorder?.active ?? null;
   const used = c && c.quotaBytes > 0 ? c.diskBytes / c.quotaBytes : 0;
@@ -137,12 +184,12 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
     : ctl.control === 'user' ? (ctl.holder ? 'Held on another device' : bot.name + ' is waiting for you')
     : state === undefined ? 'Checking…'
     : state === 'starting' ? 'Starting…'
-    : state === 'asleep' ? 'Asleep'
+    : state === 'asleep' ? (!hasComputer(bot) ? 'No screen' : failure ? "Didn't start" : 'Starting…')
     : state === 'off' ? (local ? 'No screen here' : 'Screen is off')
-    : !info?.screen ? 'Live, connecting'
-    : !info.cdp ? 'Live, browser not responding'
-    : use ? bot.name + ' is using its screen' : 'Live';
-  const dot = held ? 'bg-accent' : state === 'live' ? 'bg-ok' : state === 'starting' ? 'bg-warn' : state === 'off' && !local ? 'bg-bad' : 'bg-dim';
+    : !info?.screen ? 'Connecting…'
+    : !info.cdp ? 'Browser not responding'
+    : use ? bot.name + ' is using its screen' : 'Ready';
+  const dot = held ? 'bg-accent' : state === 'live' ? 'bg-ok' : state === 'starting' ? 'bg-warn' : (state === 'off' && !local) || (state === 'asleep' && failure) ? 'bg-bad' : 'bg-dim';
   const hint = held ? "You're in control. Type secrets on its screen only."
     : ctl.control === 'user' ? 'Take over to click.'
     : live ? 'View only. Take over to click.' : '';
@@ -176,9 +223,6 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
             <span className="min-w-0 truncate" role="status" aria-live="polite" title={status}>{status}</span>
           </div>
         </div>
-        {perBot && state !== 'live' && !glance && (
-          <Button size="sm" onClick={wake} disabled={state === 'starting' || state === undefined}>{state === 'starting' ? 'Waking…' : 'Wake'}</Button>
-        )}
         {live && <Button size="icon" variant="ghost" title="Reload viewer" aria-label="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={14} /></Button>}
         {inline && size === 'watch' && <Button size="icon" variant="ghost" aria-pressed={expanded} aria-label="Expand screen" title={expanded ? 'Restore' : 'Expand'} onClick={togglePanelExpanded}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</Button>}
         {live && <Button size="icon" variant="ghost" title="Pop out" aria-label="Pop out" onClick={popOut}><ExternalLink size={14} /></Button>}
@@ -195,23 +239,27 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
 
       <div className={cn('relative min-h-0 flex-1', !glance && 'mx-3 rounded-lg', live && !glance && 'overflow-hidden bg-black', held && 'ring-2 ring-accent')}>
         {live ? (
-          src && <iframe key={nonce} title={bot.name + "'s screen"} src={src} tabIndex={glance ? -1 : undefined} className={cn('block h-full w-full border-0', glance && 'pointer-events-none')} allow="clipboard-read; clipboard-write" />
+          src && <iframe key={nonce} title={bot.name + "'s screen"} src={src} onLoad={hideVncChrome} tabIndex={glance ? -1 : undefined} className={cn('block h-full w-full border-0', glance && 'pointer-events-none')} allow="clipboard-read; clipboard-write" />
         ) : !glance && (
           <div className="flex h-full flex-col gap-2 p-1 text-hint text-muted">
             {!perBot ? (
               <>
                 <p className="font-medium text-fg">{state === undefined ? 'Checking…' : local ? 'Screen needs a server install.' : 'No screen on this server.'}</p>
-                {state !== undefined && (local ? <p>Watch bots use a logged-in browser.</p> : <p>Set it up with <code className="font-mono">bash deploy/setup-vps.sh</code>.</p>)}
+                {state !== undefined && (local ? <p>Watch bots use a logged-in browser.</p> : <p>Per-bot computers are off, so Browser and Desktop are refused.</p>)}
               </>
             ) : state === 'starting' ? (
-              <p className="font-medium text-fg">Starting. Takes a few seconds.</p>
-            ) : state === 'asleep' ? (
+              <p className="font-medium text-fg">Starting. Can take up to 25 seconds.</p>
+            ) : state === 'asleep' && !hasComputer(bot) ? (
+              <p className="font-medium text-fg">{bot.name} has no Browser or Desktop, so it has no screen.</p>
+            ) : state === 'asleep' && failure ? (
               <>
-                <p className="font-medium text-fg">{bot.name}'s screen is asleep.</p>
-                <p>{hasComputer(bot) ? 'Wakes when needed. Logins are kept.' : 'Not used yet. Wake to log in.'}</p>
+                <p className="font-medium text-fg">{bot.name}'s screen didn't start.</p>
+                <p className="text-bad">{failure}</p>
+                <div><Button size="sm" onClick={() => void wake(false)} disabled={waking}>{waking ? 'Trying…' : 'Try again'}</Button></div>
               </>
+            ) : state === 'asleep' ? (
+              <p className="font-medium text-fg">Starting. Can take up to 25 seconds.</p>
             ) : null}
-            {c?.reason && <p className="text-bad">{c.reason}</p>}
             {used >= 0.8 && <p className="text-warn">Disk {Math.round(used * 100)}% full. Won't start at 100%.</p>}
           </div>
         )}

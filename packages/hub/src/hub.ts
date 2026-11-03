@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
-  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS,
+  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS, MEDIA_DIR,
   ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH,
 } from './config.js';
 import { Db } from './db/db.js';
@@ -18,8 +18,7 @@ import { AccountService } from './services/AccountService.js';
 import { PermissionBroker } from './permissions/PermissionBroker.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
-import { ModelRouter } from './agent/ModelRouter.js';
-import { classifyWithHaiku } from './agent/routerClassifier.js';
+import { RoutingRules } from './services/RoutingRules.js';
 import { RoutineScheduler } from './services/RoutineScheduler.js';
 import { FollowUp } from './services/FollowUp.js';
 import { KnowledgeRepo } from './services/KnowledgeRepo.js';
@@ -61,6 +60,8 @@ import { Recorder, type RecorderDeps } from './services/Recorder.js';
 import { SkillDistiller } from './services/SkillDistiller.js';
 import { SkillReflection } from './services/SkillReflection.js';
 import { createTeachApi } from './api/teach.js';
+import { MEDIA_SWEEP_MS, MediaStore, referencedMedia } from './services/MediaStore.js';
+import { createMediaApi } from './api/media.js';
 
 export interface HubOptions {
   port?: number;
@@ -70,6 +71,8 @@ export interface HubOptions {
   dbFile?: string;
   /** Skip directory creation + legacy db copy (tests). */
   skipBootstrap?: boolean;
+  /** The owner's routing rules; tests hand in a temp file. Defaults to data/routing.md. */
+  routingFile?: string;
   /** Account service; tests hand in one over a fake Supabase client. */
   account?: AccountService;
   /** Per-bot computers (P1); tests hand in one over a fake systemctl. Built from the environment otherwise. */
@@ -90,6 +93,8 @@ export interface HubOptions {
   // ---- P6 ----
   /** Recorder overrides (tests: availability, a fake CDP, fake scrot/xdotool, a temp folder). */
   recorder?: Partial<Omit<RecorderDeps, 'computers' | 'control'>>;
+  /** Uploaded pictures; tests hand in a temp folder. Defaults to data/media. */
+  mediaDir?: string;
 }
 
 export interface Hub {
@@ -118,6 +123,7 @@ export interface Hub {
   skills: SkillService;
   recorder: Recorder;
   distiller: SkillDistiller;
+  media: MediaStore;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -168,6 +174,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   if (expired.length) console.log('expired ' + expired.length + ' approval card(s) left open by the previous run');
   const router = new RoomRouter(repos, usage);
   const turns = new TurnRegistry();
+  const routing = new RoutingRules(opts.routingFile);
+  if (!opts.skipBootstrap) routing.ensureSeeded();
   // Per-bot computers (P1). Off unless POCKETROCKET_COMPUTERS=1 on Linux; then bots get no Browser or Desktop.
   const computers = opts.computers
     ? opts.computers(db)
@@ -182,17 +190,11 @@ export function createHub(opts: HubOptions = {}): Hub {
     if (ev.type === 'bots.changed') void computers.prune(ev.bots.map((b) => b.id)).catch((e) => console.warn('[computers] ' + (e as Error).message));
   });
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
-    dispatchFromBot: (req, targets) => router.dispatchFromBot(req, targets),
+    dispatchFromBot: (req, targets, onDone) => router.dispatchFromBot(req, targets, onDone),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
     routinesChanged: () => scheduler.reload(),
-  }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir() });
+  }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing });
   router.runner = runner;
-  // P8: the optional classifier is a Haiku call through the Claude CLI, so it only runs while Claude is the
-  // active provider (Q12: the router never reaches outside it) and only when switched on in Settings.
-  runner.router = new ModelRouter({
-    classify: classifyWithHaiku,
-    classifierEnabled: () => settings.get().routerClassifier && providers.active().id === 'claude',
-  });
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
@@ -200,6 +202,13 @@ export function createHub(opts: HubOptions = {}): Hub {
 
   // P2: take over / hand back / pause, and resuming turns that parked on the user.
   const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
+  computers.wire({
+    usesComputer: (botId) => {
+      const tools = repos.getBot(botId)?.allowedTools ?? [];
+      return tools.includes('Browser') || tools.includes('Desktop');
+    },
+    personHolds: (botId) => control.get(botId).control !== 'agent',
+  });
   const restoredTakeovers = control.restoreParked();
   if (restoredTakeovers) console.log('restored ' + restoredTakeovers + ' parked takeover(s) from the previous run');
   runner.control = control;
@@ -275,8 +284,17 @@ export function createHub(opts: HubOptions = {}): Hub {
     for (const s of deviceSockets.get(id) ?? []) s.close();
     deviceSockets.delete(id);
   });
+  const media = new MediaStore(opts.mediaDir ?? MEDIA_DIR);
+  const mediaApi = createMediaApi({ media });
+  // A hub on a test database must never sweep the real folder: every picture in it would look unreferenced.
+  const sweepMedia = () => {
+    if (opts.skipBootstrap && !opts.mediaDir) return;
+    try { media.sweep(referencedMedia(repos, settings.get())); } catch (e) { logError('[media]', e); }
+  };
+  let mediaTimer: NodeJS.Timeout | null = null;
   const rest = createRest({
-    repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers,
+    media,
+    repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers, routing,
     viewOnly: (scope) => control.viewOnly(scope),
   });
   const handleMcp = createMcpHandler(turns);
@@ -300,7 +318,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   screenProxy.on('error', (_err, _req, res) => {
     if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
       res.writeHead(502, { 'content-type': 'text/plain' });
-      res.end('Screen is not running on this computer. On the VPS: systemctl status pocketrocket-crew-screen');
+      res.end('This screen is not running.');
     } else if (res && 'destroy' in res) {
       (res as { destroy: () => void }).destroy();
     }
@@ -441,6 +459,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleOAuthStart(req, res, url, { integrations });
         return;
       }
+      if (await mediaApi(req, res)) return;
       if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
       if (await triggersApi(req, res)) return;
@@ -525,7 +544,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   return {
     server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push,
     control, broker, approvals: approvalStore,
-    skills, recorder, distiller,
+    skills, recorder, distiller, media,
     listen: () =>
       new Promise<number>((resolve, reject) => {
         server.once('error', reject);
@@ -539,6 +558,9 @@ export function createHub(opts: HubOptions = {}): Hub {
           broker.sweepParked();
           p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); }, 60_000);
           p2Timer.unref();
+          sweepMedia();
+          mediaTimer ??= setInterval(sweepMedia, MEDIA_SWEEP_MS);
+          mediaTimer.unref();
           scheduler.start();
           // P5: after resumeInterrupted, so a resumed trigger turn is not also re-fired from the inbox.
           triggers.start();
@@ -577,6 +599,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       offP6();
       await recorder.shutdown();
       if (p2Timer) clearInterval(p2Timer);
+      if (mediaTimer) clearInterval(mediaTimer);
       knowledge.stop();
       offComputers();
       // Timers only: the computers are systemd units and keep running across a hub restart.

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_MODEL, type Bot } from '@pocketrocket/shared';
+import { AUTO_MODEL, type Bot, type BotIconKey } from '@pocketrocket/shared';
 import { DATA_DIR, ROOT_DIR, WORKSPACE_DIR } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from './MemoryService.js';
@@ -25,6 +25,7 @@ const BASE_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch'
 
 interface BotDefinition {
   handle: string;
+  icon: BotIconKey;
   name: string;
   title: string;
   description: string;
@@ -64,6 +65,7 @@ function definitions(root: string, workspace: string): BotDefinition[] {
   return [
     {
       handle: SUPPORT_HANDLE,
+      icon: 'shield',
       name: 'PocketRocket Support',
       title: 'App help and improvements',
       description: [
@@ -79,6 +81,7 @@ function definitions(root: string, workspace: string): BotDefinition[] {
     },
     {
       handle: DATA_ENGINEER_HANDLE,
+      icon: 'database',
       name: 'Data Engineer',
       title: 'Keeps files clean and indexed',
       description: [
@@ -142,8 +145,8 @@ export function seedDefaultBots(repos: Repos, memory: Pick<MemoryService, 'ensur
       fs.writeFileSync(marker, '');
       if (!taken.has(d.handle)) {
         const bot = repos.createBot({
-          name: d.name, handle: d.handle, title: d.title, description: d.description, avatar: '',
-          model: DEFAULT_MODEL, allowedTools: d.tools, maxBudgetUsd: 2,
+          name: d.name, handle: d.handle, title: d.title, description: d.description, avatar: d.icon,
+          model: AUTO_MODEL, allowedTools: d.tools, maxBudgetUsd: 2,
         });
         memory.ensureHome(bot.id);
         memory.writeIdentity(bot.id, bot.description);

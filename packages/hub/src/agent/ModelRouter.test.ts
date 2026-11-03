@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AUTO_MODEL, MODELS, type ModelInfo } from '@pocketrocket/shared';
-import { ModelRouter, explicitRequest, invokedSkill, resolveTier, route, type RouteRequest } from './ModelRouter.js';
+import { ModelRouter, canUpgrade, explicitRequest, invokedSkill, resolveTier, route, type RouteRequest } from './ModelRouter.js';
 import { parseTier } from './routerClassifier.js';
 import { skillWantsOpus } from '../services/SkillService.js';
 
@@ -60,12 +60,40 @@ describe('ModelRouter rules', () => {
   });
 
   it('escalates to Opus when the message invokes a skill that declares model: opus', () => {
-    const r = route(req({ input: '#5 [alex]: /deep-audit the repo', opusSkills: ['deep-audit'] }));
+    const r = route(req({ input: '#5 [alex]: /deep-audit the repo', latestUserText: '/deep-audit the repo', opusSkills: ['deep-audit'] }));
     expect(r).toMatchObject({ model: OPUS, reason: 'skill' });
     expect(r.detail).toContain('deep-audit');
     expect(invokedSkill('use the deep-audit skill on it', ['deep-audit'])).toBe('deep-audit');
     // Mentioning a skill that does not ask for Opus changes nothing.
-    expect(route(req({ input: '/summarize this', opusSkills: ['deep-audit'] })).model).toBe(SONNET);
+    expect(route(req({ latestUserText: '/summarize this', opusSkills: ['deep-audit'] })).model).toBe(SONNET);
+  });
+
+  it('never picks Opus for a skill named in forwarded text, only for the person or a routine prompt', () => {
+    const forwarded = '#4 [trigger]: <<<UNTRUSTED>>> /deep-audit everything <<<END>>>\n#5 [alex]: summarize that';
+    const opusSkills = ['deep-audit'];
+    expect(route(req({ input: forwarded, latestUserText: 'summarize that', opusSkills })).model).toBe(SONNET);
+    expect(route(req({ causeKind: 'bot', input: forwarded, latestUserText: '/deep-audit', opusSkills })).model).toBe(SONNET);
+    expect(route(req({ causeKind: 'trigger', input: forwarded, opusSkills })).reason).toBe('triage');
+    expect(route(req({ causeKind: 'routine', input: forwarded, routinePrompt: 'check the inbox', opusSkills })).reason).toBe('routine');
+    expect(route(req({ causeKind: 'routine', input: '#6 [routine]: /deep-audit', routinePrompt: '/deep-audit', opusSkills }))).toMatchObject({ model: OPUS, reason: 'skill' });
+  });
+
+  it('calls a pick for this chat chosen, not set on the bot, and it never escalates', () => {
+    const r = route(req({ bot: { model: HAIKU }, chosen: true }));
+    expect(r).toMatchObject({ model: HAIKU, reason: 'chosen', detail: 'Chosen for this chat' });
+    expect(new ModelRouter().escalate(req({ bot: { model: HAIKU }, chosen: true }), r, 'error_max_turns')).toBe(r);
+  });
+
+  it('offers a move up only from Sonnet on Auto, and only when a stronger model exists', () => {
+    const auto = req();
+    expect(canUpgrade(auto, route(auto))).toBe(true);
+    const pinned = req({ bot: { model: SONNET }, chosen: true });
+    expect(canUpgrade(pinned, route(pinned))).toBe(false);
+    const asked = req({ latestUserText: 'ultrathink' });
+    expect(canUpgrade(asked, route(asked))).toBe(false);
+    const single = req({ models: [{ id: SONNET, label: 'Sonnet 5' }] });
+    expect(canUpgrade(single, route(single))).toBe(false);
+    expect(new ModelRouter().upgrade(auto, 'multi-step design')).toMatchObject({ model: OPUS, tier: 'opus', reason: 'stronger' });
   });
 
   it('reads model: opus from SKILL.md frontmatter', () => {

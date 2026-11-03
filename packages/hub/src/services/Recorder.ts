@@ -192,7 +192,7 @@ export class Recorder {
 
   available(): { ok: boolean; reason?: string } {
     if (this.deps.available) return this.deps.available();
-    if (process.platform !== 'linux') return { ok: false, reason: 'Teach works on a server hub (Linux) with per-bot computers, not on the desktop app.' };
+    if (process.platform !== 'linux') return { ok: false, reason: 'Teach needs a server with per-bot computers.' };
     if (!this.deps.computers.enabled) return { ok: false, reason: 'Teach needs per-bot computers (POCKETROCKET_COMPUTERS=1).' };
     return { ok: true };
   }
@@ -529,7 +529,7 @@ export class Recorder {
       const info = JSON.parse(fs.readFileSync(path.join(this.root(botId), id, 'meta.json'), 'utf8')) as RecordingInfo;
       // Not live but never stopped: the hub went down mid-recording. What was written is still usable.
       if (info.state === 'recording') {
-        return { ...info, id, botId, state: 'stopped', endedAt: info.endedAt ?? info.startedAt, error: info.error ?? 'Interrupted: the hub stopped while recording.' };
+        return { ...info, id, botId, state: 'stopped', endedAt: info.endedAt ?? info.startedAt, error: info.error ?? 'Interrupted: the server stopped while recording.' };
       }
       return { ...info, id, botId };
     } catch {

@@ -34,7 +34,7 @@ export function createDevicesApi(deps: DevicesApiDeps) {
     routes.push({ method, pattern, keys, handler });
   };
   const hubOnly = (req: IncomingMessage) => {
-    if (principalOf(req)?.kind !== 'hub') throw new HttpError(403, 'Only the desktop app (hub token) can do this');
+    if (principalOf(req)?.kind !== 'hub') throw new HttpError(403, 'Only the desktop app can do this');
   };
 
   add('GET', '/api/devices', ({ req }) => {

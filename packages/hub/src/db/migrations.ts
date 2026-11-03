@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { isBotIconKey } from '@pocketrocket/shared';
 
 /**
  * Versioned schema migrations. See the header of `db.ts` for how phases add theirs.
@@ -310,4 +311,31 @@ registerMigrations([60, 69], [
           'PRIMARY KEY (bot_id, skill_id))',
       ),
   },
+]);
+
+// ---------------------------------------------------------------------------------------------------
+// [100, 109]: past the P0-P9 blocks. Bot avatars become line icon keys.
+/** The emoji our own presets and defaults wrote, without variation selectors. */
+const LEGACY_AVATARS: Record<string, string> = { '🧭': 'compass', '🔎': 'search', '🛠': 'wrench', '✍': 'pen', '🙂': 'smile', '🤖': '' };
+/** Seeded before they had icons, with `''`. By handle alone, so a seeded bot the owner renamed still gets its icon. */
+const SEEDED_ICONS: Record<string, string> = { 'pocketrocket-support': 'shield', 'data-engineer': 'database' };
+registerMigrations([100, 109], [
+  {
+    version: 100,
+    name: 'bots.avatar to icon keys',
+    // Custom emoji and short text are replaced too: the owner chose that over keeping a legacy column.
+    up: (db) => {
+      const rows = db.prepare('SELECT id, handle, avatar FROM bots').all() as { id: string; handle: string; avatar: string | null }[];
+      const set = db.prepare('UPDATE bots SET avatar=? WHERE id=?');
+      for (const r of rows) {
+        const was = (r.avatar ?? '').replace(/\uFE0F/g, '').trim();
+        const known = isBotIconKey(was) ? was : Object.hasOwn(LEGACY_AVATARS, was) ? LEGACY_AVATARS[was] : '';
+        const key = known || (Object.hasOwn(SEEDED_ICONS, r.handle) ? SEEDED_ICONS[r.handle] : '');
+        if (key !== r.avatar) set.run(key, r.id);
+      }
+    },
+  },
+  { version: 101, name: 'rooms.chat_model', up: (db) => addColumnIfMissing(db, 'rooms', 'chat_model', 'TEXT') },
+  // bots.avatar needs no change: it is plain TEXT, and only BotInputSchema ever held it to 8 characters.
+  { version: 102, name: 'rooms.avatar', up: (db) => addColumnIfMissing(db, 'rooms', 'avatar', "TEXT NOT NULL DEFAULT ''") },
 ]);

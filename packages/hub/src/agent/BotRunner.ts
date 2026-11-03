@@ -10,13 +10,14 @@ import type { SkillService } from '../services/SkillService.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
-import type { ProviderInit, TurnContext, TurnOutcome, TurnSink } from '../providers/types.js';
+import { EMPTY_USAGE, type ProviderInit, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
-import { ModelRouter, type RouteChoice, type RouteRequest } from './ModelRouter.js';
+import { ModelRouter, canUpgrade, type RouteChoice, type RouteRequest } from './ModelRouter.js';
+import type { RoutingRules } from '../services/RoutingRules.js';
 import { desktopTools } from './desktopTools.js';
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
@@ -34,6 +35,10 @@ export interface TurnRequest {
   injected: string;
   /** The newest message a person wrote in `injected`. The only text that can ask the router for a stronger model. */
   latestUserText?: string;
+  /** On a routine's turn: the routine's own prompt. The only other text that can invoke a skill that asks for Opus. */
+  routinePrompt?: string;
+  /** The composer's pick for this chat, on a turn a person started here. RoomRouter never sets it on a hand-off or schedule. */
+  chatModel?: string;
   /** What is left of the cause's cost cap; the turn spends at most min(bot budget, this). */
   causeBudgetUsd?: number;
   /**
@@ -74,7 +79,7 @@ export function isStaleSessionError(error: string | undefined): boolean {
 
 export interface RunnerHooks {
   /** Route mentions produced mid-turn (send_message / handoff tools). Returns handles dispatched. */
-  dispatchFromBot: (req: TurnRequest, targets: Bot[]) => string[];
+  dispatchFromBot: (req: TurnRequest, targets: Bot[], onDone?: (r: TurnResult) => void) => string[];
   setState: (botId: string, roomId: string, state: BotState, note?: string) => void;
   /** P3: a routine tool changed the routines table; the hub reschedules (RoutineScheduler.reload). */
   routinesChanged?: () => void;
@@ -87,6 +92,8 @@ export interface RunnerHooks {
  */
 export class BotRunner {
   private activeTurns = new Set<string>();
+  /** `botId:roomId` to its running turn. A lane runs one turn at a time. */
+  private laneTurns = new Map<string, string>();
   private aborts = new Map<string, AbortController>();
   /** Last init info reported by the active provider (GET /api/health). */
   lastInit: ProviderInit = {};
@@ -109,7 +116,7 @@ export class BotRunner {
     /** Per-bot computers (P1). Left out or switched off, Browser and Desktop are refused: no shared screen. */
     private computers?: ComputerManager,
     /** P7: the read-only knowledge repo folder, when one is synced (read per turn). */
-    private p7: { knowledgeDir?: () => string | null } = {},
+    private p7: { knowledgeDir?: () => string | null; routing?: RoutingRules } = {},
   ) {}
 
   interrupt(turnId: string) {
@@ -117,6 +124,11 @@ export class BotRunner {
     const stopped = this.providers.active().interrupt(turnId);
     if (ac) ac.abort();
     return stopped || !!ac;
+  }
+  /** Stops the turn a bot is running in a room, if any. Returns whether there was one. */
+  interruptLane(botId: string, roomId: string) {
+    const turnId = this.laneTurns.get(botId + ':' + roomId);
+    return turnId ? this.interrupt(turnId) : false;
   }
   isActive(turnId: string) {
     return this.activeTurns.has(turnId);
@@ -167,9 +179,12 @@ export class BotRunner {
     // without it and is never raised by it.
     const providerModels = provider.modelsSync();
     const causeKind: CauseKind = req.causeKind ?? (req.hop > 0 ? 'bot' : 'user');
+    // The picker offers Claude's models. A pick left over from before a provider switch is ignored, not translated.
+    const chatModel = provider.id === 'claude' && req.chatModel && (req.chatModel === AUTO_MODEL || providerModels.some((m) => m.id === req.chatModel)) ? req.chatModel : null;
+    const routeBot = chatModel ? { ...bot, model: chatModel } : bot;
     const routeReq: RouteRequest = {
-      bot, causeKind, input: req.injected, latestUserText: req.latestUserText, models: providerModels,
-      opusSkills: bot.model === AUTO_MODEL ? this.skills.opusSkillNames(bot.id) : [],
+      bot: routeBot, causeKind, input: req.injected, latestUserText: req.latestUserText, routinePrompt: req.routinePrompt, chosen: !!chatModel, models: providerModels,
+      opusSkills: routeBot.model === AUTO_MODEL ? this.skills.opusSkillNames(bot.id) : [],
       fallbackModel: settings.get().defaultModel,
     };
     const picked = await this.router.pick(routeReq);
@@ -178,6 +193,12 @@ export class BotRunner {
     if (cu && (cu.costUsd || cu.inputTokens || cu.outputTokens)) {
       this.usage.record(bot.id, room.id, 'cls-' + nanoid(8), req.causeId, cu, { model: 'claude-haiku-4-5-20251001', routeReason: 'classifier', causeKind });
     }
+    // In-turn Auto: on Claude, on a thread a person started. A routine or trigger may be reading forwarded text,
+    // and that must not be able to buy Opus. The other providers keep their free rules and failure escalation.
+    const mayMoveUp = provider.id === 'claude' && !req.strictApprovals && (causeKind === 'user' || causeKind === 'bot') && canUpgrade(routeReq, picked);
+    const up: { asked: boolean; next: RouteChoice | null } = { asked: false, next: null };
+    const routing = this.p7.routing;
+    const mayPropose = !!routing && causeKind === 'user' && req.hop === 0 && !req.strictApprovals;
     const ac = new AbortController();
     // P2: a turn that has to wait for the user (parked card, takeover not handed back) ends itself here; the
     // abort comes a tick later so the tool result that says so is delivered first.
@@ -198,7 +219,7 @@ export class BotRunner {
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
       repos: this.repos, memory: this.memory, skills: this.skills,
-      dispatchFromBot: (targets, room) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets),
+      dispatchFromBot: (targets, room, onDone) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets, onDone),
       setState: (s) => setState(s),
       // Added below with this bot's own display rather than the shared one (P1).
       desktop: false,
@@ -207,7 +228,32 @@ export class BotRunner {
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
-      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal),
+      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal, { evenUnderBypass: a.evenUnderBypass }),
+      confirmOutsideHandoff: (a) => this.broker.askOutsideHandoff(permCtx, a.input, a.reason, ac.signal),
+      useStrongerModel: mayMoveUp ? (reason) => {
+        if (up.asked) return false;
+        up.asked = true;
+        const why = redact(reason.replace(/\s+/g, ' ').trim());
+        up.next = this.router.upgrade(routeReq, why);
+        const label = providerModels.find((m) => m.id === up.next!.model)?.label ?? up.next.model;
+        const line = this.repos.insertMessage({
+          roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: 'Moved to ' + label + ': ' + why, payload: null,
+          causeId: req.causeId, hop: req.hop, turnId,
+        });
+        events.emitEvent({ type: 'message.new', message: line });
+        return true;
+      } : undefined,
+      proposeRouting: mayPropose ? async (line, reason) => {
+        try {
+          routing!.withLine(line);
+          const r = await this.broker.askRoutingChange(permCtx, { line, reason }, ac.signal);
+          if (!r.allowed) return { ok: false, message: r.message };
+          routing!.write(routing!.withLine(line));
+          return { ok: true, message: 'Added to the routing rules.' };
+        } catch (e) {
+          return { ok: false, message: (e as Error).message };
+        }
+      } : undefined,
       routinesChanged: this.hooks.routinesChanged,
     });
 
@@ -248,6 +294,9 @@ export class BotRunner {
           ? { display: computer.display, filesDir: computer.filesDir, diskBytes: computerStatus.diskBytes, quotaBytes: computerStatus.quotaBytes }
           : undefined,
         computerUnavailable: computerDown,
+        routing: routing?.promptText(),
+        canMoveUp: mayMoveUp,
+        canProposeRouting: mayPropose,
       }),
       input: req.injected,
       resumeToken: session.sdkSessionId,
@@ -331,11 +380,16 @@ export class BotRunner {
 
     this.activeTurns.add(turnId);
     this.aborts.set(turnId, ac);
+    this.laneTurns.set(bot.id + ':' + room.id, turnId);
     let ok = false;
     let error: string | undefined;
     let costUsd = 0;
     try {
-      let outcome = await provider.runTurn(ctx, sink);
+      // Waking a computer can take a while: the owner may have removed this bot from the room before it got here.
+      const removed = room.memberIds.includes(bot.id) && !this.repos.getRoom(room.id)?.memberIds.includes(bot.id);
+      let outcome: TurnOutcome = removed
+        ? { ok: false, error: 'removed from this chat', costUsd: 0, usage: EMPTY_USAGE, durationMs: 0 }
+        : await provider.runTurn(ctx, sink);
       const record = (o: TurnOutcome) => {
         costUsd += o.costUsd;
         // Only turns the provider actually accounted for become usage rows (matches the pre-provider
@@ -363,6 +417,38 @@ export class BotRunner {
         outcome = await provider.runTurn({ ...ctx, resumeToken: null, maxBudgetUsd: budgetUsd - costUsd }, sink);
         record(outcome);
       }
+
+      // use_stronger_model: the run that asked has ended cleanly, so its session is saved and its cost is counted.
+      // The same session carries on with the stronger model. Nothing is stored, so the next turn routes from scratch.
+      const moveUp = async () => {
+        const next = up.next;
+        up.next = null;
+        if (!next || next.model === route.model || ac.signal.aborted || outcome.error) return;
+        if (costUsd >= budgetUsd) {
+          const line = this.repos.insertMessage({
+            roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: bot.name + ' used its budget before it could continue.', payload: null,
+            causeId: req.causeId, hop: req.hop, turnId,
+          });
+          events.emitEvent({ type: 'message.new', message: line });
+          return;
+        }
+        route = next;
+        setState('working');
+        outcome = await provider.runTurn(
+          {
+            ...ctx,
+            resumeToken: this.repos.getSession(bot.id, room.id, provider.id)?.sdkSessionId ?? ctx.resumeToken,
+            input:
+              'You are now on the stronger model you asked for, for the rest of this turn. Continue from exactly where ' +
+              'you left off and finish the task. Do not start over, re-explain, or ask to move up again.',
+            maxBudgetUsd: budgetUsd - costUsd,
+            model: route.model,
+          },
+          sink,
+        );
+        record(outcome);
+      };
+      await moveUp();
 
       // Running out of steps is not a failure, it is an unfinished job. Resume the same session and let it
       // keep going rather than handing the user a dead turn -- but bounded, budget-checked and visible, so
@@ -398,6 +484,8 @@ export class BotRunner {
         );
         record(outcome);
       }
+      // Asked for during a continuation.
+      await moveUp();
 
       ok = outcome.ok;
       error = outcome.error;
@@ -406,6 +494,7 @@ export class BotRunner {
     } finally {
       this.activeTurns.delete(turnId);
       this.aborts.delete(turnId);
+      this.laneTurns.delete(bot.id + ':' + room.id);
       this.turns.unregister(mcpToken);
       removeSecret(mcpToken);
       releaseComputer();

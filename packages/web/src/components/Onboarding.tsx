@@ -8,14 +8,21 @@ import { Button, Input, cn } from './ui';
 import { ProviderCard } from './ProviderCard';
 import { AccountSignIn } from './AccountSignIn';
 import { RocketMark } from './RocketMark';
+import { botIcon } from '../lib/botIcon';
 import { ConnectionStatus, authPhrase } from './settings/ConnectionStatus';
+
+/** A template has no bot id yet, so its key stands in for one. */
+function TemplateIcon({ id, icon }: { id: string; icon: string }) {
+  const { Glyph, tint } = botIcon({ id, avatar: icon });
+  return <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full text-fg" style={{ background: tint }}><Glyph size={18} strokeWidth={1.75} /></span>;
+}
 
 const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] } }[] = [
   {
     key: 'assistant',
     label: 'Assistant',
     v: {
-      name: 'Assistant', handle: 'assistant', title: 'General assistant', avatar: '🙂',
+      name: 'Assistant', handle: 'assistant', title: 'General assistant', avatar: 'smile',
       description: 'You are a helpful general-purpose assistant. Answer questions, draft text, and help plan things.',
       model: 'claude-sonnet-5', allowedTools: ['Read', 'Write', 'WebSearch', 'WebFetch'], maxBudgetUsd: 2,
       tools: ['Read', 'Write', 'WebSearch', 'WebFetch'],
@@ -25,7 +32,7 @@ const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] }
     key: 'coder',
     label: 'Coder',
     v: {
-      name: 'Coder', handle: 'coder', title: 'Software engineer', avatar: '🛠️',
+      name: 'Coder', handle: 'coder', title: 'Software engineer', avatar: 'wrench',
       description: 'You implement and test code in the shared workspace. Prefer small verified changes; run tests with Bash before reporting done.',
       model: 'claude-sonnet-5', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'], maxBudgetUsd: 2,
       tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'],
@@ -35,7 +42,7 @@ const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] }
     key: 'researcher',
     label: 'Researcher',
     v: {
-      name: 'Researcher', handle: 'researcher', title: 'Web research', avatar: '🔎',
+      name: 'Researcher', handle: 'researcher', title: 'Web research', avatar: 'search',
       description: 'You research using WebSearch/WebFetch and write concise findings with sources into the shared workspace as markdown.',
       model: 'claude-sonnet-5', allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'], maxBudgetUsd: 2,
       tools: ['Read', 'Write', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
@@ -213,7 +220,7 @@ export function Onboarding() {
                   onClick={() => void createBot(t)}
                   className={cn('flex flex-col items-center gap-1.5 rounded-lg bg-card2/50 p-3 text-center hover:bg-hover disabled:opacity-50')}
                 >
-                  <span aria-hidden className="text-2xl">{t.v.avatar}</span>
+                  <TemplateIcon id={t.key} icon={t.v.avatar} />
                   <span className="text-label">{t.label}</span>
                   <span className="text-hint text-muted">@{t.v.handle}</span>
                   <span className="text-hint leading-snug text-dim">{t.v.title}</span>
@@ -232,7 +239,7 @@ export function Onboarding() {
 
         {step === 'done' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-ok/15 text-2xl">🚀</div>
+            <RocketMark size={56} />
             <div className="text-title-sm">You're all set</div>
             <p className="max-w-[38ch] text-ui text-muted">
               {botCreated ? "Your first bot is ready — say hi." : 'Create a bot whenever you like from the sidebar.'}

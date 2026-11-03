@@ -164,8 +164,25 @@ describe('hello principal', () => {
     };
     expect((await hello(phone)).principal).toBe('device');
     expect((await hello(desk)).principal).toBe('hub');
+    expect((await hello(desk)).openApprovals).toEqual([]);
     phone.ws.close();
     desk.ws.close();
+  });
+});
+
+describe('hello open approvals', () => {
+  it('lists waiting cards, parked ones included, and not answered ones', async () => {
+    const bot = hub.repos.createBot({ name: 'Asker', handle: 'asker', title: '', description: 'x', avatar: 'a', model: 'claude-sonnet-5', allowedTools: ['Bash'], maxBudgetUsd: 2 });
+    const room = hub.repos.createRoom({ name: 'Ask room', kind: 'dm', memberIds: [bot.id], coordinatorBotId: null });
+    const card = (id: string) => hub.repos.createApproval({ id, botId: bot.id, roomId: room.id, turnId: 't', toolName: 'Bash', toolInput: {}, reason: 'r' });
+    card('open1');
+    card('done1');
+    hub.repos.decideApproval('done1', 'allow');
+    const s = await openWs(TOKEN);
+    for (let i = 0; i < 100 && !s.messages.some((m: any) => m.type === 'hello'); i++) await new Promise((r) => setTimeout(r, 5));
+    expect(s.messages.find((m: any) => m.type === 'hello').openApprovals).toEqual([{ approvalId: 'open1', botId: bot.id, roomId: room.id }]);
+    s.ws.close();
+    hub.repos.decideApproval('open1', 'deny');
   });
 });
 
@@ -202,6 +219,8 @@ describe('capability split (P9.1)', () => {
       ['POST', '/api/providers/claude/check', {}],
       ['POST', '/api/workspace/open', {}],
       ['POST', '/api/devices/pairing', {}],
+      // Opening the app on a phone wakes nothing.
+      ['POST', '/api/computers/warm', {}],
       ['PATCH', '/api/devices/' + 'x', { name: 'y' }],
     ];
     for (const [m, p, body] of denied) {

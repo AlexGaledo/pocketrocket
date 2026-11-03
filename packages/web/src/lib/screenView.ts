@@ -35,6 +35,8 @@ export function holdsScreen(c: ControlStatus | undefined): boolean {
   return c?.control === 'user' && (c.holder === 'recorder' || c.holder === deviceId());
 }
 
+export const hasComputer = (b: Bot | undefined) => !!b && (b.allowedTools.includes('Browser') || b.allowedTools.includes('Desktop'));
+
 export const isComputerTool = (name: string) => name.startsWith('mcp__browser__') || name.startsWith('mcp__pocketrocket__desktop_');
 
 export interface ScreenState {

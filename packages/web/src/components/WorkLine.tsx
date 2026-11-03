@@ -57,8 +57,8 @@ const fmtClock = (ms: number) => {
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 };
 
-/** `items` is the turn's steps and narration, in order. */
-export function WorkLine({ items }: { items: Message[] }) {
+/** `items` is the turn's steps and narration, in order. The times are the whole turn's, answer included. */
+export function WorkLine({ items, startedAt, endedAt }: { items: Message[]; startedAt: number; endedAt: number }) {
   const steps = useMemo(() => items.filter(isStep), [items]);
   const turnId = items[0].turnId;
   const authorId = items[0].authorId;
@@ -78,12 +78,11 @@ export function WorkLine({ items }: { items: Message[] }) {
 
   const { recovered, unrecovered } = useMemo(() => outcomes(steps), [steps]);
   const count = steps.length + (steps.length === 1 ? ' step' : ' steps');
-  const started = items[0].createdAt;
-  const took = items[items.length - 1].createdAt - started;
+  const took = endedAt - startedAt;
   let line: string;
   if (running) {
     const current = [...steps].reverse().find((m) => !payload(m).done);
-    line = (current ? stepText(payload(current), 'now') : 'Thinking') + ' · step ' + Math.max(1, steps.length) + ' · ' + fmtClock(now - started);
+    line = (current ? stepText(payload(current), 'now') : 'Thinking') + ' · step ' + Math.max(1, steps.length) + ' · ' + fmtClock(now - startedAt);
   } else {
     line = 'Worked' + (took >= 1000 ? ' for ' + fmtTook(took) : '') + ' · ' + count;
     if (recovered.length) line += ' · ' + recovered.length + ' retried';
@@ -96,10 +95,10 @@ export function WorkLine({ items }: { items: Message[] }) {
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen(!open)}
-        className={cn('-ml-1.5 inline-flex max-w-full items-center gap-1.5 rounded-xs px-1.5 py-0.5 text-left hover:text-fg', running && 'chip-running')}
+        className={cn('-ml-1.5 inline-flex max-w-full items-start gap-1.5 rounded-xs px-1.5 py-0.5 text-left hover:text-fg', running && 'chip-running')}
       >
-        {open ? <ChevronDown size={14} aria-hidden className="shrink-0" /> : <ChevronRight size={14} aria-hidden className="shrink-0" />}
-        <span className="min-w-0 truncate">{line}</span>
+        {open ? <ChevronDown size={14} aria-hidden className="mt-[3px] shrink-0" /> : <ChevronRight size={14} aria-hidden className="mt-[3px] shrink-0" />}
+        <span className="min-w-0">{line}</span>
       </button>
       {open && (
         <ul id={listId} className="ml-[5px] mt-1.5 flex flex-col gap-1 border-l border-line pl-4">

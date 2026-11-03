@@ -66,12 +66,46 @@ describe('handoff to a bot outside the room (7.3)', () => {
     expect(s.dispatched).toEqual([]);
   });
 
-  it('refuses in a DM, which cannot take another bot, without raising a card', async () => {
+  it('from a DM, asks first, then has the bot work in its own chat, and brings its result back as one line', async () => {
     const s = setup('dm');
+    const asked: { to_bot: string; task: string }[] = [];
+    let done: ((r: { ok: boolean; finalText: string }) => void) | undefined;
+    let workRoom: Room | undefined;
+    s.ctx.confirmOutsideHandoff = async (a) => { asked.push(a.input); return { allowed: true, message: 'ok' }; };
+    s.ctx.dispatchFromBot = (targets, room, onDone) => { workRoom = room; done = onDone; return targets.map((t) => t.handle); };
+    const out = await s.tool('handoff').handler({ to_bot: '@analyst', task: 'Build the Q3 dashboard' });
+    expect(out.isError).toBeFalsy();
+    expect(asked).toEqual([{ to_bot: 'analyst', task: 'Build the Q3 dashboard' }]);
+    // A DM never gains a member, and adding one is not what the card asked about.
+    expect(s.repos.getRoom(s.room.id)!.memberIds).toEqual([s.chief.id]);
+    expect(s.gates).toEqual([]);
+    expect(workRoom).toMatchObject({ kind: 'dm', memberIds: [s.analyst.id] });
+    expect(s.repos.listMessages(workRoom!.id).some((m) => m.kind === 'handoff' && m.text.includes('Build the Q3 dashboard'))).toBe(true);
+    done!({ ok: true, finalText: 'The dashboard is ready.' });
+    const here = s.repos.listMessages(s.room.id);
+    expect(here.map((m) => m.kind)).toEqual(['handoff', 'text']);
+    expect(here[0].payload).toMatchObject({ toBotId: s.analyst.id, workRoomId: workRoom!.id });
+    expect(here[1]).toMatchObject({ authorId: s.analyst.id, text: 'The dashboard is ready.', payload: { workRoomId: workRoom!.id } });
+  });
+
+  it('from a DM, a declined card sends nothing and creates no chat', async () => {
+    const s = setup('dm');
+    const before = s.repos.listRooms().length;
+    s.ctx.confirmOutsideHandoff = async () => ({ allowed: false, message: 'Keep it here.' });
     const out = await s.tool('handoff').handler({ to_bot: 'analyst', task: 'x' });
     expect(out.isError).toBe(true);
-    expect(out.content[0]).toMatchObject({ text: expect.stringContaining('DM') });
-    expect(s.gates).toEqual([]);
+    expect(s.dispatched).toEqual([]);
+    expect(s.repos.listRooms().length).toBe(before);
+    expect(s.repos.listMessages(s.room.id)).toEqual([]);
+  });
+
+  it('from a DM, reuses the chat the bot already has', async () => {
+    const s = setup('dm');
+    const own = s.repos.createRoom({ kind: 'dm', name: 'Analyst', memberIds: [s.analyst.id], coordinatorBotId: null });
+    let workRoom: Room | undefined;
+    s.ctx.dispatchFromBot = (targets, room) => { workRoom = room; return targets.map((t) => t.handle); };
+    await s.tool('handoff').handler({ to_bot: 'analyst', task: 'x' });
+    expect(workRoom?.id).toBe(own.id);
   });
 
   it('still reports an unknown bot, and skips the gate for a bot already in the room', async () => {

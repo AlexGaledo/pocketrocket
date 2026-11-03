@@ -32,6 +32,16 @@ export const COMPUTER_UNIT_PREFIX = 'pocketrocket-crew-computer@';
 /** A computer is not stopped for idleness when one of its bot's routines is due within this window. */
 export const ROUTINE_GRACE_MS = 10 * 60 * 1000;
 const BOT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/** Warm start: how many computers opening the app may bring up (the bot used last, plus one more recent bot). */
+export const WARM_MAX = 2;
+/** Assumed size of one running computer, the top of the estimate in docs/SERVER.md. Not measured. */
+export const COMPUTER_RAM_BYTES = 600 * 1024 ** 2;
+/** Left untouched by anything that starts a computer unasked, for turns and the other services on the server. */
+export const RAM_RESERVE_BYTES = 1024 ** 3;
+/** Selecting a bot only evicts a computer idle this long, and every start counts as use: clicking around cannot thrash. */
+export const COLD_MS = 2 * 60_000;
+const ALWAYS_ON_RETRY_MS = 2 * 60_000;
+const LOW_RAM_REASON = "Not started: the server is low on memory. It still starts if the bot needs it for work.";
 
 export interface SlotPorts {
   slot: number;
@@ -142,6 +152,28 @@ export async function duBytes(dir: string): Promise<number> {
   return total;
 }
 
+/**
+ * What MemAvailable says, or null when it cannot be read. Read fresh each time, so computers already running
+ * are counted by the kernel rather than estimated here.
+ */
+export function memAvailableBytes(): number | null {
+  try {
+    const m = /^MemAvailable:\s+(\d+) kB/m.exec(fs.readFileSync('/proc/meminfo', 'utf8'));
+    return m ? Number(m[1]) * 1024 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Always on was refused; the message says why and is written for the owner. */
+export class AlwaysOnRefused extends Error {}
+
+/**
+ * What a start may stop to get a place under the cap. `any`: a real turn or an explicit retry. `cold`: selecting
+ * a bot, which spares computers used moments ago. `none`: warm start and Always on fill empty places only.
+ */
+export type Eviction = 'any' | 'cold' | 'none';
+
 export type EnsureResult = { ok: true; endpoint: ComputerEndpoint } | { ok: false; reason: string };
 export type AcquireResult = EnsureResult & { release: () => void };
 
@@ -162,6 +194,8 @@ export interface ComputerManagerOptions {
   pollMs?: number;
   /** True when one of the bot's routines fires within `withinMs` (keeps it from an idle stop). */
   routineDueSoon?: (botId: string, withinMs: number) => boolean;
+  /** Bytes the kernel says are available; null when unknown, which does not block a start. */
+  memAvailable?: () => number | null;
 }
 
 const fmtGb = (b: number) => (b / 1024 ** 3).toFixed(1) + ' GB';
@@ -180,6 +214,12 @@ export class ComputerManager {
   private startTimeoutMs: number;
   private pollMs: number;
   private routineDueSoon: (botId: string, withinMs: number) => boolean;
+  private memAvailable: () => number | null;
+  /** Set by createHub through `wire`: the bots and control state live in services built after this one. */
+  private usesComputer: (botId: string) => boolean = () => true;
+  private personHolds: (botId: string) => boolean = () => false;
+  private alwaysOnRetryAt = new Map<string, number>();
+  private restoring = false;
   /** Turns currently using the computer, per bot. A busy computer is never stopped. */
   private busy = new Map<string, number>();
   /** Open noVNC websockets, per bot. A watched computer is never stopped. */
@@ -202,6 +242,12 @@ export class ComputerManager {
     this.startTimeoutMs = opts.startTimeoutMs ?? 25_000;
     this.pollMs = opts.pollMs ?? 250;
     this.routineDueSoon = opts.routineDueSoon ?? (() => false);
+    this.memAvailable = opts.memAvailable ?? memAvailableBytes;
+  }
+
+  wire(o: { usesComputer?: (botId: string) => boolean; personHolds?: (botId: string) => boolean }) {
+    if (o.usesComputer) this.usesComputer = o.usesComputer;
+    if (o.personHolds) this.personHolds = o.personHolds;
   }
 
   // ---- addressing -------------------------------------------------------------------------------
@@ -250,6 +296,7 @@ export class ComputerManager {
       botId, perBot: this.enabled,
       state: row?.state ?? 'asleep', slot: row?.slot ?? null, keepAwake: row?.keepAwake ?? false,
       diskBytes: row?.diskBytes ?? 0, quotaBytes: row?.quotaBytes ?? this.quotaBytes, lastUsedAt: row?.lastUsedAt ?? null,
+      ...(this.enabled ? { alwaysOn: { used: this.alwaysOnRows().length, limit: this.alwaysOnLimit } } : {}),
       ...(reason ? { reason } : {}),
     };
   }
@@ -281,22 +328,73 @@ export class ComputerManager {
   }
 
   /** Lazy start. Concurrent calls for one bot share a single start. */
-  ensureRunning(botId: string): Promise<EnsureResult> {
+  ensureRunning(botId: string, evict: Eviction = 'any'): Promise<EnsureResult> {
     if (!this.enabled) return Promise.resolve({ ok: true, endpoint: this.legacyEndpoint() });
     const pending = this.starting.get(botId);
     if (pending) return pending;
-    const p = this.start(botId).finally(() => this.starting.delete(botId));
+    const p = this.start(botId, evict).finally(() => this.starting.delete(botId));
     this.starting.set(botId, p);
     return p;
   }
 
-  private fail(botId: string, reason: string): EnsureResult {
-    this.reasons.set(botId, reason);
-    this.emit(botId);
-    return { ok: false, reason };
+  /** `shown` is for the owner's screen; `told` is what the caller (a turn's prompt) gets, when it differs. */
+  private fail(botId: string, shown: string, told = shown): EnsureResult {
+    this.setReason(botId, shown);
+    return { ok: false, reason: told };
   }
 
-  private async start(botId: string): Promise<EnsureResult> {
+  private setReason(botId: string, reason: string) {
+    if (this.reasons.get(botId) === reason) return;
+    this.reasons.set(botId, reason);
+    this.emit(botId);
+  }
+
+  private running(): ComputerRow[] {
+    return this.repo.list().filter((r) => r.state !== 'asleep');
+  }
+
+  private ramForOneMore(): boolean {
+    const available = this.memAvailable();
+    return available === null || available - RAM_RESERVE_BYTES >= COMPUTER_RAM_BYTES;
+  }
+
+  /**
+   * The app opened. Brings up the bot the user has open and the most recently used other bot, in empty places
+   * only, leaving one place free for whichever bot works next. It never evicts, so calling it again (a reload, a
+   * reconnect) cannot stop anything, and low memory just ends it. A turn does not come through here.
+   */
+  async warm(focusBotId?: string | null): Promise<string[]> {
+    if (!this.enabled) return [];
+    const recent = this.repo.list()
+      .filter((r) => r.lastUsedAt !== null && r.botId !== focusBotId)
+      .sort((a, b) => b.lastUsedAt! - a.lastUsedAt!)
+      .map((r) => r.botId);
+    const targets = [...(focusBotId ? [focusBotId] : []), ...recent].filter((id) => this.usesComputer(id)).slice(0, WARM_MAX);
+    const started: string[] = [];
+    for (const id of targets) {
+      const row = this.repo.get(id);
+      if (row && row.state !== 'asleep') continue;
+      if (this.running().length >= this.maxRunning - 1 || !this.ramForOneMore()) break;
+      if ((await this.ensureRunning(id, 'none')).ok) started.push(id);
+    }
+    return started;
+  }
+
+  /**
+   * The user settled on this bot. It may take the last free place, and may evict a computer nobody has used for
+   * COLD_MS, since every computer that starts counts as used: at most `maxRunning` evictions per COLD_MS however
+   * fast someone clicks. Short on memory, it says so and stays down.
+   */
+  async wakeFocused(botId: string): Promise<EnsureResult> {
+    if (!this.enabled) return { ok: true, endpoint: this.legacyEndpoint() };
+    if (!this.usesComputer(botId)) return { ok: false, reason: 'This bot has no Browser or Desktop.' };
+    const row = this.repo.get(botId);
+    if ((!row || row.state === 'asleep') && !this.ramForOneMore()) return this.fail(botId, LOW_RAM_REASON);
+    this.touch(botId);
+    return this.ensureRunning(botId, 'cold');
+  }
+
+  private async start(botId: string, evict: Eviction): Promise<EnsureResult> {
     if (!BOT_ID_RE.test(botId)) return { ok: false, reason: 'Invalid bot id.' };
     const row = this.repo.allocate(botId, MAX_SLOT, this.quotaBytes, this.now());
     if (!row) return this.fail(botId, 'Every computer slot (' + MAX_SLOT + ') is taken.');
@@ -316,12 +414,18 @@ export class ComputerManager {
     if (cur.diskBytes >= cur.quotaBytes) {
       return this.fail(botId, 'Its disk is full (' + fmtGb(cur.diskBytes) + ' of ' + fmtGb(cur.quotaBytes) + '). Free space in ' + endpoint.filesDir + ' first.');
     }
-    const running = this.repo.list().filter((r) => r.botId !== botId && r.state !== 'asleep');
+    const running = this.running().filter((r) => r.botId !== botId);
     let victim: ComputerRow | undefined;
     if (running.length >= this.maxRunning) {
-      victim = running.filter((r) => this.evictable(r)).sort((a, b) => (a.lastUsedAt ?? a.createdAt) - (b.lastUsedAt ?? b.createdAt))[0];
+      const t = this.now();
+      victim = evict === 'none' ? undefined : running
+        .filter((r) => this.stoppable(r) && !this.personHolds(r.botId) && (evict === 'any' || t - (r.lastUsedAt ?? r.createdAt) >= COLD_MS))
+        .sort((a, b) => (a.lastUsedAt ?? a.createdAt) - (b.lastUsedAt ?? b.createdAt))[0];
       if (!victim) {
-        return this.fail(botId, this.maxRunning + ' computers are already running and all are in use (MAX_RUNNING_COMPUTERS=' + this.maxRunning + '). Try again when one is idle.');
+        const shown = 'All ' + this.maxRunning + ' computers are in use or were used moments ago. Try again in a minute.';
+        return evict === 'any'
+          ? this.fail(botId, shown, this.maxRunning + ' computers are already running and all are in use (MAX_RUNNING_COMPUTERS=' + this.maxRunning + '). Try again when one is idle.')
+          : this.fail(botId, shown);
       }
       this.repo.setState(victim.botId, 'asleep');
     }
@@ -357,9 +461,61 @@ export class ComputerManager {
     }
   }
 
-  /** Not kept awake, not watched, not in a turn, and fully up. */
-  private evictable(r: ComputerRow): boolean {
-    return r.state === 'live' && !r.keepAwake && !this.viewers.get(r.botId) && !this.busy.get(r.botId);
+  /** Not Always on, not watched, not in a turn, and fully up. An idle stop may take it; eviction also spares a person's. */
+  private stoppable(r: ComputerRow): boolean {
+    return r.state === 'live' && !this.alwaysOnKept().has(r.botId) && !this.viewers.get(r.botId) && !this.busy.get(r.botId);
+  }
+
+  /** One place stays out of Always on, or a working bot could find every computer pinned and lose its tools. */
+  get alwaysOnLimit(): number {
+    return this.maxRunning - 1;
+  }
+
+  /** Marked Always on, those running first and then by recent use, so the ones that fit stay the ones that are up. */
+  private alwaysOnRows(): ComputerRow[] {
+    const up = (r: ComputerRow) => (r.state === 'asleep' ? 0 : 1);
+    return this.repo.list()
+      .filter((r) => r.keepAwake && this.usesComputer(r.botId))
+      .sort((a, b) => up(b) - up(a) || (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt));
+  }
+
+  /** The Always on computers that fit. More can be marked if the cap was lowered later; those get no protection. */
+  private alwaysOnKept(): Set<string> {
+    return new Set(this.alwaysOnRows().slice(0, this.alwaysOnLimit).map((r) => r.botId));
+  }
+
+  /**
+   * Brings up Always on computers that are down: after a server reboot, a crash, or when just switched on. Empty
+   * places only, so it never takes a computer from anyone; what does not fit now is tried again next minute. A
+   * start that fails waits ALWAYS_ON_RETRY_MS, so a broken computer does not spin. The memory guard applies.
+   */
+  async restoreAlwaysOn(): Promise<string[]> {
+    if (!this.enabled || this.restoring) return [];
+    this.restoring = true;
+    const started: string[] = [];
+    try {
+      const rows = this.alwaysOnRows();
+      for (const r of rows.slice(this.alwaysOnLimit)) {
+        if (r.state === 'asleep') this.setReason(r.botId, 'Always on, but only ' + this.alwaysOnLimit + ' fit on this server. Turn another one off.');
+      }
+      for (const r of rows.slice(0, this.alwaysOnLimit)) {
+        if (r.state !== 'asleep' || (this.alwaysOnRetryAt.get(r.botId) ?? 0) > this.now()) continue;
+        if (this.running().length >= this.maxRunning) continue;
+        if (!this.ramForOneMore()) {
+          this.setReason(r.botId, LOW_RAM_REASON);
+          continue;
+        }
+        if ((await this.ensureRunning(r.botId, 'none')).ok) {
+          this.alwaysOnRetryAt.delete(r.botId);
+          started.push(r.botId);
+        } else {
+          this.alwaysOnRetryAt.set(r.botId, this.now() + ALWAYS_ON_RETRY_MS);
+        }
+      }
+    } finally {
+      this.restoring = false;
+    }
+    return started;
   }
 
   /** Stop a computer; its disk is kept. */
@@ -386,10 +542,23 @@ export class ComputerManager {
     if (this.enabled) this.repo.touch(botId, this.now());
   }
 
+  /** Always on (`keep_awake` in the database). Past the limit it refuses rather than pinning the last place. */
   setKeepAwake(botId: string, on: boolean): ComputerStatus {
-    if (this.enabled && this.repo.allocate(botId, MAX_SLOT, this.quotaBytes, this.now())) {
+    if (!this.enabled) return this.status(botId);
+    if (on && !this.repo.get(botId)?.keepAwake) {
+      if (!this.usesComputer(botId)) throw new AlwaysOnRefused('This bot has no Browser or Desktop, so it has no computer to keep on.');
+      if (this.alwaysOnLimit < 1) throw new AlwaysOnRefused('This server runs one computer at a time, so none can be Always on.');
+      if (this.alwaysOnRows().length >= this.alwaysOnLimit) {
+        throw new AlwaysOnRefused(
+          'Only ' + this.alwaysOnLimit + ' can be Always on: ' + this.maxRunning + ' computers run at once, and one place stays free for whichever bot works next. Turn another one off first.',
+        );
+      }
+    }
+    if (this.repo.allocate(botId, MAX_SLOT, this.quotaBytes, this.now())) {
       this.repo.setKeepAwake(botId, on);
+      if (!on) this.reasons.delete(botId);
       this.emit(botId);
+      if (on) void this.restoreAlwaysOn().catch((e) => console.warn('[computers] ' + (e as Error).message));
     }
     return this.status(botId);
   }
@@ -409,13 +578,13 @@ export class ComputerManager {
     };
   }
 
-  /** Stop computers idle for `idleMs` with no viewer, no turn, no keep-awake and no routine due. */
+  /** Stop computers idle for `idleMs` with no viewer, no turn, not Always on and no routine due. */
   async sweep(): Promise<string[]> {
     if (!this.enabled) return [];
     const t = this.now();
     const stopped: string[] = [];
     for (const r of this.repo.list()) {
-      if (!this.evictable(r)) continue;
+      if (!this.stoppable(r)) continue;
       if (t - (r.lastUsedAt ?? r.createdAt) < this.idleMs) continue;
       if (this.routineDueSoon(r.botId, ROUTINE_GRACE_MS)) continue;
       await this.stop(r.botId, 'idle');
@@ -458,6 +627,7 @@ export class ComputerManager {
       this.busy.delete(r.botId);
       this.viewers.delete(r.botId);
       this.reasons.delete(r.botId);
+      this.alwaysOnRetryAt.delete(r.botId);
       fs.rmSync(path.join(this.dir, r.botId), { recursive: true, force: true });
       gone.push(r.botId);
     }
@@ -498,7 +668,7 @@ export class ComputerManager {
     return target.id;
   }
 
-  /** Reconcile, migrate, then run the idle sweep every minute and the disk count every hour. */
+  /** Reconcile, migrate, run the idle sweep and Always on every minute and the disk count every hour, then restore Always on. */
   async startBackground(bots: Bot[]): Promise<void> {
     if (!this.enabled) return;
     await this.reconcile();
@@ -510,10 +680,12 @@ export class ComputerManager {
       this.timers.push(t);
     };
     every(60_000, () => this.sweep());
+    every(60_000, () => this.restoreAlwaysOn());
     every(60 * 60_000, () => this.refreshDisk());
     const first = setTimeout(() => void this.refreshDisk().catch(() => undefined), 30_000);
     first.unref();
     this.timers.push(first);
+    await this.restoreAlwaysOn();
   }
 
   /** Stops the timers only: computers are systemd units and deliberately outlive a hub restart. */

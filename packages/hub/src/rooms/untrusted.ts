@@ -76,5 +76,5 @@ export function wrapUntrusted(ev: TriggerEvent, nonce = randomBytes(6).toString(
 
 /** The whole trigger message: header, the user's (trusted) instructions, then the fenced event. */
 export function triggerText(name: string, template: string, ev: TriggerEvent, nonce?: string): string {
-  return '[Trigger "' + oneLine(name, 60) + '"] ' + renderTemplate(template, ev) + '\n\n' + wrapUntrusted(ev, nonce);
+  return '[Trigger "' + oneLine(name, 60) + '"] ' + renderTemplate(template, ev) + ' Reply NO_REPLY if nothing needs doing.\n\n' + wrapUntrusted(ev, nonce);
 }

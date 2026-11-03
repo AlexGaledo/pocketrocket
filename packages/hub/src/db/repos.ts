@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid';
 import {
   AUTO_MEMORY_EVERY,
   type Bot, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
-  type CauseKind, type UsageGroup,
+  type CauseKind, type UsageGroup, type OpenApproval,
 } from '@pocketrocket/shared';
 import type { Db, Row } from './db.js';
 
@@ -23,7 +23,7 @@ export class Repos {
       handle: r.handle as string,
       title: (r.title as string) ?? '',
       description: (r.description as string) ?? '',
-      avatar: (r.avatar as string) || '🤖',
+      avatar: (r.avatar as string) || '',
       model: r.model as string,
       allowedTools: JSON.parse((r.allowed_tools as string) || '[]'),
       maxBudgetUsd: r.max_budget_usd as number,
@@ -72,6 +72,7 @@ export class Repos {
       this.db.run('DELETE FROM auto_memory WHERE bot_id=?', id);
       this.db.run('DELETE FROM bot_skills WHERE bot_id=?', id);
       this.db.run('DELETE FROM routines WHERE bot_id=?', id);
+      this.db.run('UPDATE rooms SET coordinator_bot_id=NULL WHERE coordinator_bot_id=?', id);
     });
   }
 
@@ -87,6 +88,8 @@ export class Repos {
       memberIds: members,
       coordinatorBotId: (r.coordinator_bot_id as string) ?? null,
       createdAt: r.created_at as number,
+      chatModel: (r.chat_model as string) ?? null,
+      avatar: (r.avatar as string) || '',
     };
   }
   listRooms(): Room[] {
@@ -96,25 +99,26 @@ export class Repos {
     const r = this.db.get('SELECT * FROM rooms WHERE id=?', id);
     return r && this.rowToRoom(r);
   }
-  createRoom(input: { kind: Room['kind']; name: string; memberIds: string[]; coordinatorBotId: string | null }): Room {
+  createRoom(input: { kind: Room['kind']; name: string; memberIds: string[]; coordinatorBotId: string | null; avatar?: string }): Room {
     const id = nanoid(10);
     this.db.tx(() => {
       this.db.run(
-        'INSERT INTO rooms (id,kind,name,coordinator_bot_id,created_at) VALUES (?,?,?,?,?)',
-        id, input.kind, input.name, input.coordinatorBotId, now(),
+        'INSERT INTO rooms (id,kind,name,coordinator_bot_id,created_at,avatar) VALUES (?,?,?,?,?,?)',
+        id, input.kind, input.name, input.coordinatorBotId, now(), input.avatar ?? '',
       );
       for (const m of new Set(input.memberIds)) this.db.run('INSERT INTO room_members (room_id,bot_id) VALUES (?,?)', id, m);
     });
     return this.getRoom(id)!;
   }
-  updateRoom(id: string, patch: Partial<{ name: string; memberIds: string[]; coordinatorBotId: string | null }>): Room | undefined {
+  updateRoom(id: string, patch: Partial<{ name: string; memberIds: string[]; coordinatorBotId: string | null; avatar: string }>): Room | undefined {
     const cur = this.getRoom(id);
     if (!cur) return undefined;
     this.db.tx(() => {
       this.db.run(
-        'UPDATE rooms SET name=?, coordinator_bot_id=? WHERE id=?',
+        'UPDATE rooms SET name=?, coordinator_bot_id=?, avatar=? WHERE id=?',
         patch.name ?? cur.name,
         patch.coordinatorBotId === undefined ? cur.coordinatorBotId : patch.coordinatorBotId,
+        patch.avatar ?? cur.avatar ?? '',
         id,
       );
       if (patch.memberIds) {
@@ -122,6 +126,11 @@ export class Repos {
         for (const m of new Set(patch.memberIds)) this.db.run('INSERT INTO room_members (room_id,bot_id) VALUES (?,?)', id, m);
       }
     });
+    return this.getRoom(id);
+  }
+  /** The composer's pick for this chat. Only the owner's REST route calls this; no bot tool does. */
+  setRoomChatModel(id: string, model: string | null): Room | undefined {
+    this.db.run('UPDATE rooms SET chat_model=? WHERE id=?', model, id);
     return this.getRoom(id);
   }
   deleteRoom(id: string) {
@@ -396,6 +405,11 @@ export class Repos {
   }
   decideApproval(id: string, status: string) {
     this.db.run('UPDATE approvals SET status=?, decided_at=? WHERE id=?', status, now(), id);
+  }
+  /** Cards still waiting for an answer, parked ones included (expirePendingApprovals clears the rest at startup). */
+  openApprovals(): OpenApproval[] {
+    return this.db.all<{ id: string; bot_id: string; room_id: string }>("SELECT id, bot_id, room_id FROM approvals WHERE status='pending'")
+      .map((r) => ({ approvalId: r.id, botId: r.bot_id, roomId: r.room_id }));
   }
   /**
    * Startup: every approval still `pending` belonged to a turn that died with the previous hub process, so

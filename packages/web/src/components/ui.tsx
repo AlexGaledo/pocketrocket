@@ -3,8 +3,11 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { clsx } from 'clsx';
-import { X } from 'lucide-react';
-import type { Bot, BotState } from '@pocketrocket/shared';
+import { Hash, X } from 'lucide-react';
+import { isBotIconKey } from '@pocketrocket/shared';
+import type { Bot, BotState, Room } from '@pocketrocket/shared';
+import { botIcon } from '../lib/botIcon';
+import { useMediaUrl } from '../lib/media';
 
 export function cn(...a: (string | false | null | undefined)[]) {
   return clsx(a);
@@ -267,29 +270,51 @@ export const STATE_LABEL: Record<BotState, string> = {
 };
 
 /** `state` draws the ring. Pass `label` when the words differ from the hub's state (see lib/botStatus.ts). */
-export function Avatar({ bot, state, label, size = 36 }: { bot: Pick<Bot, 'avatar' | 'name'>; state?: BotState; label?: string; size?: number }) {
+export function Avatar({ bot, state, label, size = 36 }: { bot: Pick<Bot, 'id' | 'avatar' | 'name'>; state?: BotState; label?: string; size?: number }) {
   const cls = state && state !== 'idle' ? 'state-' + state : '';
+  const { Glyph, tint } = botIcon(bot);
   const said = bot.name + (label ? ' · ' + label : state ? ' · ' + STATE_LABEL[state] : '');
+  const src = useMediaUrl(bot.avatar);
   return (
     <div
       role="img"
       aria-label={said}
-      className={cn('relative flex shrink-0 select-none items-center justify-center rounded-full bg-card2', cls)}
-      style={{ width: size, height: size, fontSize: size * 0.5 }}
+      className={cn('relative flex shrink-0 select-none items-center justify-center rounded-full text-fg', cls)}
+      style={{ width: size, height: size, background: tint }}
       title={said}
     >
-      <span aria-hidden className="leading-none">{bot.avatar || '🤖'}</span>
+      <Face src={src}><Glyph aria-hidden size={Math.round(size * 0.5)} strokeWidth={1.75} /></Face>
     </div>
   );
 }
 
-/** The user's initial. Pass `settings.userName`; an empty name shows "Y" (you). */
-export function UserAvatar({ name, size = 36 }: { name: string; size?: number }) {
+/** An uploaded picture filling its circle, or `children` while there is none or if it will not decode. */
+function Face({ src, children }: { src: string | null; children: React.ReactNode }) {
+  const [broken, setBroken] = React.useState<string | null>(null);
+  if (!src || broken === src) return <>{children}</>;
+  return <img src={src} alt="" draggable={false} onError={() => setBroken(src)} className="h-full w-full rounded-full object-cover" />;
+}
+
+/** Your picture, or your initial on a neutral tint. Pass `settings.userName`; an empty name shows "Y" (you). */
+export function UserAvatar({ name, avatar, size = 36 }: { name: string; avatar?: string; size?: number }) {
   const initial = (Array.from(name.trim())[0] ?? 'Y').toUpperCase();
+  const src = useMediaUrl(avatar);
   return (
-    <div aria-hidden className="flex shrink-0 items-center justify-center rounded-full bg-ink font-semibold text-ink-fg" style={{ width: size, height: size, fontSize: size * 0.4 }}>
-      {initial}
+    <div aria-hidden className="flex shrink-0 select-none items-center justify-center rounded-full bg-card2 font-semibold text-fg ring-1 ring-line" style={{ width: size, height: size, fontSize: size * 0.4 }}>
+      <Face src={src}>{initial}</Face>
     </div>
+  );
+}
+
+/** A group chat's picture or icon, or the plain group mark. `className` colors the mark; the room's name sits beside this. */
+export function RoomAvatar({ room, size = 34, className }: { room: Pick<Room, 'id' | 'avatar'>; size?: number; className?: string }) {
+  const src = useMediaUrl(room.avatar);
+  const key = isBotIconKey(room.avatar) ? room.avatar : null;
+  const { Glyph, tint } = botIcon({ id: room.id, avatar: key ?? '' });
+  return (
+    <span aria-hidden className={cn('flex shrink-0 select-none items-center justify-center rounded-full', !key && 'bg-card2', key ? 'text-fg' : className ?? 'text-muted')} style={{ width: size, height: size, background: key ? tint : undefined }}>
+      <Face src={src}>{key ? <Glyph size={Math.round(size * 0.5)} strokeWidth={1.75} /> : <Hash size={Math.round(size * 0.45)} />}</Face>
+    </span>
   );
 }
 

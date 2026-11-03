@@ -3,9 +3,10 @@ import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, 
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
-import type { RecorderStatus } from '@pocketrocket/shared';
+import type { ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
+import { selectScreenBotId } from './lib/screenView';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
@@ -103,6 +104,10 @@ interface State {
   botStates: Record<string, BotState>;
   activeRoomId: string | null;
   messages: Record<string, Message[]>;
+  /** Every card waiting for an answer: from `hello`, then kept current by approval events. */
+  openApprovals: OpenApproval[];
+  /** The last `computer.state` per bot. */
+  computers: Record<string, ComputerStatus>;
   loaded: Record<string, boolean>;
   /** Per room: an older page is being fetched, or the transcript already reaches the room's first message. */
   history: Record<string, { loading: boolean; done: boolean }>;
@@ -125,7 +130,7 @@ interface State {
   /** Whose screen the user chose in a group chat. lib/screenView.ts says whose actually shows. */
   panelBotId: string | null;
   page: Page | null;
-  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'settings'; section?: SectionId } | null;
+  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'profile' } | { kind: 'settings'; section?: SectionId } | null;
   toasts: Toast[];
   settings: Settings;
   providers: ProvidersResponse | null;
@@ -205,6 +210,8 @@ export const useStore = create<State>((set, get) => ({
   botStates: {},
   activeRoomId: localStorage.getItem('prcrew.activeRoom'),
   messages: {},
+  openApprovals: [],
+  computers: {},
   loaded: {},
   history: {},
   streaming: {},
@@ -249,7 +256,7 @@ export const useStore = create<State>((set, get) => ({
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
-        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device });
+        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, openApprovals: ev.openApprovals ?? [] });
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
@@ -258,8 +265,13 @@ export const useStore = create<State>((set, get) => ({
         void api.control.list().then((l) => set({ control: Object.fromEntries(l.map((c) => [c.botId, c])) })).catch(() => undefined);
         const active = s.activeRoomId && ev.rooms.some((r) => r.id === s.activeRoomId) ? s.activeRoomId : (ev.rooms[0]?.id ?? null);
         get().setActiveRoom(active);
+        // The app is open, so the computers about to be used come up. The hub refuses a phone this route anyway.
+        if (ev.principal !== 'device') void api.computers.warm(selectScreenBotId(get())).catch(() => undefined);
         return;
       }
+      case 'computer.state':
+        set({ computers: { ...s.computers, [ev.status.botId]: ev.status } });
+        return;
       case 'settings.changed': {
         set({ settings: ev.settings });
         applyLocalSettings(ev.settings);
@@ -339,6 +351,7 @@ export const useStore = create<State>((set, get) => ({
         set({ botStates: { ...s.botStates, [ev.botId]: ev.state } });
         return;
       case 'approval.request': {
+        set({ openApprovals: [...s.openApprovals.filter((a) => a.approvalId !== ev.approval.approvalId), { approvalId: ev.approval.approvalId, botId: ev.botId, roomId: ev.roomId }] });
         play('approvalRequest');
         if (ev.roomId === s.activeRoomId) return;
         // Named and clickable, and it stays: a toast that fades after four seconds is easy to miss while a
@@ -357,7 +370,10 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'approval.resolved':
         // Answered somewhere (another window, a timeout): the reminder has nothing left to point at.
-        set({ toasts: get().toasts.filter((t) => !t.key?.startsWith('approval:') || !t.key.endsWith(':' + ev.approvalId)) });
+        set({
+          toasts: get().toasts.filter((t) => !t.key?.startsWith('approval:') || !t.key.endsWith(':' + ev.approvalId)),
+          openApprovals: s.openApprovals.filter((a) => a.approvalId !== ev.approvalId),
+        });
         return;
       case 'memory.updated':
         set({ memory: { ...s.memory, [ev.botId]: ev.text } });

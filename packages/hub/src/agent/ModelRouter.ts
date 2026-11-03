@@ -6,15 +6,15 @@ import type { TurnUsage } from '../services/UsageTracker.js';
  *
  *   1. auto-memory and skill reflection          → Haiku   (`background`)
  *   2. the person's newest message on a turn they started says "think hard" or `/opus` → Opus (`explicit`)
- *      or a skill the message invokes that declares `model: opus`  (`skill`)
+ *      or a skill that message, or a routine's own prompt, invokes and that declares `model: opus`  (`skill`)
  *   3. a routine                                  → Sonnet  (`routine`)
  *      a trigger's triage                         → Haiku   (`triage`)
- *   4. optional Haiku classifier, when switched on in Settings     (`classifier`)
- *   5. everything else                            → Sonnet  (`default`)
- *   and, mid-turn, a retry after `error_max_turns` or an error     → Opus (`retry`, see `escalate`)
+ *   4. everything else                            → Sonnet  (`default`)
+ *   and, mid-turn, the bot moving itself up with `use_stronger_model`  → Opus (`stronger`, see `upgrade`)
+ *   or a retry after `error_max_turns` or an error                     → Opus (`retry`, see `escalate`)
  *
- * The explicit ask never reads the injected transcript: that holds forwarded emails and other bots' text, and an
- * outsider must not be able to pick Opus. Memory and reflection passes are one-shot and never escalate.
+ * The explicit ask and the skill check never read the injected transcript: that holds forwarded emails and other
+ * bots' text, and an outsider must not be able to pick Opus. Memory and reflection passes never escalate.
  *
  * Each turn is routed on its own and nothing is stored, so a cheaper turn never holds later turns down.
  *
@@ -27,7 +27,7 @@ import type { TurnUsage } from '../services/UsageTracker.js';
  */
 
 export type ModelTier = 'haiku' | 'sonnet' | 'opus';
-export type RouteReason = 'pinned' | 'background' | 'explicit' | 'skill' | 'routine' | 'triage' | 'classifier' | 'default' | 'retry';
+export type RouteReason = 'pinned' | 'chosen' | 'background' | 'explicit' | 'skill' | 'routine' | 'triage' | 'classifier' | 'default' | 'retry' | 'stronger';
 
 export interface RouteRequest {
   bot: Pick<Bot, 'model'>;
@@ -37,6 +37,10 @@ export interface RouteRequest {
   input: string;
   /** The newest message a person wrote in `input`. Only this, on a turn a person started, can be an explicit ask. */
   latestUserText?: string;
+  /** On a routine's turn: the routine's own prompt, which its owner wrote and which may invoke a skill. */
+  routinePrompt?: string;
+  /** `bot.model` here is the composer's pick for this chat, not the bot's setting. */
+  chosen?: boolean;
   /** The active provider's models (`provider.modelsSync()`). Only these are ever chosen. */
   models: readonly ModelInfo[];
   /** Approved skills of this bot whose SKILL.md declares `model: opus` (SkillService.opusSkillNames). */
@@ -131,7 +135,9 @@ function choose(req: RouteRequest, tier: ModelTier, reason: RouteReason, why: st
 }
 
 function pinned(req: RouteRequest): RouteChoice {
-  return { model: req.bot.model, tier: null, reason: 'pinned', detail: 'Set on the bot' };
+  return req.chosen
+    ? { model: req.bot.model, tier: null, reason: 'chosen', detail: 'Chosen for this chat' }
+    : { model: req.bot.model, tier: null, reason: 'pinned', detail: 'Set on the bot' };
 }
 
 /**
@@ -144,7 +150,8 @@ export function route(req: RouteRequest): RouteChoice {
   if (req.causeKind === 'reflection') return choose(req, 'haiku', 'background', 'for the skill reflection pass');
   const asked = req.causeKind === 'user' ? explicitRequest(req.latestUserText ?? '') : null;
   if (asked) return choose(req, 'opus', 'explicit', 'because the message asked ("' + asked + '")');
-  const skill = invokedSkill(req.input, req.opusSkills ?? []);
+  const ownText = req.causeKind === 'user' ? req.latestUserText : req.causeKind === 'routine' ? req.routinePrompt : undefined;
+  const skill = invokedSkill(ownText ?? '', req.opusSkills ?? []);
   if (skill) return choose(req, 'opus', 'skill', 'because skill "' + skill + '" declares model: opus');
   if (req.causeKind === 'routine') return choose(req, 'sonnet', 'routine', 'for a routine');
   if (req.causeKind === 'trigger') return choose(req, 'haiku', 'triage', 'to triage a trigger');
@@ -158,6 +165,11 @@ export interface ModelRouterOptions {
   classify?: Classifier;
   /** Read per turn, so flipping the setting applies from the next turn. */
   classifierEnabled?: () => boolean;
+}
+
+/** Whether a turn on `prev` has anywhere to move up to: Auto, on Sonnet, with a real Opus on this provider. */
+export function canUpgrade(req: RouteRequest, prev: RouteChoice): boolean {
+  return isAuto(req.bot) && prev.tier === 'sonnet' && resolveTier('opus', req.models, req.fallbackModel).model !== prev.model;
 }
 
 export class ModelRouter {
@@ -179,6 +191,11 @@ export class ModelRouter {
     if (!res.tier) return { ...base, classifierUsage: res.usage };
     const why = res.tier === 'haiku' ? '(classifier: simple request)' : res.tier === 'opus' ? '(classifier: hard request)' : '(classifier: normal request)';
     return { ...choose(req, res.tier, 'classifier', why), classifierUsage: res.usage };
+  }
+
+  /** The bot asked to move up (`use_stronger_model`). Nothing is stored: the next turn routes from scratch. */
+  upgrade(req: RouteRequest, reason: string): RouteChoice {
+    return choose(req, 'opus', 'stronger', 'because the bot moved up: ' + reason);
   }
 
   /**

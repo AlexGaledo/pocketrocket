@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { BarChart3, CalendarClock, ChevronsUpDown, FolderOpen, LogIn, LogOut, Moon, Settings, Sun } from 'lucide-react';
+import { BarChart3, CalendarClock, ChevronsUpDown, FolderOpen, LogIn, LogOut, Moon, Settings, Sun, UserRound } from 'lucide-react';
 import { useStore } from '../store';
 import { api } from '../lib/api';
 import { resolveDark } from '../lib/theme';
@@ -11,6 +11,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, UserAvatar, cn } from './ui
  */
 export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
   const name = useStore((s) => s.settings.userName);
+  const avatar = useStore((s) => s.settings.userAvatar);
   const theme = useStore((s) => s.settings.theme);
   const connected = useStore((s) => s.connected);
   const hubIssue = useStore((s) => s.hubIssue);
@@ -73,7 +74,7 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
         aria-label={'Menu for ' + name + '. ' + server}
         className="mx-2 mb-2 flex min-w-0 items-center gap-2.5 rounded-sm p-2 text-left hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=open]:bg-hover"
       >
-        <UserAvatar name={name} size={30} />
+        <UserAvatar name={name} avatar={avatar} size={30} />
         <span className="block min-w-0 flex-1">
           <span className="block truncate text-ui font-medium">{name}</span>
           <span className={cn('block truncate text-hint', connected ? 'text-muted' : 'text-warn')}>{server}</span>
@@ -82,6 +83,8 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
       </Menu.Trigger>
       <Menu.Portal>
         <MenuContent side="top" align="start" onCloseAutoFocus={runPending} className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[210px]">
+          {/* A paired phone sees the picture but cannot change it (PUT /api/settings is refused). */}
+          {!device && <MenuItem onSelect={act(() => openDialog({ kind: 'profile' }))}><UserRound size={16} aria-hidden />Edit profile</MenuItem>}
           <MenuItem onSelect={act(() => { onNavigate(); openPage({ kind: 'automations' }); })}><CalendarClock size={16} aria-hidden />Automations</MenuItem>
           <MenuItem onSelect={act(() => { onNavigate(); openPage({ kind: 'usage' }); })}><BarChart3 size={16} aria-hidden />Usage</MenuItem>
           <MenuItem onSelect={act(() => openDialog({ kind: 'settings' }))}><Settings size={16} aria-hidden />Settings</MenuItem>

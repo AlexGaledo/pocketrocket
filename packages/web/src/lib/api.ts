@@ -61,7 +61,8 @@ export const api = {
   screenTicket: (botId?: string) => req<{ url: string }>('POST', '/api/screen/ticket', botId ? { botId } : undefined),
   computers: {
     get: (botId: string) => req<ComputerStatus>('GET', '/api/computers/' + encodeURIComponent(botId)),
-    wake: (botId: string) => req<ComputerStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/wake', {}),
+    wake: (botId: string, o: { auto?: boolean } = {}) => req<ComputerStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/wake', o),
+    warm: (botId: string | null) => req<{ ok: boolean }>('POST', '/api/computers/warm', botId ? { botId } : {}),
     keepAwake: (botId: string, on: boolean) => req<ComputerStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/keep-awake', { on }),
   },
   config: () => req<{ workspaceDir: string; version: string }>('GET', '/api/config'),
@@ -69,6 +70,10 @@ export const api = {
   // with per-bot computers it opens on `botId`'s computer (P1), or `error` says to open its Screen first.
   openWorkspace: (botId?: string | null) =>
     req<{ ok: boolean; where: 'explorer' | 'finder' | 'screen' | 'file-manager'; path: string; error?: string }>('POST', '/api/workspace/open', botId ? { botId } : {}),
+  // A picture, base64 in JSON. Reading one back is lib/media.ts, which wants a blob rather than JSON.
+  media: {
+    upload: (data: string) => req<{ ref: string }>('POST', '/api/media', { data }),
+  },
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
     create: (b: BotInput) => req<Bot>('POST', '/api/bots', b),
@@ -80,11 +85,17 @@ export const api = {
     setSkills: (id: string, skillIds: string[]) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/skills', { skillIds }),
     resetSession: (id: string, roomId: string) => req<{ ok: true }>('POST', '/api/bots/' + id + '/reset-session', { roomId }),
   },
+  routing: {
+    get: () => req<{ text: string }>('GET', '/api/routing'),
+    save: (text: string) => req<{ text: string }>('PUT', '/api/routing', { text }),
+  },
   rooms: {
     list: () => req<Room[]>('GET', '/api/rooms'),
     create: (r: RoomInput) => req<Room>('POST', '/api/rooms', r),
     update: (id: string, r: Partial<RoomInput>) => req<Room>('PATCH', '/api/rooms/' + id, r),
     remove: (id: string) => req<{ ok: true }>('DELETE', '/api/rooms/' + id),
+    /** The composer's pick for this chat; null goes back to each bot's own model. */
+    setModel: (id: string, model: string | null) => req<Room>('PUT', '/api/rooms/' + id + '/model', { model }),
     // `before` is a message seq (exclusive): the hub returns the page of messages just older than it.
     messages: (id: string, before?: number) => req<Message[]>('GET', '/api/rooms/' + id + '/messages?limit=' + MESSAGE_PAGE + (before ? '&before=' + before : '')),
   },

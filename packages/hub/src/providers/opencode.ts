@@ -36,7 +36,7 @@ import { OpenCodeServer } from './opencode/server.js';
 export const OPENCODE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   id: 'opencode',
   label: 'OpenCode',
-  blurb: 'OpenCode running as a local server. Brings its own provider logins (ChatGPT, Claude, Copilot, xAI, ...).',
+  blurb: 'OpenCode, with its own logins for ChatGPT, Claude, Copilot, xAI and others.',
   authModes: ['subscription', 'apiKey'],
   secretKeys: [],
   permissions: 'best-effort',

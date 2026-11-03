@@ -3,11 +3,10 @@
  * parked approval or takeover ends the turn altogether, so `bot.state` alone cannot say whether the user must act.
  * This derives the answer on the client from the state, the control status and the open approval cards.
  *
- * Limit: approval cards are only known for rooms loaded in this page. A parked approval in a room that has not
- * been opened since a reload shows up once that room loads. A live one is always caught through `blocked`.
+ * Cards come from loaded rooms and from `hello`, which lists every open card, so this is right after a reload too.
  */
 import { useMemo } from 'react';
-import type { ApprovalPayload, BotState, ControlStatus, Message } from '@pocketrocket/shared';
+import type { ApprovalPayload, BotState, ControlStatus, Message, OpenApproval } from '@pocketrocket/shared';
 import { useStore } from '../store';
 
 export type BotStatus = 'needs_you' | 'paused' | 'waiting_on_bot' | 'idle' | 'thinking' | 'working' | 'done' | 'error';
@@ -47,8 +46,9 @@ export function botStatus(state: BotState | undefined, control: ControlStatus | 
 }
 
 /** Bot id to a room holding one of its open approval cards. */
-function openApprovals(messages: Record<string, Message[]>): Map<string, string> {
+function openApprovals(messages: Record<string, Message[]>, known: OpenApproval[]): Map<string, string> {
   const out = new Map<string, string>();
+  for (const a of known) out.set(a.botId, a.roomId);
   for (const [roomId, list] of Object.entries(messages)) {
     for (const m of list) {
       if (m.kind === 'approval' && m.authorId && (m.payload as ApprovalPayload | null)?.status === 'pending') out.set(m.authorId, roomId);
@@ -61,7 +61,8 @@ export function useBotStatus() {
   const botStates = useStore((s) => s.botStates);
   const control = useStore((s) => s.control);
   const messages = useStore((s) => s.messages);
-  const approvals = useMemo(() => openApprovals(messages), [messages]);
+  const known = useStore((s) => s.openApprovals);
+  const approvals = useMemo(() => openApprovals(messages, known), [messages, known]);
   return {
     statusOf: (botId: string) => botStatus(botStates[botId], control[botId], approvals.has(botId)),
     /** The room where the user can act: not always the bot's DM, since a card can sit in a group chat. */

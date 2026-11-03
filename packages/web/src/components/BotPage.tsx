@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Check, MessageSquare, Plus, RefreshCw, Save, Settings2, Trash2, X } from 'lucide-react';
 import type { Bot, ComputerStatus, Skill } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type BotTab } from '../store';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
+import { hasComputer } from '../lib/screenView';
 import { Avatar, Badge, Button, Input, Label, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn } from './ui';
 import { VoicePanel } from './VoicePanel';
 import { SkillGitImport } from './SkillGitImport';
@@ -70,15 +71,20 @@ const gbText = (b: number) => (b / 1024 ** 3).toFixed(1) + ' GB';
 function ComputerTab({ bot }: { bot: Bot }) {
   const toast = useStore((s) => s.toast);
   const [c, setC] = useState<ComputerStatus | null>(null);
+  const [refused, setRefused] = useState('');
+  const pushed = useStore((s) => s.computers[bot.id]);
   const load = useCallback(() => {
     api.screen(bot.id).then((s) => setC(s.computer?.perBot ? s.computer : null)).catch(() => undefined);
   }, [bot.id]);
-  useEffect(load, [load]);
-  const setKeepAwake = async (on: boolean) => {
+  useEffect(load, [load, pushed]);
+  const setAlwaysOn = async (on: boolean) => {
+    setRefused('');
     try {
       setC(await api.computers.keepAwake(bot.id, on));
     } catch (e) {
-      toast("Couldn't change Keep awake: " + (e as Error).message, true);
+      // The hub's answer says what to do next, and it belongs beside the switch.
+      if (e instanceof ApiError && e.status === 409) setRefused(e.message);
+      else toast("Couldn't change Always on: " + (e as Error).message, true);
     }
   };
   const used = c && c.quotaBytes > 0 ? c.diskBytes / c.quotaBytes : 0;
@@ -91,11 +97,20 @@ function ComputerTab({ bot }: { bot: Bot }) {
               <span title="Disk used (soft limit)">{gbText(c.diskBytes)} / {gbText(c.quotaBytes)}</span>
             </Badge>
           )}
-          <span id="keep-awake-label" className="ml-auto text-muted" title="Don't sleep when idle">Keep awake</span>
-          <Switch aria-labelledby="keep-awake-label" checked={c.keepAwake} onChange={(on) => void setKeepAwake(on)} />
+          {hasComputer(bot) && (
+            <>
+              <span id="always-on-label" className="ml-auto text-muted">Always on</span>
+              <Switch aria-labelledby="always-on-label" checked={c.keepAwake} onChange={(on) => void setAlwaysOn(on)} />
+              <p className="w-full text-right text-dim">
+                Stays running and restarts with the server{c.alwaysOn ? ' · ' + c.alwaysOn.used + ' of ' + c.alwaysOn.limit + ' in use' : ''}
+              </p>
+            </>
+          )}
+          {refused && <p role="alert" className="w-full text-right text-bad">{refused}</p>}
+          {c.keepAwake && c.state === 'asleep' && c.reason && <p className="w-full text-right text-bad">{c.reason}</p>}
         </div>
       ) : (
-        <p className="px-3 text-muted">This server has one shared screen, not one per bot.</p>
+        <p className="px-3 text-muted">This server has no per-bot computers, so Browser and Desktop are off.</p>
       )}
       <TeachBar bot={bot} />
       <p className="px-3 text-dim">Bots with shell access can read each other's files and logins.</p>

@@ -1,3 +1,4 @@
+import { ROUTING_PATH } from '../config.js';
 import { bashWritesReadOnly } from './bashRules.js';
 import { isInside, pathsFromInput } from './pathRules.js';
 
@@ -11,6 +12,18 @@ import { isInside, pathsFromInput } from './pathRules.js';
 export const WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'] as const;
 /** The PreToolUse matcher for the read-only guard: the file writers plus Bash. */
 export const READ_ONLY_GUARD_TOOLS = [...WRITE_TOOLS, 'Bash'] as const;
+
+/**
+ * The owner's routing rules redirect work between bots with different logins, so no bot may write them: refused
+ * outright in every approvals mode, with no card to say yes on. Returns the refusal, or null. A shell command is
+ * judged by what its command line shows (`bashWritesReadOnly`); like every Bash rule here it is not a sandbox.
+ */
+export function routingFileWrite(toolName: string, input: Record<string, unknown>, cwd: string): string | null {
+  const hit = toolName === 'Bash'
+    ? !!bashWritesReadOnly(String(input.command ?? ''), cwd, [ROUTING_PATH])
+    : (WRITE_TOOLS as readonly string[]).includes(toolName) && pathsFromInput(toolName, input).some((p) => isInside(p, [ROUTING_PATH], cwd));
+  return hit ? 'routing.md belongs to the owner and bots cannot write it. Use propose_routing_change to suggest a line.' : null;
+}
 
 export function readOnlyWriteDecision(
   toolName: string,
