@@ -1,6 +1,6 @@
 /**
  * Settings › Account: the name bots call you (works with or without an account) and the optional
- * PocketRocket account. Which account view shows comes straight from `store.account`:
+ * Homeroom account. Which account view shows comes straight from `store.account`:
  * not available on this setup → one quiet line; signed out or waiting for a code → <AccountSignIn>;
  * signed in → who you are, your plan and "Sign out".
  */
@@ -31,7 +31,7 @@ export function AccountSection() {
         </Card>
       </Group>
 
-      <Group title="PocketRocket account">
+      <Group title="Homeroom account">
         <Card>
           {!account.enabled ? (
             <p className="text-ui text-muted">Sign-in unavailable. Everything still works.</p>

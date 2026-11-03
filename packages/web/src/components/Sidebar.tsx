@@ -122,7 +122,7 @@ export function Sidebar() {
       <div className="flex h-14 items-center justify-between gap-1.5 pl-3 pr-1.5">
         <div className="flex min-w-0 items-center gap-2 text-ui font-semibold">
           <RocketMark size={24} />
-          <span className="truncate">PocketRocket</span>
+          <span className="truncate">Homeroom</span>
         </div>
         <button
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-dim hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"

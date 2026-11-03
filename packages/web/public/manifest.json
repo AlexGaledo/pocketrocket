@@ -1,6 +1,6 @@
 {
-  "name": "PocketRocket",
-  "short_name": "PocketRocket",
+  "name": "Homeroom",
+  "short_name": "Homeroom",
   "description": "Your pocket fleet of AI agents, on your own hub.",
   "id": "/",
   "start_url": "/",

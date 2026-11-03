@@ -135,7 +135,7 @@ export const api = {
     get: () => req<SecretsStatus>('GET', '/api/secrets'),
     update: (patch: Record<string, string>) => req<SecretsStatus>('PUT', '/api/secrets', patch),
   },
-  // Optional PocketRocket account. The hub holds the session; the UI only ever sees AccountState.
+  // Optional Homeroom account. The hub holds the session; the UI only ever sees AccountState.
   account: {
     get: () => req<AccountState>('GET', '/api/account'),
     magicLink: (email: string) => req<AccountActionResponse>('POST', '/api/account/magic-link', { email }),

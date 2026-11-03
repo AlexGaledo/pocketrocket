@@ -202,7 +202,7 @@ export const VERSION: string = resolveVersion(here);
 
 export const SECRETS_PATH = path.join(DATA_DIR, 'secrets.json');
 
-// Optional PocketRocket account (Supabase Auth). Accounts are on only when both resolve to a value.
+// Optional Homeroom account (Supabase Auth). Accounts are on only when both resolve to a value.
 // Built-in project the app ships with; a publishable key is public by design (RLS guards the data).
 const BUILTIN_SUPABASE_URL = 'https://aihkfrbjqalcvfurstor.supabase.co';
 const BUILTIN_SUPABASE_KEY = 'sb_publishable_I8mIenc7yM9Mq1aQDaVNWw_0k2qX1Kz';

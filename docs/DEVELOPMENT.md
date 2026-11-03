@@ -1,8 +1,8 @@
-# Developing PocketRocket
+# Developing Homeroom
 
 Running from source, building the desktop app, and the layout of the repo. Contribution rules
 are in [CONTRIBUTING.md](../CONTRIBUTING.md). macOS and Linux have no installer yet, so this is
-also how to run PocketRocket there.
+also how to run Homeroom there.
 
 ## Layout
 

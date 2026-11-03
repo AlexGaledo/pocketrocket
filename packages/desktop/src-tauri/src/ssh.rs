@@ -88,7 +88,7 @@ pub fn explain(stderr: &str, host: &str, port: u16) -> String {
     match classify_failure(stderr) {
         SshFailure::HostKeyChanged => format!(
             "The host key of {host} has CHANGED since this PC last connected. That can mean someone is intercepting the \
-             connection, so PocketRocket will not connect. If you rebuilt the server yourself, confirm the new fingerprint \
+             connection, so Homeroom will not connect. If you rebuilt the server yourself, confirm the new fingerprint \
              with your hosting provider, then run `ssh {host}` in a terminal: it names the old known_hosts entry to remove."
         ),
         SshFailure::HostKeyUnknown => format!(
@@ -96,7 +96,7 @@ pub fn explain(stderr: &str, host: &str, port: u16) -> String {
              answer yes, then retry."
         ),
         SshFailure::AuthFailed => format!(
-            "{host} refused your SSH key (Permission denied). PocketRocket only uses key logins, never passwords: start the \
+            "{host} refused your SSH key (Permission denied). Homeroom only uses key logins, never passwords: start the \
              \"OpenSSH Authentication Agent\" service (Services, startup type Automatic), run `ssh-add` in a terminal, then retry."
         ),
         SshFailure::Resolve => format!("Can't find the server \"{host}\". Check the name, or its Host entry in ~/.ssh/config."),

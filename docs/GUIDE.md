@@ -1,6 +1,6 @@
-# PocketRocket guide
+# Homeroom guide
 
-What PocketRocket does once it's installed, how it works, and what the bots may and may not do.
+What Homeroom does once it's installed, how it works, and what the bots may and may not do.
 Setup itself is in the [README](../README.md).
 
 ## Contents
@@ -93,7 +93,7 @@ lock an open window out). It is never written to the hub's logs. The desktop app
 anywhere else, paste the file's contents into the prompt the web UI shows, or open
 `http://127.0.0.1:7788/#token=<token>`, which the web UI consumes automatically.
 
-PocketRocket has had two internal security reviews; what they changed is under **Security** in
+Homeroom has had two internal security reviews; what they changed is under **Security** in
 [CHANGELOG.md](../CHANGELOG.md), and [SECURITY.md](../SECURITY.md) has the summary.
 
 ## Configuration
@@ -107,7 +107,7 @@ Short and honest:
 
 - **More providers.** OpenAI Codex, OpenCode and Grok adapters exist in the codebase behind a
   dev-only flag but aren't offered as a user-facing option in v1 — Claude only, for now.
-- **Paid plans**, behind the optional PocketRocket account. Signing in does nothing else yet.
+- **Paid plans**, behind the optional Homeroom account. Signing in does nothing else yet.
 - **Code signing and an auto-updater** are deliberately out of scope for v1; Help → Check for
   updates just opens the Releases page.
 - **macOS / Linux installers.** Both run from source today; no packaged installer yet.

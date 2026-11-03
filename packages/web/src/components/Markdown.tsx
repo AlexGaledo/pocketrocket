@@ -1,6 +1,6 @@
 /**
  * The one place the app renders markdown. Bots and provider checks write links freely, and a plain <a>
- * would take the whole app with it: in a browser tab the click replaces PocketRocket, and in the desktop
+ * would take the whole app with it: in a browser tab the click replaces Homeroom, and in the desktop
  * window a relative link like `report.md` stays in-window on a 404 with no back button. So every link
  * goes through `MdLink`, which opens real web links in a new tab (the desktop shell hands those to the
  * system browser) and never lets anything else navigate the app window.
@@ -43,7 +43,7 @@ function MdLink({ href, children, node: _node, ...rest }: ComponentPropsWithoutR
   // No href at all, so middle-click or "open in new tab" cannot reach a dead page either.
   const hint = kind === 'file'
     ? "Files live in the shared folder. Open it from the sidebar."
-    : "That link points inside PocketRocket and can't be opened from here";
+    : "That link points inside Homeroom and can't be opened from here";
   return (
     <button
       type="button"

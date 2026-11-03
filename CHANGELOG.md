@@ -7,10 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**PocketRocket** is a fork of PocketRocket 0.2.0 (upstream: `AlexGaledo/pocketrocket`). Entries
-below are fork changes, grouped by feature area; the per-phase notes live in `docs/changes/pN.md`.
-Upstream changes after 0.2.0 that the fork already includes: the desktop app stops offering the other
-connection modes once one is set up.
+PocketRocket is now called **Homeroom** in the app. Website, repository, server names and the app ID keep
+the old name for now. Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
 ### Profile pictures and group details
 
