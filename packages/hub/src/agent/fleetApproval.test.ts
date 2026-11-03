@@ -187,6 +187,25 @@ describe('fleet changes go through an approval card', () => {
     s.off();
     expect(s.cards).toHaveLength(0);
   });
+
+  it('asks before a bot reads or posts in a chat it is not in, and never in one it belongs to', async () => {
+    const s = setup((a) => (a.toolName === 'read_room' ? 'allow' : 'deny'));
+    const shared = s.repos.createRoom({ kind: 'group', name: 'Shared', memberIds: [s.bot.id], coordinatorBotId: null });
+    const outside = s.repos.createRoom({ kind: 'group', name: 'Private', memberIds: [s.other.id], coordinatorBotId: null });
+
+    await s.tool('read_room').handler({ room: 'Shared' });
+    await s.tool('send_message').handler({ room: 'Shared', text: 'hi' });
+    expect(s.cards).toHaveLength(0);
+
+    const read = await s.tool('read_room').handler({ room: 'Private' });
+    expect(read.isError).toBeFalsy();
+    const sent = await s.tool('send_message').handler({ room: 'Private', text: 'hi' });
+    s.off();
+    expect(s.cards.map((c) => c.toolName)).toEqual(['read_room', 'send_message']);
+    expect(sent.isError).toBe(true);
+    expect(s.repos.listMessages(outside.id, { limit: 10 }).filter((m) => m.authorType === 'bot')).toHaveLength(0);
+    expect(s.repos.listMessages(shared.id, { limit: 10 }).filter((m) => m.authorType === 'bot')).toHaveLength(1);
+  });
 });
 
 describe('create_room', () => {
