@@ -1,6 +1,6 @@
 # Auth and identity
 
-Status: phase 1 built. Later phases wait on the hosting decision below.
+Status: phases 1 and 2 built. Later phases wait on the hosting decision below.
 
 ## Why
 
@@ -26,12 +26,17 @@ stranger and refuse their requests.
 - The bot prompt names the owner by id and lists earlier names, and says typed claims prove nothing.
 - `GET /api/me` returns the current user.
 
-### Phase 2: real sessions
+### Phase 2: real sessions (built)
 
-- Sign-in replaces pasting the hub token in the browser. The token remains for scripts and the desktop bootstrap.
-- Sessions in httpOnly cookies, with a list of active sessions and sign out everywhere.
-- Each request resolves to a user id. Hub token and device tokens resolve to their owner.
-- Audit log of who approved, changed or deleted what. `approvals.decided_by` starts holding user ids.
+- Owner password, hashed with scrypt, set in Settings, Security. No password means the server token is the only way in, as before.
+- Sessions in an httpOnly, SameSite=Strict cookie for 30 days. Only a hash of the session token is stored.
+- Browser list, sign out one or all others, and a password change signs out the others. A revoked session's websocket closes at once.
+- The server token stays for the desktop app and scripts, and resets a forgotten password. It still gives full access, so it remains the key to protect.
+- Audit log, from one point in the hub for all successful API changes, plus explicit rows for sign-ins, permission levels, approval answers and fleet changes bots make. Labels and ids only.
+
+Limits: browsers send cookies to every port on a host, so another web server on the same machine (`127.0.0.1:<other port>`) receives the sign-in cookie. Each hub's cookie name carries its port, which stops hubs signing each other out but not that leak. The Screen proxy removes the cookie before passing a request to the screen backend.
+
+Not yet: email sign-in, MFA, and turning the server token off in the browser. `approvals.decided_by` still says `owner`, and the audit log holds who answered.
 
 ### Phase 3: more than one person
 

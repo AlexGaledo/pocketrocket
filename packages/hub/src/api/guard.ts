@@ -104,6 +104,15 @@ export function bearerToken(req: IncomingMessage): string | null {
 }
 
 /** A single cookie value out of the `Cookie` header, or null. Node hands us the raw header and nothing else. */
+/** Takes one cookie off a request before it is passed on to something that must not see it. */
+export function dropCookie(req: IncomingMessage, name: string): void {
+  const raw = req.headers.cookie;
+  if (!raw) return;
+  const kept = raw.split(';').map((p) => p.trim()).filter((p) => p && p.slice(0, p.indexOf('=')) !== name);
+  if (kept.length) req.headers.cookie = kept.join('; ');
+  else delete req.headers.cookie;
+}
+
 export function cookieValue(req: IncomingMessage, name: string): string | null {
   const raw = req.headers.cookie;
   if (!raw) return null;
@@ -138,6 +147,8 @@ export interface TokenOptions {
   screenAuth?: (req: IncomingMessage) => boolean;
   /** P9: true when `supplied` is a paired device's token that has not been revoked. */
   deviceToken?: (supplied: string) => boolean;
+  /** True when the request carries a live browser session cookie. */
+  session?: (req: IncomingMessage) => boolean;
 }
 
 /**
@@ -179,6 +190,10 @@ export function checkToken(req: IncomingMessage, url: URL, token: string | null,
   // P9: the phone redeems its one-time pairing code here before it holds any credential; the handler feeds
   // the rate limiter on every miss, exactly like /auth/callback.
   if (url.pathname === DEVICE_PAIR_PATH && method === 'POST') return true;
+  // The sign-in screen has no credential yet. The login handler feeds the rate limiter on every miss.
+  if (url.pathname === '/api/auth/login' && method === 'POST') return true;
+  if (url.pathname === '/api/auth/status' && method === 'GET') return true;
+  if (opts.session?.(req)) return true;
   const supplied = bearerToken(req) ?? url.searchParams.get('token');
   if (tokenMatches(supplied, token)) return true;
   // P9: or a paired, non-revoked device. What it may then reach is narrower: see deviceMayAccess.
@@ -255,7 +270,10 @@ export const DEVICE_PAIR_PATH = '/api/devices/pair';
  * Who authenticated a request: the hub token (the desktop app, scripts, the SSH tunnel) or one paired device.
  * Requests on token-exempt paths have no principal.
  */
-export type Principal = { kind: 'hub' } | { kind: 'device'; deviceId: string };
+export type Principal =
+  // Full access: the hub token, or a browser signed in with the owner's password (sessionId set).
+  | { kind: 'hub'; sessionId?: string; userId?: string }
+  | { kind: 'device'; deviceId: string };
 
 const principals = new WeakMap<IncomingMessage, Principal>();
 /** Set once per request by hub.ts, right after the token check. */
@@ -264,6 +282,12 @@ export function setPrincipal(req: IncomingMessage, p: Principal): void {
 }
 export function principalOf(req: IncomingMessage): Principal | null {
   return principals.get(req) ?? null;
+}
+/** Who a Screen ticket answers to: revoking that device or browser session closes the Screen with it. */
+export function screenOwnerOf(req: IncomingMessage): string | null {
+  const p = principals.get(req);
+  if (p?.kind === 'device') return p.deviceId;
+  return p?.sessionId ? 'session:' + p.sessionId : null;
 }
 /** The device id behind a request, or null for the hub token / no principal. */
 export function deviceIdOf(req: IncomingMessage): string | null {

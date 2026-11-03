@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Sign-in and activity log
+
+- Sign in with a password from the browser instead of pasting the server token. Sessions last 30 days in an httpOnly cookie. Set it in Settings, Security. The server token still works for the desktop app and scripts, and resets a forgotten password.
+- See which browsers are signed in, and sign out one or all others. Changing the password signs out the others.
+- Activity log in Settings, Security: sign-ins and failures, permission level changes, approval answers, changes to bots, rooms and routines, including those bots make themselves. It holds labels and ids, never message or request contents.
+
 ### Identity and permissions
 
 - The owner has a stable user id, separate from the display name. Renaming no longer makes bots treat the owner as a stranger; earlier names are kept. `GET /api/me` returns the current user.

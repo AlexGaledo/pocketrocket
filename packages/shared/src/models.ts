@@ -22,6 +22,29 @@ export interface User {
   createdAt: number;
 }
 
+/** One browser signed in with the owner's password. Never carries the token or its hash. */
+export interface UserSessionInfo {
+  id: string;
+  userAgent: string | null;
+  ip: string | null;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  current: boolean;
+}
+
+/** One row of the activity log. Labels and ids only, never request bodies. */
+export interface AuditEntry {
+  id: number;
+  at: number;
+  actorKind: 'session' | 'hub-token' | 'device' | 'bot' | 'anonymous';
+  actorId: string | null;
+  action: string;
+  target: string | null;
+  detail: string | null;
+  ip: string | null;
+}
+
 export const MODELS = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5 (default)' },
   { id: 'claude-opus-5', label: 'Opus 5' },

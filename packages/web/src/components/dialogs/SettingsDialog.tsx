@@ -7,10 +7,11 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { BookOpen, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon } from 'lucide-react';
+import { BookOpen, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
 // P9
 import { Smartphone } from 'lucide-react';
 import { DevicesSection } from '../settings/DevicesSection';
+import { SecuritySection } from '../settings/SecuritySection';
 import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { useMediaQuery } from '../../lib/useMediaQuery';
@@ -23,7 +24,7 @@ import { AboutSection } from '../settings/AboutSection';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
 
-export type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
+export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
   // P4
   | 'integrations'
   // P9
@@ -31,6 +32,7 @@ export type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' |
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'account', label: 'Account', icon: UserRound },
+  { id: 'security', label: 'Security', icon: LockKeyhole },
   { id: 'claude', label: 'Claude', icon: Sparkles },
   { id: 'bots', label: 'Bots', icon: ShieldCheck },
   // P4
@@ -127,6 +129,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
           <div className="h-full overflow-y-auto">
             {/* tabIndex -1: every panel has its own controls to Tab into, so the panel itself needn't be a stop. */}
             <TabsPrimitive.Content value="account" tabIndex={-1} className={PANEL}><AccountSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="security" tabIndex={-1} className={PANEL}><SecuritySection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="claude" tabIndex={-1} className={PANEL}><ClaudeSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="bots" tabIndex={-1} className={PANEL}><BotsSection health={health} onHealthStale={refreshHealth} /></TabsPrimitive.Content>
             {/* P4 */}

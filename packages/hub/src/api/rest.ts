@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
   BotInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
@@ -34,7 +35,7 @@ import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.
 import type { SecretsStore } from '../services/SecretsStore.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { AccountError, type AccountService } from '../services/AccountService.js';
-import { AUTH_CALLBACK_PATH, deviceIdOf } from './guard.js';
+import { AUTH_CALLBACK_PATH, deviceIdOf, screenOwnerOf } from './guard.js';
 import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
 import type { RoutingRules } from '../services/RoutingRules.js';
 import type { VoiceProposals } from '../services/VoiceProposals.js';
@@ -148,8 +149,8 @@ export function createRest(deps: RestDeps) {
   // P1: with `{ botId }` the ticket (and the cookie it buys) opens that bot's computer and nothing else.
   add('POST', '/api/screen/ticket', ({ body, req }) => {
     const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
-    // P9: a ticket a paired device mints is tagged with it, so revoking the device closes its Screen too.
-    const owner = deviceIdOf(req);
+    // P9: a ticket a paired device or signed-in browser mints is tagged with it, so revoking that closes its Screen too.
+    const owner = screenOwnerOf(req);
     if (botId && computers.enabled) {
       need(repos.getBot(botId), 'Bot');
       if (!computers.existingEndpoint(botId)) throw new HttpError(409, 'This bot has no computer yet');
@@ -203,12 +204,21 @@ export function createRest(deps: RestDeps) {
   add('GET', '/api/me', () => repos.owner());
   add('GET', '/api/settings', () => settings.get());
   // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
-  add('PUT', '/api/settings', ({ body }) => {
+  add('PUT', '/api/settings', ({ body, req }) => {
     const patch = parsePatch(SettingsPatchSchema, body);
     needPicture(patch.userAvatar);
     const before = settings.approvals();
     try {
       const next = settings.patch(patch);
+      const who = actorOf(req);
+      if (who) {
+        const keys = Object.keys(patch);
+        const level = before !== settings.approvals() ? 'approvals: ' + before + ' to ' + settings.approvals() : null;
+        if (level) recordAudit(repos.db, who, 'permissions.changed', null, level);
+        const rest = keys.filter((k) => k !== 'approvals');
+        // Key names only: a value here could be anything, and this log must stay free of secrets.
+        if (rest.length) recordAudit(repos.db, who, 'settings.updated', null, rest.join(', '));
+      }
       if (patch.userName !== undefined) repos.renameOwner(next.userName);
       if (before !== 'bypass' && settings.approvals() === 'bypass') {
         console.warn('[pocketrocket] WARNING: approvals turned off in Settings — bots now run every action with no approval card');

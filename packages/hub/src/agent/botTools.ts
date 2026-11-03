@@ -5,6 +5,7 @@ import { MAX_HOPS } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
+import { recordAudit } from '../services/AuditLog.js';
 import type { SkillService } from '../services/SkillService.js';
 import { settings } from '../services/SettingsStore.js';
 import { events } from '../events.js';
@@ -730,7 +731,30 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     ));
   }
   if (ctx.desktop) tools.push(...desktopTools());
-  return tools;
+  return tools.map((t) => (AUDITED_TOOLS.has(t.name) ? audited(t, ctx) : t));
+}
+
+/** Bot actions that change the fleet. With approvals off no card records them, so the log is the only trace. */
+const AUDITED_TOOLS = new Set([
+  'create_bot', 'update_bot', 'delete_bot', 'create_room', 'add_to_room', 'remove_from_room', 'delete_room',
+  'create_routine', 'update_routine', 'delete_routine',
+]);
+
+function audited(t: HubTool, ctx: ToolCtx): HubTool {
+  return {
+    ...t,
+    handler: async (input) => {
+      const out = await t.handler(input);
+      if (!out.isError) {
+        const a = (input ?? {}) as Record<string, unknown>;
+        const target = [a.bot, a.handle, a.room, a.routine, a.name].find((v) => typeof v === 'string') as string | undefined;
+        // The tool's own reply says what happened: "already in" and the like changed nothing, and "me" gets its real name.
+        const said = out.content.find((c) => c.type === 'text')?.text?.split('\n')[0]?.slice(0, 160) ?? '';
+        recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'bot_tool.' + t.name, target ?? null, said + ' (room ' + ctx.room.id + ')');
+      }
+      return out;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------
