@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SCREEN_COOKIE, ScreenSessions } from './screenSession.js';
+import { SCREEN_COOKIE, SCREEN_VIEWER_PATH, ScreenSessions, screenCookieName, screenViewerPath } from './screenSession.js';
 
 /** Pull the cookie value out of a Set-Cookie header. */
 const valueOf = (setCookie: string) => setCookie.slice(SCREEN_COOKIE.length + 1).split(';')[0];
@@ -81,5 +81,35 @@ describe('ScreenSessions', () => {
     const cookies = Array.from({ length: 100 }, () => s.redeem(s.mintTicket().ticket)!);
     expect(s.valid(valueOf(cookies[0]))).toBe(false);
     expect(s.valid(valueOf(cookies[cookies.length - 1]))).toBe(true);
+  });
+});
+
+describe('ScreenSessions scoped to one bot (P1)', () => {
+  const valueOfScoped = (setCookie: string) => setCookie.split(';')[0].split('=')[1];
+
+  it('opens a session valid only for the bot the ticket was minted for', () => {
+    const s = new ScreenSessions();
+    const r = s.redeemScoped(s.mintTicket('botA').ticket)!;
+    expect(r.scope).toBe('botA');
+    expect(r.cookie.startsWith(screenCookieName('botA') + '=')).toBe(true);
+    expect(r.cookie).toContain('Path=/screen/botA;');
+    const v = valueOfScoped(r.cookie);
+    expect(s.valid(v, 'botA')).toBe(true);
+    expect(s.valid(v, 'botB')).toBe(false);
+    expect(s.valid(v, null)).toBe(false);
+  });
+
+  it('keeps a shared-screen session off every bot screen', () => {
+    const s = new ScreenSessions();
+    const v = valueOf(s.redeem(s.mintTicket().ticket)!);
+    expect(s.valid(v)).toBe(true);
+    expect(s.valid(v, 'botA')).toBe(false);
+  });
+
+  it('refuses a scope that could not be a bot id', () => {
+    const s = new ScreenSessions();
+    for (const bad of ['', 'a/b', 'a;b', '../x']) expect(() => s.mintTicket(bad), bad).toThrow();
+    expect(screenViewerPath('botA')).toBe('/screen/botA/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=screen%2FbotA%2Fwebsockify');
+    expect(screenViewerPath(null)).toBe(SCREEN_VIEWER_PATH);
   });
 });

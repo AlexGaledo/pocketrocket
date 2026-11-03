@@ -9,9 +9,9 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` ★ | `7788` | Hub HTTP/WS port, always bound to `127.0.0.1`. |
-| `POCKETROCKET_DATA` ★ | `<repo>/data` | Data root: `pocketrocket.db`, `bots/`, `workspace/`, `skills/`, `secrets.json`, `account.json`, `grok-home/`. Desktop: `%APPDATA%\com.pocketrocket.app\data`. |
+| `POCKETROCKET_DATA` ★ | `<repo>/data` | Data root: `pocketrocket.db`, `bots/`, `workspace/`, `skills/`, `secrets.json`, `account.json`, `integrations.json` + `vault.key` (§7), `grok-home/`. Desktop: `%APPDATA%\com.pocketrocket.app\data`. |
 | `POCKETROCKET_WEB_DIST` ★ | `<repo>/packages/web/dist` | Where the built web UI is served from. Desktop points it at the bundled `hub/web`. |
-| `POCKETROCKET_TOKEN` ★ | auto-generated when unset, stored in `<data>/hub-token` | Bearer token required on every `/api/*` route (except `GET /api/health`), `/ws`, and `/screen/*`. When unset, the hub reuses the token in `<data>/hub-token` (0600), minting and writing one the first time or whenever that file is missing or malformed, and prints it as `http://127.0.0.1:7788/#token=…`. Reuse is what keeps an already-open UI working across a restart. Desktop generates its own per-launch token in `local` mode and reads the remote one over SSH in `remote` mode. There is no unauthenticated mode. |
+| `POCKETROCKET_TOKEN` ★ | auto-generated when unset, stored in `<data>/hub-token` | Bearer token required on every `/api/*` route (except `GET /api/health`), `/ws`, and `/screen/*`. When unset, the hub reuses the token in `<data>/hub-token` (0600), minting and writing one the first time or whenever that file is missing or malformed. The value is never printed: startup output names the file (or this variable) and gives the URL without the token. Reuse is what keeps an already-open UI working across a restart. Desktop generates its own per-launch token in `local` mode and reads the remote one over SSH in `remote` mode. There is no unauthenticated mode. |
 | `POCKETROCKET_ROTATE_TOKEN` | unset | `1` = mint a brand-new hub token on every start instead of reusing `<data>/hub-token`. Tighter (a leaked token dies with the process) but every restart makes an already-open UI ask you to paste the new one. |
 | `POCKETROCKET_SUPABASE_URL` | built-in PocketRocket project | Supabase project URL for the optional PocketRocket account (Settings → Account). Accounts are enabled only when this and `POCKETROCKET_SUPABASE_KEY` both resolve to a value; otherwise the app runs signed out and `GET /api/account` reports `enabled: false`. The hub keeps the session in `<data>/account.json` (owner-only) and deletes it on sign-out. |
 | `POCKETROCKET_SUPABASE_KEY` | built-in PocketRocket key | The project's **publishable** (anon) key, public by design. Never a service-role / secret key. |
@@ -38,6 +38,13 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `SCREEN_URL` | `http://127.0.0.1:6080` | noVNC endpoint proxied at `/screen/` (server mode). |
 | `CDP_URL` | `http://127.0.0.1:9222` | Chromium DevTools endpoint for the Browser tool (server mode). |
 | `SCREEN_DISPLAY` | `:99` | X display for the Desktop tool (Linux server mode). |
+| `KNOWLEDGE_SYNC_MINUTES` | `60` | Minutes between `git pull --ff-only` runs of the knowledge repo clone (P7). `0` turns the timer off; Settings › Knowledge › Sync now still works. |
+| `POCKETROCKET_COMPUTERS` | unset (off) | `1` gives every bot with Browser/Desktop its own computer (Linux server mode; `setup-vps.sh` sets it). Off, the hub refuses Browser and Desktop: a turn runs without them and says why. |
+| `MAX_RUNNING_COMPUTERS` | `3` | Per-bot computers running at once; the least recently used idle one is stopped to make room. One place stays out of Always on, so at most this minus 1 can be Always on. |
+| `COMPUTER_IDLE_MIN` | `30` | Minutes without tool use, viewer, routine due or Always on before a computer is stopped (disk kept). |
+| `COMPUTER_QUOTA_GB` | `10` | Soft disk quota per computer: warned at 80%, not started at 100%. |
+| `POCKETROCKET_ALLOWED_HOSTS` | unset (loopback only) | P9. Comma/space separated hostnames (e.g. `myhub.tail1234.ts.net`) the hub also answers to, only on HTTPS requests forwarded from loopback (Tailscale Serve). Never use Funnel. See [SERVER.md](SERVER.md#phone-access-over-tailscale-serve). |
+| `POCKETROCKET_PUSH_SUBJECT` | `https://github.com/AlexGaledo/pocketrocket` | P9. VAPID `sub` claim sent to browser push services with every Web Push. The VAPID key pair itself is minted locally into `<data>/vapid.json` (0600) the first time someone subscribes. |
 
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 
@@ -54,6 +61,7 @@ Not configurable by env in this version (constants in `config.ts`): `HOST=127.0.
 | `onboarded` | `false` | Set to `true` by the wizard; `false` shows it again. |
 | `theme` | `system` | `system` · `light` · `dark`. |
 | `approvals` | `ask` | `ask` · `bypass`. Read at the start of every turn, so a change applies from the next turn without a restart. Only `PUT /api/settings` writes it; no bot tool can. `POCKETROCKET_BYPASS_PERMISSIONS` overrides and locks it (`PUT` then answers 409); `GET /api/health` reports the mode in force as `approvals` and the lock as `approvalsLocked`. |
+| `knowledgeRepo` | `""` | Knowledge repo every bot reads and none can write (P7): a git URL (`https://`, `ssh://`, `git://`, `file://`, `git@host:path`), shallow-cloned to `<data>/knowledge`, or an absolute local folder, linked there. Sources starting with `-`, `ext::`/`fd::` helpers, relative paths and folders that contain or sit in `<data>` are refused (400). Empty turns it off. |
 
 ## 3. Secrets (`<data>/secrets.json`, `GET/PUT /api/secrets`)
 
@@ -76,4 +84,23 @@ Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the
 
 ## 6. Server mode (`deploy/`, `scripts/deploy.sh <host>`)
 
-Systemd units `pocketrocket` and `pocketrocket-screen` run as the unprivileged `pocketrocket` user under `/home/pocketrocket/pocketrocket`; env for the hub lives in the unit file (`PORT`, `POCKETROCKET_DATA`, `SCREEN_*`, `CDP_URL`). `SCREEN_W`/`SCREEN_H` in the screen unit. The hub token applies in server mode too: it is written to `<data>/hub-token` on the VPS; reach the hub only through an SSH tunnel and open the `#token=` URL. The Screen tab has no separate VNC password: `x11vnc` runs `-nopw` on loopback and the hub's `/screen/` cookie auth is the gate.
+Systemd units `pocketrocket` and `pocketrocket-screen` run as the unprivileged `pocketrocket` user under `/home/pocketrocket/pocketrocket` (hub on 7788, screen on display `:98`, CDP 9223, VNC 5901, noVNC 6081, so a stock PocketRocket can run on the same VPS); env for the hub lives in the unit file (`PORT`, `POCKETROCKET_DATA`, `SCREEN_*`, `CDP_URL`). `SCREEN_W`/`SCREEN_H` in the screen unit. The hub token applies in server mode too: it is written to `<data>/hub-token` on the VPS; reach the hub only through an SSH tunnel, then paste that value or open `http://127.0.0.1:7788/#token=<token>`. The Screen tab has no separate VNC password: `x11vnc` runs `-nopw` on loopback and the hub's `/screen/` cookie auth is the gate.
+
+## 7. Integrations (Settings → Connections; `<data>/integrations.json` + `<data>/vault.key`)
+
+Connections to GitHub, Google (Gmail, Calendar, Drive), Slack, ClickUp and Microsoft Teams. One connection per provider, shared by all bots; a bot gets a provider's tools only after it is switched on under that connection ("Bots that may use it"). Read tools run silently; every write tool (`gmail_send`, `calendar_create_event`, `slack_post_message`, `github_create_issue`, `github_comment`, `clickup_create_task`, `clickup_comment`, `teams_send_chat`) shows an approval card on **every** call, also when approvals are bypassed.
+
+| Provider | Connect with | Notes |
+|---|---|---|
+| GitHub | OAuth (your OAuth app; browser or device code) or a pasted PAT | Callback URL `http://127.0.0.1:<port>/oauth/callback/github`. Device code needs "Enable Device Flow" on the app. A fine-grained PAT cannot read notifications; use a classic one with `repo` + `notifications`. |
+| Google | OAuth (your Desktop-app client) | Publish the consent screen to production, or refresh tokens die after 7 days. Scopes: `gmail.readonly`, `gmail.send`, `calendar.events`, `drive.readonly`, `openid`, `email`. |
+| Slack | Pasted `xoxb-` bot token, optional `xapp-` app token | Loopback OAuth cannot grant bot scopes. The app token (Socket Mode) is for P5 triggers. |
+| ClickUp | Pasted `pk_` token (default) or OAuth | ClickUp may refuse a loopback redirect (unverified). |
+| Microsoft Teams | OAuth (public client; browser or device code) | Redirect `http://localhost/oauth/callback/teams` (Microsoft ignores the port), "Allow public client flows" on. Chats only; channel messages need admin consent. |
+
+- **Storage.** Credentials (tokens and your OAuth app's client secret) are AES-256-GCM encrypted in `integrations.json`; the 256-bit key is `vault.key` (owner-only, created on first connect). A tampered file is refused, not reset. Only the account name, scopes and status sit in the `integrations` / `bot_integrations` tables. The REST API never returns a credential.
+- **Backups.** `deploy/backup.sh` excludes `vault.key`, so an archive holds no usable token. Copy the key somewhere safe yourself, or plan to reconnect after a restore. Lose the key and you must delete `integrations.json` and reconnect.
+- **On a VPS.** The OAuth redirect lands on the hub through the SSH tunnel only if the local port equals the hub port (`ssh -L 7788:127.0.0.1:7788`). Otherwise use "Sign in with a code" (GitHub, Teams).
+- **Disconnect** deletes the stored token; it does not revoke it at the provider (the UI links to where you do that).
+- **Outbound hosts** the hub calls once something is connected: `api.github.com`, `github.com`; `oauth2.googleapis.com`, `accounts.google.com`, `openidconnect.googleapis.com`, `gmail.googleapis.com`, `www.googleapis.com`; `slack.com`; `api.clickup.com`, `app.clickup.com`; `login.microsoftonline.com`, `graph.microsoft.com`.
+- **Routes.** `GET /api/integrations`; `PUT|DELETE /api/integrations/apps/:provider`; `POST /api/integrations/token/:provider`; `POST /api/integrations/device/:provider`; `POST /api/integrations/cancel/:provider`; `POST /api/integrations/:id/test`; `PUT /api/integrations/:id/grants`; `DELETE /api/integrations/:id`; `POST /oauth/start/:provider` (hub token, JSON); `GET /oauth/callback/:provider` (token-exempt, accepted only for a pending sign-in).

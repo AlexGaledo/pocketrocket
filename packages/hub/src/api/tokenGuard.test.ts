@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { IncomingMessage } from 'node:http';
-import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, cookieValue, presentsHubToken, tokenMatches } from './guard.js';
+import { AuthRateLimiter, checkContentType, checkRequestOrigin, checkToken, cookieValue, forwardedHttps, presentsHubToken, tokenMatches } from './guard.js';
+import { parseAllowedHosts } from '../config.js';
 
 const PORT = 7788;
 function req(over: Partial<IncomingMessage> & { headers?: Record<string, string> } = {}): IncomingMessage {
@@ -156,5 +157,38 @@ describe('presentsHubToken', () => {
     expect(presentsHubToken(req({ headers: { authorization: 'Bearer tok' } }), url('/api/bots'), T)).toBe(true);
     expect(presentsHubToken(req(), url('/ws?token=tok'), T)).toBe(true);
     expect(presentsHubToken(req({ headers: { authorization: 'Bearer tok' } }), url('/api/bots'), null)).toBe(false);
+  });
+});
+
+// ---- P9 ----
+describe('allowed hosts need forwarded HTTPS from loopback (P9)', () => {
+  const H = 'myhub.tail1234.ts.net';
+  const at = (remoteAddress: string, headers: Record<string, string>) =>
+    ({ method: 'GET', headers, socket: { remoteAddress } }) as unknown as IncomingMessage;
+  it('only trusts X-Forwarded-Proto on a loopback connection', () => {
+    expect(forwardedHttps(at('127.0.0.1', { 'x-forwarded-proto': 'https' }))).toBe(true);
+    expect(forwardedHttps(at('::ffff:127.0.0.1', { 'x-forwarded-proto': 'https, http' }))).toBe(true);
+    expect(forwardedHttps(at('100.64.0.7', { 'x-forwarded-proto': 'https' }))).toBe(false);
+    expect(forwardedHttps(at('127.0.0.1', { 'x-forwarded-proto': 'http' }))).toBe(false);
+    expect(forwardedHttps(at('127.0.0.1', {}))).toBe(false);
+  });
+  it('with no allowed hosts nothing changes', () => {
+    expect(checkRequestOrigin(at('127.0.0.1', { host: H, 'x-forwarded-proto': 'https' }), PORT).ok).toBe(false);
+    expect(checkRequestOrigin(at('127.0.0.1', { host: H, 'x-forwarded-proto': 'https' }), PORT, { allowedHosts: [] }).ok).toBe(false);
+    expect(checkRequestOrigin(at('127.0.0.1', { host: H, 'x-forwarded-proto': 'https' }), PORT, { allowedHosts: [H] }).ok).toBe(true);
+  });
+  it('parses POCKETROCKET_ALLOWED_HOSTS strictly', () => {
+    expect(parseAllowedHosts(undefined)).toEqual([]);
+    expect(parseAllowedHosts(' MyHub.tail1234.ts.net., other.ts.net myhub.tail1234.ts.net')).toEqual(['myhub.tail1234.ts.net', 'other.ts.net']);
+    expect(parseAllowedHosts('https://x.ts.net,x.ts.net:443,*.ts.net,10.0.0.1,localhost,a.localhost,nodot')).toEqual([]);
+  });
+  it('device tokens pass checkToken only through the device hook, and the pair route is exempt', () => {
+    const r = (h: Record<string, string>, method = 'GET') => ({ method, headers: { host: '127.0.0.1:' + PORT, ...h } }) as unknown as IncomingMessage;
+    const dev = (t: string) => t === 'prd_ok';
+    expect(checkToken(r({ authorization: 'Bearer prd_ok' }), url('/api/bots'), 'tok', { deviceToken: dev })).toBe(true);
+    expect(checkToken(r({ authorization: 'Bearer prd_no' }), url('/api/bots'), 'tok', { deviceToken: dev })).toBe(false);
+    expect(checkToken(r({ authorization: 'Bearer prd_ok' }), url('/api/bots'), 'tok')).toBe(false);
+    expect(checkToken(r({}, 'POST'), url('/api/devices/pair'), 'tok')).toBe(true);
+    expect(checkToken(r({}, 'GET'), url('/api/devices/pair'), 'tok')).toBe(false);
   });
 });

@@ -1,14 +1,17 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import {
   createSdkMcpServer, query, tool,
   type Options, type PermissionResult, type Query, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
-import { CDP_URL, CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
+import { deleteGate } from '../permissions/deleteGate.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
+import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '../permissions/readOnlyRoots.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
@@ -28,7 +31,7 @@ const MODELS: ModelInfo[] = [
 export const CLAUDE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   id: 'claude',
   label: 'Claude',
-  blurb: 'Claude Agent SDK driving your local Claude Code CLI. Uses your Claude subscription login.',
+  blurb: 'Runs on your server with your Claude subscription.',
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['ANTHROPIC_API_KEY'],
   permissions: 'full',
@@ -204,13 +207,19 @@ export class ClaudeProvider implements AgentProvider {
 
     const allowed = ctx.allowedBuiltins.filter((t) => AUTO_OK.has(t));
     const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t));
-    // "Browser" = Playwright MCP attached over CDP to the Chromium on the screen (shared, logged-in profile).
-    const browserOn = ctx.allowedBuiltins.includes('Browser') && fs.existsSync(PLAYWRIGHT_MCP_CLI);
+    // "Browser" = Playwright MCP attached over CDP to the Chromium on the bot's own computer (its logged-in
+    // profile). With no computer there is no endpoint, and it never falls back to a shared screen.
+    const browserOn = ctx.allowedBuiltins.includes('Browser') && !!ctx.cdpUrl && fs.existsSync(PLAYWRIGHT_MCP_CLI);
     const mcpServers: NonNullable<Options['mcpServers']> = { pocketrocket: toolServer(ctx.tools) };
     if (browserOn) {
       mcpServers.browser = {
         type: 'stdio', command: process.execPath,
-        args: [PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', CDP_URL, '--caps', 'vision'],
+        // Snapshots hold what fields on the page contain, so they stay in the bot's own home (removed with the
+        // bot, left out of backups) instead of the workspace every bot shares.
+        args: [
+          PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', ctx.cdpUrl!, '--caps', 'vision',
+          '--output-dir', path.join(ctx.botHome, 'playwright-output'), '--output-max-size', String(64 * 1024 * 1024),
+        ],
       };
     }
 
@@ -232,11 +241,67 @@ export class ClaudeProvider implements AgentProvider {
       return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: 'The user declined this action.' };
     };
 
+    // P7: writes into the read-only knowledge repo ask (or, under bypass, are denied) before acceptEdits sees them.
+    const knowledgeDir = ctx.knowledgeDir ?? null;
+    const readOnlyDirs = [...(knowledgeDir ? [knowledgeDir] : []), ...(ctx.readOnlyDirs ?? [])];
+    const knowledgeGuard = readOnlyDirs.length
+      ? [{
+          matcher: READ_ONLY_GUARD_TOOLS.join('|'),
+          hooks: [
+            async (hookInput: unknown) => {
+              const i = hookInput as PreToolUseHookInput;
+              const d = readOnlyWriteDecision(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, readOnlyDirs, ctx.workspaceDir, !!ctx.bypassPermissions);
+              if (!d) return {};
+              return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: d.decision, permissionDecisionReason: d.reason } };
+            },
+          ],
+        }]
+      : [];
+
+    // P2: the control interlock. While the user has control of this bot's computer (or it is paused) Browser and
+    // desktop calls are denied. It runs in bypass mode too: `mcp__browser__*` is pre-approved in allowedTools,
+    // so canUseTool never sees it, and bypass skips canUseTool entirely; a PreToolUse deny holds in both.
+    const controlGuard = ctx.controlGuard
+      ? [{
+          matcher: 'mcp__browser__.*|mcp__pocketrocket__desktop_.*',
+          hooks: [
+            async () => {
+              const why = ctx.controlGuard!();
+              if (!why) return {};
+              return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
+            },
+          ],
+        }]
+      : [];
+
+    // No bot writes the owner's routing rules. Bypass skips canUseTool, and this holds in every mode.
+    const guards = [
+      {
+        matcher: READ_ONLY_GUARD_TOOLS.join('|'),
+        hooks: [
+          async (hookInput: unknown) => {
+            const i = hookInput as PreToolUseHookInput;
+            const why = routingFileWrite(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, i.cwd || ctx.workspaceDir);
+            if (!why) return {};
+            return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
+          },
+        ],
+      },
+      ...controlGuard,
+      ...knowledgeGuard,
+    ];
+
     const options: Options = {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
       spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
       cwd: ctx.workspaceDir,
-      additionalDirectories: [ctx.botHome],
+      // P1: the bot's own computer disk is a working root. P7: the knowledge repo is readable like the bot's
+      // home; writes there are stopped by the hook below.
+      additionalDirectories: [
+        ctx.botHome,
+        ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
+        ...readOnlyDirs,
+      ],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: ctx.systemPrompt },
@@ -258,14 +323,34 @@ export class ClaudeProvider implements AgentProvider {
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
       // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
       // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: ctx.bypassPermissions ? undefined : {
+      hooks: ctx.bypassPermissions ? { PreToolUse: guards } : {
         PreToolUse: [
+          ...guards,
+          // acceptEdits approves rm and mv inside the roots before canUseTool, so this is what raises their card.
+          {
+            matcher: 'Bash',
+            hooks: [
+              async (hookInput) => {
+                const i = hookInput as PreToolUseHookInput;
+                const hit = deleteGate(String((i.tool_input as { command?: unknown } | undefined)?.command ?? ''), i.cwd || ctx.workspaceDir);
+                if (!hit) return {};
+                return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: hit.reason } };
+              },
+            ],
+          },
           {
             matcher: 'Read|Glob|Grep|NotebookEdit',
             hooks: [
               async (hookInput) => {
                 const i = hookInput as PreToolUseHookInput;
-                const roots = [ctx.workspaceDir, ctx.botHome];
+                // NotebookEdit writes, so only the read tools see the read-only knowledge root (P7). The bot's
+                // own computer disk (P1) is writable like its home.
+                const roots = [
+                  ctx.workspaceDir,
+                  ctx.botHome,
+                  ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
+                  ...(i.tool_name !== 'NotebookEdit' ? readOnlyDirs : []),
+                ];
                 const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);
                 const outside = paths.filter((p) => !isInside(p, roots, ctx.workspaceDir));
                 if (process.env.POCKETROCKET_DEBUG) console.log('[hook PreToolUse]', i.tool_name, paths, outside.length ? 'ASK' : 'ok');

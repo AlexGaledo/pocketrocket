@@ -75,7 +75,7 @@ function summarize(info: ProviderInfo): Summary {
   if (check.unresponsive) return { ok: false, tone: 'warn', badge: "Didn't respond", headline: 'Found ' + app + " but it didn't respond", facts };
   // A version without ok means the app answered but is not signed in.
   if (check.version) return { ok: false, tone: 'warn', badge: 'Not signed in', headline: app + ' needs you to sign in', facts };
-  return { ok: false, tone: 'warn', badge: 'Not found', headline: app + " isn't set up on this computer yet", facts };
+  return { ok: false, tone: 'warn', badge: 'Not found', headline: app + " isn't set up here yet", facts };
 }
 
 export function ConnectionStatus({ info, onChecked, hasKeyField, autoRecheckMs }: {
@@ -120,16 +120,16 @@ export function ConnectionStatus({ info, onChecked, hasKeyField, autoRecheckMs }
   );
 
   return (
-    <div className="rounded-2xl bg-card2/40 p-4 ring-1 ring-line">
+    <div className="rounded-lg bg-card2/40 p-4 ring-1 ring-line">
       <div className="flex items-start gap-3">
         <Icon size={20} aria-hidden className={cn('mt-0.5 shrink-0', summary.ok ? 'text-ok' : 'text-warn')} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-[13.5px] font-medium">{summary.headline}</span>
+            <span className="text-ui font-medium">{summary.headline}</span>
             <Badge tone={summary.tone}>{summary.badge}</Badge>
           </div>
           {summary.facts.length > 0 && (
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12.5px] text-muted">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-ui text-muted">
               {summary.facts.map((fact, i) => (
                 <Fragment key={i}>
                   {i > 0 && <span aria-hidden>·</span>}
@@ -151,23 +151,23 @@ export function ConnectionStatus({ info, onChecked, hasKeyField, autoRecheckMs }
 
 // overflow-wrap:anywhere, not break-all: a narrow window wraps at the spaces first ("… install.ps1 | iex")
 // and only splits the URL itself when it cannot fit on a line at all.
-const codeLine = 'mt-1 block w-fit max-w-full select-all rounded-md bg-card2 px-2 py-1 font-mono text-[12px] [overflow-wrap:anywhere]';
+const codeLine = 'mt-1 block w-fit max-w-full select-all rounded-xs bg-card2 px-2 py-1 font-mono text-hint [overflow-wrap:anywhere]';
 
 function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: ProviderCheck; hasKeyField: boolean }) {
   const installed = !!check.version || !!check.unresponsive;
   const hasTechnical = !!(check.error || check.hint);
   return (
-    <div className="mt-3 text-[12.5px] leading-relaxed text-fg">
+    <div className="mt-3 text-ui leading-relaxed text-fg">
       {info.id === 'claude' && check.unresponsive ? (
         <p>
-          It can take a while to start the first time, or while antivirus scans it. Wait a moment and press Check again.
+          Can be slow at first. Check again shortly.
           {check.exePath && <span className="mt-1 block text-muted">Found at <PrivatePath path={check.exePath} /></span>}
         </p>
       ) : info.id === 'claude' ? (
         <ol className="list-decimal space-y-1 pl-5">
           {!installed && (
             <li>
-              Install Claude Code. Open a terminal and run the command for your computer:
+              Run this in a terminal:
               {installCommands().map((c) => (
                 <div key={c.id} className="mt-1.5">
                   <span className="text-muted">{c.label}</span>
@@ -177,13 +177,13 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
               ))}
               {check.exePath && (
                 <span className="mt-1.5 block text-muted">
-                  PocketRocket looked for it at <PrivatePath path={check.exePath} />
+                  Looked in <PrivatePath path={check.exePath} />
                 </span>
               )}
             </li>
           )}
           <li>
-            Run <code className="rounded-md bg-card2 px-1.5 py-0.5 font-mono text-[12px]">claude</code> once and sign in with your Claude account.
+            Run <code className="rounded-xs bg-card2 px-1.5 py-0.5 font-mono text-hint">claude</code> once and sign in with your Claude account.
           </li>
           <li>Come back here and press Check again.</li>
         </ol>
@@ -191,12 +191,12 @@ function FixSteps({ info, check, hasKeyField }: { info: ProviderInfo; check: Pro
         check.hint && <div className="md"><Markdown>{check.hint}</Markdown></div>
       )}
       {hasKeyField && info.id === 'claude' && !check.unresponsive && (
-        <p className="mt-2 text-muted">No Claude subscription? Add an API key below instead.</p>
+        <p className="mt-2 text-muted">No subscription? Add an API key below.</p>
       )}
       {hasTechnical && info.id === 'claude' && (
         <details className="mt-2 text-muted">
-          <summary className="cursor-pointer select-none text-[12px] hover:text-fg">Technical details</summary>
-          <div className="mt-1 space-y-1 text-[11.5px] text-dim">
+          <summary className="cursor-pointer select-none text-hint hover:text-fg">Technical details</summary>
+          <div className="mt-1 space-y-1 text-hint text-dim">
             {/* The error can hold a Windows path; plain text keeps its backslashes intact. */}
             {check.error && <p className="break-all font-mono">{check.error}</p>}
             {check.hint && <div className="md"><Markdown>{check.hint}</Markdown></div>}

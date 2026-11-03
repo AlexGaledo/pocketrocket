@@ -42,7 +42,7 @@ tunnel — see [SERVER.md](SERVER.md).
 | Workspace | `data/workspace/` | Shared cwd for every bot. The folder button in the sidebar opens it on whichever computer the hub runs on: Explorer or Finder locally, the file manager on the virtual desktop for a server hub |
 | DM | room kind `dm` | Bot always replies |
 | Group chat | room kind `group`, 1–6 bots | Only @mentioned bots reply. No mention → coordinator bot (if set). Bots can @mention each other; max 5 hops per thread, $5 cost cap per thread |
-| Session | one Claude Agent SDK session per (bot, room) | Resumed each turn; reset from the Memory tab |
+| Session | one Claude Agent SDK session per (bot, room) | Resumed each turn; reset from the Bot page, under Memory |
 | Skill pool | `data/skills/<name>/SKILL.md` | Import from Claude Code's skill directory, author in the UI, or let a bot `save_skill` (goes to review first) |
 | Routine | cron in DB | Wakes a bot with a prompt in a room while the hub runs |
 
@@ -89,8 +89,9 @@ bypass mode with `POCKETROCKET_BYPASS_PERMISSIONS` (see [CONFIGURATION.md](CONFI
 
 The hub always requires a bearer token — every run mode, no exceptions. It's minted on first
 start, stored in `<data>/hub-token`, and reused on later starts (so restarting the hub doesn't
-lock an open window out), printed as a URL (`http://127.0.0.1:7788/#token=…`); the desktop app and
-web UI consume that fragment automatically.
+lock an open window out). It is never written to the hub's logs. The desktop app handles it for you;
+anywhere else, paste the file's contents into the prompt the web UI shows, or open
+`http://127.0.0.1:7788/#token=<token>`, which the web UI consumes automatically.
 
 PocketRocket has had two internal security reviews; what they changed is under **Security** in
 [CHANGELOG.md](../CHANGELOG.md), and [SECURITY.md](../SECURITY.md) has the summary.

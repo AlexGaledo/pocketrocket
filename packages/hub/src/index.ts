@@ -1,4 +1,5 @@
 import { createHub } from './hub.js';
+import { logError } from './providers/redact.js';
 
 // The SDK warns every turn that bare allowedTools entries (WebSearch/WebFetch/mcp__pocketrocket__*) bypass
 // canUseTool. That is intentional here; file/shell tools are never pre-approved. Silence just that warning.
@@ -8,7 +9,7 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
   (origEmitWarning as (...a: unknown[]) => void)(warning, ...rest);
 }) as typeof process.emitWarning;
 
-const hub = createHub();
+const hub = createHub({ seedBots: true });
 await hub.listen();
 
 let closing = false;
@@ -21,7 +22,7 @@ const shutdown = async (signal: string) => {
   try {
     await hub.shutdown();
   } catch (e) {
-    console.error(e);
+    logError('[shutdown]', e);
   }
   process.exit(0);
 };

@@ -10,9 +10,9 @@ async function api(method, path, body) {
   return j;
 }
 const want = [
-  { name: 'Planner', handle: 'planner', title: 'Coordinator', avatar: '🧭', description: 'You coordinate. Split work, delegate with @handle mentions or handoff tool, then summarize. Never write code yourself. 2 sentences max per message.' },
-  { name: 'Coder', handle: 'coder', title: 'Engineer', avatar: '🛠️', description: 'You write code in the workspace when asked. After finishing, @mention whoever should review. 2 sentences max per message.' },
-  { name: 'Reviewer', handle: 'reviewer', title: 'Reviewer', avatar: '🧐', description: 'You review files in the workspace and report findings to @planner. Never edit files. 2 sentences max per message.' },
+  { name: 'Planner', handle: 'planner', title: 'Coordinator', avatar: 'compass', description: 'You coordinate. Split work, delegate with @handle mentions or handoff tool, then summarize. Never write code yourself. 2 sentences max per message.' },
+  { name: 'Coder', handle: 'coder', title: 'Engineer', avatar: 'wrench', description: 'You write code in the workspace when asked. After finishing, @mention whoever should review. 2 sentences max per message.' },
+  { name: 'Reviewer', handle: 'reviewer', title: 'Reviewer', avatar: 'search', description: 'You review files in the workspace and report findings to @planner. Never edit files. 2 sentences max per message.' },
 ];
 const bots = await api('GET', '/api/bots');
 const ids = [];

@@ -8,7 +8,7 @@ Please report security issues via [GitHub private security advisories](https://g
 
 - The hub binds to `127.0.0.1` only, on every platform and in every run mode (local, VPS, screen). It is never meant to be reachable from another host directly.
 - **Never expose the hub's port (default `7788`) to the internet or a LAN.** Reach a remote hub over an SSH tunnel or a private overlay network (e.g. Tailscale) instead.
-- The hub always requires a bearer token — there is no unauthenticated mode. `POCKETROCKET_TOKEN` wins when set; otherwise a fresh token is minted on every start, written to `<data>/hub-token` (0600), and printed at startup as `http://127.0.0.1:7788/#token=…`. The desktop app and web UI both pick the token up from that URL fragment automatically; `pnpm start` users read it from the printed line or the file.
+- The hub always requires a bearer token — there is no unauthenticated mode. `POCKETROCKET_TOKEN` wins when set; otherwise one is minted on first start, written to `<data>/hub-token` (0600), and reused on later starts (`POCKETROCKET_ROTATE_TOKEN=1` mints a new one every start). The hub never writes the token to its logs; at startup it prints the URL without the token and says where the token is. The desktop app passes it in the URL fragment itself; everyone else reads the file and pastes the value, or opens `http://127.0.0.1:7788/#token=<token>`.
 - REST/WS requests with an `Origin` header that isn't `http://127.0.0.1:<port>` or `http://localhost:<port>` are rejected — including `Origin: null` (e.g. a sandboxed iframe) — to block CSRF from arbitrary sites and DNS-rebinding attacks. `/screen/*` (the noVNC desktop bridge) requires the same token as every other route.
 - Claude Code CLI credentials (subscription login) stay wherever the CLI itself stores them; an
   `ANTHROPIC_API_KEY` you set instead lives in `data/secrets.json` (or your environment). Neither
@@ -19,6 +19,10 @@ Please report security issues via [GitHub private security advisories](https://g
   show; nothing about you is sent). Signing in from Settings → Account shares your GitHub (or
   Google) identity and email with Supabase; it does not touch bot conversations, files, memory, or
   secrets, which stay on your machine or server. Everything works fully signed out. No telemetry.
+  Beyond those, the hub only calls what you turn on yourself: the integration providers you connect
+  (and Slack Socket Mode for triggers), the Web Push service of a phone you subscribe, and the git
+  remotes you name for the knowledge repo or a skill import. The full host list is in
+  `docs/PRODUCTION-CHECKLIST.md` (Security).
   The hub, not the browser, holds the account session (including its refresh token) in
   `<data>/account.json`, owner-only like `secrets.json` and outside the bot workspace; signing out
   deletes it, and neither the UI nor any bot is ever handed its contents.

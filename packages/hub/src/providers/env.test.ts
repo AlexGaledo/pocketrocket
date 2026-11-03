@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { childEnv } from './env.js';
-import { addSecret, clearSecrets, redact } from './redact.js';
+import { addSecret, clearSecrets, logError, redact } from './redact.js';
 
 /** Audit 2026-09-09, B7: a provider child must never inherit the hub token or a rival provider's key. */
 
@@ -158,5 +158,26 @@ describe('redact', () => {
   it('leaves ordinary text alone', () => {
     expect(redact('codex exited with code 1: ENOENT no such file')).toBe('codex exited with code 1: ENOENT no such file');
     expect(redact('')).toBe('');
+  });
+});
+
+// ---- hardening pass: caught errors are logged through redaction ----
+describe('logError', () => {
+  it('scrubs registered secrets and token shapes from the logged stack', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      addSecret('hub-token-0123456789abcdef');
+      logError('[x]', new Error('fetch https://slack.com/api?t=xoxb-1234567890-abcdef failed with hub-token-0123456789abcdef'));
+      logError('[y]', 'plain ghp_0123456789abcdefghijABCD');
+      const out = spy.mock.calls.map((c) => c.join(' ')).join('\n');
+      expect(out).not.toContain('xoxb-1234567890');
+      expect(out).not.toContain('hub-token-0123456789abcdef');
+      expect(out).not.toContain('ghp_0123456789');
+      expect(out).toContain('[x]');
+      expect(out).toContain('[redacted]');
+    } finally {
+      spy.mockRestore();
+      clearSecrets();
+    }
   });
 });

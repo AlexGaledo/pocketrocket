@@ -66,6 +66,21 @@ export interface TurnContext {
   signal: AbortSignal;
   /** Loopback MCP endpoint exposing `tools` for this turn only; CLI adapters point their config at it. */
   mcp: { url: string; token: string };
+  /** P7: the knowledge repo folder, readable but never writable by the bot; null/absent when none is set up. */
+  knowledgeDir?: string | null;
+  /** Folders this bot reads without a card and cannot write without one (the Support bot's view of the app source). */
+  readOnlyDirs?: string[];
+  // P1: per-bot computers. Unset = no computer this turn, so no Browser tool.
+  /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
+  cdpUrl?: string;
+  /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */
+  computerFilesDir?: string;
+  // ---- P2 ----
+  /**
+   * Control interlock: why this bot's desktop/Browser tools must not act right now (the user has control, or
+   * the bot is paused), or null. Adapters must enforce it in bypass mode too; it is not an approval.
+   */
+  controlGuard?: () => string | null;
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */

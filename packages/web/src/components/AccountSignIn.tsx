@@ -89,8 +89,8 @@ function EmailForm({ autoFocus }: { autoFocus: boolean }) {
     return (
       <div>
         {/* role="status" on the sentence only, so a screen reader announces it without reading the buttons. */}
-        <p role="status" className="text-[13px] leading-relaxed text-fg">
-          Finish signing in with {OAUTH_LABEL[oauthWait.provider]} in your browser. This page updates by itself.
+        <p role="status" className="text-ui leading-relaxed text-fg">
+          Finish signing in with {OAUTH_LABEL[oauthWait.provider]} in your browser.
         </p>
         <div className="-ml-3 mt-2 flex flex-wrap">
           {/* A real link as the fallback: window.open can be blocked, a click on a link can't. */}
@@ -98,7 +98,7 @@ function EmailForm({ autoFocus }: { autoFocus: boolean }) {
             href={oauthWait.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-7 items-center rounded-full px-3 text-[12.5px] font-medium text-accent hover:bg-card2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            className="inline-flex h-7 items-center rounded-md px-3 text-label text-accent hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Open the sign-in page again
           </a>
@@ -110,7 +110,7 @@ function EmailForm({ autoFocus }: { autoFocus: boolean }) {
 
   const anyOauth = oauth.google || oauth.github;
   if (!emailOn && !anyOauth) {
-    return <p className="text-[13px] leading-relaxed text-muted">Sign-in isn't available right now. Everything works without it.</p>;
+    return <p className="text-ui leading-relaxed text-muted">Sign-in unavailable. Everything still works.</p>;
   }
 
   return (
@@ -137,7 +137,7 @@ function EmailForm({ autoFocus }: { autoFocus: boolean }) {
       {anyOauth && (
         <>
           {emailOn && (
-            <div className="my-3 flex items-center gap-3 text-[11.5px] text-dim" aria-hidden>
+            <div className="my-3 flex items-center gap-3 text-hint text-dim" aria-hidden>
               <span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" />
             </div>
           )}
@@ -198,8 +198,8 @@ function CodeForm({ email, onCancelled }: { email: string; onCancelled: () => vo
 
   return (
     <div>
-      <p className="text-[13px] leading-relaxed text-fg">
-        Check <strong className="font-semibold">{email}</strong>. Click the link, or enter the code from the email.
+      <p className="text-ui leading-relaxed text-fg">
+        Check <strong className="font-semibold">{email}</strong> for a link or code.
       </p>
       <form onSubmit={(e) => { e.preventDefault(); verify(); }} className="mt-3 flex items-end gap-2">
         <Field>
@@ -214,7 +214,7 @@ function CodeForm({ email, onCancelled }: { email: string; onCancelled: () => vo
             placeholder="123456"
             aria-describedby={error ? errorId : undefined}
             aria-invalid={error ? true : undefined}
-            className="w-40 text-center font-mono text-[15px] tracking-[0.2em]"
+            className="w-40 text-center font-mono text-body tracking-[0.2em]"
           />
         </Field>
         <Button type="submit" variant="primary" disabled={!codeComplete || busy !== null}>
@@ -224,7 +224,7 @@ function CodeForm({ email, onCancelled }: { email: string; onCancelled: () => vo
       <div className="-ml-3 mt-2 flex flex-wrap">
         <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void run('resend', async () => {
           applyAccountResponse(await api.account.magicLink(email));
-          setNotice('Sent. Use the code from the newest email.');
+          setNotice('Sent. Use the newest code.');
         })}>
           {busy === 'resend' ? 'Sending…' : 'Resend email'}
         </Button>
@@ -235,7 +235,7 @@ function CodeForm({ email, onCancelled }: { email: string; onCancelled: () => vo
           Use a different email
         </Button>
       </div>
-      {notice && <p role="status" className="mt-1 text-[12px] text-ok">{notice}</p>}
+      {notice && <p role="status" className="mt-1 text-hint text-ok">{notice}</p>}
       {error && <InlineError id={errorId}>{error}</InlineError>}
     </div>
   );

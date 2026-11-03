@@ -169,3 +169,62 @@ describe('failed-auth rate limiting (audit B15)', () => {
     expect(await hit({ authorization: 'Bearer ' + TOKEN })).toBe(429);
   });
 });
+
+// ---- P9: opt-in POCKETROCKET_ALLOWED_HOSTS (decision Q9) ----
+describe('allowed hosts (P9)', () => {
+  const TAILNET = 'myhub.tail1234.ts.net';
+  let ahHub: Hub;
+  let ahPort: number;
+  beforeAll(async () => {
+    ahHub = createHub({ port: 0, dbFile: ':memory:', skipBootstrap: true, token: TOKEN, allowedHosts: [TAILNET] });
+    ahPort = await ahHub.listen();
+  });
+  afterAll(async () => {
+    await ahHub.shutdown();
+  });
+  const get = (p: number, headers: Record<string, string>) =>
+    new Promise<number>((resolve, reject) => {
+      const r = http.request({ host: '127.0.0.1', port: p, path: '/api/health', method: 'GET', headers }, (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      });
+      r.on('error', reject);
+      r.end();
+    });
+  const https = { 'x-forwarded-proto': 'https' };
+
+  it('default hub: a tailnet Host is refused even over HTTPS (behaviour unchanged)', async () => {
+    expect(await get(port, { host: TAILNET, ...https })).toBe(403);
+    expect(await get(port, { host: '127.0.0.1:' + port, origin: 'https://' + TAILNET, ...https })).toBe(403);
+  });
+
+  it('accepts a listed Host only when the request arrived over HTTPS', async () => {
+    expect(await get(ahPort, { host: TAILNET, ...https })).toBe(200);
+    expect(await get(ahPort, { host: TAILNET.toUpperCase(), ...https })).toBe(200);
+    expect(await get(ahPort, { host: TAILNET })).toBe(403);
+    expect(await get(ahPort, { host: TAILNET, 'x-forwarded-proto': 'http' })).toBe(403);
+    expect(await get(ahPort, { host: 'other.tail1234.ts.net', ...https })).toBe(403);
+    expect(await get(ahPort, { host: 'evil.example.com', ...https })).toBe(403);
+  });
+
+  it('accepts the https:// Origin of a listed host, and nothing else new', async () => {
+    expect(await get(ahPort, { host: TAILNET, origin: 'https://' + TAILNET, ...https })).toBe(200);
+    expect(await get(ahPort, { host: TAILNET, origin: 'https://' + TAILNET + ':8443', ...https })).toBe(200);
+    // Tailscale Serve may rewrite Host to the loopback target; the Origin still names the tailnet page.
+    expect(await get(ahPort, { host: '127.0.0.1:' + ahPort, origin: 'https://' + TAILNET, ...https })).toBe(200);
+    expect(await get(ahPort, { host: TAILNET, origin: 'http://' + TAILNET, ...https })).toBe(403);
+    expect(await get(ahPort, { host: '127.0.0.1:' + ahPort, origin: 'https://' + TAILNET })).toBe(403);
+    expect(await get(ahPort, { host: TAILNET, origin: 'https://evil.example.com', ...https })).toBe(403);
+    expect(await get(ahPort, { host: TAILNET, origin: 'null', ...https })).toBe(403);
+    // Loopback keeps working exactly as before.
+    expect(await get(ahPort, { host: '127.0.0.1:' + ahPort, origin: 'http://127.0.0.1:' + ahPort })).toBe(200);
+  });
+
+  it('still requires a token over the tailnet', async () => {
+    const r = await new Promise<number>((resolve) => {
+      const q = http.request({ host: '127.0.0.1', port: ahPort, path: '/api/bots', headers: { host: TAILNET, ...https } }, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+      q.end();
+    });
+    expect(r).toBe(401);
+  });
+});

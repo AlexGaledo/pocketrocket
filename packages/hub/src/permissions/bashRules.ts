@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { deleteGate } from './deleteGate.js';
 import { isInside } from './pathRules.js';
 
 export type BashVerdict = { verdict: 'allow' | 'ask'; danger: boolean; reason: string };
@@ -21,8 +22,38 @@ export type BashVerdict = { verdict: 'allow' | 'ask'; danger: boolean; reason: s
 const READ_ONLY = new Set([
   'ls', 'dir', 'cat', 'type', 'head', 'tail', 'grep', 'rg', 'pwd', 'echo', 'wc', 'sort', 'uniq', 'tree',
 ]);
+/**
+ * P7: the subset of READ_ONLY that can only ever read its path arguments. `sort -o`, `uniq in out` and
+ * `tree -o` write a file named by a plain argument, so they never get to touch a read-only root.
+ */
+const READERS = new Set(['ls', 'dir', 'cat', 'type', 'head', 'tail', 'grep', 'rg', 'wc']);
 /** `git` is allowed only for these subcommands; everything else (push, reset, clean, checkout, ...) asks. */
 const GIT_READ_ONLY = new Set(['status', 'log', 'diff']);
+/**
+ * Hardening pass: options that turn an allowlisted reader into a writer or an executor. Matched on the long
+ * name (`--output`, `--output=x`) and on any prefix of it, because GNU getopt and git accept an unambiguous
+ * abbreviation (`sort --out=x`). `rg --pre <cmd>` runs a program on every file, like an interpreter.
+ */
+const EXEC_OPTS: Record<string, string[]> = {
+  rg: ['pre', 'pre-glob'],
+  sort: ['compress-program'],
+  git: ['ext-diff', 'textconv'],
+};
+const WRITE_OPTS: Record<string, string[]> = {
+  sort: ['output'],
+  git: ['output'],
+  tree: ['output'],
+};
+/** Short write options, also inside a cluster (`sort -uo out`). */
+const WRITE_SHORT: Record<string, string> = { sort: 'o', tree: 'o' };
+
+/** Does `tok` name one of `opts` (exact long name, `--name=value` or an abbreviation of it)? */
+function namesOpt(tok: string, opts: string[] | undefined): boolean {
+  if (!opts || !tok.startsWith('--')) return false;
+  const name = tok.slice(2).split('=')[0];
+  return !!name && opts.some((o) => o.startsWith(name));
+}
+
 /** Anything that dumps the environment: the child env is filtered (providers/env.ts), but never silently. */
 const ENV_DUMPERS = new Set(['env', 'printenv', 'set', 'export', 'Get-ChildItem env:', 'gci']);
 
@@ -119,15 +150,23 @@ function baseName(cmd: string): string {
  * resolved against it, and a `cd` updates it for the segments that follow (audit 2026-09-09, B3 — before
  * this, only absolute paths were ever inspected).
  */
-export function classifyBash(cmd: string, allowedRoots: string[] = []): BashVerdict {
+export function classifyBash(cmd: string, allowedRoots: string[] = [], opts: { readOnlyRoots?: string[] } = {}): BashVerdict {
   for (const d of DANGER) if (d.test(cmd)) return { verdict: 'ask', danger: true, reason: 'Dangerous pattern: ' + d.source };
 
   const segs = segments(cmd);
   if (!segs.length) return { verdict: 'ask', danger: false, reason: 'Empty command' };
+  // The hook's `ask` lands here, so `echo "$(rm x)"` must not pass as an allowlisted echo. Danger also keeps
+  // "allow for this session" and approval rules from covering a real delete.
+  const del = deleteGate(cmd, allowedRoots[0] ?? process.cwd());
+  if (del) return { verdict: 'ask', ...del };
   if (!allowedRoots.length) return { verdict: 'ask', danger: false, reason: 'No workspace roots configured' };
 
   let cwd = allowedRoots[0];
   const outside = (p: string) => !isInside(p, allowedRoots, cwd);
+  // P7: read-only roots (the knowledge repo). Only `cd` and the plain readers may name a path in them;
+  // a redirect target is still checked against `allowedRoots` alone, so nothing writes there silently.
+  const readOnly = opts.readOnlyRoots ?? [];
+  const readable = (p: string) => readOnly.length > 0 && isInside(p, [...allowedRoots, ...readOnly], cwd);
 
   for (const seg of segs) {
     const toks = tokenize(seg);
@@ -157,7 +196,7 @@ export function classifyBash(cmd: string, allowedRoots: string[] = []): BashVerd
     if (cmdName === 'cd') {
       const target = rest.find((t) => !isFlag(t));
       if (!target) continue; // bare `cd` -> home, but nothing is read or written by it
-      if (outside(target)) return { verdict: 'ask', danger: false, reason: 'cd outside workspace: ' + target };
+      if (outside(target) && !readable(target)) return { verdict: 'ask', danger: false, reason: 'cd outside workspace: ' + target };
       cwd = path.resolve(cwd, target);
       continue;
     }
@@ -169,24 +208,100 @@ export function classifyBash(cmd: string, allowedRoots: string[] = []): BashVerd
       return { verdict: 'ask', danger: false, reason: 'Can execute arbitrary code: ' + cmdName };
     }
     if (cmdName === 'git') {
-      const sub = rest.find((t) => !isFlag(t));
+      const subAt = rest.findIndex((t) => !isFlag(t));
+      const sub = subAt < 0 ? undefined : rest[subAt];
       if (!sub || !GIT_READ_ONLY.has(sub)) {
         return { verdict: 'ask', danger: false, reason: 'git ' + (sub ?? '(no subcommand)') + ' is not read-only' };
       }
+      // Global options (`--exec-path`, `--git-dir`, `--config-env`, `-c`) change what git runs or reads.
+      const globals = rest.slice(0, subAt).filter((t) => t !== '--no-pager' && t !== '-P');
+      if (globals.length) return { verdict: 'ask', danger: false, reason: 'git global option: ' + globals[0] };
     } else if (!READ_ONLY.has(cmdName)) {
       return { verdict: 'ask', danger: false, reason: 'Not on allowlist: ' + seg.slice(0, 60) };
+    }
+    for (const t of rest) {
+      if (namesOpt(t, EXEC_OPTS[cmdName])) {
+        return { verdict: 'ask', danger: false, reason: 'Can execute arbitrary code: ' + cmdName + ' ' + t.split('=')[0] };
+      }
+      const short = WRITE_SHORT[cmdName];
+      if (namesOpt(t, WRITE_OPTS[cmdName]) || (short && /^-[a-zA-Z]+/.test(t) && t.slice(1).includes(short))) {
+        return { verdict: 'ask', danger: false, reason: cmdName + ' writes a file: ' + t };
+      }
     }
     // `echo` is only harmless while it prints; the moment it redirects it is a file write.
     if (cmdName === 'echo' && redirected) {
       return { verdict: 'ask', danger: false, reason: 'echo writes to a file' };
     }
 
-    for (const t of rest) {
-      if (isFlag(t)) continue;
+    for (const raw of rest) {
+      // `--opt=value`: a value shaped like a path (`grep --file=/etc/shadow`, `--file=../x`) is checked like
+      // one. A bare word (`--format=%h:%s`, `--color=auto`) can only name something in the cwd anyway.
+      const eq = raw.startsWith('--') ? raw.indexOf('=') : -1;
+      if (eq < 0 && isFlag(raw)) continue;
+      const t = eq > 0 ? raw.slice(eq + 1) : raw;
+      if (eq > 0 && !/[\\/]|^[.~]/.test(t)) continue;
       // grep/rg take the pattern first; a pattern that resolves inside the roots is harmless either way,
       // and one that escapes them (../../etc/passwd) is exactly what we want a card for.
-      if (outside(t)) return { verdict: 'ask', danger: false, reason: 'References path outside workspace: ' + t };
+      if (outside(t) && !(READERS.has(cmdName) && readable(t))) {
+        return { verdict: 'ask', danger: false, reason: 'References path outside workspace: ' + t };
+      }
     }
   }
   return { verdict: 'allow', danger: false, reason: 'Allowlisted' };
+}
+
+/**
+ * Hardening pass (P7 gap): the read-only-root write detector on its own, so it can refuse a shell write into
+ * the knowledge repo even when approvals are bypassed (bypass skips `classifyBash` entirely). Returns the
+ * offending target, or null. Best effort, like the rest of this file: it sees what the command line names.
+ * A segment that is a plain read (a READERS command or read-only `git`, no write/exec option, no output
+ * redirect) may name a read-only root. Anything else is a write when it
+ * - redirects output (`>`, `>>`) into a read-only root,
+ * - names a path inside one (`cp a.txt <root>`, `--output=<root>/x`),
+ * - runs with its working directory inside one (`cd <root> && git pull`), or
+ * - carries a read-only root's path inside a quoted argument (`sh -c "cp a <root>/x"`).
+ */
+export function bashWritesReadOnly(cmd: string, cwd: string, readOnlyRoots: string[]): string | null {
+  if (!readOnlyRoots.length) return null;
+  const inRo = (p: string) => isInside(p, readOnlyRoots, cwd);
+  const norm = (s: string) => {
+    const t = s.replace(/\\/g, '/');
+    return process.platform === 'win32' ? t.toLowerCase() : t;
+  };
+  const roNames = readOnlyRoots.map((r) => norm(path.resolve(r)));
+  for (const seg of segments(cmd)) {
+    const toks = tokenize(seg);
+    const args: string[] = [];
+    for (let i = 0; i < toks.length; i++) {
+      const m = /^(\d*)(>>|>|<)(.*)$/.exec(toks[i]);
+      if (!m) {
+        args.push(toks[i]);
+        continue;
+      }
+      const target = m[3] || toks[i + 1];
+      if (!m[3]) i++;
+      if (m[2] !== '<' && target && !target.startsWith('&') && inRo(target)) return target;
+    }
+    if (!args.length) continue;
+    const name = baseName(args[0]);
+    const rest = args.slice(1);
+    if (name === 'cd') {
+      const target = rest.find((t) => !isFlag(t));
+      if (target) cwd = path.resolve(cwd, target);
+      continue;
+    }
+    const opts = rest.filter((t) => namesOpt(t, EXEC_OPTS[name]) || namesOpt(t, WRITE_OPTS[name]));
+    const gitRead = name === 'git' && GIT_READ_ONLY.has(rest.find((t) => !isFlag(t)) ?? '');
+    if ((READERS.has(name) || gitRead) && !opts.length) continue;
+    if (inRo(cwd)) return cwd;
+    for (const raw of rest) {
+      const eq = raw.startsWith('--') ? raw.indexOf('=') : -1;
+      const t = eq > 0 ? raw.slice(eq + 1) : raw;
+      if ((eq > 0 || !isFlag(t)) && t && inRo(t)) return t;
+    }
+    const s = norm(seg);
+    const hit = roNames.find((r) => s.includes(r));
+    if (hit) return hit;
+  }
+  return null;
 }

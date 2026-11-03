@@ -42,7 +42,7 @@ function MdLink({ href, children, node: _node, ...rest }: ComponentPropsWithoutR
   }
   // No href at all, so middle-click or "open in new tab" cannot reach a dead page either.
   const hint = kind === 'file'
-    ? "Files live in the bot's workspace — open it from the sidebar"
+    ? "Files live in the shared folder. Open it from the sidebar."
     : "That link points inside PocketRocket and can't be opened from here";
   return (
     <button

@@ -54,7 +54,11 @@ export const DATA_DIR = process.env.POCKETROCKET_DATA ? path.resolve(process.env
 export const WORKSPACE_DIR = path.join(DATA_DIR, 'workspace');
 export const BOTS_DIR = path.join(DATA_DIR, 'bots');
 export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
+/** Uploaded pictures. Outside WORKSPACE_DIR and BOTS_DIR, so it is in no bot's roots. */
+export const MEDIA_DIR = path.join(DATA_DIR, 'media');
 export const DB_PATH = path.join(DATA_DIR, 'pocketrocket.db');
+/** The owner's routing rules. No bot may write it (`permissions/readOnlyRoots.ts`). */
+export const ROUTING_PATH = path.join(DATA_DIR, 'routing.md');
 export const WEB_DIST = process.env.POCKETROCKET_WEB_DIST
   ? path.resolve(process.env.POCKETROCKET_WEB_DIST)
   : path.join(ROOT_DIR, 'packages', 'web', 'dist');
@@ -133,7 +137,8 @@ export function ensureHubToken(): string {
     fs.writeFileSync(HUB_TOKEN_PATH, token, { mode: 0o600 });
     restrictFile(HUB_TOKEN_PATH);
   } catch (e) {
-    console.error('[pocketrocket] could not write ' + HUB_TOKEN_PATH + ': ' + String((e as Error).message ?? e));
+    // The token is never logged, so this file is the only way to learn a minted one.
+    console.error('[pocketrocket] could not write ' + HUB_TOKEN_PATH + ': ' + String((e as Error).message ?? e) + '. Nobody can sign in until that is fixed or POCKETROCKET_TOKEN is set.');
   }
   return token;
 }
@@ -245,3 +250,80 @@ export function migrateLegacyDb() {
   }
   console.log('migrated legacy claudebot.db -> pocketrocket.db');
 }
+
+// ---- P7: knowledge repo ----
+/** Where settings.knowledgeRepo is cloned (git URL) or linked (local folder). Read-only to every bot. */
+export const KNOWLEDGE_DIR = path.join(DATA_DIR, 'knowledge');
+/** Minutes between background `git pull --ff-only` runs of the knowledge clone. 0 turns the timer off. */
+export const KNOWLEDGE_SYNC_MINUTES = Number(process.env.KNOWLEDGE_SYNC_MINUTES ?? 60);
+// ---------------------------------------------------------------------------------------------------
+// P1: per-bot computers (services/ComputerManager.ts). Each bot that uses Browser or Desktop gets its own
+// display, Chromium profile and CDP/VNC ports — same uid, so this is NOT isolation between bots.
+
+/** Root of every bot's computer: `<COMPUTERS_DIR>/<botId>/{home,browser,files,recordings}`. */
+export const COMPUTERS_DIR = path.join(DATA_DIR, 'computers');
+export function computerDir(botId: string) {
+  return path.join(COMPUTERS_DIR, botId);
+}
+/** The bot's own disk on its computer (Desktop, Downloads). `~/Shared` on that desktop is WORKSPACE_DIR. */
+export function computerFilesDir(botId: string) {
+  return path.join(computerDir(botId), 'files');
+}
+const truthy = (v: string | undefined) => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().toLowerCase());
+const posInt = (v: string | undefined, d: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : d;
+};
+/**
+ * Per-bot computers are opt-in by environment (`deploy/setup-vps.sh` sets `POCKETROCKET_COMPUTERS=1` in the
+ * hub unit) and Linux-only. Off, every bot shares the one legacy screen exactly as before.
+ */
+export const COMPUTERS_ENABLED = process.platform === 'linux' && truthy(process.env.POCKETROCKET_COMPUTERS);
+export const MAX_RUNNING_COMPUTERS = posInt(process.env.MAX_RUNNING_COMPUTERS, 3);
+export const COMPUTER_IDLE_MIN = posInt(process.env.COMPUTER_IDLE_MIN, 30);
+/** Soft disk quota per bot computer. Warned at 80%, refused to start at 100%. */
+export const COMPUTER_QUOTA_BYTES = posInt(process.env.COMPUTER_QUOTA_GB, 10) * 1024 ** 3;
+
+/**
+ * Folders a bot's file tools may touch without an approval card: the shared workspace, its private home and,
+ * when per-bot computers are on, its own computer disk (where its Chromium downloads land).
+ */
+export function botRoots(botId: string): string[] {
+  return [WORKSPACE_DIR, botHome(botId), ...(COMPUTERS_ENABLED ? [computerFilesDir(botId)] : [])];
+}
+
+// P4: integrations. Tokens live AES-256-GCM encrypted in integrations.json; the key in vault.key (0600),
+// which deploy/backup.sh leaves out of every archive so a leaked backup holds no usable token.
+export const VAULT_KEY_PATH = path.join(DATA_DIR, 'vault.key');
+export const INTEGRATIONS_PATH = path.join(DATA_DIR, 'integrations.json');
+
+// ---------------------------------------------------------------------------------------------------
+// P9: phone, devices, push.
+/**
+ * Hostnames (comma or space separated) the hub also answers to, besides loopback, e.g.
+ * `POCKETROCKET_ALLOWED_HOSTS=myhub.tail1234.ts.net`. Off by default (decision Q9). A listed host is only
+ * accepted on a request that reached the hub over HTTPS through a proxy on this machine (Tailscale Serve
+ * sets `X-Forwarded-Proto: https` and connects from loopback); the hub itself still binds 127.0.0.1 only.
+ * Anything that is not a plain DNS name (a scheme, a port, a wildcard, an IP literal, a loopback name) is
+ * dropped with a warning rather than widening the check.
+ */
+export function parseAllowedHosts(raw: string | undefined): string[] {
+  const out: string[] = [];
+  for (const h of String(raw ?? '').split(/[\s,]+/)) {
+    const v = h.trim().toLowerCase().replace(/\.$/, '');
+    if (!v) continue;
+    const ok = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(v)
+      && !/^[0-9.]+$/.test(v) && v !== 'localhost' && !v.endsWith('.localhost');
+    if (!ok) {
+      console.warn('[pocketrocket] POCKETROCKET_ALLOWED_HOSTS: ignoring ' + JSON.stringify(h) + ' (expected a hostname like myhub.tail1234.ts.net)');
+      continue;
+    }
+    if (!out.includes(v)) out.push(v);
+  }
+  return out;
+}
+export const ALLOWED_HOSTS: readonly string[] = parseAllowedHosts(process.env.POCKETROCKET_ALLOWED_HOSTS);
+/** VAPID key pair for Web Push (P9), minted locally on first use. 0600, like hub-token. */
+export const VAPID_PATH = path.join(DATA_DIR, 'vapid.json');
+/** VAPID `sub` claim. Apple wants a mailto: or https: URL here; it is sent to the push service, never to a bot. */
+export const PUSH_SUBJECT = process.env.POCKETROCKET_PUSH_SUBJECT || 'https://github.com/AlexGaledo/pocketrocket';

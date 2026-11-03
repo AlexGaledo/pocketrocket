@@ -1,393 +1,291 @@
-import { useEffect, useState } from 'react';
-import { PanelRightClose, RefreshCw, Play, Trash2, Plus, Save, Check, X } from 'lucide-react';
-import type { Routine, RoutineRun, Skill, UsageRow } from '@pocketrocket/shared';
-import { useStore, botById, selectActiveRoom, type PanelTab } from '../store';
+// The screen, and nothing else. Memory, Skills and Automations are on the Bot page; Usage has its own page.
+// lib/screenView.ts decides whose screen and what size. This draws it.
+import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'react';
+import { AlertTriangle, ExternalLink, Maximize2, Minimize2, MonitorPlay, RefreshCw, X } from 'lucide-react';
+import type { Bot, ComputerStatus } from '@pocketrocket/shared';
+import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
 import { isDesktopMode } from '../lib/auth';
-import { Avatar, Badge, Button, Input, Label, Select, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, fmtUsd } from './ui';
+import { computerUse, holdsScreen, selectScreenBotId, selectScreenSize, type ScreenSize } from '../lib/screenView';
+import { avatarStatus, useBotStatus } from '../lib/botStatus';
+import { Avatar, Button, cn } from './ui';
+import { ControlBar, hasComputer, useControl } from './ComputerControl';
+import { RecordingBar, useRecorder } from './TeachControls';
 
-export function RightPanel() {
-  const bots = useStore((s) => s.bots);
-  const botStates = useStore((s) => s.botStates);
-  const panelTab = useStore((s) => s.panelTab);
-  const panelBotId = useStore((s) => s.panelBotId);
-  const openPanel = useStore((s) => s.openPanel);
-  const closePanel = useStore((s) => s.closePanel);
-  const room = useStore(selectActiveRoom);
-  const bot = botById(bots, panelBotId) ?? bots[0];
+/** How long a hidden window keeps its viewer connected. */
+const HIDDEN_DROP_MS = 5 * 60_000;
 
-  return (
-    <aside className="panel flex w-[340px] shrink-0 flex-col overflow-hidden">
-      <div className="flex h-12 items-center gap-2 px-3 pt-1">
-        {bot ? (
-          <>
-            <Avatar bot={bot} state={botStates[bot.id]} size={28} />
-            <Select aria-label="Bot shown in this panel" className="h-8 flex-1 text-[12.5px]" value={bot.id} onChange={(e) => openPanel(panelTab, e.target.value)}>
-              {(room ? bots.filter((b) => room.memberIds.includes(b.id)).concat(bots.filter((b) => !room.memberIds.includes(b.id))) : bots).map((b) => (
-                <option key={b.id} value={b.id}>{b.avatar} {b.name}{room && !room.memberIds.includes(b.id) ? ' (not in room)' : ''}</option>
-              ))}
-            </Select>
-          </>
-        ) : (
-          <span className="flex-1 text-sm text-muted">No bot</span>
-        )}
-        <Button variant="ghost" size="icon" onClick={closePanel} title="Close panel"><PanelRightClose size={16} /></Button>
-      </div>
-      <Tabs value={panelTab} onValueChange={(v) => openPanel(v as PanelTab)} className="flex min-h-0 flex-1 flex-col">
-        <TabsList>
-          <TabsTrigger value="screen">Screen</TabsTrigger>
-          <TabsTrigger value="memory">Memory</TabsTrigger>
-          <TabsTrigger value="skills">Skills</TabsTrigger>
-          <TabsTrigger value="routines">Routines</TabsTrigger>
-          <TabsTrigger value="usage">Usage</TabsTrigger>
-        </TabsList>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <TabsContent value="screen" className="h-full"><ScreenTab /></TabsContent>
-          <TabsContent value="memory">{bot && <MemoryTab botId={bot.id} />}</TabsContent>
-          <TabsContent value="skills">{bot && <SkillsTab botId={bot.id} />}</TabsContent>
-          <TabsContent value="routines"><RoutinesTab botId={bot?.id ?? null} /></TabsContent>
-          <TabsContent value="usage"><UsageTab /></TabsContent>
-        </div>
-      </Tabs>
-    </aside>
-  );
+/**
+ * noVNC's own side menu slides out over the screen on hover, and its banner says "unencrypted" about the last hop
+ * on this machine. Both go in the embedded viewer, where the app has its own controls. Pop-out keeps them, since it
+ * has no app around it (and it is where the clipboard and extra keys panels stay reachable). Same origin, as the hub
+ * proxies noVNC and sends X-Frame-Options: SAMEORIGIN.
+ */
+const VNC_EMBED_CSS = '#noVNC_control_bar_anchor,#noVNC_status,#noVNC_hint_anchor{display:none!important}';
+function hideVncChrome(e: SyntheticEvent<HTMLIFrameElement>) {
+  try {
+    const doc = e.currentTarget.contentDocument;
+    if (!doc?.head || doc.getElementById('pr-embed')) return;
+    const style = doc.createElement('style');
+    style.id = 'pr-embed';
+    style.textContent = VNC_EMBED_CSS;
+    doc.head.append(style);
+  } catch { /* not the viewer: nothing to hide */ }
 }
 
-function ScreenTab() {
-  const [st, setSt] = useState<{ screen: boolean; cdp: boolean; url: string } | null>(null);
+export function RightPanel({ inline }: { inline: boolean }) {
+  const botId = useStore(selectScreenBotId);
+  const size = useStore(selectScreenSize);
+  const use = useStore((s) => (botId ? computerUse(botId, s) : null));
+  const bot = useStore((s) => botById(s.bots, botId));
+  const closePanel = useStore((s) => s.closePanel);
+  // Closed for the rest of this bout of use: the thumbnail can sit on text the user is trying to read.
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => { if (!use) setDismissed(false); }, [use]);
+
+  if (size === 'glance' && !use) return null;
+  if (!bot) {
+    return (
+      <aside className="panel flex w-full flex-col items-center justify-center gap-3 p-6 text-ui text-muted">
+        No bot yet.
+        <Button onClick={closePanel}>Close</Button>
+      </aside>
+    );
+  }
+  return <ScreenPane bot={bot} size={size} use={use} inline={inline} dismissed={dismissed} onDismiss={() => setDismissed(true)} />;
+}
+
+interface PaneProps { bot: Bot; size: ScreenSize; use: string | null; inline: boolean; dismissed: boolean; onDismiss: () => void }
+
+/** Whether this hub has per-bot computers. A hub-wide fact, so it is asked once per page load. */
+let perBotHub: boolean | null = null;
+
+function ScreenPane(props: PaneProps) {
+  const { bot, size } = props;
+  const [perBot, setPerBot] = useState<boolean | null>(perBotHub);
+  useEffect(() => {
+    if (perBotHub !== null) return;
+    let alive = true;
+    api.screen(bot.id)
+      .then((s) => { perBotHub = !!s.computer?.perBot; if (alive) setPerBot(perBotHub); })
+      .catch(() => alive && setPerBot(false));
+    return () => { alive = false; };
+  }, [bot.id]);
+  if (perBot === null) return size === 'glance' ? null : <div className="px-3 py-2 text-hint text-muted">Checking…</div>;
+  // Keyed by scope, so one bot's ticket and viewer never carry over to the next bot's screen.
+  return <Viewer key={perBot ? bot.id : 'shared'} perBot={perBot} {...props} />;
+}
+
+function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PaneProps & { perBot: boolean }) {
+  const room = useStore(selectActiveRoom);
+  const rooms = useStore((s) => s.rooms);
+  const page = useStore((s) => !!s.page);
+  const expanded = useStore((s) => s.panelExpanded);
+  const togglePanelExpanded = useStore((s) => s.togglePanelExpanded);
+  const closePanel = useStore((s) => s.closePanel);
+  const openScreen = useStore((s) => s.openScreen);
+  const openPage = useStore((s) => s.openPage);
+  const bots = useStore((s) => s.bots);
+  const setActiveRoom = useStore((s) => s.setActiveRoom);
+  const { statusOf } = useBotStatus();
+  const ctl = useControl(bot.id);
+  const recorder = useRecorder(bot.id);
+  const scope = perBot ? bot.id : undefined;
+
+  const [info, setInfo] = useState<{ screen: boolean; cdp: boolean; computer?: ComputerStatus } | null>(null);
+  const [waking, setWaking] = useState(false);
+  // A hidden window lets go of the viewer after a while, or a forgotten tab holds a computer's place for good.
+  const [hiddenLong, setHiddenLong] = useState(false);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const onChange = () => {
+      clearTimeout(t);
+      if (document.visibilityState === 'hidden') t = setTimeout(() => setHiddenLong(true), HIDDEN_DROP_MS);
+      else setHiddenLong(false);
+    };
+    document.addEventListener('visibilitychange', onChange);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onChange); };
+  }, []);
   const [src, setSrc] = useState('');
   const [nonce, setNonce] = useState(0);
-  const [wide, setWide] = useState(false);
+  const [wakeError, setWakeError] = useState('');
+  const c = info?.computer;
+  const state = !perBot ? (info === null ? undefined : info.screen ? 'live' : 'off')
+    : waking && c?.state === 'asleep' ? 'starting' : c?.state;
+  const live = state === 'live' && !!info?.screen;
+  const failure = c?.reason || wakeError;
+  const viewerUp = live && !(hiddenLong && !holdsScreen(ctl));
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await api.screen(scope);
+      setInfo({ screen: s.screen, cdp: s.cdp, computer: s.computer });
+    } catch {
+      // Hub unreachable: a shared screen reads as off, a per-bot one keeps its last state.
+      if (!scope) setInfo({ screen: false, cdp: false });
+    }
+  }, [scope]);
+  // Poll faster while a start is in flight, so "starting" turns into the live screen promptly.
   useEffect(() => {
-    let alive = true;
-    const tick = () => api.screen().then((s) => alive && setSt(s)).catch(() => alive && setSt({ screen: false, cdp: false, url: '' }));
-    tick();
-    const id = setInterval(tick, 10000);
-    return () => { alive = false; clearInterval(id); };
-  }, []);
-  // An iframe cannot send an Authorization header, so the hub token used to ride this URL. Instead each
-  // viewer load spends the token on a single-use ticket, which /screen/session trades for an httpOnly
-  // cookie scoped to /screen — the token never enters an iframe src or a popup URL.
+    void refresh();
+    const id = setInterval(refresh, state === 'starting' ? 1500 : 10000);
+    return () => clearInterval(id);
+  }, [refresh, state]);
+  const pushed = useStore((s) => s.computers[bot.id]);
+  useEffect(() => { if (pushed) void refresh(); }, [pushed, refresh]);
+  // An iframe cannot send an Authorization header, so the hub token used to ride this URL. Instead each viewer load
+  // spends the token on a single-use ticket, which /screen/session trades for an httpOnly cookie scoped to /screen.
+  // The token never enters an iframe src or a popup URL. A new ticket when control changes, so the viewer switches
+  // between view-only and interactive. Size is not a dependency: changing size must not reload the viewer.
   useEffect(() => {
-    if (!st?.screen) { setSrc(''); return; }
+    if (!viewerUp) { setSrc(''); return; }
     let alive = true;
-    api.screenTicket().then((t) => alive && setSrc(t.url)).catch(() => alive && setSrc(''));
+    api.screenTicket(scope).then((t) => alive && setSrc(t.url)).catch(() => alive && setSrc(''));
     return () => { alive = false; };
-  }, [st?.screen, nonce]);
+  }, [viewerUp, nonce, scope, ctl.control]);
+
+  const wake = useCallback(async (auto: boolean) => {
+    setWaking(true);
+    setWakeError('');
+    try {
+      await api.computers.wake(bot.id, auto ? { auto } : {});
+    } catch (e) {
+      setWakeError((e as Error).message);
+    } finally {
+      setWaking(false);
+      void refresh();
+    }
+  }, [bot.id, refresh]);
+  // Looking at a screen starts it. A failed start stays down with its reason and a Retry; it is not retried here.
+  const usable = perBot && hasComputer(bot);
+  const watching = size !== 'glance';
+  const asked = useRef(false);
+  useEffect(() => { asked.current = false; setWakeError(''); }, [bot.id]);
+  useEffect(() => {
+    if (c?.state !== 'asleep') { asked.current = false; return; }
+    if (!usable || !watching || failure || asked.current || document.visibilityState !== 'visible') return;
+    asked.current = true;
+    void wake(true);
+  }, [c?.state, usable, watching, failure, wake]);
   const popOut = async () => {
-    // Ticket first, then open: the desktop app hands new windows to the default browser by URL, so a blank
-    // window that is pointed somewhere afterwards never gets anywhere. The click's user activation outlives
-    // the round-trip in browsers, so the popup is still allowed.
-    try { window.open((await api.screenTicket()).url, '_blank', 'width=1320,height=880'); } catch { /* hub unreachable */ }
+    // Ticket first, then open: the desktop app hands new windows to the default browser by URL, so a blank window
+    // that is pointed somewhere afterwards never gets anywhere. The click's user activation outlives the round-trip.
+    try { window.open((await api.screenTicket(scope)).url, '_blank', 'width=1320,height=880'); } catch { /* hub unreachable */ }
   };
-  // The desktop app always talks to a hub on this same computer, where no virtual screen exists by design.
-  // Server setup steps and a red "down" dot would read as a fault there, so it gets a neutral note instead.
-  const local = isDesktopMode();
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 px-3 py-2 text-xs">
-        <span className={cn('h-2 w-2 rounded-full', st?.screen ? 'bg-ok' : local ? 'bg-dim' : 'bg-bad')} />
-        <span className="flex-1 text-muted">{st === null ? 'checking…' : st.screen ? 'Computer screen live' + (st.cdp ? ' · bots can drive it' : ' · CDP down') : local ? 'No virtual screen' : 'Screen not running'}</span>
-        <Button size="sm" variant="ghost" title="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={13} /></Button>
-        <Button size="sm" variant="ghost" title="Bigger" onClick={() => setWide(!wide)}>{wide ? 'Fit' : 'Wide'}</Button>
-        {st?.screen && <Button size="sm" onClick={popOut}>Pop out</Button>}
-      </div>
-      {st?.screen ? (
-        <div className={cn('relative min-h-0 flex-1 bg-black', wide && 'overflow-auto')}>
-          {src && <iframe key={nonce} title="Computer screen" src={src} className={cn('block border-0', wide ? 'h-[800px] w-[1280px]' : 'h-full w-full')} allow="clipboard-read; clipboard-write" />}
-        </div>
-      ) : local ? (
-        <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
-          <p className="font-medium text-fg">Screen is available when PocketRocket runs on a server.</p>
-          <p>A server hub runs a live Chromium you can watch here: log into your accounts once, and bots with the <span className="font-mono">Browser</span> tool work inside that same logged-in browser.</p>
-        </div>
-      ) : (
-        <div className="flex flex-1 flex-col gap-2 p-4 text-xs text-muted">
-          <p className="font-medium text-fg">No virtual screen on this computer.</p>
-          <p>On the VPS the screen is a service: <code className="font-mono">systemctl status pocketrocket-screen</code>. Set it up with <code className="font-mono">bash deploy/setup-vps.sh</code>.</p>
-          <p>When it runs you get a live Chromium here: log into your accounts once, then give bots the <span className="font-mono">Browser</span> tool and they work inside that same logged-in browser while you watch.</p>
-        </div>
-      )}
-      {st?.screen && (
-        <div className="px-3 py-2 text-[11px] text-dim">
-          Click inside to use the desktop. Desktop folder = shared workspace; settings persist in <span className="font-mono">data/desktop-home</span>, logins in <span className="font-mono">data/browser-profile</span>. Bots with <span className="font-mono">Browser</span> drive this Chrome; bots with <span className="font-mono">Desktop</span> can see and click the whole screen.
-        </div>
-      )}
-    </div>
-  );
-}
 
-function MemoryTab({ botId }: { botId: string }) {
-  const live = useStore((s) => s.memory[botId]);
-  const toast = useStore((s) => s.toast);
-  const room = useStore(selectActiveRoom);
-  const [text, setText] = useState('');
-  const [dirty, setDirty] = useState(false);
-  useEffect(() => {
-    api.bots.memory(botId).then((r) => { setText(r.text); setDirty(false); }).catch(() => undefined);
-  }, [botId]);
-  useEffect(() => {
-    if (live !== undefined && !dirty) setText(live);
-  }, [live, dirty]);
-  const save = async () => {
-    // On failure the edit stays dirty, so nothing the user typed is lost and Save stays available.
-    try {
-      await api.bots.setMemory(botId, text);
-      setDirty(false);
-      toast('Memory saved');
-    } catch (e) {
-      toast("Couldn't save memory: " + (e as Error).message, true);
-    }
-  };
-  const reset = async () => {
-    if (!room) return;
-    if (!confirm('Reset this bot\'s conversation session in this room? Memory.md is kept; the SDK transcript for this room starts fresh.')) return;
-    await api.bots.resetSession(botId, room.id);
-    toast('Session reset for this room');
-  };
-  return (
-    <div className="flex flex-col gap-2 p-3">
-      <Label hint="only this bot sees it, on every turn">Memory</Label>
-      <Textarea value={text} onChange={(e) => { setText(e.target.value); setDirty(true); }} rows={18} className="font-mono text-[12px]" placeholder="Empty. The bot writes here via update_memory, or you can edit directly." />
-      <div className="flex items-center justify-between">
-        <Button size="sm" variant="ghost" onClick={reset} title="Forget the SDK transcript for the active room"><RefreshCw size={13} /> Reset room session</Button>
-        <Button size="sm" variant="primary" onClick={save} disabled={!dirty}><Save size={13} /> Save</Button>
-      </div>
-    </div>
-  );
-}
+  const glance = size === 'glance';
+  const held = holdsScreen(ctl);
+  const recording = recorder?.active ?? null;
+  const used = c && c.quotaBytes > 0 ? c.diskBytes / c.quotaBytes : 0;
+  const local = !perBot && isDesktopMode();
 
-function SkillsTab({ botId }: { botId: string }) {
-  const toast = useStore((s) => s.toast);
-  const bots = useStore((s) => s.bots);
-  const [pool, setPool] = useState<Skill[]>([]);
-  const [assigned, setAssigned] = useState<Set<string>>(new Set());
-  const [importable, setImportable] = useState<{ name: string; description: string }[]>([]);
-  const [showImport, setShowImport] = useState(false);
-  const [showNew, setShowNew] = useState(false);
-  const [view, setView] = useState<(Skill & { markdown: string }) | null>(null);
-  const [nw, setNw] = useState({ name: '', description: '', markdown: '' });
+  const status = held ? 'You have control'
+    : ctl.control === 'paused' ? 'Paused'
+    : ctl.control === 'user' ? (ctl.holder ? 'Held on another device' : bot.name + ' is waiting for you')
+    : state === undefined ? 'Checking…'
+    : state === 'starting' ? 'Starting…'
+    : state === 'asleep' ? (!hasComputer(bot) ? 'No screen' : failure ? "Didn't start" : 'Starting…')
+    : state === 'off' ? (local ? 'No screen here' : 'Screen is off')
+    : !info?.screen ? 'Connecting…'
+    : !info.cdp ? 'Browser not responding'
+    : use ? bot.name + ' is using its screen' : 'Ready';
+  const dot = held ? 'bg-accent' : state === 'live' ? 'bg-ok' : state === 'starting' ? 'bg-warn' : (state === 'off' && !local) || (state === 'asleep' && failure) ? 'bg-bad' : 'bg-dim';
+  const hint = held ? "You're in control. Type secrets on its screen only."
+    : ctl.control === 'user' ? 'Take over to click.'
+    : live ? 'View only. Take over to click.' : '';
 
-  const load = async () => {
-    try {
-      const [p, a, i] = await Promise.all([api.skills.list(), api.bots.skills(botId), api.skills.importable()]);
-      setPool(p); setAssigned(new Set(a)); setImportable(i);
-    } catch (e) {
-      toast("Couldn't load skills: " + (e as Error).message, true);
-    }
-  };
-  useEffect(() => { void load(); }, [botId]);
-
-  const toggle = async (id: string) => {
-    const prev = assigned;
-    const next = new Set(assigned);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    setAssigned(next);
-    try {
-      await api.bots.setSkills(botId, [...next]);
-    } catch (e) {
-      // The checkbox flipped optimistically; put it back so it matches what the hub actually has.
-      setAssigned(prev);
-      toast("Couldn't update skills: " + (e as Error).message, true);
-    }
-  };
-  const doImport = async (names: string[]) => {
-    await api.skills.import(names);
-    toast('Imported ' + names.length + ' skill' + (names.length === 1 ? '' : 's'));
-    setShowImport(false);
-    await load();
-  };
-  const review = async (s: Skill, status: 'approved' | 'pending') => { await api.skills.review(s.id, status); await load(); };
-  const remove = async (s: Skill) => { if (confirm('Delete skill "' + s.name + '" from the pool?')) { await api.skills.remove(s.id); await load(); } };
-  const createSkill = async () => {
-    try { await api.skills.create(nw.name, nw.description, nw.markdown); setShowNew(false); setNw({ name: '', description: '', markdown: '' }); await load(); }
-    catch (e) { toast((e as Error).message, true); }
-  };
+  const followsChat = !room || room.memberIds.includes(bot.id);
+  const ownChat = ctl.takeover?.roomId ?? rooms.find((r) => r.kind === 'dm' && r.memberIds[0] === bot.id)?.id;
+  const switchable = room?.kind === 'group' && !held ? room.memberIds.map((id) => botById(bots, id)).filter((b): b is Bot => !!b) : [bot];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <div className="flex items-center justify-between">
-        <Label hint={assigned.size + " assigned to this bot"}>Skills</Label>
-        <div className="flex gap-1">
-          <Button size="sm" variant="ghost" onClick={() => setShowNew(!showNew)}><Plus size={13} /> New</Button>
-          <Button size="sm" variant="ghost" onClick={() => setShowImport(!showImport)} disabled={!importable.length} title={importable.length ? 'Import from ~/.claude/skills' : 'Nothing left to import'}>Import ({importable.length})</Button>
-        </div>
-      </div>
-
-      {showNew && (
-        <div className="flex flex-col gap-2 rounded-2xl bg-card2/60 p-2">
-          <Input placeholder="name (kebab-case)" value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} />
-          <Input placeholder="description: when to use it" value={nw.description} onChange={(e) => setNw({ ...nw, description: e.target.value })} />
-          <Textarea placeholder="Instructions (markdown)" rows={6} value={nw.markdown} onChange={(e) => setNw({ ...nw, markdown: e.target.value })} className="font-mono text-[12px]" />
-          <div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setShowNew(false)}>Cancel</Button><Button size="sm" variant="primary" onClick={createSkill} disabled={!nw.name || !nw.markdown}>Create</Button></div>
-        </div>
-      )}
-      {showImport && (
-        <div className="max-h-64 overflow-y-auto rounded-2xl bg-card2/60 p-1">
-          <div className="flex justify-end px-1 py-1"><Button size="sm" variant="ghost" onClick={() => doImport(importable.map((i) => i.name))}>Import all</Button></div>
-          {importable.map((i) => (
-            <div key={i.name} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-card2">
-              <div className="min-w-0 flex-1"><div className="font-medium">{i.name}</div><div className="truncate text-muted">{i.description}</div></div>
-              <Button size="sm" onClick={() => doImport([i.name])}>Import</Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <ul className="flex flex-col gap-1">
-        {pool.map((s) => (
-          <li key={s.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', s.reviewStatus === 'pending' && 'border-warn/40')}>
-            <div className="flex items-center gap-2">
-              <input type="checkbox" checked={assigned.has(s.id)} onChange={() => toggle(s.id)} disabled={s.reviewStatus === 'pending'} aria-label={'Assign ' + s.name + ' to this bot'} title={s.reviewStatus === 'pending' ? 'Approve first' : 'Assign to this bot'} />
-              <button className="min-w-0 flex-1 text-left" onClick={async () => setView(await api.skills.get(s.id))}>
-                <div className="flex items-center gap-1.5"><span className="font-medium">{s.name}</span>
-                  {s.source === 'bot' && <Badge tone={s.reviewStatus === 'pending' ? 'warn' : 'accent'}>{s.reviewStatus === 'pending' ? 'review' : 'by ' + (botById(bots, s.createdByBot)?.handle ?? 'bot')}</Badge>}
-                  {s.source === 'imported' && <Badge>imported</Badge>}
-                </div>
-                <div className="truncate text-muted">{s.description}</div>
+    <aside
+      aria-label={bot.name + "'s screen"}
+      hidden={glance && (dismissed || page || !live)}
+      className={cn('@container flex min-w-0 flex-col overflow-hidden', glance
+        ? 'fixed right-5 top-[60px] z-20 aspect-[16/10] w-[240px] rounded-lg bg-black shadow-[var(--shadow-overlay)] ring-1 ring-line max-sm:right-3 max-sm:w-[136px]'
+        : 'panel w-full')}
+    >
+      <div hidden={glance} className="flex h-14 shrink-0 items-center gap-2 px-3">
+        <div className="flex shrink-0 items-center gap-1">
+          {switchable.map((b) => switchable.length === 1
+            ? <Avatar key={b.id} bot={b} {...avatarStatus(statusOf(b.id))} size={28} />
+            : (
+              <button key={b.id} type="button" aria-pressed={b.id === bot.id} aria-label={'Show ' + b.name + "'s screen"} title={b.name} onClick={() => openScreen(b.id)} className={cn('rounded-full', b.id !== bot.id && 'opacity-50 hover:opacity-100', b.id === bot.id && 'ring-2 ring-accent')}>
+                <Avatar bot={b} {...avatarStatus(statusOf(b.id))} size={24} />
               </button>
-              {s.reviewStatus === 'pending' ? (
-                <>
-                  <Button size="icon" variant="ghost" title="Approve" onClick={() => review(s, 'approved')}><Check size={13} className="text-ok" /></Button>
-                  <Button size="icon" variant="ghost" title="Reject & delete" onClick={() => remove(s)}><X size={13} className="text-bad" /></Button>
-                </>
-              ) : (
-                <Button size="icon" variant="ghost" title="Delete from pool" onClick={() => remove(s)}><Trash2 size={13} /></Button>
-              )}
-            </div>
-          </li>
-        ))}
-        {!pool.length && <li className="py-4 text-center text-xs text-dim">Pool is empty. Import your skills or create one.</li>}
-      </ul>
-
-      {view && (
-        <div className="rounded-2xl bg-card2/60 p-2">
-          <div className="mb-1 flex items-center justify-between text-xs"><span className="font-medium">{view.name}/SKILL.md</span><Button size="sm" variant="ghost" onClick={() => setView(null)}>Close</Button></div>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted">{view.markdown}</pre>
+            ))}
         </div>
-      )}
-    </div>
-  );
-}
-
-function RoutinesTab({ botId }: { botId: string | null }) {
-  const bots = useStore((s) => s.bots);
-  const rooms = useStore((s) => s.rooms);
-  const toast = useStore((s) => s.toast);
-  const room = useStore(selectActiveRoom);
-  const [list, setList] = useState<Routine[]>([]);
-  const [runs, setRuns] = useState<Record<string, RoutineRun[]>>({});
-  const [form, setForm] = useState<{ open: boolean; id?: string; botId: string; roomId: string; name: string; cron: string; prompt: string }>({ open: false, botId: botId ?? '', roomId: room?.id ?? '', name: '', cron: '0 9 * * 1-5', prompt: '' });
-  const load = async () => setList(await api.routines.list());
-  useEffect(() => { void load(); }, []);
-
-  const save = async () => {
-    try {
-      const body = { botId: form.botId, roomId: form.roomId, name: form.name, cron: form.cron, prompt: form.prompt, enabled: true };
-      if (form.id) await api.routines.update(form.id, body); else await api.routines.create(body);
-      setForm({ ...form, open: false, id: undefined, name: '', prompt: '' });
-      await load();
-    } catch (e) { toast((e as Error).message, true); }
-  };
-  const toggle = async (r: Routine) => { await api.routines.update(r.id, { enabled: !r.enabled }); await load(); };
-  const remove = async (r: Routine) => { if (confirm('Delete routine "' + r.name + '"?')) { await api.routines.remove(r.id); await load(); } };
-  const run = async (r: Routine) => { await api.routines.run(r.id); toast('Routine fired'); setTimeout(() => api.routines.runs(r.id).then((x) => setRuns({ ...runs, [r.id]: x })), 500); };
-  const showRuns = async (r: Routine) => setRuns({ ...runs, [r.id]: runs[r.id] ? undefined as never : await api.routines.runs(r.id) });
-
-  return (
-    <div className="flex flex-col gap-3 p-3">
-      <div className="flex items-center justify-between">
-        <Label hint="cron, the hub's local time">Routines</Label>
-        <Button size="sm" variant="ghost" onClick={() => setForm({ ...form, open: !form.open, id: undefined, botId: botId ?? bots[0]?.id ?? '', roomId: room?.id ?? rooms[0]?.id ?? '' })}><Plus size={13} /> New</Button>
-      </div>
-      {form.open && (
-        <div className="flex flex-col gap-2 rounded-2xl bg-card2/60 p-2">
-          <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={form.botId} onChange={(e) => setForm({ ...form, botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}</Select>
-            <Select value={form.roomId} onChange={(e) => setForm({ ...form, roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
+        <div className="min-w-0 flex-1 text-hint">
+          <button type="button" className="block max-w-full truncate rounded-xs text-ui font-medium hover:underline" title={'Open ' + bot.name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: bot.id, tab: 'computer' })}>{bot.name}</button>
+          <div className="flex min-w-0 items-center gap-1.5 text-muted">
+            <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', dot)} />
+            <span className="min-w-0 truncate" role="status" aria-live="polite" title={status}>{status}</span>
           </div>
-          <Input placeholder="cron: m h dom mon dow" value={form.cron} onChange={(e) => setForm({ ...form, cron: e.target.value })} className="font-mono" />
-          <Textarea placeholder="Prompt the bot receives when the routine fires" rows={4} value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
-          <div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setForm({ ...form, open: false })}>Cancel</Button><Button size="sm" variant="primary" onClick={save} disabled={!form.name || !form.prompt || !form.botId || !form.roomId}>{form.id ? 'Save' : 'Create'}</Button></div>
         </div>
-      )}
-      <ul className="flex flex-col gap-1">
-        {list.map((r) => {
-          const b = botById(bots, r.botId);
-          const rm = rooms.find((x) => x.id === r.roomId);
-          return (
-            <li key={r.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', !r.enabled && 'opacity-60')}>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} aria-label={'Routine ' + r.name + ' enabled'} title="Enabled" />
-                <button className="min-w-0 flex-1 text-left" onClick={() => setForm({ open: true, id: r.id, botId: r.botId, roomId: r.roomId, name: r.name, cron: r.cron, prompt: r.prompt })}>
-                  <div className="font-medium">{r.name} <span className="font-mono text-muted">{r.cron}</span></div>
-                  <div className="truncate text-muted">{b?.avatar} @{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + new Date(r.nextRunAt).toLocaleString() : ''}</div>
-                </button>
-                <Button size="icon" variant="ghost" title="Run now" onClick={() => run(r)}><Play size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Runs" onClick={() => showRuns(r)}><RefreshCw size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Delete" onClick={() => remove(r)}><Trash2 size={13} /></Button>
-              </div>
-              {runs[r.id] && (
-                <ul className="mt-2 pt-1 text-[11px] text-muted">
-                  {runs[r.id].map((x) => <li key={x.id}>{new Date(x.startedAt).toLocaleString()} · <span className={x.status === 'error' ? 'text-bad' : x.status === 'success' ? 'text-ok' : ''}>{x.status}</span>{x.costUsd != null ? ' · ' + fmtUsd(x.costUsd) : ''}</li>)}
-                  {!runs[r.id].length && <li>No runs yet.</li>}
-                </ul>
-              )}
-            </li>
-          );
-        })}
-        {!list.length && <li className="py-4 text-center text-xs text-dim">No routines. Schedule a bot to wake up on its own.</li>}
-      </ul>
-    </div>
-  );
-}
-
-function UsageTab() {
-  const bots = useStore((s) => s.bots);
-  const rooms = useStore((s) => s.rooms);
-  const live = useStore((s) => s.usage);
-  const [rows, setRows] = useState<UsageRow[]>([]);
-  const [health, setHealth] = useState<{ apiKeySource?: string; ok: boolean; error?: string; version?: string } | null>(null);
-  useEffect(() => {
-    api.usage().then((u) => setRows(u.rows));
-    api.health().then(setHealth).catch(() => undefined);
-  }, [live]);
-  const total = rows.reduce((a, r) => a + r.costUsd, 0);
-  const byBot = bots.map((b) => ({ b, cost: rows.filter((r) => r.botId === b.id).reduce((a, r) => a + r.costUsd, 0), turns: rows.filter((r) => r.botId === b.id).reduce((a, r) => a + r.turns, 0) }));
-  return (
-    <div className="flex flex-col gap-3 p-3 text-xs">
-      <div className="rounded-2xl bg-card2/60 p-3">
-        <div className="text-[12px] font-medium text-muted">Estimated usage, all time</div>
-        <div className="text-2xl font-semibold">≈{fmtUsd(total)}</div><div className="mt-1 text-[11.5px] text-dim">API list-price equivalent. Your subscription is not billed per token; this shows how much of your plan limits the bots consume and feeds the runaway caps.</div>
-        <div className="text-muted">{rows.reduce((a, r) => a + r.turns, 0)} turns</div>
+        {live && <Button size="icon" variant="ghost" title="Reload viewer" aria-label="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={14} /></Button>}
+        {inline && size === 'watch' && <Button size="icon" variant="ghost" aria-pressed={expanded} aria-label="Expand screen" title={expanded ? 'Restore' : 'Expand'} onClick={togglePanelExpanded}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</Button>}
+        {live && <Button size="icon" variant="ghost" title="Pop out" aria-label="Pop out" onClick={popOut}><ExternalLink size={14} /></Button>}
+        {size === 'watch' && <Button size="icon" variant="ghost" title="Close screen" aria-label="Close screen" onClick={closePanel}><X size={16} /></Button>}
       </div>
-      <Label>By bot</Label>
-      <ul className="flex flex-col gap-1">
-        {byBot.map(({ b, cost, turns }) => (
-          <li key={b.id} className="flex items-center gap-2 rounded-2xl bg-card2/60 px-2 py-1.5">
-            <span>{b.avatar}</span><span className="flex-1 font-medium">{b.name}</span><span className="text-muted">{turns} turns</span><span className="font-mono">{fmtUsd(cost)}</span>
-          </li>
-        ))}
-      </ul>
-      <Label>By room</Label>
-      <ul className="flex flex-col gap-1">
-        {rooms.map((r) => {
-          const c = rows.filter((x) => x.roomId === r.id).reduce((a, x) => a + x.costUsd, 0);
-          return <li key={r.id} className="flex items-center gap-2 rounded-2xl bg-card2/60 px-2 py-1.5"><span className="flex-1">{r.kind === 'group' ? '# ' : ''}{r.name}</span><span className="font-mono">{fmtUsd(c)}</span></li>;
-        })}
-      </ul>
-      {health && (
-        <div className="rounded-2xl bg-card2/60 p-2 text-[11px] text-muted">
-          <div className="mb-1 text-[12px] font-medium text-muted">Hub</div>
-          {/* Where the CLI lives is not on health any more (it spells out the home directory), and the
-              version this endpoint reports is the hub's, so it gets its own line rather than trailing
-              the CLI as if it were `claude --version`. */}
-          <div>claude: {health.ok ? <Badge tone="ok">found</Badge> : <Badge tone="bad">missing</Badge>}</div>
-          {health.version && <div>version: <span className="font-mono">{health.version}</span></div>}
-          <div>auth: {health.apiKeySource ?? '(known after first turn)'}</div>
+
+      {!followsChat && !glance && (
+        <div role="status" className="mx-3 mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-warn/10 px-3 py-1.5 text-hint text-fg">
+          <AlertTriangle size={13} aria-hidden className="shrink-0 text-warn" />
+          <span className="min-w-0 flex-1 basis-48">This is {bot.name}'s screen. The chat beside it is {room?.name}.</span>
+          {ownChat && <Button size="sm" onClick={() => { useStore.getState().closePage(); setActiveRoom(ownChat); }}>Open {bot.name}'s chat</Button>}
         </div>
       )}
-    </div>
+
+      <div className={cn('relative min-h-0 flex-1', !glance && 'mx-3 rounded-lg', live && !glance && 'overflow-hidden bg-black', held && 'ring-2 ring-accent')}>
+        {live ? (
+          src && <iframe key={nonce} title={bot.name + "'s screen"} src={src} onLoad={hideVncChrome} tabIndex={glance ? -1 : undefined} className={cn('block h-full w-full border-0', glance && 'pointer-events-none')} allow="clipboard-read; clipboard-write" />
+        ) : !glance && (
+          <div className="flex h-full flex-col gap-2 p-1 text-hint text-muted">
+            {!perBot ? (
+              <>
+                <p className="font-medium text-fg">{state === undefined ? 'Checking…' : local ? 'Screen needs a server install.' : 'No screen on this server.'}</p>
+                {state !== undefined && (local ? <p>Watch bots use a logged-in browser.</p> : <p>Per-bot computers are off, so Browser and Desktop are refused.</p>)}
+              </>
+            ) : state === 'starting' ? (
+              <p className="font-medium text-fg">Starting. Can take up to 25 seconds.</p>
+            ) : state === 'asleep' && !hasComputer(bot) ? (
+              <p className="font-medium text-fg">{bot.name} has no Browser or Desktop, so it has no screen.</p>
+            ) : state === 'asleep' && failure ? (
+              <>
+                <p className="font-medium text-fg">{bot.name}'s screen didn't start.</p>
+                <p className="text-bad">{failure}</p>
+                <div><Button size="sm" onClick={() => void wake(false)} disabled={waking}>{waking ? 'Trying…' : 'Try again'}</Button></div>
+              </>
+            ) : state === 'asleep' ? (
+              <p className="font-medium text-fg">Starting. Can take up to 25 seconds.</p>
+            ) : null}
+            {used >= 0.8 && <p className="text-warn">Disk {Math.round(used * 100)}% full. Won't start at 100%.</p>}
+          </div>
+        )}
+        {glance && (
+          <>
+            {/* Over the iframe, which would otherwise take the click. The viewer is not interactive at this size. */}
+            <button type="button" className="absolute inset-0 flex items-end text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent" aria-label={'Watch ' + bot.name + "'s screen. " + (use ?? '')} onClick={() => openScreen(bot.id)}>
+              <span className="flex w-full items-center gap-1.5 truncate bg-black/65 px-2 py-1 text-hint text-white">
+                <MonitorPlay size={12} aria-hidden className="shrink-0" /><span className="truncate">{use}</span>
+              </span>
+            </button>
+            <button type="button" className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-sm bg-black/65 text-white hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" title="Hide" aria-label="Hide thumbnail" onClick={onDismiss}><X size={13} /></button>
+          </>
+        )}
+      </div>
+
+      {/* Hidden rather than unmounted: a note being typed lives in here. */}
+      <div hidden={glance} className="flex shrink-0 flex-col gap-2 px-3 pb-3 pt-2 text-hint text-muted">
+        {recording ? <RecordingBar bot={bot} recording={recording} /> : (
+          <>
+            {ctl.takeover && <p className="text-ui text-fg">{bot.name} asked: {ctl.takeover.reason}</p>}
+            {hint && <p>{hint}</p>}
+            {(live || ctl.control !== 'agent') && <ControlBar bot={bot} canTake={live} />}
+          </>
+        )}
+      </div>
+    </aside>
   );
 }

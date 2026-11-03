@@ -11,8 +11,8 @@ import { cn } from '../ui';
 export function SectionHeader({ title, description }: { title: string; description?: string }) {
   return (
     <header className="mb-5 sm:pr-10">
-      <h2 className="text-[17px] font-semibold tracking-tight">{title}</h2>
-      {description && <p className="mt-0.5 text-[12.5px] text-muted">{description}</p>}
+      <h2 className="text-title-sm">{title}</h2>
+      {description && <p className="mt-0.5 text-ui text-muted">{description}</p>}
     </header>
   );
 }
@@ -26,7 +26,7 @@ export function Group({ title, titleId, aside, className, children }: { title?: 
     <section className={cn('mb-6 last:mb-0', className)}>
       {title && (
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h3 id={titleId} className="text-[13px] font-semibold text-fg">{title}</h3>
+          <h3 id={titleId} className="text-label text-fg">{title}</h3>
           {aside}
         </div>
       )}
@@ -37,7 +37,7 @@ export function Group({ title, titleId, aside, className, children }: { title?: 
 
 /** The card surface a group's controls sit on. Matches the radio cards (bg-card2/40 + hairline). */
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('rounded-2xl bg-card2/40 p-4 ring-1 ring-line', className)}>{children}</div>;
+  return <div className={cn('rounded-lg bg-card2/40 p-4 ring-1 ring-line', className)}>{children}</div>;
 }
 
 /**
@@ -67,7 +67,7 @@ export function Private({ value, display, label, className }: { value: string; d
   const [shown, setShown] = useState(false);
   const [copied, setCopied] = useState(false);
   const RevealIcon = shown ? EyeOff : Eye;
-  const button = 'inline-flex size-5 shrink-0 items-center justify-center rounded text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60';
+  const button = 'inline-flex size-5 shrink-0 items-center justify-center rounded-xs text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
   return (
     <span className={cn('inline-flex max-w-full items-center gap-1 align-middle', className)}>
       <span className="min-w-0 break-all font-mono">{shown ? value : display}</span>
@@ -97,5 +97,5 @@ export function Private({ value, display, label, className }: { value: string; d
 
 /** Inline error under a form. role="alert" so a screen reader announces it the moment it appears. */
 export function InlineError({ id, children }: { id?: string; children: ReactNode }) {
-  return <p id={id} role="alert" className="mt-2 text-[12px] leading-snug text-bad">{children}</p>;
+  return <p id={id} role="alert" className="mt-2 text-hint leading-snug text-bad">{children}</p>;
 }

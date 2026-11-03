@@ -4,11 +4,11 @@
  * developer build enables more than one.
  */
 import { useEffect, useState } from 'react';
-import { MODELS } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, MAX_ROUTING_BYTES, MODELS } from '@pocketrocket/shared';
 import type { ModelInfo, ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
-import { Button, Field, Label, Select } from '../ui';
+import { Button, Field, Label, Select, Textarea } from '../ui';
 import { ProviderCard } from '../ProviderCard';
 import { ApiKeyField } from './ApiKeyField';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -27,7 +27,7 @@ export function ClaudeSection() {
 
   const list = providers?.providers ?? [];
   const active = list.find((p) => p.id === settings.provider) ?? list[0];
-  const models: ModelInfo[] = active?.models?.length ? active.models : MODELS.map((m) => ({ id: m.id, label: m.label }));
+  const models: ModelInfo[] = [AUTO_MODEL_INFO, ...(active?.models?.length ? active.models : MODELS.map((m) => ({ id: m.id, label: m.label })))];
   const multiple = list.length > 1;
 
   // Refetch for the source of truth, but patch the check in place now so the card updates at once.
@@ -40,7 +40,7 @@ export function ClaudeSection() {
     <>
       <SectionHeader
         title={multiple ? 'Connection' : 'Claude'}
-        description={multiple ? 'Which service your bots run on, and how it signs in.' : 'How PocketRocket reaches Claude.'}
+        description={multiple ? 'Which service your bots use.' : undefined}
       />
 
       <Group>
@@ -49,7 +49,7 @@ export function ClaudeSection() {
         ) : active ? (
           <ConnectionStatus info={active} onChecked={(check) => patchCheck(active.id, check)} hasKeyField={active.secretKeys.length > 0} />
         ) : (
-          <Card><p className="text-[12.5px] text-muted">Checking Claude…</p></Card>
+          <Card><p className="text-ui text-muted">Checking Claude…</p></Card>
         )}
       </Group>
 
@@ -65,9 +65,11 @@ export function ClaudeSection() {
               {!models.some((m) => m.id === settings.defaultModel) && <option value={settings.defaultModel}>{settings.defaultModel}</option>}
             </Select>
           </Field>
-          <p className="mt-2 text-[12px] text-muted">Each bot can use a different model; change it in the bot's settings.</p>
+          <p className="mt-2 text-hint text-muted">Each bot can override this.</p>
         </Card>
       </Group>
+
+      <RoutingRulesGroup />
 
       {active && active.secretKeys.length > 0 && (
         <Group>
@@ -95,9 +97,9 @@ function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; cur
         ))}
       </div>
       {pending && (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-warn/10 px-3 py-2 text-[12.5px]">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-warn/10 px-3 py-2 text-ui">
           <span>
-            Bots will switch to <strong>{list.find((p) => p.id === pending)?.label}</strong>; models not available there reset to the default.
+            Switch to <strong>{list.find((p) => p.id === pending)?.label}</strong>? Unavailable models reset to default.
           </span>
           <div className="flex shrink-0 gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setPending(null)}>Cancel</Button>
@@ -106,5 +108,45 @@ function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; cur
         </div>
       )}
     </>
+  );
+}
+
+/** The owner's routing.md. Bots read it every turn and can only propose a line, on a card. */
+function RoutingRulesGroup() {
+  const toast = useStore((s) => s.toast);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.routing.get().then((r) => { setSaved(r.text); setDraft(r.text); }).catch(() => undefined);
+  }, []);
+  if (saved === null) return null;
+  const size = new TextEncoder().encode(draft).length;
+  const tooLong = size > MAX_ROUTING_BYTES;
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await api.routing.save(draft);
+      setSaved(r.text);
+      toast('Routing rules saved');
+    } catch (e) {
+      toast("Couldn't save the rules: " + (e as Error).message, true);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Group>
+      <Card>
+        <Field>
+          <Label hint="Bots follow these; they can only propose changes">Routing rules</Label>
+          <Textarea rows={6} value={draft} onChange={(e) => setDraft(e.target.value)} className="font-mono text-hint" aria-invalid={tooLong} />
+        </Field>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className={tooLong ? 'text-hint text-bad' : 'text-hint text-muted'}>{size} of {MAX_ROUTING_BYTES} bytes</p>
+          <Button size="sm" disabled={saving || tooLong || draft === saved} onClick={() => void save()}>Save rules</Button>
+        </div>
+      </Card>
+    </Group>
   );
 }

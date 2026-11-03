@@ -1,7 +1,13 @@
 import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
-  Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState,
+  Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
+  ComputerStatus,
+  IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
+import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
+import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
+import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
+import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -47,12 +53,27 @@ export type AccountActionResponse = AccountState | { ok: boolean } | Record<stri
 
 export const api = {
   health: () => req<HealthResponse>('GET', '/api/health'),
-  screen: () => req<{ screen: boolean; cdp: boolean; url: string }>('GET', '/api/screen'),
-  // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL.
-  screenTicket: () => req<{ url: string }>('POST', '/api/screen/ticket'),
+  // P1: with a botId, that bot's own computer (`computer` says whether this hub has per-bot computers at all).
+  screen: (botId?: string) =>
+    req<{ screen: boolean; cdp: boolean; url: string; computer?: ComputerStatus }>('GET', '/api/screen' + (botId ? '?botId=' + encodeURIComponent(botId) : '')),
+  // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL. With a botId
+  // the ticket opens that bot's screen only.
+  screenTicket: (botId?: string) => req<{ url: string }>('POST', '/api/screen/ticket', botId ? { botId } : undefined),
+  computers: {
+    get: (botId: string) => req<ComputerStatus>('GET', '/api/computers/' + encodeURIComponent(botId)),
+    wake: (botId: string, o: { auto?: boolean } = {}) => req<ComputerStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/wake', o),
+    warm: (botId: string | null) => req<{ ok: boolean }>('POST', '/api/computers/warm', botId ? { botId } : {}),
+    keepAwake: (botId: string, on: boolean) => req<ComputerStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/keep-awake', { on }),
+  },
   config: () => req<{ workspaceDir: string; version: string }>('GET', '/api/config'),
-  // Opens the shared workspace on whichever computer the hub runs on; `where` says which one it was.
-  openWorkspace: () => req<{ ok: boolean; where: 'explorer' | 'finder' | 'screen' | 'file-manager'; path: string; error?: string }>('POST', '/api/workspace/open'),
+  // Opens the shared workspace on whichever computer the hub runs on; `where` says which one it was. On a hub
+  // with per-bot computers it opens on `botId`'s computer (P1), or `error` says to open its Screen first.
+  openWorkspace: (botId?: string | null) =>
+    req<{ ok: boolean; where: 'explorer' | 'finder' | 'screen' | 'file-manager'; path: string; error?: string }>('POST', '/api/workspace/open', botId ? { botId } : {}),
+  // A picture, base64 in JSON. Reading one back is lib/media.ts, which wants a blob rather than JSON.
+  media: {
+    upload: (data: string) => req<{ ref: string }>('POST', '/api/media', { data }),
+  },
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
     create: (b: BotInput) => req<Bot>('POST', '/api/bots', b),
@@ -64,11 +85,17 @@ export const api = {
     setSkills: (id: string, skillIds: string[]) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/skills', { skillIds }),
     resetSession: (id: string, roomId: string) => req<{ ok: true }>('POST', '/api/bots/' + id + '/reset-session', { roomId }),
   },
+  routing: {
+    get: () => req<{ text: string }>('GET', '/api/routing'),
+    save: (text: string) => req<{ text: string }>('PUT', '/api/routing', { text }),
+  },
   rooms: {
     list: () => req<Room[]>('GET', '/api/rooms'),
     create: (r: RoomInput) => req<Room>('POST', '/api/rooms', r),
     update: (id: string, r: Partial<RoomInput>) => req<Room>('PATCH', '/api/rooms/' + id, r),
     remove: (id: string) => req<{ ok: true }>('DELETE', '/api/rooms/' + id),
+    /** The composer's pick for this chat; null goes back to each bot's own model. */
+    setModel: (id: string, model: string | null) => req<Room>('PUT', '/api/rooms/' + id + '/model', { model }),
     // `before` is a message seq (exclusive): the hub returns the page of messages just older than it.
     messages: (id: string, before?: number) => req<Message[]>('GET', '/api/rooms/' + id + '/messages?limit=' + MESSAGE_PAGE + (before ? '&before=' + before : '')),
   },
@@ -93,7 +120,8 @@ export const api = {
     const p = new URLSearchParams();
     if (q.botId) p.set('botId', q.botId);
     if (q.roomId) p.set('roomId', q.roomId);
-    return req<{ totals: UsageTotals; rows: UsageRow[] }>('GET', '/api/usage?' + p.toString());
+    // byModel / byCause arrive from P8 hubs; an older hub leaves them out.
+    return req<{ totals: UsageTotals; rows: UsageRow[]; byModel?: UsageGroup[]; byCause?: UsageGroup[] }>('GET', '/api/usage?' + p.toString());
   },
   settings: {
     get: () => req<Settings>('GET', '/api/settings'),
@@ -116,4 +144,103 @@ export const api = {
     signOut: () => req<AccountActionResponse>('POST', '/api/account/sign-out', {}),
     oauth: (provider: 'google' | 'github') => req<{ url: string }>('POST', '/api/account/oauth', { provider }),
   },
+  // ---- P7: knowledge repo, voice, notes, skill import from git ----
+  knowledge: {
+    status: () => req<KnowledgeStatus>('GET', '/api/knowledge'),
+    sync: () => req<KnowledgeStatus>('POST', '/api/knowledge/sync', {}),
+  },
+  voice: {
+    get: (botId: string) => req<{ text: string; proposals: VoiceProposal[] }>('GET', '/api/bots/' + botId + '/voice'),
+    set: (botId: string, text: string) => req<{ ok: true; trimmed: boolean }>('PUT', '/api/bots/' + botId + '/voice', { text }),
+    decide: (botId: string, id: string, decision: 'approve' | 'dismiss') =>
+      req<{ text: string; proposals: VoiceProposal[] }>('POST', '/api/bots/' + botId + '/voice/proposals/' + id, { decision }),
+  },
+  notes: (botId: string) => req<{ name: string; bytes: number; mtime: number }[]>('GET', '/api/bots/' + botId + '/notes'),
+  importSkillsFromGit: (url: string) => req<SkillGitImportResult>('POST', '/api/skills/import-git', { url }),
+  // P4: integrations. The hub keeps every credential; these answers never carry one.
+  integrations: {
+    get: () => req<IntegrationsState>('GET', '/api/integrations'),
+    setApp: (p: IntegrationProvider, app: OAuthAppInput) => req<OAuthAppStatus>('PUT', '/api/integrations/apps/' + p, app),
+    removeApp: (p: IntegrationProvider) => req<OAuthAppStatus>('DELETE', '/api/integrations/apps/' + p),
+    // Not under /api: the hub mints state + PKCE and answers the provider's authorize URL.
+    startOAuth: (p: IntegrationProvider) => req<{ url: string; redirectUri: string }>('POST', '/oauth/start/' + p, {}),
+    startDevice: (p: IntegrationProvider) => req<PendingConnect>('POST', '/api/integrations/device/' + p, {}),
+    cancel: (p: IntegrationProvider) => req<{ ok: true }>('POST', '/api/integrations/cancel/' + p, {}),
+    connectToken: (p: IntegrationProvider, body: TokenConnectInput) => req<IntegrationInfo>('POST', '/api/integrations/token/' + p, body),
+    test: (id: string) => req<IntegrationInfo>('POST', '/api/integrations/' + id + '/test', {}),
+    setGrants: (id: string, botIds: string[]) => req<IntegrationInfo>('PUT', '/api/integrations/' + id + '/grants', { botIds }),
+    disconnect: (id: string) => req<{ ok: true }>('DELETE', '/api/integrations/' + id),
+  },
+  // P5: event triggers.
+  triggers: {
+    get: () => req<TriggersState>('GET', '/api/triggers'),
+    create: (t: TriggerInput) => req<Trigger>('POST', '/api/triggers', t),
+    update: (id: string, t: Partial<TriggerInput>) => req<Trigger>('PATCH', '/api/triggers/' + id, t),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/triggers/' + id),
+    fires: (id: string) => req<TriggerFire[]>('GET', '/api/triggers/' + id + '/fires'),
+    test: (id: string, body: TriggerTestInput = {}) => req<TriggerFire>('POST', '/api/triggers/' + id + '/test', body),
+  },
+  // ---- P9: paired devices and opt-in Web Push ----
+  devices: {
+    list: () => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),
+    // Hub token only. The answer carries a one-time code, never the hub token.
+    pairing: () => req<PairingCode>('POST', '/api/devices/pairing', {}),
+    rename: (id: string, name: string) => req<DeviceInfo>('PATCH', '/api/devices/' + encodeURIComponent(id), { name }),
+    revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/devices/' + encodeURIComponent(id)),
+  },
+  push: {
+    status: () => req<{ publicKey: string; subscriptions: number }>('GET', '/api/push'),
+    subscribe: (sub: PushSubscriptionJSON) => req<{ ok: true }>('POST', '/api/push/subscribe', sub),
+    unsubscribe: (endpoint: string) => req<{ ok: boolean }>('POST', '/api/push/unsubscribe', { endpoint }),
+    test: () => req<{ sent: number; failed: number }>('POST', '/api/push/test', {}),
+  },
+  // ---- P2: take over / hand back / pause, approval rules ----
+  control: {
+    list: () => req<ControlStatus[]>('GET', '/api/control'),
+    set: (botId: string, control: ComputerControl, o: { holder?: string; note?: string } = {}) =>
+      req<ControlStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/control', { control, ...o }),
+  },
+  policies: {
+    list: (botId?: string) => req<ApprovalPolicy[]>('GET', '/api/approval-policies' + (botId ? '?botId=' + encodeURIComponent(botId) : '')),
+    /** From an answered card; `pattern` narrows or widens what it covers. */
+    fromApproval: (approvalId: string, pattern?: string) => req<ApprovalPolicy>('POST', '/api/approval-policies', { approvalId, ...(pattern ? { pattern } : {}) }),
+    revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/approval-policies/' + encodeURIComponent(id)),
+  },
+  // ---- P6: teach by demonstration, skill versions, reflection ----
+  teach: {
+    status: (botId: string) => req<RecorderStatus>('GET', '/api/computers/' + encodeURIComponent(botId) + '/recorder'),
+    start: (botId: string, title?: string) => req<RecorderStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/recorder/start', title ? { title } : {}),
+    stop: (botId: string) => req<{ recording: RecordingInfo | null; status: RecorderStatus }>('POST', '/api/computers/' + encodeURIComponent(botId) + '/recorder/stop', {}),
+    recordings: (botId: string) => req<RecordingInfo[]>('GET', '/api/computers/' + encodeURIComponent(botId) + '/recordings'),
+    remove: (botId: string, id: string) => req<{ ok: true }>('DELETE', '/api/computers/' + encodeURIComponent(botId) + '/recordings/' + encodeURIComponent(id)),
+    distill: (botId: string, id: string, o: { name?: string; hint?: string } = {}) =>
+      req<{ skill: Skill; version: SkillVersion | null }>('POST', '/api/computers/' + encodeURIComponent(botId) + '/recordings/' + encodeURIComponent(id) + '/distill', o),
+  },
+  skillVersions: {
+    list: (skillId: string) => req<SkillVersion[]>('GET', '/api/skills/' + encodeURIComponent(skillId) + '/versions'),
+    get: (skillId: string, id: string) => req<SkillVersionDetail>('GET', '/api/skills/' + encodeURIComponent(skillId) + '/versions/' + encodeURIComponent(id)),
+    decide: (skillId: string, id: string, decision: 'approve' | 'reject') =>
+      req<{ skill: Skill; version: SkillVersion }>('POST', '/api/skills/' + encodeURIComponent(skillId) + '/versions/' + encodeURIComponent(id), { decision }),
+    correct: (skillId: string, text: string) => req<SkillVersion>('POST', '/api/skills/' + encodeURIComponent(skillId) + '/corrections', { text }),
+    reflection: (botId: string) => req<SkillReflectionConfig>('GET', '/api/bots/' + encodeURIComponent(botId) + '/skill-reflection'),
+    setReflection: (botId: string, patch: Partial<Omit<SkillReflectionConfig, 'botId'>>) =>
+      req<SkillReflectionConfig>('PUT', '/api/bots/' + encodeURIComponent(botId) + '/skill-reflection', patch),
+  },
 };
+
+// ---- P9 ----
+/** A paired device as the hub lists it (never its token or hash). */
+export interface DeviceInfo {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastSeenAt: number | null;
+  revoked: boolean;
+}
+/** A fresh pairing code; `hosts` are the hub's POCKETROCKET_ALLOWED_HOSTS (where a phone can reach it). */
+export interface PairingCode {
+  code: string;
+  expiresAt: number;
+  ttlMs: number;
+  hosts: string[];
+}

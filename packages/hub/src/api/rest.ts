@@ -1,14 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import {
-  BotInputSchema, RoomInputSchema, RoutineInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  type HealthInfo, type ProviderId,
+  BotInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
+  isMediaRef, mediaHash,
+  type HealthInfo, type ProviderId, type Room,
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
 import { WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
-import { openWorkspace } from './openWorkspace.js';
-import { SCREEN_VIEWER_PATH, type ScreenSessions } from './screenSession.js';
+import { openWorkspace, workspaceTarget } from './openWorkspace.js';
+import { SCREEN_VIEWER_PATH, screenViewerPath, type ScreenSessions } from './screenSession.js';
+import { AlwaysOnRefused, type ComputerManager } from '../services/ComputerManager.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -25,14 +27,19 @@ import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
-import type { RoutineScheduler } from '../services/RoutineScheduler.js';
+import { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import type { BotRunner } from '../agent/BotRunner.js';
 import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.js';
 import type { SecretsStore } from '../services/SecretsStore.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { AccountError, type AccountService } from '../services/AccountService.js';
-import { AUTH_CALLBACK_PATH } from './guard.js';
+import { AUTH_CALLBACK_PATH, deviceIdOf } from './guard.js';
+import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
+import type { RoutingRules } from '../services/RoutingRules.js';
+import type { VoiceProposals } from '../services/VoiceProposals.js';
+import { logError } from '../providers/redact.js';
+import type { MediaStore } from '../services/MediaStore.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
@@ -49,6 +56,17 @@ export interface RestDeps {
   /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
   screenSessions: ScreenSessions;
   account: AccountService;
+  // ---- P7 ----
+  knowledge?: KnowledgeRepo;
+  voice?: VoiceProposals;
+  /** Per-bot computers (P1): Screen tab status, Wake, Keep awake. */
+  computers: ComputerManager;
+  /** The owner's routing rules. */
+  routing?: RoutingRules;
+  /** P2: true while the viewer of this screen (bot id, or null for the shared one) may only watch. */
+  viewOnly?: (scope: string | null) => boolean;
+  /** Uploaded pictures: a reference is only stored once its file is here. */
+  media?: MediaStore;
 }
 
 export function createRest(deps: RestDeps) {
@@ -58,7 +76,7 @@ export function createRest(deps: RestDeps) {
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '/?$');
     routes.push({ method, pattern, keys, handler });
   };
-  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account } = deps;
+  const { repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, computers } = deps;
   const need = <T>(v: T | undefined, what: string): T => { if (!v) throw new HttpError(404, what + ' not found'); return v; };
   const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
     const r = schema.safeParse(body);
@@ -74,6 +92,24 @@ export function createRest(deps: RestDeps) {
     const parsed = parse(schema, body) as Record<string, unknown>;
     const sent = new Set(Object.keys((body ?? {}) as Record<string, unknown>));
     return Object.fromEntries(Object.entries(parsed).filter(([k]) => sent.has(k))) as Partial<T>;
+  };
+
+  /** A picture reference must name a file this hub holds. Icon keys and '' pass; the schemas have dropped the rest. */
+  const needPicture = (avatar: string | undefined) => {
+    if (isMediaRef(avatar) && !deps.media?.has(mediaHash(avatar))) throw new HttpError(400, 'That picture is gone. Upload it again.');
+  };
+  /** What the owner changed in a group, as the lines the chat shows. */
+  const roomChanges = (before: Room, after: Room): string[] => {
+    const who = settings.get().userName;
+    const label = (id: string) => { const b = repos.getBot(id); return b ? b.name + ' (@' + b.handle + ')' : 'A bot'; };
+    const lines: string[] = [];
+    if (after.name !== before.name) lines.push(who + ' renamed this chat to "' + after.name + '".');
+    for (const id of after.memberIds) if (!before.memberIds.includes(id)) lines.push(who + ' added ' + label(id) + '.');
+    for (const id of before.memberIds) if (!after.memberIds.includes(id)) lines.push(who + ' removed ' + label(id) + '.');
+    if (after.coordinatorBotId !== before.coordinatorBotId) {
+      lines.push(after.coordinatorBotId ? 'Coordinator is now ' + label(after.coordinatorBotId) + '.' : 'This chat has no coordinator now.');
+    }
+    return lines;
   };
 
   // ---- health
@@ -92,24 +128,83 @@ export function createRest(deps: RestDeps) {
     };
   });
   add('GET', '/api/debug/last-init', () => runner.lastInit);
-  add('GET', '/api/screen', async () => {
+  add('GET', '/api/screen', async ({ query }) => {
+    // P1: `?botId=` asks about that bot's own computer. Without per-bot computers (or without a bot) it is the
+    // one shared screen, exactly as before; `computer` then says perBot: false.
+    const botId = query.get('botId');
+    if (botId && computers.enabled) {
+      need(repos.getBot(botId), 'Bot');
+      const computer = computers.status(botId);
+      const ep = computers.existingEndpoint(botId);
+      const live = !!ep && computer.state === 'live';
+      const [screen, cdp] = live ? await Promise.all([probe(ep.screenUrl), probe(ep.cdpUrl)]) : [false, false];
+      return { screen, cdp, url: screenViewerPath(botId, deps.viewOnly?.(botId) ?? false), computer };
+    }
     const [screen, cdp] = await Promise.all([probe(SCREEN_URL), probe(CDP_URL)]);
-    return { screen, cdp, url: SCREEN_VIEWER_PATH };
+    return { screen, cdp, url: screenViewerPath(null, deps.viewOnly?.(null) ?? false), ...(botId ? { computer: computers.status(botId) } : {}) };
   });
   // The web client cannot put the hub token in an iframe URL, so it spends the token here instead: one
   // authenticated POST buys a ticket that `/screen/session` trades for a `/screen`-scoped httpOnly cookie.
-  add('POST', '/api/screen/ticket', () => ({ url: screenSessions.mintTicket().url }));
+  // P1: with `{ botId }` the ticket (and the cookie it buys) opens that bot's computer and nothing else.
+  add('POST', '/api/screen/ticket', ({ body, req }) => {
+    const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
+    // P9: a ticket a paired device mints is tagged with it, so revoking the device closes its Screen too.
+    const owner = deviceIdOf(req);
+    if (botId && computers.enabled) {
+      need(repos.getBot(botId), 'Bot');
+      if (!computers.existingEndpoint(botId)) throw new HttpError(409, 'This bot has no computer yet');
+      return { url: screenSessions.mintTicket(botId, owner).url };
+    }
+    return { url: screenSessions.mintTicket(null, owner).url };
+  });
+
+  // ---- per-bot computers (P1). Human-only: no bot tool reaches these.
+  add('GET', '/api/computers/:botId', ({ params }) => computers.status(need(repos.getBot(params.botId), 'Bot').id));
+  // The app opened: warm the bot in `botId` and one more recent one, in empty places only. Answers at once; the
+  // starts show up as computer.state events. Not on DEVICE_ALLOW: opening the app on a phone wakes nothing.
+  add('POST', '/api/computers/warm', ({ body }) => {
+    const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
+    void computers.warm(botId && repos.getBot(botId) ? botId : null).catch((e) => console.warn('[computers] ' + (e as Error).message));
+    return { ok: true };
+  });
+  // `auto`: nobody pressed anything (a bot was selected, a screen was opened), so the memory guard applies and only
+  // a cold computer may be evicted. A paired device always gets those rules. Without it this is the Retry button.
+  add('POST', '/api/computers/:botId/wake', async ({ params, body, req }) => {
+    const bot = need(repos.getBot(params.botId), 'Bot');
+    const { auto } = parse(z.object({ auto: z.boolean().optional() }), body ?? {});
+    if (!computers.enabled) throw new HttpError(409, 'This server has no per-bot computers');
+    if (auto || deviceIdOf(req)) await computers.wakeFocused(bot.id);
+    else await computers.ensureRunning(bot.id);
+    return computers.status(bot.id);
+  });
+  add('PUT', '/api/computers/:botId/keep-awake', ({ params, body }) => {
+    const bot = need(repos.getBot(params.botId), 'Bot');
+    const { on } = parse(z.object({ on: z.boolean() }), body);
+    if (!computers.enabled) throw new HttpError(409, 'This server has no per-bot computers');
+    try {
+      return computers.setKeepAwake(bot.id, on);
+    } catch (e) {
+      if (e instanceof AlwaysOnRefused) throw new HttpError(409, e.message);
+      throw e;
+    }
+  });
   add('GET', '/api/config', () => ({ workspaceDir: WORKSPACE_DIR, version: VERSION }));
   // Opens the workspace on the machine the HUB runs on, which is the only machine it exists on: the user's
   // own PC for a local hub, the virtual desktop behind the Screen tab for a server one. The path is fixed,
   // so the request carries nothing that reaches the shell.
-  add('POST', '/api/workspace/open', () => openWorkspace({ screen: DESKTOP_AVAILABLE }));
+  // P1: with per-bot computers it opens on the requesting bot's running computer (`{ botId }`), or says why not.
+  add('POST', '/api/workspace/open', ({ body }) => {
+    const { botId } = parse(z.object({ botId: z.string().optional() }), body ?? {});
+    const bot = botId ? need(repos.getBot(botId), 'Bot') : null;
+    return openWorkspace({ screen: DESKTOP_AVAILABLE, ...workspaceTarget(computers, bot) });
+  });
 
   // ---- settings / secrets / providers
   add('GET', '/api/settings', () => settings.get());
   // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
   add('PUT', '/api/settings', ({ body }) => {
     const patch = parsePatch(SettingsPatchSchema, body);
+    needPicture(patch.userAvatar);
     const before = settings.approvals();
     try {
       const next = settings.patch(patch);
@@ -155,6 +250,7 @@ export function createRest(deps: RestDeps) {
   add('GET', '/api/bots', () => repos.listBots());
   add('POST', '/api/bots', ({ body }) => {
     const input = parse(BotInputSchema, body);
+    needPicture(input.avatar);
     if (repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
     const bot = repos.createBot(input);
     memory.ensureHome(bot.id);
@@ -165,6 +261,7 @@ export function createRest(deps: RestDeps) {
   add('PATCH', '/api/bots/:id', ({ params, body }) => {
     const cur = need(repos.getBot(params.id), 'Bot');
     const input = parsePatch(BotInputSchema.partial(), body);
+    needPicture(input.avatar);
     if (input.handle && input.handle !== cur.handle && repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
     const bot = repos.updateBot(params.id, input)!;
     if (input.description !== undefined) memory.writeIdentity(bot.id, input.description);
@@ -174,6 +271,8 @@ export function createRest(deps: RestDeps) {
   add('DELETE', '/api/bots/:id', ({ params }) => {
     need(repos.getBot(params.id), 'Bot');
     repos.deleteBot(params.id);
+    memory.removeHome(params.id);
+    deps.voice?.removeForBot(params.id);
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return { ok: true };
@@ -205,14 +304,32 @@ export function createRest(deps: RestDeps) {
     const input = parse(RoomInputSchema, body);
     for (const id of input.memberIds) need(repos.getBot(id), 'Bot ' + id);
     if (input.kind === 'dm' && input.memberIds.length !== 1) throw new HttpError(400, 'DM needs exactly one bot');
+    if (input.coordinatorBotId && !input.memberIds.includes(input.coordinatorBotId)) throw new HttpError(400, 'The coordinator must be in the chat');
+    needPicture(input.avatar);
     const room = repos.createRoom(input);
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return room;
   });
   add('PATCH', '/api/rooms/:id', ({ params, body }) => {
-    need(repos.getRoom(params.id), 'Room');
+    const cur = need(repos.getRoom(params.id), 'Room');
     const input = parsePatch(RoomInputSchema.partial(), body);
-    const room = repos.updateRoom(params.id, input)!;
+    for (const id of input.memberIds ?? []) need(repos.getBot(id), 'Bot ' + id);
+    if ((input.kind ?? cur.kind) === 'dm' && (input.memberIds ?? cur.memberIds).length !== 1) throw new HttpError(400, 'DM needs exactly one bot');
+    needPicture(input.avatar);
+    const memberIds = input.memberIds ?? cur.memberIds;
+    if (input.coordinatorBotId && !memberIds.includes(input.coordinatorBotId)) throw new HttpError(400, 'The coordinator must be in the chat');
+    // A coordinator who leaves stops being one. An empty `memberIds` never gets here: the schema wants at least one bot.
+    const coordinatorBotId = input.coordinatorBotId === undefined && cur.coordinatorBotId && !memberIds.includes(cur.coordinatorBotId) ? null : input.coordinatorBotId;
+    const room = repos.updateRoom(params.id, { ...input, coordinatorBotId })!;
+    for (const id of cur.memberIds) if (!room.memberIds.includes(id)) router.botLeftRoom(id, room.id);
+    events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
+    if (room.kind === 'group') for (const line of roomChanges(cur, room)) router.systemNote(room, line, null, 0);
+    return room;
+  });
+  // The composer's model pick for this chat. Human-only: no bot tool reaches it, and a paired device is refused.
+  add('PUT', '/api/rooms/:id/model', ({ params, body }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const room = repos.setRoomChatModel(params.id, parse(RoomModelInputSchema, body).model)!;
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return room;
   });
@@ -261,31 +378,84 @@ export function createRest(deps: RestDeps) {
   add('GET', '/api/routines', () => repos.listRoutines());
   add('POST', '/api/routines', ({ body }) => {
     const i = parse(RoutineInputSchema, body);
-    const err = scheduler.constructor as typeof RoutineScheduler;
-    const bad = err.validate(i.cron);
-    if (bad) throw new HttpError(400, 'Invalid cron: ' + bad);
+    const sched = RoutineScheduler.resolveSchedule(i, scheduler.timezone());
+    if ('error' in sched) throw new HttpError(400, sched.error);
     need(repos.getBot(i.botId), 'Bot'); need(repos.getRoom(i.roomId), 'Room');
-    const r = repos.createRoutine(i);
+    const r = repos.createRoutine({ ...i, ...sched });
     scheduler.reload();
     return repos.getRoutine(r.id);
   });
   add('PATCH', '/api/routines/:id', ({ params, body }) => {
-    need(repos.getRoutine(params.id), 'Routine');
-    const i = parsePatch(RoutineInputSchema.partial(), body);
-    if (i.cron) { const bad = (scheduler.constructor as typeof RoutineScheduler).validate(i.cron); if (bad) throw new HttpError(400, 'Invalid cron: ' + bad); }
-    const r = repos.updateRoutine(params.id, i)!;
+    const cur = need(repos.getRoutine(params.id), 'Routine');
+    const { onceAt, ...i } = parsePatch(RoutineInputSchema.partial(), body);
+    let sched = {};
+    if (i.cron !== undefined || onceAt !== undefined) {
+      // Re-check the schedule only when it changes, so toggling an old one-shot is not refused as "past".
+      const s = RoutineScheduler.resolveSchedule({ cron: i.cron ?? cur.cron, onceAt: onceAt === undefined ? cur.onceAt : onceAt }, scheduler.timezone());
+      if ('error' in s) throw new HttpError(400, s.error);
+      sched = s;
+    }
+    const r = repos.updateRoutine(params.id, { ...i, ...sched })!;
     scheduler.reload();
     return repos.getRoutine(r.id);
   });
   add('DELETE', '/api/routines/:id', ({ params }) => { repos.deleteRoutine(params.id); scheduler.reload(); return { ok: true }; });
-  add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id) }));
+  add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id, { manual: true }) }));
   add('GET', '/api/routines/:id/runs', ({ params }) => repos.listRuns(params.id));
+
+  // ---- the owner's routing rules. Human-only, like settings; a bot can only propose a line, on an approval card.
+  if (deps.routing) {
+    const routing = deps.routing;
+    add('GET', '/api/routing', () => ({ text: routing.read() }));
+    add('PUT', '/api/routing', ({ body }) => {
+      const { text } = parse(RoutingInputSchema, body);
+      try {
+        routing.write(text);
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+      return { text };
+    });
+  }
+
+  // ---- P7: knowledge repo, voice, notes, skill import from git
+  // Human-only, like settings: no bot tool reaches the knowledge sync or the voice approvals.
+  if (deps.knowledge) {
+    const knowledge = deps.knowledge;
+    add('GET', '/api/knowledge', () => knowledge.status());
+    add('POST', '/api/knowledge/sync', () => knowledge.sync());
+  }
+  add('GET', '/api/bots/:id/voice', ({ params }) => {
+    const bot = need(repos.getBot(params.id), 'Bot');
+    return { text: memory.readVoice(bot.id), proposals: deps.voice?.list(bot.id) ?? [] };
+  });
+  add('PUT', '/api/bots/:id/voice', ({ params, body }) => {
+    const { text } = parse(z.object({ text: z.string().max(64 * 1024) }), body);
+    const trimmed = memory.writeVoice(need(repos.getBot(params.id), 'Bot').id, text);
+    return { ok: true, trimmed };
+  });
+  add('POST', '/api/bots/:id/voice/proposals/:pid', ({ params, body }) => {
+    const bot = need(repos.getBot(params.id), 'Bot');
+    const { decision } = parse(z.object({ decision: z.enum(['approve', 'dismiss']) }), body);
+    if (!deps.voice?.decide(bot.id, params.pid, decision)) throw new HttpError(404, 'Proposal not found');
+    return { text: memory.readVoice(bot.id), proposals: deps.voice.list(bot.id) };
+  });
+  add('GET', '/api/bots/:id/notes', ({ params }) => memory.listNotes(need(repos.getBot(params.id), 'Bot').id));
+  add('POST', '/api/skills/import-git', async ({ body }) => {
+    const { url } = parse(z.object({ url: z.string().min(1).max(500) }), body);
+    try {
+      return await skills.importFromGit(url);
+    } catch (e) {
+      throw new HttpError(400, (e as Error).message);
+    }
+  });
 
   // ---- usage
   add('GET', '/api/usage', ({ query }) => {
     const botId = query.get('botId') ?? undefined;
     const roomId = query.get('roomId') ?? undefined;
-    return { totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown() };
+    // byModel / byCause (P8): where the money went, so automation spend is visible next to chat spend.
+    return { totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown(), byModel: repos.usageBy('model'), byCause: repos.usageBy('causeKind') };
   });
 
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -312,7 +482,7 @@ export function createRest(deps: RestDeps) {
         return send(res, 200, out ?? { ok: true });
       } catch (e) {
         const status = e instanceof HttpError || e instanceof AccountError ? e.status : 500;
-        if (status === 500) console.error(e);
+        if (status === 500) logError('[rest]', e);
         return send(res, status, { error: (e as Error).message ?? String(e) });
       }
     }

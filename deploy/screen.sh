@@ -1,35 +1,55 @@
 #!/usr/bin/env bash
 # PocketRocket "computer": a persistent XFCE desktop on a virtual display, exposed via VNC -> noVNC.
+# Display and ports come from SCREEN_DISPLAY / CDP_PORT / VNC_PORT / NOVNC_PORT (defaults below:
+# :99, 9222, 5900, 6080).
 # - Desktop folder = $DATA/workspace (what bots write shows up on the desktop)
 # - Desktop config/home persists in $DATA/desktop-home; Chromium profile in $DATA/browser-profile
 # - CDP on 127.0.0.1:9222 (Browser tool), xdotool/scrot on DISPLAY :99 (Desktop tool)
 # - noVNC on 127.0.0.1:6080, proxied by the hub at /screen/
+# deploy/computer.sh reuses this script for per-bot computers: it also sets SCREEN_HOME / SCREEN_PROFILE /
+# SCREEN_DESKTOP_DIR / SCREEN_DOWNLOAD_DIR (the defaults below keep the shared screen exactly as it was).
 # Runs as the unprivileged `pocketrocket` user (see deploy/setup-vps.sh); everything above binds
 # 127.0.0.1 only and X requires the cookie below. VNC itself has no password: the only way in is the
 # hub's /screen/ proxy, which already demands the hub token (a /screen-scoped httpOnly cookie), and a
 # second prompt for a VNC password on every Screen tab load added nothing but friction.
 set -euo pipefail
-export DISPLAY=:99
+DISP="${SCREEN_DISPLAY:-:99}"
+CDP_PORT="${CDP_PORT:-9222}"; VNC_PORT="${VNC_PORT:-5900}"; NOVNC_PORT="${NOVNC_PORT:-6080}"
+export DISPLAY="$DISP"
 DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket/data}"
-PROFILE="$DATA/browser-profile"
-DHOME="$DATA/desktop-home"
+PROFILE="${SCREEN_PROFILE:-$DATA/browser-profile}"
+DHOME="${SCREEN_HOME:-$DATA/desktop-home}"
 WS="$DATA/workspace"
+DESK="${SCREEN_DESKTOP_DIR:-$WS}"
+DL="${SCREEN_DOWNLOAD_DIR:-$WS/downloads}"
 W="${SCREEN_W:-1280}"; H="${SCREEN_H:-800}"
-CHROME="${CHROME_BIN:-$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1)}"
+# Real Google Chrome, the browser a person would use: logins go through it. Playwright's Chrome for Testing is
+# labelled "only for automated testing", so it is only the fallback where Chrome has no build (Linux on ARM).
+CHROME="${CHROME_BIN:-$(command -v google-chrome-stable || true)}"
+if [ -z "$CHROME" ]; then
+  CHROME="$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1)"
+  [ -z "$CHROME" ] || echo "screen.sh: google-chrome-stable not found; falling back to Chrome for Testing (run deploy/setup-vps.sh as root)" >&2
+fi
 if [ -z "$CHROME" ] || [ ! -x "$CHROME" ]; then echo "chromium not found; run deploy/setup-vps.sh" >&2; exit 1; fi
 
-mkdir -p "$PROFILE" "$WS/downloads" "$DHOME/.config/xfce4/xfconf/xfce-perchannel-xml" "$DHOME/.cache" "$DHOME/.local/share"
-# Desktop + Downloads + Documents all point into the shared workspace.
+mkdir -p "$PROFILE" "$WS" "$DESK" "$DL" "$DHOME/.config/xfce4/xfconf/xfce-perchannel-xml" "$DHOME/.cache" "$DHOME/.local/share"
+# Desktop + Downloads + Documents: the shared workspace on the shared screen, the bot's own disk on a per-bot one.
 cat > "$DHOME/.config/user-dirs.dirs" <<EOF
-XDG_DESKTOP_DIR="$WS"
-XDG_DOWNLOAD_DIR="$WS/downloads"
-XDG_DOCUMENTS_DIR="$WS"
+XDG_DESKTOP_DIR="$DESK"
+XDG_DOWNLOAD_DIR="$DL"
+XDG_DOCUMENTS_DIR="$DESK"
 EOF
-# Terminals open in the workspace (desktop folder), not in desktop-home.
+# A per-bot desktop links the shared team folder in as ~/Shared and onto the desktop.
+if [ "$DESK" != "$WS" ]; then
+  for link in "$DHOME/Shared" "$DESK/Shared"; do
+    if [ -L "$link" ] || [ ! -e "$link" ]; then ln -sfn "$WS" "$link"; fi
+  done
+fi
+# Terminals open in the desktop folder, not in the desktop home.
 mkdir -p "$DHOME/.config/xfce4/terminal"
 grep -q MiscDefaultWorkingDir "$DHOME/.config/xfce4/terminal/terminalrc" 2>/dev/null || cat > "$DHOME/.config/xfce4/terminal/terminalrc" <<EOF
 [Configuration]
-MiscDefaultWorkingDir=$WS
+MiscDefaultWorkingDir=$DESK
 MiscMenubarDefault=FALSE
 EOF
 # Seed the default panel layout once so XFCE does not show its first-run wizard.
@@ -53,9 +73,9 @@ trap 'kill 0 2>/dev/null || true' EXIT
 export XAUTHORITY="$DHOME/.Xauthority"
 touch "$XAUTHORITY"
 chmod 600 "$XAUTHORITY"
-xauth -f "$XAUTHORITY" add :99 . "$(mcookie 2>/dev/null || openssl rand -hex 16)"
+xauth -f "$XAUTHORITY" add "$DISP" . "$(mcookie 2>/dev/null || openssl rand -hex 16)"
 
-Xvfb :99 -auth "$XAUTHORITY" -screen 0 "${W}x${H}x24" -nolisten tcp +extension RANDR >/dev/null 2>&1 &
+Xvfb "$DISP" -auth "$XAUTHORITY" -screen 0 "${W}x${H}x24" -nolisten tcp +extension RANDR >/dev/null 2>&1 &
 sleep 1
 
 # XFCE session pieces run with HOME=$DHOME so every setting persists in data/.
@@ -80,6 +100,11 @@ fi
 if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = "1" ]; then
   userns_ok=0
 fi
+# Ubuntu 23.10+ restricts user namespaces per program and ships a profile allowing them for Google Chrome alone,
+# which also works under the unit's NoNewPrivileges (Chrome's setuid helper would not).
+if [ "$(readlink -f "$CHROME")" = "/opt/google/chrome/google-chrome" ] && grep -qs "/opt/google/chrome/chrome" /etc/apparmor.d/chrome; then
+  userns_ok=1
+fi
 if [ "$userns_ok" != "1" ]; then
   echo "screen.sh: unprivileged user namespaces are restricted; Chromium's sandbox needs them as a non-root user. Falling back to --no-sandbox (re-run deploy/setup-vps.sh as root to enable kernel.unprivileged_userns_clone)." >&2
   SANDBOX_ARGS=(--no-sandbox)
@@ -89,11 +114,16 @@ fi
 # no Origin header, which Chromium's remote-debugging Origin allowlist only checks/enforces when
 # an Origin header is present (i.e. a browser page trying to reach it) — see deploy/setup-vps.sh
 # header comment and the PocketRocket audit item 8 for the verification notes.
-"$CHROME" "${SANDBOX_ARGS[@]}" --test-type --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check \
+"$CHROME" "${SANDBOX_ARGS[@]}" --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check \
   --disable-session-crashed-bubble --disable-features=TranslateUI --password-store=basic \
-  --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port="$CDP_PORT" --remote-debugging-address=127.0.0.1 \
   --user-data-dir="$PROFILE" --window-position=0,0 --window-size="$W,$((H-40))" \
   "https://www.google.com" >/dev/null 2>&1 &
 
-x11vnc -display :99 -localhost -nopw -forever -shared -noxdamage -rfbport 5900 -quiet >/dev/null 2>&1 &
-exec websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5900
+# P2: VNC_VIEWONLY=1 (per-bot computers) starts the viewer view-only: the bot has control until the user takes
+# over, and the hub flips it live with `x11vnc -R viewonly|noviewonly` (services/ComputerControl.ts). Remote
+# control goes through an X property, so it needs this display and its cookie, nothing on the network.
+VNC_ARGS=()
+if [ "${VNC_VIEWONLY:-0}" = "1" ]; then VNC_ARGS=(-viewonly); fi
+x11vnc -display "$DISP" -localhost -nopw -forever -shared -noxdamage ${VNC_ARGS[@]+"${VNC_ARGS[@]}"} -rfbport "$VNC_PORT" -quiet >/dev/null 2>&1 &
+exec websockify --web /usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT"

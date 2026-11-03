@@ -28,6 +28,16 @@ const PATTERNS: RegExp[] = [
   /\b(authorization\s*[:=]\s*)?bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
   // Vendor key shapes: sk-…, sk_live_…, xai-…, ghp_…, gho_… (also matches the `-`-less spellings).
   /\b(sk|xai|ghp|gho)-?[A-Za-z0-9_-]{16,}/g,
+  // P4 integration credentials. The vault also registers every stored value exactly (addSecret); these
+  // catch the same shapes when a provider echoes a token the hub never stored (a refreshed one, a typo'd one).
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/g, // GitHub fine-grained PAT
+  /\bgh[usr]_[A-Za-z0-9]{20,}/g, // GitHub user-to-server, server-to-server, refresh tokens
+  /\bxox[abeoprs]-[A-Za-z0-9-]{10,}/g, // Slack bot / user / refresh tokens
+  /\bxapp-[A-Za-z0-9-]{10,}/g, // Slack app-level token
+  /\bpk_\d+_[A-Za-z0-9]{16,}/g, // ClickUp personal token
+  /\bya29\.[A-Za-z0-9._-]{20,}/g, // Google access token
+  /\b1\/\/[A-Za-z0-9_-]{20,}/g, // Google refresh token
+  /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT (Microsoft access tokens)
 ];
 
 /** Replace every known secret and secret-shaped token in `text` with `[redacted]`. */
@@ -49,4 +59,13 @@ export function redactUnknown(v: unknown): string {
 /** Exported for tests: the exact-secret registry size. */
 export function knownSecretCount(): number {
   return known.size;
+}
+
+/**
+ * Hardening pass: log an error through `redact`. Errors from integrations, triggers, pairing and providers can
+ * carry a token-bearing URL, header or response body; this is the one way the hub prints a caught error.
+ */
+export function logError(prefix: string, e: unknown): void {
+  const text = e instanceof Error ? e.stack ?? e.message : typeof e === 'string' ? e : JSON.stringify(e) ?? String(e);
+  console.error(prefix, redact(text));
 }

@@ -41,7 +41,7 @@ async function api(method, path, body) {
 }
 let bots = await api('GET', '/api/bots');
 let chief = bots.find((b) => b.handle === 'chief');
-if (!chief) chief = await api('POST', '/api/bots', { name: 'Chief', handle: 'chief', title: 'Chief of staff', avatar: '🧭', description: 'You coordinate. If a needed role is missing, create it with create_bot. Delegate with @handle, then summarize. Never do specialist work yourself. Max 3 sentences per message.' });
+if (!chief) chief = await api('POST', '/api/bots', { name: 'Chief', handle: 'chief', title: 'Chief of staff', avatar: 'compass', description: 'You coordinate. If a needed role is missing, create it with create_bot. Delegate with @handle, then summarize. Never do specialist work yourself. Max 3 sentences per message.' });
 let rooms = await api('GET', '/api/rooms');
 let room = rooms.find((r) => r.name === 'team-build');
 if (!room) room = await api('POST', '/api/rooms', { kind: 'group', name: 'team-build', memberIds: [chief.id], coordinatorBotId: chief.id });
@@ -74,7 +74,7 @@ ws.on('message', async (raw) => {
     const m = ev.message;
     if (m.roomId !== room.id) return;
     const a = m.authorType === 'user' ? 'alex' : m.authorType === 'system' ? 'system' : '@' + who(m.authorId);
-    console.log('#' + m.seq, '[' + a + ']', m.kind, 'hop' + m.hop, JSON.stringify(m.kind === 'tool' ? m.payload.name.replace('mcp__pocketrocket__', '⚡') + ' ' + JSON.stringify(m.payload.input).slice(0, 90) : m.text).slice(0, 230));
+    console.log('#' + m.seq, '[' + a + ']', m.kind, 'hop' + m.hop, JSON.stringify(m.kind === 'tool' ? m.payload.name.replace('mcp__pocketrocket__', 'hub:') + ' ' + JSON.stringify(m.payload.input).slice(0, 90) : m.text).slice(0, 230));
   } else if (ev.type === 'turn.end') console.log('   turn.end', who(ev.botId), ev.error ?? '', '$' + (ev.costUsd ?? 0).toFixed(3));
   else if (ev.type === 'approval.request') { console.log('   APPROVAL', ev.approval.toolName, ev.approval.reason); ws.send(JSON.stringify({ type: 'approval.decide', approvalId: ev.approval.approvalId, decision: 'allow' })); }
   else if (ev.type === 'error') console.log('   ERROR', ev.message);

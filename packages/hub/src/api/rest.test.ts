@@ -1,7 +1,9 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { MAX_ROOM_BOTS, type Room } from '@pocketrocket/shared';
 import type { Bot, HealthInfo, ProvidersResponse, SecretsStatus, Settings } from '@pocketrocket/shared';
-import { APPROVALS_ENV, ENABLED_PROVIDERS } from '../config.js';
+import { APPROVALS_ENV, ENABLED_PROVIDERS, botHome } from '../config.js';
 import { createHub, type Hub } from '../hub.js';
 
 let hub: Hub;
@@ -114,4 +116,39 @@ describe('settings / secrets / providers REST', () => {
     // GET /api/providers probes every enabled CLI by spawning it, which lands within a few hundred ms of the
     // 5s default on its own and tips over when the suite runs it in parallel. Slow test, not a slow assert.
   }, 30_000);
+});
+
+describe('rooms and bot delete REST', () => {
+  const mkBots = async (n: number, tag: string) => {
+    const out: Bot[] = [];
+    for (let i = 0; i < n; i++) out.push((await api<Bot>('POST', '/api/bots', { name: tag + i, handle: tag + i })).body);
+    return out;
+  };
+
+  it('accepts up to MAX_ROOM_BOTS members and rejects more', async () => {
+    const bots = await mkBots(MAX_ROOM_BOTS + 1, 'cap');
+    const ids = bots.map((b) => b.id);
+    const ok = await api<Room>('POST', '/api/rooms', { kind: 'group', name: 'Full', memberIds: ids.slice(0, MAX_ROOM_BOTS) });
+    expect(ok.status).toBe(200);
+    expect(ok.body.memberIds).toHaveLength(MAX_ROOM_BOTS);
+    expect((await api('POST', '/api/rooms', { kind: 'group', name: 'Over', memberIds: ids })).status).toBe(400);
+    expect((await api('PATCH', '/api/rooms/' + ok.body.id, { memberIds: ids })).status).toBe(400);
+  });
+
+  it('keeps a DM at exactly one member on PATCH', async () => {
+    const [a, b] = await mkBots(2, 'dmx');
+    const dm = (await api<Room>('POST', '/api/rooms', { kind: 'dm', name: 'DM', memberIds: [a.id] })).body;
+    expect((await api('PATCH', '/api/rooms/' + dm.id, { memberIds: [a.id, b.id] })).status).toBe(400);
+    const group = (await api<Room>('POST', '/api/rooms', { kind: 'group', name: 'G', memberIds: [a.id, b.id] })).body;
+    expect((await api('PATCH', '/api/rooms/' + group.id, { kind: 'dm' })).status).toBe(400);
+    expect((await api('PATCH', '/api/rooms/' + dm.id, { memberIds: ['nope'] })).status).toBe(404);
+    expect((await api<Room>('PATCH', '/api/rooms/' + dm.id, { memberIds: [b.id] })).body.memberIds).toEqual([b.id]);
+  });
+
+  it('removes the bot folder when a bot is deleted', async () => {
+    const [bot] = await mkBots(1, 'gone');
+    expect(fs.existsSync(botHome(bot.id))).toBe(true);
+    expect((await api('DELETE', '/api/bots/' + bot.id)).status).toBe(200);
+    expect(fs.existsSync(botHome(bot.id))).toBe(false);
+  });
 });

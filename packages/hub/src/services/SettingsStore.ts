@@ -1,9 +1,10 @@
 import {
-  DEFAULT_SETTINGS, SettingsSchema, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
+  AUTO_MODEL, DEFAULT_SETTINGS, SettingsSchema, isTimeZone, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
 } from '@pocketrocket/shared';
 import { APPROVALS_ENV, ENABLED_PROVIDERS, osUserName } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
+import { knowledgeSourceError } from './KnowledgeRepo.js';
 
 export interface SettingsDeps {
   repos: Repos;
@@ -24,9 +25,15 @@ export interface SettingsDeps {
   modelsAsync?: (provider: ProviderId) => Promise<ModelInfo[]>;
 }
 
-/** Defaults with the OS account name filled in for `userName`. */
+/** Defaults with the OS account name filled in for `userName` and the system zone for `timezone`. */
 export function defaultSettings(): Settings {
-  return { ...DEFAULT_SETTINGS, userName: osUserName() };
+  return { ...DEFAULT_SETTINGS, userName: osUserName(), timezone: systemTimeZone() };
+}
+
+/** The hub machine's IANA time zone (`UTC` on most VPSes), or UTC when the runtime cannot tell. */
+export function systemTimeZone(): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return tz && isTimeZone(tz) ? tz : 'UTC';
 }
 
 /** A patch refused on policy rather than shape; rest.ts answers with `status`. */
@@ -70,7 +77,7 @@ export class SettingsStore {
     if (this.enabled.includes(s.provider)) return;
     // The default model for new bots belonged to the old provider too; nothing else would ever fix it.
     const models = this.deps.models?.('claude') ?? [];
-    const stale = models.length > 0 && !models.some((m) => m.id === s.defaultModel);
+    const stale = models.length > 0 && s.defaultModel !== AUTO_MODEL && !models.some((m) => m.id === s.defaultModel);
     this.patch(stale ? { provider: 'claude', defaultModel: DEFAULT_SETTINGS.defaultModel } : { provider: 'claude' });
   }
 
@@ -81,6 +88,8 @@ export class SettingsStore {
       const base = parsed.success ? parsed.data : defaultSettings();
       // userName defaults to the OS account name rather than the schema's placeholder.
       this.cache = stored.userName === undefined ? { ...base, userName: osUserName() } : base;
+      // P3: likewise the time zone follows the system until the user picks one.
+      if (stored.timezone === undefined) this.cache = { ...this.cache, timezone: systemTimeZone() };
     }
     return this.cache;
   }
@@ -90,10 +99,15 @@ export class SettingsStore {
     const prev = this.get();
     const next = SettingsSchema.parse({ ...prev, ...p });
     if (p.provider !== undefined && !this.enabled.includes(p.provider)) {
-      throw new SettingsRejected('provider: ' + p.provider + ' is not enabled on this hub');
+      throw new SettingsRejected('provider: ' + p.provider + ' is not enabled on this server');
     }
     if (this.approvalsLocked && next.approvals !== prev.approvals) {
       throw new SettingsRejected('approvals: set by the server environment (POCKETROCKET_BYPASS_PERMISSIONS)', 409);
+    }
+    // P7: the knowledge source reaches git (as an argument, never a shell), so it is checked before it is stored.
+    if (p.knowledgeRepo !== undefined && p.knowledgeRepo !== prev.knowledgeRepo) {
+      const bad = knowledgeSourceError(p.knowledgeRepo);
+      if (bad) throw new SettingsRejected('knowledgeRepo: ' + bad);
     }
     for (const [k, v] of Object.entries(next)) {
       if ((prev as Record<string, unknown>)[k] !== v || (p as Record<string, unknown>)[k] !== undefined) {
@@ -138,7 +152,8 @@ export class SettingsStore {
     const known = new Set(models.map((m) => m.id));
     let changed = false;
     for (const bot of this.deps.repos.listBots()) {
-      if (known.has(bot.model)) continue;
+      // `auto` is resolved per turn against whichever provider is active (P8), so it never needs repointing.
+      if (known.has(bot.model) || bot.model === AUTO_MODEL) continue;
       const from = bot.model;
       this.deps.repos.updateBot(bot.id, { model: fallback });
       changed = true;

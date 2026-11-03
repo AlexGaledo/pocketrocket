@@ -13,6 +13,7 @@ import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { Avatar, Badge, Button, Input, RadioCard, Switch } from '../ui';
 import { Card, Group, SectionHeader } from './parts';
+import { ApprovalRules } from './ApprovalRules';
 
 export function BotsSection({ health, onHealthStale }: {
   /** Latest GET /api/health, or null while loading / if it failed (then we assume "not locked"). */
@@ -54,38 +55,40 @@ export function BotsSection({ health, onHealthStale }: {
       <Group title="Approvals" titleId={titleId}>
         <div role="radiogroup" aria-labelledby={titleId} aria-disabled={locked || undefined} className="flex flex-col gap-2">
           <RadioCard checked={inForce === 'ask'} disabled={locked} onSelect={() => choose('ask')} title="Ask before risky actions" badge={<Badge tone="ok">Recommended</Badge>}>
-            Bots ask before they run commands, change files outside the shared workspace, or add and change bots and rooms. You allow or deny each request right in the chat.
+            Asks before commands, outside files, or bot changes.
           </RadioCard>
           <RadioCard checked={inForce === 'bypass'} disabled={locked} onSelect={() => choose('bypass')} title="Run without asking">
-            Bots run commands, change files and use the web right away. Only for computers you trust.
+            No checks. Only on computers you trust.
           </RadioCard>
         </div>
 
         {confirming && !locked && <ConfirmBypass saving={saving} onCancel={() => setConfirming(false)} onConfirm={() => void save('bypass')} />}
 
         {locked ? (
-          <p className="mt-3 flex items-start gap-1.5 text-[12px] leading-snug text-muted">
+          <p className="mt-3 flex items-start gap-1.5 text-hint leading-snug text-muted">
             <Lock size={13} aria-hidden className="mt-0.5 shrink-0" />
             <span>
-              Set by the server's environment (<code className="font-mono text-[11.5px]">POCKETROCKET_BYPASS_PERMISSIONS</code>).
+              Set by the server's environment (<code className="font-mono text-hint">POCKETROCKET_BYPASS_PERMISSIONS</code>).
             </span>
           </p>
         ) : (
-          <p className="mt-3 text-[12px] text-muted">A change applies from each bot's next reply.</p>
+          <p className="mt-3 text-hint text-muted">Applies from each bot's next reply.</p>
         )}
       </Group>
 
       <Group title="Auto-memory">
-        <p id={memoryHintId} className="mb-2 text-[12px] leading-snug text-muted">
-          Every few turns in a room, a quick pass on Haiku (the cheapest model) saves lasting facts to the bot's memory:
-          your preferences, decisions, ongoing work. It only adds notes and never rewrites what is there.
+        <p id={memoryHintId} className="mb-2 text-hint leading-snug text-muted">
+          Bots save lasting facts. Only adds, never rewrites.
         </p>
         <Card className="py-1">
           {bots.length
             ? <div className="divide-y divide-line">{bots.map((b) => <AutoMemoryRow key={b.id} bot={b} describedBy={memoryHintId} />)}</div>
-            : <p className="py-2 text-[12.5px] text-muted">No bots yet.</p>}
+            : <p className="py-2 text-ui text-muted">No bots yet.</p>}
         </Card>
       </Group>
+
+      {/* P2 */}
+      <ApprovalRules />
     </>
   );
 }
@@ -117,17 +120,17 @@ function AutoMemoryRow({ bot, describedBy }: { bot: Bot; describedBy: string }) 
   return (
     <div className="flex items-center gap-3 py-2.5">
       <Avatar bot={bot} size={28} />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{bot.name}</span>
-      <span className="flex items-center gap-1.5 text-[12px] text-muted">
+      <span className="min-w-0 flex-1 truncate text-ui font-medium">{bot.name}</span>
+      <span className="flex items-center gap-1.5 text-hint text-muted">
         every
         <Input
           type="number" inputMode="numeric" min={AUTO_MEMORY_EVERY.min} max={AUTO_MEMORY_EVERY.max} step={1}
-          value={every} disabled={!on} aria-label={'Turns between auto-memory passes for ' + bot.name}
+          value={every} disabled={!on} aria-label={'Replies between auto-memory passes for ' + bot.name}
           onChange={(e) => setEvery(e.target.value)} onBlur={commitEvery}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
           className="h-7 w-14 px-2 text-center disabled:opacity-40"
         />
-        turns
+        replies
       </span>
       <Switch checked={on} aria-label={'Auto-memory for ' + bot.name} aria-describedby={describedBy} onChange={(next) => { setOn(next); void save({ autoMemory: next }); }} />
     </div>
@@ -141,14 +144,13 @@ function ConfirmBypass({ saving, onCancel, onConfirm }: { saving: boolean; onCan
   useEffect(() => keepAskingRef.current?.focus(), []);
 
   return (
-    <div role="group" aria-labelledby={headingId} className="mt-3 rounded-2xl bg-warn/10 p-4 ring-1 ring-warn/30">
+    <div role="group" aria-labelledby={headingId} className="mt-3 rounded-lg bg-warn/10 p-4 ring-1 ring-warn/30">
       <div className="flex gap-3">
         <ShieldAlert size={18} aria-hidden className="mt-0.5 shrink-0 text-warn" />
         <div className="min-w-0">
-          <p id={headingId} className="text-[13.5px] font-semibold">Turn off approvals?</p>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-fg">
-            Bots will act without checking with you first. A web page a bot reads can hide instructions that trick it
-            into running commands on this computer, and nothing will stop it.
+          <p id={headingId} className="text-ui font-semibold">Turn off approvals?</p>
+          <p className="mt-1 text-ui leading-relaxed text-fg">
+            Hidden web instructions could run commands here, unchecked.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button ref={keepAskingRef} variant="primary" disabled={saving} onClick={onCancel}>Keep asking</Button>

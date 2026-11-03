@@ -1,7 +1,10 @@
-// Download the Node 24 LTS win-x64 runtime that the desktop app ships as a Tauri sidecar.
+// Download the Node 24 LTS runtime that the desktop app ships as a Tauri sidecar, for the platform this
+// runs on (or NODE_SIDECAR_TARGET=<rust target triple>, e.g. for a cross build):
 //
 //   packages/desktop/src-tauri/binaries/node-x86_64-pc-windows-msvc.exe   (installed as node.exe
 //                                                                          next to PocketRocket.exe)
+//   packages/desktop/src-tauri/binaries/node-x86_64-unknown-linux-gnu     (Linux x64, installed as node)
+//   packages/desktop/src-tauri/binaries/node-aarch64-apple-darwin         (macOS arm64; x86_64-apple-darwin too)
 //   packages/desktop/src-tauri/binaries/NODE-LICENSE
 //   packages/desktop/src-tauri/binaries/node.version
 //
@@ -22,7 +25,30 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'packages', 'desktop', 'src-tauri', 'binaries');
-const EXE = path.join(BIN, 'node-x86_64-pc-windows-msvc.exe');
+// Rust target triple -> nodejs.org dist name, index.json `files` key, archive type, binary inside it.
+const TARGETS = {
+  'x86_64-pc-windows-msvc': { dist: 'win-x64', file: 'win-x64-zip', ext: 'zip', exe: 'node.exe' },
+  'x86_64-unknown-linux-gnu': { dist: 'linux-x64', file: 'linux-x64', ext: 'tar.gz', exe: 'bin/node' },
+  'aarch64-unknown-linux-gnu': { dist: 'linux-arm64', file: 'linux-arm64', ext: 'tar.gz', exe: 'bin/node' },
+  'aarch64-apple-darwin': { dist: 'darwin-arm64', file: 'osx-arm64-tar', ext: 'tar.gz', exe: 'bin/node' },
+  'x86_64-apple-darwin': { dist: 'darwin-x64', file: 'osx-x64-tar', ext: 'tar.gz', exe: 'bin/node' },
+};
+function hostTriple() {
+  const map = {
+    'win32-x64': 'x86_64-pc-windows-msvc',
+    'linux-x64': 'x86_64-unknown-linux-gnu',
+    'linux-arm64': 'aarch64-unknown-linux-gnu',
+    'darwin-arm64': 'aarch64-apple-darwin',
+    'darwin-x64': 'x86_64-apple-darwin',
+  };
+  return map[process.platform + '-' + process.arch] ?? null;
+}
+const TRIPLE = process.env.NODE_SIDECAR_TARGET || hostTriple();
+const TARGET = TARGETS[TRIPLE];
+if (!TARGET) {
+  throw new Error(`no Node sidecar for ${TRIPLE ?? process.platform + '-' + process.arch}; set NODE_SIDECAR_TARGET to one of ${Object.keys(TARGETS).join(', ')}`);
+}
+const EXE = path.join(BIN, `node-${TRIPLE}${TRIPLE.includes('windows') ? '.exe' : ''}`);
 const LICENSE = path.join(BIN, 'NODE-LICENSE');
 const STAMP = path.join(BIN, 'node.version');
 const DIST = 'https://nodejs.org/dist';
@@ -37,9 +63,9 @@ async function text(url) {
 async function latestLtsMajor() {
   const index = JSON.parse(await text(`${DIST}/index.json`));
   const candidates = index
-    .filter((r) => r.lts && new RegExp(`^v${NODE_MAJOR}\\.`).test(r.version) && (r.files ?? []).includes('win-x64-zip'))
+    .filter((r) => r.lts && new RegExp(`^v${NODE_MAJOR}\\.`).test(r.version) && (r.files ?? []).includes(TARGET.file))
     .sort((a, b) => cmpSemver(b.version, a.version));
-  if (!candidates.length) throw new Error(`no LTS v${NODE_MAJOR}.x win-x64 release found on nodejs.org`);
+  if (!candidates.length) throw new Error(`no LTS v${NODE_MAJOR}.x ${TARGET.dist} release found on nodejs.org`);
   return candidates[0].version; // "v24.x.y"
 }
 
@@ -54,10 +80,11 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-/** Pull two members out of the zip. Windows ships bsdtar, which reads zips; Expand-Archive is the fallback. */
+/** Pull two members out of the archive. Windows ships bsdtar, which reads zips; Expand-Archive is the fallback. */
 function extract(zip, members, dest) {
   const tar = spawnSync('tar', ['-xf', zip, '-C', dest, ...members], { stdio: 'pipe' });
   if (tar.status === 0) return;
+  if (process.platform !== 'win32') throw new Error(`could not extract ${zip}: ${tar.stderr?.toString().trim()}`);
   const ps = spawnSync(
     'powershell',
     ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${dest}' -Force`],
@@ -69,13 +96,16 @@ function extract(zip, members, dest) {
 const version = await latestLtsMajor();
 console.log(`[fetch-node] resolved latest LTS v${NODE_MAJOR}.x -> ${version}`);
 const stamped = fs.existsSync(STAMP) ? fs.readFileSync(STAMP, 'utf8').trim() : '';
-if (stamped === version && fs.existsSync(EXE) && fs.existsSync(LICENSE)) {
+// The stamp names the target too, so switching platforms refetches. An old version-only stamp is still
+// accepted for the Windows target, which is the only one that existed then.
+const stampOk = stamped === `${version} ${TRIPLE}` || (stamped === version && TRIPLE === 'x86_64-pc-windows-msvc');
+if (stampOk && fs.existsSync(EXE) && fs.existsSync(LICENSE)) {
   console.log(`[fetch-node] ${version} already in ${path.relative(ROOT, BIN)}`);
   process.exit(0);
 }
 
-const dirName = `node-${version}-win-x64`;
-const zipName = `${dirName}.zip`;
+const dirName = `node-${version}-${TARGET.dist}`;
+const zipName = `${dirName}.${TARGET.ext}`;
 const url = `${DIST}/${version}/${zipName}`;
 console.log(`[fetch-node] downloading ${url}`);
 
@@ -94,14 +124,16 @@ try {
   if (actual !== expected) throw new Error(`SHA256 mismatch for ${zipName}\n  expected ${expected}\n  got      ${actual}`);
   console.log(`[fetch-node] sha256 ok (${expected.slice(0, 16)}…)`);
 
-  extract(zipPath, [`${dirName}/node.exe`, `${dirName}/LICENSE`], tmp);
+  extract(zipPath, [`${dirName}/${TARGET.exe}`, `${dirName}/LICENSE`], tmp);
   fs.mkdirSync(BIN, { recursive: true });
-  fs.copyFileSync(path.join(tmp, dirName, 'node.exe'), EXE);
+  fs.copyFileSync(path.join(tmp, dirName, TARGET.exe), EXE);
+  if (process.platform !== 'win32') fs.chmodSync(EXE, 0o755);
   fs.copyFileSync(path.join(tmp, dirName, 'LICENSE'), LICENSE);
-  fs.writeFileSync(STAMP, `${version}\n`);
+  fs.writeFileSync(STAMP, `${version} ${TRIPLE}\n`);
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
-const check = spawnSync(EXE, ['-v'], { encoding: 'utf8' });
+// A cross-target binary cannot run here; only check one this machine can execute.
+const check = TRIPLE === hostTriple() ? spawnSync(EXE, ['-v'], { encoding: 'utf8' }) : { stdout: '(cross target, not run)' };
 console.log(`[fetch-node] ${path.relative(ROOT, EXE)} -> ${check.stdout?.trim() || 'no output'}`);

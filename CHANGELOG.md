@@ -7,11 +7,231 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+**PocketRocket** is a fork of PocketRocket 0.2.0 (upstream: `AlexGaledo/pocketrocket`). Entries
+below are fork changes, grouped by feature area; the per-phase notes live in `docs/changes/pN.md`.
+Upstream changes after 0.2.0 that the fork already includes: the desktop app stops offering the other
+connection modes once one is set up.
 
-- Desktop: once a connection is set up, the app stops offering the other modes. The Connection
-  menu no longer lists This PC / VPS / Attach, and Connection settings shows only the active mode
-  until you press **Change**. First run still shows every option.
+### Profile pictures and group details
+
+- **Your profile:** Edit profile in the menu at the bottom left sets your name and picture. They show there and on your
+  messages. With no picture you get your initial on a neutral tint.
+- **Bot pictures:** a bot can wear an uploaded picture instead of a line icon. Icons stay the default.
+- **Group details:** click a group's name in the chat header to change its name, picture or icon, its bots and its
+  coordinator. A group keeps at least one bot and at most 10. Removing a bot stops what it was doing in that chat.
+  Name and membership changes show as a line in the chat.
+- Pictures live on your hub, under `data/media`. PNG, JPEG and WebP only, checked by content, at most 512 px and 512 KB.
+  They need your hub token or a paired device's to view. A paired phone can see them but not change them, and no bot can
+  upload or set one. Pictures nothing uses any more are removed after a day.
+
+### Computers start themselves
+
+- Opening the app starts the computer of the bot you have open and of the most recently used other bot. Selecting
+  a bot starts its computer after 1.5 seconds. One place always stays free, and a computer a person controls or a
+  bot is using is never stopped for this. The Wake button is gone; a failed start says why, with **Try again**.
+- **Keep awake is now Always on.** It starts the computer, brings it back after a server reboot, and is limited to
+  `MAX_RUNNING_COMPUTERS` minus 1 (2 by default). Past that the switch refuses and says why.
+- Low memory (under 1.6 GB available) stops these automatic starts. A bot's turn still gets its computer.
+- A paired phone wakes a computer only when you open that bot's screen.
+- The embedded screen no longer shows noVNC's side menu or its "unencrypted" banner. Pop-out still has them.
+- Needs you is right straight after a reload, including rooms not opened yet.
+- Trigger prompts no longer need to mention `NO_REPLY`; the app adds the way out itself.
+
+### Model picker and Auto routing
+
+- A model picker sits under the message box, next to Send: Auto, Sonnet 5, Opus 5 or Haiku. It changes this chat only,
+  never the bot, so schedules and hand-offs keep each bot's own model. A pick stays on, with its label by Send, until
+  you change it. It is hidden on paired phones and on providers other than Claude.
+- Auto now decides inside the turn. Sonnet 5 runs it and can move itself up to Opus 5 in the same session, for that turn
+  only, or hand off to a better bot. Each shows as one line in the chat. The Smarter Auto routing switch is gone.
+- A first hand-off to a bot outside the chat asks you, because that bot has different logins and tools. From a direct
+  chat, it works in its own chat and its result comes back as one message. Your yes is an approval rule in Settings.
+- Routing rules: `data/routing.md`, edited in Settings. Bots read them every turn and can only propose a line, which you
+  approve on a card. No bot can write the file, whatever the approvals setting.
+- A skill named in a forwarded email can no longer pick Opus. Only your own newest message or a routine's prompt can.
+
+### Name and install
+
+- The screen's size follows what you do: a small thumbnail while a bot uses its computer, a split when you click to
+  watch, and the full pane when you take over. Hand back returns to the size you came from. The Zoom in and Fit view
+  is gone; Expand and Pop out replace it.
+- One control bar, on the screen, with one Hand back and its note. Take over on a bot's request card claims control
+  and opens the screen in one click, and the card adds "I can't do this", which goes back to the bot as your note.
+- The screen follows the chat. If you hold a screen and open another chat, it stays up and says so, with a link back.
+- A Bot page holds Memory, Writing style, Skills, a bot's Automations and its Computer (disk, Keep awake, Teach,
+  recordings). Open it from the bot's name. Automations and Usage are fleet pages in the menu at the bottom left, and
+  the estimate moved out of the chat header onto Usage.
+- Each turn shows one work line in place of the tool pills: "Worked for 1m 12s · 14 steps · 1 retried", which expands
+  to the steps. Answers, cards and failures the bot did not recover from stay visible.
+- Settings has a Connections screen: one Connect button for GitHub and Google after a one-time app setup. WhatsApp
+  and social media stay in a bot's browser.
+- Drag the sidebar's and side panel's edges to resize them, or use the arrow keys. Enter collapses, double-click
+  resets, sizes are remembered per browser, and the chat always keeps 440px. Group chats fold away.
+- A menu at the bottom left shows your name and the server's state, and holds Usage, Settings, Open workspace, the
+  theme and Sign out. Text no longer wraps or clips in narrow panes.
+- The app font is Google Sans, with Figtree as a choice in Appearance. Fonts are bundled, not fetched from Google.
+- A lighter look: warm off-white and charcoal colors, softer text, a 15/24 message size on a seven-step type scale,
+  flat surfaces without the background wash or stacked shadows, and 10px corners on controls instead of pills.
+- The app shows its name as PocketRocket everywhere, and the sidebar no longer shows the provider and model
+  unless there is a problem.
+- A server install starts with two bots, each created once: PocketRocket Support reads the app source without
+  approval cards (not `data/`), and Data Engineer keeps the shared workspace organized and indexed.
+- Room members can be set up to 10 bots over REST (was 6), matching what bots can do.
+
+- Bots wear a line icon on a soft tint instead of an emoji. Each bot gets one from its ID, and you can pick another in
+  its settings. On upgrade, known emoji become the matching icon and custom emoji or short text become automatic.
+
+### Each bot's own computer (server)
+
+- A bot with Browser or Desktop gets its own virtual display, desktop, Chromium profile (its own logins)
+  and disk, with the shared workspace linked as `~/Shared`. Computers are separate but **not isolated**:
+  every bot runs as the same OS user.
+- Computers start on first use and sleep after `COMPUTER_IDLE_MIN` (30) idle minutes; at most
+  `MAX_RUNNING_COMPUTERS` (3) run at once. A soft disk quota (`COMPUTER_QUOTA_GB`, 10) warns at 80% and
+  keeps the computer from starting at 100%. Existing logins move to the first Browser bot once.
+- The Screen tab follows the selected bot: Asleep / Starting / Live, **Wake**, **Keep awake** and a disk
+  badge. A screen ticket opens one bot's screen only.
+- **Take over, Hand back, Pause** in the Screen tab and a bot's DM header. While the bot has control you
+  only watch; take over and you can click and type. The bot's computer tools refuse while you have control,
+  also in bypass mode. A paused bot starts no turns until you resume it.
+- Bots can ask for you with `request_takeover` ("@shopper needs you: log in to example.com"); hand back
+  with a note and the bot carries on.
+- Deleting a bot stops its computer and erases its disk. The desktop app, and servers with per-bot
+  computers off, keep the one shared screen.
+
+### Approvals
+
+- **Routine and trigger turns always ask**, and so does every bot hop they cause, even when approvals are
+  bypassed. Nobody is watching a 3 a.m. routine.
+- **Approvals while away.** A routine or trigger turn whose card nobody answers in 10 minutes parks
+  instead of failing: the card stays open (also across a restart), and when you answer, hours later, the
+  bot picks up where it stopped. A card parked for 24 hours is denied.
+- **Approval rules.** After "Allow for this session" a card offers **Make this a rule?**; Settings › Bots
+  › Approval rules lists and revokes them. Only you can create one. A rule never covers a dangerous
+  command or an integration write. "Allow for this session" now covers the same command again, not every
+  use of the tool.
+
+### Automations: schedules and triggers
+
+- The Routines tab is now **Automations**, with **Schedules** and **Triggers**.
+- **Time zone** in Settings › Account; schedules run on that clock. **One-shot** schedules fire once at
+  a date and time. Presets (once, daily, weekdays, weekly, monthly, yearly) write the cron for you; raw
+  cron is under Advanced. The list shows schedules in words, next runs, and run history with cost.
+- Bots can create, change and delete schedules (`create_routine`, `update_routine`, `delete_routine`);
+  each shows an approval card first.
+- **Triggers** wake a bot in a room when something happens in a connected integration: GitHub
+  notifications and repository events, Gmail, Google Calendar, Google Drive, Slack, ClickUp and Teams.
+  Events arrive by outbound polling and Slack Socket Mode; the hub opens no inbound port. Each trigger has
+  filters, a prompt with `{{event.*}}` placeholders, a per-hour limit and a per-day budget, **Send a
+  sample event**, and its recent fires with cost and skip reasons.
+- Trigger messages show as "Trigger: name", with the event folded under "Event (untrusted)".
+- **Turns survive a restart:** a turn queued or running when the hub stopped resumes once on the next
+  start. A handoff nobody answers in 10 minutes gets one nudge to the room's coordinator.
+
+### Integrations
+
+- **Settings › Integrations** connects GitHub, Google (Gmail, Calendar, Drive), Slack, ClickUp and
+  Microsoft Teams, with your own OAuth app (PKCE and a loopback redirect; a device code for GitHub and
+  Teams on a server) or a pasted token. Each card has setup steps, Test connection, Reconnect and
+  Disconnect.
+- Connections are shared, but a bot sees a provider's tools only after you switch it on for that bot.
+- Bot tools read issues, PRs, notifications, mail, calendars, Drive files, channels, tasks and chats, and
+  write issues, comments, mail, events, Slack posts, tasks and Teams messages. Reads are labelled as
+  untrusted third-party content. **Every write asks, on every call, even under bypass.**
+
+### Knowledge, notes and voice
+
+- **Settings › Knowledge** takes a git URL (shallow clone, pulled hourly and on **Sync now**) or a local
+  folder. Every bot can read and cite it; none can write it.
+- Per-bot **notes** (`write_note`, `search_notes`) that stay out of the prompt, and a per-bot **voice**
+  (style notes in every prompt, editable in the Memory tab). Auto-memory may propose voice notes from your
+  corrections; they wait for your approval.
+- The prompt lists the bots not in the room; handing off to one in a group chat adds it, after a card.
+- **Skills › From git** imports every `SKILL.md` folder of a repository as pending review.
+
+### Models and usage
+
+- **Auto model:** the hub picks the model per turn (Haiku for triage and memory, Opus when you ask it to
+  think hard or a skill asks for it, Sonnet otherwise) and moves a turn that hits the step limit to Opus,
+  within the bot's budget. An optional one-shot classifier is in Settings › Claude.
+- A **model chip** on every bot turn shows the model and why. The Usage tab breaks spend down by model and
+  by what started it.
+
+### Phone and desktop app
+
+- **Pair a phone** in Settings › Devices with a QR code and a one-time code (never the hub token). The list
+  shows when each device was paired and last seen; a revoked phone is cut off at once.
+- A phone can chat, answer approval cards (once only), watch the Screen and manage Automations. What it
+  may not do is hidden: creating or editing bots and rooms, settings, integrations and approval rules.
+  Settings on a phone shows Devices, read-only Appearance and About.
+- **Installable web app** (PWA) with a phone layout, and opt-in **Web Push** that says only "A bot needs
+  your approval", "Routine finished" or a test line.
+- Phone access over **Tailscale Serve** with `POCKETROCKET_ALLOWED_HOSTS`, off by default.
+- Desktop app: **tray icon and close-to-tray** (the hub and bots keep running), and **Linux** (AppImage,
+  deb) and **macOS** (unsigned dmg) builds.
+- Settings sections are Account, Claude, Bots, Integrations, Knowledge, Devices, Appearance, About.
+
+### Server
+
+- Per-bot computers run as a systemd user unit (`pocketrocket-computer@.service`); slot `n` uses
+  display `:200+n`, CDP `9400+n`, VNC `5800+n` and noVNC `6200+n`, all on 127.0.0.1.
+  `POCKETROCKET_COMPUTERS=0 bash deploy/setup-vps.sh` keeps the one shared screen.
+- Optional **restic** backups (`RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE`). Backups skip browser caches
+  and `vault.key`, and keep `vapid.json`, so phones need not re-subscribe after a restore.
+
+### Teach by demonstration and skill versions
+- **Teach a bot by showing it.** On a server with per-bot computers, the Screen tab has **Teach**: do the task on
+  the bot's computer, press **Done**. You hold control while recording; a static indicator shows steps and
+  screenshots. Recordings stay on the server and are erased with the bot.
+- **Secrets are redacted while recording.** Passwords, card fields, one-time codes and credential-looking URL
+  values are saved as `«secret»`; screenshots are dropped while such a value is on screen. Limits: 2000 steps,
+  200 screenshots, 64 MB, 30 minutes.
+- **Distill** turns a recording into a `SKILL.md` (one Sonnet call, at most $0.25) that waits for your review.
+- **Skill versions.** Demos, your corrections ("no, use the Export button"), opt-in post-run reflection and a
+  bot's `save_skill` on an existing name all propose a pending version with a line diff. Nothing changes until
+  you **Approve**; `save_skill` no longer overwrites a skill silently.
+- Phones can view recordings and versions and stop a recording; starting, distilling and approving stay on the
+  desktop.
+
+### Security
+
+- The $5 per-thread cost cap now limits every turn (your messages, routines, triggers), not only
+  bot-to-bot hand-offs.
+- Integration tokens are encrypted at rest (AES-256-GCM, key in `data/vault.key`, owner-only), never
+  reach a bot, and are scrubbed from output and logs.
+- Trigger event text is fenced as untrusted data with a random nonce; placeholders get a quoted,
+  single-line, capped copy. Each trigger has an hourly limit and a 24-hour budget, and the budget now also
+  caps a trigger turn resumed after a restart or a parked approval.
+- Shell commands that look read-only but write or run code now ask: `git diff`/`git log --output`,
+  `--ext-diff`, `--textconv`, git global options, `rg --pre`, `sort -o` / `--compress-program`,
+  `tree -o`, and option values that point outside the workspace.
+- The knowledge folder is read-only to bots: file-tool and shell writes there ask, and are refused
+  outright under bypass.
+- Device tokens are stored hashed, and a phone reaches only the routes it is allowed. Web Push payloads
+  carry no bot, room or message text.
+- Errors in the hub log go through redaction, and the VAPID key is kept owner-only on every start.
+
+### Fixed
+
+- Password field values no longer appear in browser page snapshots, through a small patch to `playwright-core`.
+- Browser snapshots and other Playwright output moved from the shared workspace to each bot's home, so they
+  are removed with the bot and left out of backups.
+- Backups are readable by root only and no longer include `data/hub-token`.
+- Teach: fields for API keys, tokens and similar secrets are redacted in the trace and stop screenshots, as
+  are pages whose URL holds a credential, and URL query values no longer reach the trace through window titles.
+- A takeover waiting for the user survives a hub restart; the hand-back still starts the bot's turn.
+
+- The hub no longer writes its token to the journal or the desktop app's `hub.log`. The startup line says where
+  the token is instead. Rotate the token on any server that ran an earlier build: `docs/SERVER.md`.
+- On a server, bots browse in real Google Chrome, not Playwright's Chrome for Testing started with `--test-type`.
+  Chrome keeps its sandbox on Ubuntu 23.10+ instead of falling back to `--no-sandbox`.
+- Approval cards left open when the hub stopped now show "Expired — the hub restarted. Ask the bot to
+  retry." instead of staying clickable forever.
+- Editing a DM can no longer give it more or fewer than one bot.
+- Deleting a bot from the app also deletes its folder (memory, identity, skills), as the `delete_bot`
+  tool already did.
+- The avatar initial and the Chief-of-staff preset use your name from Settings instead of "Alex".
+- Pending skills in the Skills tab get their amber outline back.
 
 ## [0.2.0] - 2026-09-16
 

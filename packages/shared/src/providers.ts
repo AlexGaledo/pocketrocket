@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_AVATAR_LENGTH, isMediaRef } from './models.js';
 
 // ---------- Providers (global choice) ----------
 // The hub runs every bot through ONE provider at a time (settings.provider). Models are chosen per bot
@@ -82,17 +83,47 @@ export interface ProvidersResponse {
 export const APPROVALS = ['ask', 'bypass'] as const;
 export type Approvals = (typeof APPROVALS)[number];
 
+/** True for a time zone this runtime knows (`Asia/Manila`, `UTC`, …). */
+export function isTimeZone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const SettingsSchema = z.object({
   provider: z.enum(PROVIDER_IDS).default('claude'),
-  /** Default model id for new bots (must belong to `provider`). */
-  defaultModel: z.string().default('claude-sonnet-5'),
+  /** Default model for new bots: `auto`, or an id that belongs to `provider`. */
+  defaultModel: z.string().default('auto'),
   /** How bots address the human. */
   userName: z.string().min(1).max(40).default('you'),
+  /** The human's picture (an uploaded reference, see isMediaRef), or '' for their initial. */
+  userAvatar: z.string().max(MAX_AVATAR_LENGTH).refine((v) => v === '' || isMediaRef(v), 'not an uploaded picture').default(''),
   sounds: z.boolean().default(true),
   onboarded: z.boolean().default(false),
   theme: z.enum(['system', 'light', 'dark']).default('system'),
+  font: z.enum(['google-sans', 'figtree']).default('google-sans'),
   /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
   approvals: z.enum(APPROVALS).default('ask'),
+  /**
+   * Retired: Auto decides inside the turn, with no call before it. Kept so saved settings still parse; nothing reads it.
+   */
+  routerClassifier: z.boolean().default(false),
+  // ---- P3: routines v2 ----
+  /**
+   * IANA time zone routines are scheduled in (and the one the UI shows times in). The hub fills in the
+   * system zone until the user picks one, the way it fills in `userName`.
+   */
+  timezone: z.string().max(64).refine(isTimeZone, 'not a known IANA time zone').default('UTC'),
+  // ---- P7: knowledge repo ----
+  /**
+   * A git URL (https://, ssh://, git@host:path, file://) cloned to `data/knowledge`, or an absolute local
+   * folder linked there. Every bot reads it; none can write it. Empty = off. Validated by the hub.
+   */
+  knowledgeRepo: z.string().max(500).default(''),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

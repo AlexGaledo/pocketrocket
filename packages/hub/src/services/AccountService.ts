@@ -257,7 +257,7 @@ export class AccountService {
   // ---- internals
 
   private need(): AccountClient {
-    if (!this.client) throw new AccountError('Accounts are not configured on this hub', 409);
+    if (!this.client) throw new AccountError('Accounts are not configured on this server', 409);
     return this.client;
   }
 

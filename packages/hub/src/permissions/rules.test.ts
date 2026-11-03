@@ -81,6 +81,30 @@ describe('classifyBash', () => {
     expect(classifyBash('git remote -v', [ws]).verdict).toBe('ask');
   });
 
+  // ---- hardening pass: reader options that write a file or run a program ----
+  it('asks for allowlisted readers given an option that writes or executes', () => {
+    for (const c of [
+      'git diff --output=/tmp/x', 'git diff --output out.patch', 'git log --output=x.txt', 'git log --outp=x',
+      'git diff --ext-diff', 'git diff --textconv', 'rg --pre ./x.sh TODO', 'rg --pre=sh TODO', 'rg --pre-glob "*.pdf" x',
+      'sort -o out.txt a.txt', 'sort -uo out.txt a.txt', 'sort --output=out.txt a.txt', 'sort --out=x a.txt',
+      'sort --compress-program=sh a.txt', 'tree -o out.txt', 'tree --output=out.txt',
+      'git --exec-path=./bin log', 'git --git-dir=.x log', 'git -C sub log', 'git -c diff.external=sh diff',
+      'grep --file=/etc/passwd a.txt', 'wc --files0-from=../list a.txt',
+    ]) {
+      const v = classifyBash(c, [ws]);
+      expect(v.verdict, c).toBe('ask');
+    }
+    expect(classifyBash('rg --pre ./x.sh TODO', [ws]).reason).toMatch(/execute/);
+    // The harmless neighbours stay silent.
+    for (const c of [
+      'git --no-pager log -3', 'git diff --no-ext-diff', 'git diff --no-textconv', 'git log --pretty=%h:%s',
+      'rg --pretty TODO', 'sort -u a.txt', 'rg --glob=*.ts TODO', 'grep --color=auto x a.txt',
+      'tree -L 2', 'git log -- a.txt',
+    ]) {
+      expect(classifyBash(c, [ws]).verdict, c).toBe('allow');
+    }
+  });
+
   it('asks with no roots configured rather than allowing everything', () => {
     expect(classifyBash('ls', []).verdict).toBe('ask');
     expect(classifyBash('', [ws]).verdict).toBe('ask');

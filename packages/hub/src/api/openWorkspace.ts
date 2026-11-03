@@ -18,6 +18,42 @@ export interface OpenDeps {
   screen?: boolean;
   spawnFn?: typeof spawn;
   mkdir?: (p: string) => void;
+  /** P1: a bot's own running computer. Thunar opens on its display instead of the shared screen. */
+  computer?: OpenComputer;
+  /**
+   * P1: per-bot computers are on but there is no running computer to open on. The shared screen is stopped on
+   * such a hub, so nothing is spawned and this message comes back as the error for the UI to show.
+   */
+  unavailable?: string;
+}
+
+/** The X session of one bot's computer (from ComputerManager's endpoint). */
+export interface OpenComputer {
+  display: string;
+  xauthority: string;
+  home: string;
+}
+
+/** The parts of ComputerManager the route needs, so the choice below is testable without systemd. */
+export interface OpenComputers {
+  enabled: boolean;
+  status(botId: string): { state: string };
+  existingEndpoint(botId: string): OpenComputer | null;
+}
+
+/**
+ * P1: where "Open workspace" goes on a hub with per-bot computers. There is no shared screen there (setup stops
+ * it), so the folder opens on the requesting bot's computer when it is running, and otherwise the UI gets a
+ * message telling the user what to do. With per-bot computers off this returns {} and nothing changes.
+ */
+export function workspaceTarget(computers: OpenComputers, bot: { id: string; name: string } | null): Pick<OpenDeps, 'computer' | 'unavailable'> {
+  if (!computers.enabled) return {};
+  if (!bot) return { unavailable: "Each bot has its own computer here. Open a bot's Screen tab first, then open the workspace again." };
+  const ep = computers.existingEndpoint(bot.id);
+  if (!ep || computers.status(bot.id).state !== 'live') {
+    return { unavailable: bot.name + "'s computer is asleep. Open its Screen tab and press Wake first, then open the workspace again." };
+  }
+  return { computer: { display: ep.display, xauthority: ep.xauthority, home: ep.home } };
 }
 
 /**
@@ -36,6 +72,9 @@ export function openWorkspace(deps: OpenDeps = {}): Promise<OpenResult> {
   const onScreen = deps.screen ?? false;
   const spawnFn = deps.spawnFn ?? spawn;
   const path = WORKSPACE_DIR;
+
+  // Never fall through to the shared display: on a per-bot hub it is stopped and the window would go nowhere.
+  if (deps.unavailable) return Promise.resolve({ ok: false, where: 'screen', path, error: deps.unavailable });
 
   try {
     (deps.mkdir ?? ((p: string) => fs.mkdirSync(p, { recursive: true })))(path);
@@ -56,6 +95,12 @@ export function openWorkspace(deps: OpenDeps = {}): Promise<OpenResult> {
     cmd = 'open';
     args = [path];
     where = 'finder';
+  } else if (deps.computer) {
+    // The bot's own computer. WORKSPACE_DIR is ~/Shared on that desktop, so this is the same folder.
+    cmd = 'thunar';
+    args = [path];
+    where = 'screen';
+    env = { ...process.env, DISPLAY: deps.computer.display, XAUTHORITY: deps.computer.xauthority, HOME: deps.computer.home };
   } else if (onScreen) {
     // The virtual desktop, with the desktop's own HOME so Thunar's settings persist like every other app there.
     cmd = 'thunar';

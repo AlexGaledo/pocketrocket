@@ -10,6 +10,10 @@ Environment=HOME=/home/pocketrocket
 Environment=PATH=/home/pocketrocket/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=POCKETROCKET_DATA=/home/pocketrocket/pocketrocket/data
 Environment=XAUTHORITY=/home/pocketrocket/pocketrocket/data/desktop-home/.Xauthority
+Environment=SCREEN_DISPLAY=:99
+Environment=CDP_PORT=9222
+Environment=VNC_PORT=5900
+Environment=NOVNC_PORT=6080
 ExecStart=/bin/bash /home/pocketrocket/pocketrocket/deploy/screen.sh
 Restart=always
 RestartSec=3

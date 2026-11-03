@@ -441,8 +441,8 @@ pub const SCAN_SCRIPT: &str = concat!(
     "echo pr_scan=1; ",
     "u=$(id -u 2>/dev/null); echo uid=$u; ",
     "echo active=$(systemctl is-active pocketrocket 2>/dev/null); ",
-    "for s in pocketrocket claudebot; do if systemctl cat $s.service >/dev/null 2>&1 || [ -f /etc/systemd/system/$s.service ]; then echo unit_$s=1; fi; done; ",
-    "for d in /home/pocketrocket/pocketrocket /root/pocketrocket /root/claudebot; do if [ -d $d/packages/hub ]; then echo dir=$d; break; fi; done; ",
+    "if systemctl cat pocketrocket.service >/dev/null 2>&1 || [ -f /etc/systemd/system/pocketrocket.service ]; then echo unit_pocketrocket=1; fi; ",
+    "for d in /home/pocketrocket/pocketrocket; do if [ -d $d/packages/hub ]; then echo dir=$d; break; fi; done; ",
     "h=$(curl -fsS -m 3 http://127.0.0.1:7788/api/health 2>/dev/null || wget -q -T 3 -O - http://127.0.0.1:7788/api/health 2>/dev/null); ",
     "printf \"health=%s\\n\" \"$(printf %s \"$h\" | tr -d \"\\r\\n\" | head -c 1000)\"; ",
     "c=; if [ \"$u\" = 0 ]; then c=$(timeout 3 sudo -n -u pocketrocket -H /home/pocketrocket/.local/bin/claude auth status 2>/dev/null); ",
@@ -472,13 +472,12 @@ pub struct Facts {
     pub uid: Option<String>,
     pub active: Option<String>,
     pub unit_pocketrocket: bool,
-    pub unit_claudebot: bool,
     pub dir: Option<String>,
     pub health: Option<String>,
     pub claude: Option<String>,
 }
 
-const KNOWN_DIRS: [&str; 3] = ["/home/pocketrocket/pocketrocket", "/root/pocketrocket", "/root/claudebot"];
+const KNOWN_DIRS: [&str; 1] = ["/home/pocketrocket/pocketrocket"];
 
 fn clean(v: &str, max: usize) -> String {
     v.chars().filter(|c| !c.is_control()).take(max).collect()
@@ -500,7 +499,6 @@ pub fn parse_facts(stdout: &[u8]) -> Facts {
             "uid" if f.uid.is_none() => f.uid = only(v, 10, |c| c.is_ascii_digit()),
             "active" if f.active.is_none() => f.active = only(v, 20, |c| c.is_ascii_lowercase() || c == '-'),
             "unit_pocketrocket" => f.unit_pocketrocket |= v == "1",
-            "unit_claudebot" => f.unit_claudebot |= v == "1",
             "dir" if f.dir.is_none() => f.dir = KNOWN_DIRS.iter().find(|d| **d == v).map(|d| d.to_string()),
             "health" if f.health.is_none() && !v.is_empty() => f.health = Some(clean(v, 1000)),
             "claude" if f.claude.is_none() && !v.is_empty() => f.claude = Some(clean(v, 1000)),
@@ -554,7 +552,7 @@ pub fn health_version(json: &str) -> Option<String> {
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub alias: String,
-    /// running | stopped | legacy | none | hostKeyUnknown | hostKeyChanged | needsKey | unreachable
+    /// running | stopped | none | hostKeyUnknown | hostKeyChanged | needsKey | unreachable
     pub kind: String,
     pub detail: String,
     pub version: Option<String>,
@@ -589,13 +587,11 @@ pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[
             };
             r.version = (!v.is_empty()).then_some(v);
             set(&mut r, "running", detail);
-        } else if f.unit_pocketrocket || f.dir.as_deref().is_some_and(|d| d.ends_with("/pocketrocket")) {
+        } else if f.unit_pocketrocket || f.dir.is_some() {
             let state = f.active.as_deref().unwrap_or("unknown");
             set(&mut r, "stopped", format!(
                 "PocketRocket is installed but its hub isn't answering on 127.0.0.1:7788 (service: {state}). On the server: systemctl status pocketrocket"
             ));
-        } else if f.unit_claudebot || f.dir.as_deref() == Some("/root/claudebot") {
-            set(&mut r, "legacy", "An old Claudebot install. Deploy PocketRocket to it (scripts/deploy.sh) to migrate it.".into());
         } else if timed_out {
             set(&mut r, "unreachable", "The server answered but the check didn't finish within 8 seconds. Try again.".into());
         } else {
@@ -1102,15 +1098,13 @@ mod tests {
     }
 
     #[test]
-    fn classifies_installed_legacy_and_empty_servers() {
+    fn classifies_installed_and_empty_servers() {
         let stopped = classify("vps", Some(0), false, b"pr_scan=1\nuid=1000\nactive=failed\nunit_pocketrocket=1\nhealth=\nclaude=\n", "");
         assert_eq!(stopped.kind, "stopped");
         assert!(stopped.detail.contains("failed"));
         assert_eq!(stopped.root, Some(false));
-        let dir_only = classify("vps", Some(0), false, b"pr_scan=1\ndir=/root/pocketrocket\n", "");
+        let dir_only = classify("vps", Some(0), false, b"pr_scan=1\ndir=/home/pocketrocket/pocketrocket\n", "");
         assert_eq!(dir_only.kind, "stopped");
-        let legacy = classify("vps", Some(0), false, b"pr_scan=1\nactive=inactive\nunit_claudebot=1\ndir=/root/claudebot\n", "");
-        assert_eq!(legacy.kind, "legacy");
         let none = classify("vps", Some(0), false, b"pr_scan=1\nuid=1000\nactive=inactive\nhealth=\nclaude=\n", "");
         assert_eq!(none.kind, "none");
     }

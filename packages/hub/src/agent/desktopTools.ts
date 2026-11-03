@@ -1,4 +1,5 @@
-// Computer-use tools for the virtual desktop (Xvfb :99 on the VPS): screenshot via scrot, input via xdotool.
+// Computer-use tools for a virtual desktop: screenshot via scrot, input via xdotool. Each bot drives its own
+// computer's display (services/ComputerManager.ts); without per-bot computers, the one shared screen.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
@@ -12,11 +13,32 @@ import { isInside } from '../permissions/pathRules.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
 
 const run = promisify(execFile);
-const env = { ...process.env, DISPLAY: SCREEN_DISPLAY };
+
+/** Which desktop the tools act on. Built per turn from the bot's `ComputerEndpoint`. */
+export interface DesktopTarget {
+  /** X display, e.g. ":201". */
+  display: string;
+  /** MIT cookie for that display; unset inherits the hub's XAUTHORITY (the shared screen). */
+  xauthority?: string;
+  /** HOME for launched apps, so their settings persist with that desktop. */
+  home: string;
+  /** Extra folders desktop_launch may open files from (the bot's own computer disk), besides the workspace. */
+  fileRoots?: string[];
+  /**
+   * P2 control interlock: returns why the tools must not act right now (the user has control, or the bot is
+   * paused), or null. Every desktop tool, screenshot included, refuses without touching the display.
+   */
+  guard?: () => string | null;
+}
+
+/** The shared screen every bot used before per-bot computers, and still uses with them off. */
+export function sharedDesktop(): DesktopTarget {
+  return { display: SCREEN_DISPLAY, home: DESKTOP_HOME };
+}
 const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
 const err = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }], isError: true });
 
-async function geometry(): Promise<string> {
+async function geometry(env: NodeJS.ProcessEnv): Promise<string> {
   try {
     const { stdout } = await run('xdotool', ['getdisplaygeometry'], { env });
     return stdout.trim().replace(' ', 'x');
@@ -25,13 +47,13 @@ async function geometry(): Promise<string> {
   }
 }
 
-async function screenshot(): Promise<ToolOutput> {
+async function takeScreenshot(env: NodeJS.ProcessEnv): Promise<ToolOutput> {
   const f = path.join(os.tmpdir(), 'pocketrocket-shot-' + nanoid(6) + '.png');
   try {
     await run('scrot', ['-o', '-z', f], { env });
     const data = fs.readFileSync(f).toString('base64');
     fs.unlinkSync(f);
-    const geo = await geometry();
+    const geo = await geometry(env);
     return {
       content: [
         { type: 'image' as const, data, mimeType: 'image/png' },
@@ -43,8 +65,12 @@ async function screenshot(): Promise<ToolOutput> {
   }
 }
 
-export function desktopTools(): HubTool[] {
-  const shot = hubTool('desktop_screenshot', 'Take a screenshot of the whole virtual desktop (all windows). Use it to see the current state before and after acting.', {}, screenshot, { readOnly: true });
+export function desktopTools(target: DesktopTarget = sharedDesktop()): HubTool[] {
+  // Per target, never the hub's own DISPLAY: bot A's clicks must only ever land on bot A's screen.
+  const env: NodeJS.ProcessEnv = { ...process.env, DISPLAY: target.display, ...(target.xauthority ? { XAUTHORITY: target.xauthority } : {}) };
+  const roots = [WORKSPACE_DIR, ...(target.fileRoots ?? [])];
+  const screenshot = () => takeScreenshot(env);
+  const shot = hubTool('desktop_screenshot', 'Take a screenshot of the whole virtual desktop (all windows). Use it to see the current state before and after acting.', {}, () => screenshot(), { readOnly: true });
 
   const click = hubTool(
     'desktop_click',
@@ -116,7 +142,7 @@ export function desktopTools(): HubTool[] {
 
   const launch = hubTool(
     'desktop_launch',
-    'Start a desktop GUI application by command, e.g. "thunar", "mousepad notes.txt", "ristretto shot.png". File arguments must be inside the shared workspace. Returns a screenshot after it opens.',
+    'Start a desktop GUI application by command, e.g. "thunar", "mousepad notes.txt", "ristretto shot.png". File arguments must be inside the shared workspace' + (target.fileRoots?.length ? ' or your computer\'s own disk' : '') + '. Returns a screenshot after it opens.',
     { command: z.string().min(1).describe('Program and arguments') },
     async (a) => {
       // No terminals and no shells (audit 2026-09-09, B14): xfce4-terminal used to be launchable and
@@ -125,13 +151,13 @@ export function desktopTools(): HubTool[] {
       const allowed = /^(thunar|mousepad|ristretto|xfce4-appfinder|xdg-open)(\s|$)/;
       if (!allowed.test(a.command.trim())) return err('Only these desktop apps can be launched: thunar, mousepad, ristretto, xfce4-appfinder, xdg-open <file>. Terminals and shells are not launchable; use Bash for commands.');
       const [cmd, ...args] = a.command.trim().split(/\s+/);
-      // Every argument is a file the app will open: keep them inside the workspace.
-      const outside = args.filter((x) => !x.startsWith('-') && !isInside(x, [WORKSPACE_DIR], WORKSPACE_DIR));
+      // Every argument is a file the app will open: keep them inside the workspace (or the bot's own disk).
+      const outside = args.filter((x) => !x.startsWith('-') && !isInside(x, roots, WORKSPACE_DIR));
       if (outside.length) return err('Only files inside the workspace can be opened: ' + outside.join(', '));
       try {
         const { spawn } = await import('node:child_process');
         // Launch in the shared workspace (= desktop folder) with the desktop's HOME so app config persists.
-        const child = spawn(cmd, args, { env: { ...env, HOME: DESKTOP_HOME }, cwd: WORKSPACE_DIR, detached: true, stdio: 'ignore' });
+        const child = spawn(cmd, args, { env: { ...env, HOME: target.home }, cwd: WORKSPACE_DIR, detached: true, stdio: 'ignore' });
         // A missing binary surfaces as an async 'error' event; without a listener it would crash the hub.
         const spawnError = new Promise<string | null>((resolve) => {
           child.once('error', (e) => resolve(e.message));
@@ -148,7 +174,16 @@ export function desktopTools(): HubTool[] {
     },
   );
 
-  return [shot, click, type, key, scroll, launch];
+  const all = [shot, click, type, key, scroll, launch];
+  const guard = target.guard;
+  if (!guard) return all;
+  return all.map((t) => ({
+    ...t,
+    handler: async (input: Record<string, unknown>) => {
+      const why = guard();
+      return why ? err(why) : t.handler(input);
+    },
+  }));
 }
 
 export const DESKTOP_TOOL_NAMES = ['desktop_screenshot', 'desktop_click', 'desktop_type', 'desktop_key', 'desktop_scroll', 'desktop_launch'];

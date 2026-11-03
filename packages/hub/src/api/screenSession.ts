@@ -11,6 +11,28 @@ export const SCREEN_VIEWER_PATH = '/screen/vnc.html?autoconnect=1&resize=scale&r
 /** Name of the httpOnly cookie that authenticates `/screen/*`. */
 export const SCREEN_COOKIE = 'pr_screen';
 
+/*
+ * P1: per-bot computers. A ticket is minted for one scope: null is the legacy shared screen (`/screen/*`), a bot
+ * id is that bot's computer (`/screen/<botId>/*`). The session it opens is valid for that scope only, and its
+ * cookie has its own name and path, so a viewer let into bot A's screen is refused on bot B's.
+ */
+const SCOPE_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Cookie name for a scope: `pr_screen` for the shared screen, `pr_screen_<botId>` for a bot's computer. */
+export function screenCookieName(scope: string | null): string {
+  return scope ? SCREEN_COOKIE + '_' + scope : SCREEN_COOKIE;
+}
+
+/**
+ * Where the browser lands after redeeming a ticket for this scope. P2: `viewOnly` adds noVNC's `view_only=1`
+ * while the bot has control. That flag is only the UI-side guard; x11vnc's own view-only mode is the real one.
+ */
+export function screenViewerPath(scope: string | null, viewOnly = false): string {
+  const vo = viewOnly ? '&view_only=1' : '';
+  if (!scope) return SCREEN_VIEWER_PATH + vo;
+  return '/screen/' + scope + '/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=screen%2F' + scope + '%2Fwebsockify' + vo;
+}
+
 /** Long enough for a redirect, short enough that a ticket left in a log or a history entry is already dead. */
 const TICKET_TTL_MS = 60_000;
 /** One sitting in front of the desktop. Reloading the Screen tab mints a fresh one, so this is not a cliff. */
@@ -20,7 +42,7 @@ const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
 const MAX_TICKETS = 64;
 const MAX_SESSIONS = 32;
 
-interface Entry { value: string; expires: number }
+interface Entry { value: string; expires: number; scope: string | null; /** P9: the paired device that minted it, if any. */ owner?: string }
 
 /**
  * Why a ticket at all: an `<iframe>` cannot send an Authorization header, so the only way the hub token could
@@ -34,11 +56,12 @@ export class ScreenSessions {
   private sessions: Entry[] = [];
   constructor(private now: () => number = Date.now) {}
 
-  /** Mint a one-shot ticket and the URL that redeems it. */
-  mintTicket(): { ticket: string; url: string } {
+  /** Mint a one-shot ticket for one screen (null = the shared screen, else a bot id) and the URL that redeems it. */
+  mintTicket(scope: string | null = null, owner?: string | null): { ticket: string; url: string } {
+    if (scope !== null && !SCOPE_RE.test(scope)) throw new Error('bad screen scope');
     this.sweep();
     const ticket = randomBytes(32).toString('base64url');
-    this.tickets.push({ value: ticket, expires: this.now() + TICKET_TTL_MS });
+    this.tickets.push({ value: ticket, expires: this.now() + TICKET_TTL_MS, scope, ...(owner ? { owner } : {}) });
     if (this.tickets.length > MAX_TICKETS) this.tickets.splice(0, this.tickets.length - MAX_TICKETS);
     return { ticket, url: '/screen/session?ticket=' + encodeURIComponent(ticket) };
   }
@@ -48,21 +71,40 @@ export class ScreenSessions {
    * unknown, already spent or stale — the caller treats that exactly like any other failed authentication.
    */
   redeem(ticket: string | null): string | null {
+    return this.redeemScoped(ticket)?.cookie ?? null;
+  }
+
+  /** `redeem`, plus the scope the ticket was minted for (where the caller redirects to). */
+  redeemScoped(ticket: string | null): { cookie: string; scope: string | null } | null {
     this.sweep();
     const i = this.find(this.tickets, ticket);
     if (i < 0) return null;
     // Single use: the ticket is burnt here, whether or not the browser ever follows the redirect.
-    this.tickets.splice(i, 1);
+    const [{ scope, owner }] = this.tickets.splice(i, 1);
     const value = randomBytes(32).toString('base64url');
-    this.sessions.push({ value, expires: this.now() + SESSION_TTL_MS });
+    this.sessions.push({ value, expires: this.now() + SESSION_TTL_MS, scope, ...(owner ? { owner } : {}) });
     if (this.sessions.length > MAX_SESSIONS) this.sessions.splice(0, this.sessions.length - MAX_SESSIONS);
-    return cookieHeader(value, Math.floor(SESSION_TTL_MS / 1000));
+    return { cookie: cookieHeader(value, Math.floor(SESSION_TTL_MS / 1000), scope), scope };
   }
 
-  /** True when this cookie value names a session that is still open. */
-  valid(cookie: string | null): boolean {
+  /** True when this cookie value names a session that is still open, for this scope (null = shared screen). */
+  valid(cookie: string | null, scope: string | null = null): boolean {
     this.sweep();
-    return this.find(this.sessions, cookie) >= 0;
+    const i = this.find(this.sessions, cookie);
+    return i >= 0 && this.sessions[i].scope === scope;
+  }
+
+  /** P9: the device behind a still-valid session cookie (null for the hub token's own sessions). */
+  ownerOf(cookie: string | null, scope: string | null = null): string | null {
+    this.sweep();
+    const i = this.find(this.sessions, cookie);
+    return i >= 0 && this.sessions[i].scope === scope ? this.sessions[i].owner ?? null : null;
+  }
+
+  /** P9: a revoked device loses every ticket and Screen session it minted, at once. */
+  revokeOwner(owner: string): void {
+    this.tickets = this.tickets.filter((e) => e.owner !== owner);
+    this.sessions = this.sessions.filter((e) => e.owner !== owner);
   }
 
   /** Deliberately no early exit: a near miss must not be measurably faster than a wild guess. */
@@ -87,6 +129,6 @@ export class ScreenSessions {
  * would never load. `Path=/screen` keeps it off `/api` and `/ws`, and `SameSite=Strict` keeps any other site
  * from riding it — including through a top-level navigation, which is where Lax would still send it.
  */
-function cookieHeader(value: string, maxAgeSeconds: number): string {
-  return SCREEN_COOKIE + '=' + value + '; HttpOnly; SameSite=Strict; Path=/screen; Max-Age=' + maxAgeSeconds;
+function cookieHeader(value: string, maxAgeSeconds: number, scope: string | null = null): string {
+  return screenCookieName(scope) + '=' + value + '; HttpOnly; SameSite=Strict; Path=' + (scope ? '/screen/' + scope : '/screen') + '; Max-Age=' + maxAgeSeconds;
 }

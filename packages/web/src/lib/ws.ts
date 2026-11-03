@@ -35,7 +35,7 @@ export async function probeHub(token: string | null): Promise<HubProbe> {
   try {
     const health = await fetch('/api/health', { cache: 'no-store' });
     if (health.status === 429) return { result: 'rateLimited', retryInMs: retryAfterMs(health) };
-    if (!health.ok) return { result: 'unreachable', detail: 'The hub answered with HTTP ' + health.status + '.' };
+    if (!health.ok) return { result: 'unreachable', detail: 'The server answered with HTTP ' + health.status + '.' };
   } catch {
     return { result: 'unreachable', detail: 'Nothing answered at ' + location.host + '.' };
   }
@@ -47,7 +47,7 @@ export async function probeHub(token: string | null): Promise<HubProbe> {
     if (r.status === 429) return { result: 'rateLimited', retryInMs: retryAfterMs(r) };
     return { result: 'ok' };
   } catch {
-    return { result: 'unreachable', detail: 'The hub stopped answering.' };
+    return { result: 'unreachable', detail: 'The server stopped answering.' };
   }
 }
 

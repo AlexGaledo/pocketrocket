@@ -53,8 +53,8 @@ export function ProviderCard({
   return (
     <div
       className={cn(
-        'cursor-pointer rounded-2xl p-3.5 ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        selected ? 'bg-accent/8 ring-accent/50' : 'bg-card2/40 ring-line hover:bg-card2/70',
+        'cursor-pointer rounded-lg p-3.5 ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        selected ? 'bg-accent/8 ring-accent/50' : 'bg-card2/40 ring-line hover:bg-hover',
       )}
       onClick={onSelect}
       role="radio"
@@ -68,20 +68,19 @@ export function ProviderCard({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <RadioDot checked={selected} />
-          <span className="text-[13.5px] font-medium">{info.label}</span>
+          <span className="text-ui font-medium">{info.label}</span>
           {info.maturity === 'untested' && <Badge tone="warn">Untested</Badge>}
         </div>
         <Badge tone={pill.tone === 'ok' ? 'ok' : pill.tone === 'warn' ? 'warn' : 'muted'}>{pill.text}</Badge>
       </div>
-      <div className="mt-1 pl-6 text-[12.5px] text-muted">{info.blurb}</div>
+      <div className="mt-1 pl-6 text-ui text-muted">{info.blurb}</div>
       {info.maturity === 'untested' && (
-        <div className="mt-1 pl-6 text-[11.5px] text-warn">
-          Built to the CLI's documented contract but never run against a real account. Expect rough edges, and
-          check the approval cards before you let a bot touch anything outside the workspace.
+        <div className="mt-1 pl-6 text-hint text-warn">
+          Untested. Check approvals before actions outside the shared folder.
         </div>
       )}
       {!info.check.ok && info.check.hint && (
-        <div className="md mt-1.5 pl-6 text-[11.5px] text-dim">
+        <div className="md mt-1.5 pl-6 text-hint text-dim">
           <Markdown>{info.check.hint}</Markdown>
         </div>
       )}

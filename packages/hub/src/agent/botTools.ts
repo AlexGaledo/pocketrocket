@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { MAX_ROOM_BOTS } from '@pocketrocket/shared';
-import type { Bot, Room, HandoffPayload } from '@pocketrocket/shared';
+import { BOT_ICON_KEYS, MAX_ROOM_BOTS, isMediaRef } from '@pocketrocket/shared';
+import type { Bot, Room, HandoffPayload, HandoffResultPayload } from '@pocketrocket/shared';
+import { MAX_HOPS } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
@@ -10,6 +11,8 @@ import { events } from '../events.js';
 import { parseMentions } from '../rooms/mentions.js';
 import { desktopTools } from './desktopTools.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
+import { RoutineScheduler } from '../services/RoutineScheduler.js';
+import type { Routine } from '@pocketrocket/shared';
 
 export interface ToolCtx {
   bot: Bot;
@@ -24,8 +27,9 @@ export interface ToolCtx {
   /**
    * Route a bot-authored message to target bots (hop+1). Returns handles actually dispatched.
    * `room` defaults to the room the turn is running in; pass another to wake bots in that room instead.
+   * `onDone` runs when the target's turn ends.
    */
-  dispatchFromBot: (targets: Bot[], room?: Room) => string[];
+  dispatchFromBot: (targets: Bot[], room?: Room, onDone?: (r: { ok: boolean; finalText: string; error?: string; parked?: boolean }) => void) => string[];
   setState: (s: 'waiting' | 'working') => void;
   /** Attach desktop (computer-use) tools for this turn. */
   desktop?: boolean;
@@ -41,7 +45,19 @@ export interface ToolCtx {
    * member). Wired by BotRunner for every provider (the broker allows it without a card when approvals are
    * bypassed); when absent (unit tests) the change goes through unguarded. See audit 2026-09-09, B6/B14.
    */
-  confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown> }) => Promise<{ allowed: boolean; message: string }>;
+  confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown>; evenUnderBypass?: boolean }) => Promise<{ allowed: boolean; message: string }>;
+  /** The card for a first hand-off to a bot outside this chat. Absent in unit tests, where it goes through. */
+  confirmOutsideHandoff?: (a: { input: { to_bot: string; task: string; context?: string }; reason: string }) => Promise<{ allowed: boolean; message: string }>;
+  // ---- Auto routing ----
+  /** Present on a turn that may move itself up. False when it already asked. Adds `use_stronger_model`. */
+  useStrongerModel?: (reason: string) => boolean;
+  /** Present on a turn the owner started. Adds `propose_routing_change`; the line goes in only if they approve it. */
+  proposeRouting?: (line: string, reason: string) => Promise<{ ok: boolean; message: string }>;
+  // ---- P3: routine tools ----
+  /** Reschedule after a routine tool changed the table (RoutineScheduler.reload). Absent in unit tests. */
+  routinesChanged?: () => void;
+  /** Zone routine times are read in. Defaults to `settings.timezone`. */
+  timezone?: string;
 }
 
 export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
@@ -142,16 +158,91 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     },
   );
 
+  /**
+   * P7 (7.3): resolve `ref` against the whole fleet and add that bot to the current group room behind the
+   * add_to_room approval card. `{ bot: undefined }` = no such bot anywhere (the caller reports it).
+   */
+  const fleetBot = (ref: string) => {
+    const r = ref.replace(/^@/, '').toLowerCase();
+    const b = ctx.repos.getBotByHandle(r) ?? ctx.repos.listBots().find((x) => x.name.toLowerCase() === r);
+    return b && b.id !== ctx.bot.id ? b : undefined;
+  };
+  const joinFromFleet = async (b: Bot): Promise<{ bot: Bot } | { out: ToolOutput }> => {
+    const room = ctx.repos.getRoom(ctx.room.id) ?? ctx.room;
+    if (room.memberIds.length >= MAX_ROOM_BOTS) return { out: err('"' + room.name + '" is full (' + MAX_ROOM_BOTS + ' bots); @' + b.handle + ' cannot join.') };
+    // The owner's call on any hub, bypass included: this bot has different logins and tools.
+    if (ctx.confirmFleetChange) {
+      const r = await ctx.confirmFleetChange({
+        tool: 'add_to_room', evenUnderBypass: true,
+        reason: 'Add @' + b.handle + ' (' + b.name + ') to "' + room.name + '" to hand it a task. It has different logins and tools.',
+        input: { handle: b.handle, room: room.id },
+      });
+      if (!r.allowed) return { out: err(r.message) };
+    }
+    ctx.repos.updateRoom(room.id, { memberIds: [...room.memberIds, b.id] });
+    if (!ctx.members.some((m) => m.id === b.id)) ctx.members.push(b);
+    events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
+    const note = ctx.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' added ' + b.name + ' (@' + b.handle + ') to this room.', payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
+    events.emitEvent({ type: 'message.new', message: note });
+    return { bot: b };
+  };
+
+  /**
+   * A DM cannot take another bot, so one from the fleet works in its own DM, in its own session and under its own
+   * logins. The first time for this pair the owner approves it. This chat gets one line now and one result later,
+   * and the hop and cost caps still hold: it is the same thread.
+   */
+  const handoffToItsChat = async (b: Bot, a: { task: string; context?: string }): Promise<ToolOutput> => {
+    if (ctx.hop + 1 > MAX_HOPS) return err('Could not dispatch: hop budget exhausted. Finish the task yourself.');
+    const r = await ctx.confirmOutsideHandoff?.({
+      input: { to_bot: b.handle, task: a.task, ...(a.context ? { context: a.context } : {}) },
+      reason: '@' + ctx.bot.handle + ' wants to pass this to @' + b.handle + ', which has different logins and tools.',
+    });
+    if (r && !r.allowed) return err(r.message);
+    let work = ctx.repos.listRooms().find((x) => x.kind === 'dm' && x.memberIds.length === 1 && x.memberIds[0] === b.id);
+    if (!work) {
+      work = ctx.repos.createRoom({ kind: 'dm', name: b.name, memberIds: [b.id], coordinatorBotId: null });
+      events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
+    }
+    const workRoomId = work.id;
+    const base: HandoffPayload = { fromBotId: ctx.bot.id, toBotId: b.id, task: a.task, context: a.context };
+    post('handoff', '@' + ctx.bot.handle + ' passed this to @' + b.handle + ': ' + a.task, { ...base, workRoomId });
+    post('handoff', '@' + b.handle + ' handoff from @' + ctx.bot.handle + ': ' + a.task + (a.context ? '\n\nContext: ' + a.context : ''), base, work);
+    const home = ctx.room.id;
+    const dispatched = ctx.dispatchFromBot([b], work, (res) => {
+      if (!ctx.repos.getRoom(home)) return;
+      const payload: HandoffResultPayload = { workRoomId };
+      const summary = res.finalText.length > 600 ? res.finalText.slice(0, 600).trimEnd() + '…' : res.finalText;
+      const body = res.parked ? 'Waiting on you in my chat.' : res.ok ? summary || 'Finished, with nothing to add.' : 'Could not finish: ' + (res.error ?? 'the turn ended early') + '.';
+      const msg = ctx.repos.insertMessage({ roomId: home, authorType: 'bot', authorId: b.id, kind: 'text', text: body, payload, causeId: ctx.causeId, hop: ctx.hop + 1, turnId: null });
+      events.emitEvent({ type: 'message.new', message: msg });
+    });
+    return dispatched.length
+      ? text('Passed to @' + b.handle + ', working in its own chat. Its result will appear in this chat; do not wait for it.')
+      : err('Could not dispatch. Finish the task yourself.');
+  };
+
   const handoff = hubTool(
     'handoff',
-    'Hand a task to another bot in this room. It picks the task up with room context. Use for delegation; you do not need to wait for it.',
+    'Hand a task to another bot. It picks the task up with room context. Use for delegation; you do not need to wait for it. A bot from the fleet directory that is not in this chat needs an approval card: in a group chat it is added first, and from a DM it works in its own chat and its result comes back here.',
     {
       to_bot: z.string().describe('@handle or name of the bot'),
       task: z.string().min(1).describe('What the bot should do'),
       context: z.string().optional().describe('Extra context: file paths, decisions, constraints'),
     },
     async (a) => {
-      const target = findBot(a.to_bot);
+      let target = findBot(a.to_bot);
+      // P7 (7.3): a bot from the fleet directory that is not in this room is added first, through the same
+      // gated path as add_to_room, so the coordinator can route work to anyone on the account.
+      if (!target) {
+        const b = fleetBot(a.to_bot);
+        if (b && (ctx.repos.getRoom(ctx.room.id) ?? ctx.room).kind !== 'group') return handoffToItsChat(b, a);
+        if (b) {
+          const joined = await joinFromFleet(b);
+          if ('out' in joined) return joined.out;
+          target = joined.bot;
+        }
+      }
       if (!target) {
         return err('Unknown bot "' + a.to_bot + '". Members: ' + (others().map((b) => '@' + b.handle).join(', ') || 'none'));
       }
@@ -239,7 +330,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       if (!r.ok) return r.out;
       const msgs = ctx.repos
         .listMessages(r.room.id, { limit: a.limit ?? 30 })
-        .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine');
+        .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine' || m.kind === 'trigger');
       const who = (m: { authorType: string; authorId: string | null }) =>
         m.authorType === 'user'
           ? userName
@@ -280,7 +371,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       handle: z.string().regex(/^[a-z0-9_-]{2,24}$/).describe('Mention handle, lowercase, e.g. "analyst"'),
       title: z.string().max(80).describe('One-line role title'),
       description: z.string().min(10).max(4000).describe('Role instructions: responsibilities, how to work, what to avoid. Becomes the bot identity.'),
-      avatar: z.string().max(8).optional().describe('Single emoji (default 🤖)'),
+      avatar: z.enum(BOT_ICON_KEYS).optional().describe('Icon name. Leave it out and the app picks one.'),
       tools: z.array(z.enum(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'])).optional().describe('Default: all of them'),
       join_this_room: z.boolean().optional().describe('Add the bot to the current room (group chats only). Default true'),
       model: z.string().optional().describe('Model for the new bot. Default: same as yours.' + modelHint),
@@ -298,7 +389,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
         a as unknown as Record<string, unknown>,
       );
       if (denied) return denied;
-      const bot = ctx.repos.createBot({ name: a.name, handle: a.handle, title: a.title, description: a.description, avatar: a.avatar ?? '🤖', model: a.model ?? ctx.bot.model, allowedTools: a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'], maxBudgetUsd: ctx.bot.maxBudgetUsd });
+      const bot = ctx.repos.createBot({ name: a.name, handle: a.handle, title: a.title, description: a.description, avatar: a.avatar ?? '', model: a.model ?? ctx.bot.model, allowedTools: a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'], maxBudgetUsd: ctx.bot.maxBudgetUsd });
       ctx.memory.ensureHome(bot.id);
       ctx.memory.writeIdentity(bot.id, a.description);
       events.emitEvent({ type: 'bots.changed', bots: ctx.repos.listBots() });
@@ -312,7 +403,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
           events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
         }
       }
-      const note = ctx.repos.insertMessage({ roomId: ctx.room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' created bot ' + bot.avatar + ' ' + bot.name + ' (@' + bot.handle + ')' + (joined ? ' and added it to this room.' : '.'), payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
+      const note = ctx.repos.insertMessage({ roomId: ctx.room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' created bot ' + bot.name + ' (@' + bot.handle + ')' + (joined ? ' and added it to this room.' : '.'), payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
       events.emitEvent({ type: 'message.new', message: note });
       return text('Created @' + bot.handle + ' (' + bot.name + ').' + (joined ? ' It is in this room; mention @' + bot.handle + ' to give it work.' : ctx.room.kind === 'group' ? ' Room is full (' + MAX_ROOM_BOTS + '), not added.' : ' This is a DM, so it was not added here; ' + userName + ' can open a DM or add it to a group chat.'));
     },
@@ -336,7 +427,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       ctx.repos.updateRoom(room.id, { memberIds: [...room.memberIds, b.id] });
       if (room.id === ctx.room.id) ctx.members.push(b);
       events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
-      const note = ctx.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' added ' + b.avatar + ' ' + b.name + ' (@' + b.handle + ') to this room.', payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
+      const note = ctx.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text: '@' + ctx.bot.handle + ' added ' + b.name + ' (@' + b.handle + ') to this room.', payload: null, causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId });
       events.emitEvent({ type: 'message.new', message: note });
       return text('Added @' + b.handle + ' to "' + room.name + '". Mention it to give it work.');
     },
@@ -414,7 +505,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       handle: z.string().regex(/^[a-z0-9_-]{2,24}$/).optional().describe('New mention handle (must be unused)'),
       title: z.string().max(80).optional(),
       description: z.string().min(10).max(4000).optional().describe('New role instructions (full replacement)'),
-      avatar: z.string().max(8).optional(),
+      avatar: z.enum(BOT_ICON_KEYS).optional().describe('Icon name'),
       model: z.string().optional().describe('Model id.' + modelHint),
       tools: z.array(TOOL_ENUM).optional().describe('Full replacement of the allowed tool list'),
       max_budget_usd: z.number().min(0.05).max(50).optional().describe('Budget per turn'),
@@ -439,12 +530,13 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       // A bot may still tidy its own presentation. Anything that changes what a bot is *allowed to do* —
       // tools, model, budget — or that touches another bot needs the human (audit 2026-09-09, B6).
       const SELF_EDITABLE = new Set(['name', 'title', 'avatar', 'description']);
-      const security = Object.keys(patch).filter((k) => !SELF_EDITABLE.has(k));
+      // A picture is the owner's upload (bots can only pick icons), so replacing one asks as well.
+      const security = Object.keys(patch).filter((k) => !SELF_EDITABLE.has(k) || (k === 'avatar' && isMediaRef(target.avatar)));
       const isSelf = target.id === ctx.bot.id;
       if (!isSelf || security.length) {
         const denied = await gate(
           'update_bot',
-          (isSelf ? 'Change your own settings' : 'Change ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ')') +
+          (isSelf ? 'Change your own settings' : 'Change ' + target.name + ' (@' + target.handle + ')') +
             ': ' + Object.entries(patch).map(([k, v]) => k + ' = ' + JSON.stringify(v).slice(0, 120)).join(', '),
           a as unknown as Record<string, unknown>,
         );
@@ -455,7 +547,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       const i = ctx.members.findIndex((m) => m.id === updated.id);
       if (i >= 0) ctx.members[i] = updated;
       events.emitEvent({ type: 'bots.changed', bots: ctx.repos.listBots() });
-      sysNote('@' + ctx.bot.handle + ' updated ' + updated.avatar + ' ' + updated.name + ' (@' + updated.handle + '): ' + Object.keys(patch).join(', ') + '.');
+      sysNote('@' + ctx.bot.handle + ' updated ' + updated.name + ' (@' + updated.handle + '): ' + Object.keys(patch).join(', ') + '.');
       return text('Updated @' + updated.handle + ' (' + Object.keys(patch).join(', ') + ').' + (target.id === ctx.bot.id ? ' Changes to your own identity/tools apply from your next turn.' : ''));
     },
   );
@@ -475,18 +567,18 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       const self = target.id === ctx.bot.id;
       const denied = await gate(
         'delete_bot',
-        'Permanently delete ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ')' + (self ? ' — itself' : '') +
+        'Permanently delete ' + target.name + ' (@' + target.handle + ')' + (self ? ' — itself' : '') +
           ' and erase its memory' + (a.reason ? ': ' + a.reason : '.'),
         a as unknown as Record<string, unknown>,
       );
       if (denied) return denied;
       ctx.repos.deleteBot(target.id);
-      try { const fs = await import('node:fs'); const { botHome } = await import('../config.js'); fs.rmSync(botHome(target.id), { recursive: true, force: true }); } catch { /* ignore */ }
+      try { ctx.memory.removeHome(target.id); } catch { /* ignore */ }
       const idx = ctx.members.findIndex((m) => m.id === target.id);
       if (idx >= 0) ctx.members.splice(idx, 1);
       events.emitEvent({ type: 'bots.changed', bots: ctx.repos.listBots() });
       events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
-      sysNote((self ? '@' + ctx.bot.handle + ' deleted itself' : '@' + ctx.bot.handle + ' deleted ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ')') + (a.reason ? ': ' + a.reason : '.'));
+      sysNote((self ? '@' + ctx.bot.handle + ' deleted itself' : '@' + ctx.bot.handle + ' deleted ' + target.name + ' (@' + target.handle + ')') + (a.reason ? ': ' + a.reason : '.'));
       return text(self
         ? 'You are deleted. Say goodbye in one line; you will not run again after this turn.'
         : 'Deleted @' + target.handle + '. It is gone from every room; its memory is erased.');
@@ -513,7 +605,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
         if (idx >= 0) ctx.members.splice(idx, 1);
       }
       events.emitEvent({ type: 'rooms.changed', rooms: ctx.repos.listRooms() });
-      sysNote('@' + ctx.bot.handle + ' removed ' + target.avatar + ' ' + target.name + ' (@' + target.handle + ') from this room.', room);
+      sysNote('@' + ctx.bot.handle + ' removed ' + target.name + ' (@' + target.handle + ') from this room.', room);
       return text('Removed @' + target.handle + ' from "' + room.name + '".');
     },
   );
@@ -546,6 +638,42 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom, deleteRoom];
 
+  tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
+  // ---- P7 (7.2): notes/, searched on demand so memory.md can stay small ----
+  tools.push(
+    hubTool(
+      'search_notes',
+      'Search your private notes/ folder (longer reference material you saved with write_note). Every word must appear in a note for it to match. Returns file paths and matching lines; Read a path for the whole note.',
+      {
+        query: z.string().min(2).max(200).describe('Words to look for'),
+        limit: z.number().int().min(1).max(20).optional().describe('Default 8'),
+      },
+      async (a) => {
+        const hits = ctx.memory.searchNotes(ctx.bot.id, a.query, a.limit ?? 8);
+        if (!hits.length) return text('No notes match "' + a.query + '" (' + ctx.memory.listNotes(ctx.bot.id).length + ' notes searched).');
+        return text(hits.map((h) => h.file + '\n' + h.lines.map((l) => '  ' + l).join('\n')).join('\n\n'));
+      },
+      { readOnly: true },
+    ),
+    hubTool(
+      'write_note',
+      'Save a note to your private notes/ folder: reference material too long or too specific for memory.md (meeting notes, specs, how-tos, lists). The title becomes the file name; the same title replaces (or appends to) that note. Find notes later with search_notes.',
+      {
+        title: z.string().min(1).max(80).describe('Short title, e.g. "Q3 launch plan"'),
+        text: z.string().min(1).max(32000).describe('Markdown body'),
+        mode: z.enum(['replace', 'append']).optional().describe('Default replace'),
+      },
+      async (a) => {
+        try {
+          const r = ctx.memory.writeNote(ctx.bot.id, a.title, a.text, a.mode ?? 'replace');
+          return text('Saved ' + r.file + (r.trimmed ? ' (cut at 32 KB; split it into several notes)' : '') + '.');
+        } catch (e) {
+          return err(String((e as Error).message));
+        }
+      },
+    ),
+  );
+
   if (ctx.requestApproval) {
     tools.push(hubTool(
       'request_approval',
@@ -563,6 +691,196 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       },
     ));
   }
+  if (ctx.useStrongerModel) {
+    const move = ctx.useStrongerModel;
+    tools.push(hubTool(
+      'use_stronger_model',
+      'Move this turn up to the stronger model for hard work. You continue in this same session, for this turn only. Make no more tool calls after it: reply with exactly NO_REPLY, and you carry on from there on the stronger model.',
+      { reason: z.string().min(3).max(200).describe('Why, in a few words. Shown in the chat.') },
+      async (a) => text(move(a.reason)
+        ? 'Approved. Make no more tool calls now: reply with exactly NO_REPLY. You continue where you left off on the stronger model.'
+        : 'You already asked for this on this turn.'),
+    ));
+  }
+  if (ctx.proposeRouting) {
+    const propose = ctx.proposeRouting;
+    tools.push(hubTool(
+      'propose_routing_change',
+      'Ask ' + userName + ' to add one line to their routing rules (routing.md). You cannot write the file. They see the exact line on an approval card, and it is added only if they say yes.',
+      {
+        line: z.string().min(3).max(300).describe('The one rule to add, e.g. "Invoices go to @finance"'),
+        reason: z.string().min(3).max(200).describe('Why ' + userName + ' wants it'),
+      },
+      async (a) => {
+        const r = await propose(a.line.replace(/\s+/g, ' ').trim(), a.reason);
+        return r.ok ? text(r.message) : err(r.message);
+      },
+    ));
+  }
   if (ctx.desktop) tools.push(...desktopTools());
   return tools;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// P3: routine tools. A routine a bot schedules is autonomous future spend, so creating, changing and
+// deleting one always goes through `gate()` (fleet approval). Listing is silent.
+const MAX_ROUTINES = 100;
+
+/** `2026-11-02 09:00` style, in `tz`. */
+function fmtAt(ms: number, tz: string): string {
+  return new Date(ms).toLocaleString('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '');
+}
+/** How a routine's schedule reads on an approval card and in list_routines. */
+export function describeSchedule(r: Pick<Routine, 'cron' | 'onceAt'>, tz: string): string {
+  return r.onceAt !== null ? 'once at ' + fmtAt(r.onceAt, tz) + ' (' + tz + ')' : 'cron "' + r.cron + '" (' + tz + ')';
+}
+
+function routineTools(
+  ctx: ToolCtx,
+  h: {
+    gate: (tool: string, reason: string, input: Record<string, unknown>) => Promise<ToolOutput | null>;
+    resolveRoom: (ref?: string) => { ok: true; room: Room; members: Bot[] } | { ok: false; out: ToolOutput };
+    resolveAny: (ref: string) => Bot | undefined;
+    sysNote: (body: string, room?: Room) => void;
+    ROOM_ARG: z.ZodOptional<z.ZodString>;
+  },
+): HubTool[] {
+  const tz = () => ctx.timezone ?? settings.get().timezone;
+  const find = (ref: string): Routine | ToolOutput => {
+    const all = ctx.repos.listRoutines();
+    const byId = all.find((r) => r.id === ref.trim());
+    const hits = byId ? [byId] : all.filter((r) => r.name.toLowerCase() === ref.trim().toLowerCase());
+    if (!hits.length) return err('No routine "' + ref + '". Call list_routines to see them and their ids.');
+    if (hits.length > 1) return err('More than one routine is named "' + ref + '"; pass an id: ' + hits.map((r) => r.id).join(', '));
+    return hits[0];
+  };
+  const who = (id: string) => {
+    const b = ctx.repos.getBot(id);
+    return b ? '@' + b.handle : '(deleted bot)';
+  };
+  const where = (id: string) => ctx.repos.getRoom(id)?.name ?? '(deleted room)';
+  const SCHEDULE_HELP =
+    'Give either `cron` (5 fields: minute hour day-of-month month day-of-week, e.g. "0 9 * * 1-5" = weekdays 09:00) ' +
+    'or `once_at` (a local date-time like "2026-11-02T09:00" for a one-shot). Times are in ' + tz() + '.';
+  const changed = () => ctx.routinesChanged?.();
+
+  const listRoutines = hubTool(
+    'list_routines',
+    'List every scheduled routine with its id, bot, room, schedule and next run.',
+    {},
+    async () => {
+      const all = ctx.repos.listRoutines();
+      if (!all.length) return text('(no routines) Times are in ' + tz() + '.');
+      return text(
+        'Times are in ' + tz() + '.\n' +
+          all
+            .map((r) =>
+              r.name + ' id=' + r.id + (r.enabled ? '' : ' [off]') + ': ' + who(r.botId) + ' in "' + where(r.roomId) + '", ' +
+              describeSchedule(r, tz()) + (r.nextRunAt ? ', next ' + fmtAt(r.nextRunAt, tz()) : '') +
+              '\n    prompt: ' + r.prompt.split('\n')[0].slice(0, 160),
+            )
+            .join('\n'),
+      );
+    },
+    { readOnly: true },
+  );
+
+  const createRoutine = hubTool(
+    'create_routine',
+    'Schedule a routine: at the given time a bot is woken in a room with `prompt`, on its own. ' + SCHEDULE_HELP +
+      ' Shows ' + settings.get().userName + ' an approval card first; routine turns also ask before any risky action.',
+    {
+      name: z.string().min(1).max(60).describe('Short name, e.g. "Morning inbox triage"'),
+      prompt: z.string().min(1).max(4000).describe('What the bot is told when the routine fires'),
+      cron: z.string().max(200).optional().describe('Recurring schedule, e.g. "0 9 * * *" (daily 09:00)'),
+      once_at: z.string().max(40).optional().describe('One-shot local time, e.g. "2026-11-02T09:00"'),
+      bot: z.string().optional().describe('@handle of the bot that runs it. Default: you'),
+      room: h.ROOM_ARG,
+    },
+    async (a) => {
+      if (ctx.repos.listRoutines().length >= MAX_ROUTINES) return err('Routine limit reached (' + MAX_ROUTINES + ').');
+      const bot = a.bot ? h.resolveAny(a.bot) : ctx.repos.getBot(ctx.bot.id);
+      if (!bot) return err('No bot "' + a.bot + '".');
+      const r = h.resolveRoom(a.room);
+      if (!r.ok) return r.out;
+      if (!r.room.memberIds.includes(bot.id)) return err('@' + bot.handle + ' is not in "' + r.room.name + '". Add it first or pick another room.');
+      const sched = RoutineScheduler.resolveSchedule({ cron: a.cron, onceAt: a.once_at ?? null }, tz());
+      if ('error' in sched) return err(sched.error + ' ' + SCHEDULE_HELP);
+      const denied = await h.gate(
+        'create_routine',
+        'Schedule routine "' + a.name + '" for @' + bot.handle + ' in "' + r.room.name + '", ' + describeSchedule(sched, tz()) +
+          ': ' + a.prompt.split('\n')[0].slice(0, 160),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      const created = ctx.repos.createRoutine({ botId: bot.id, roomId: r.room.id, name: a.name, prompt: a.prompt, enabled: true, ...sched });
+      changed();
+      h.sysNote('@' + ctx.bot.handle + ' scheduled routine "' + created.name + '" for @' + bot.handle + ' in "' + r.room.name + '", ' + describeSchedule(created, tz()) + '.');
+      return text('Scheduled "' + created.name + '" (id ' + created.id + '), ' + describeSchedule(created, tz()) + '.');
+    },
+  );
+
+  const updateRoutine = hubTool(
+    'update_routine',
+    'Change a routine (by name or id). Only the fields you pass change; passing cron clears a one-shot time and vice versa. ' +
+      SCHEDULE_HELP + ' Shows ' + settings.get().userName + ' an approval card first.',
+    {
+      routine: z.string().describe('Routine name or id, from list_routines'),
+      name: z.string().min(1).max(60).optional(),
+      prompt: z.string().min(1).max(4000).optional(),
+      cron: z.string().max(200).optional(),
+      once_at: z.string().max(40).optional(),
+      enabled: z.boolean().optional().describe('false pauses it, true resumes it'),
+    },
+    async (a) => {
+      const cur = find(a.routine);
+      if ('content' in cur) return cur;
+      const patch: Partial<Routine> = {};
+      if (a.name !== undefined) patch.name = a.name;
+      if (a.prompt !== undefined) patch.prompt = a.prompt;
+      if (a.enabled !== undefined) patch.enabled = a.enabled;
+      if (a.cron !== undefined || a.once_at !== undefined) {
+        const sched = RoutineScheduler.resolveSchedule({ cron: a.cron ?? cur.cron, onceAt: a.once_at ?? null }, tz());
+        if ('error' in sched) return err(sched.error + ' ' + SCHEDULE_HELP);
+        Object.assign(patch, sched);
+      }
+      if (!Object.keys(patch).length) return err('Nothing to change: pass at least one field.');
+      const after = { ...cur, ...patch };
+      const denied = await h.gate(
+        'update_routine',
+        'Change routine "' + cur.name + '" (' + who(cur.botId) + ' in "' + where(cur.roomId) + '"): ' +
+          Object.keys(patch).filter((k) => k !== 'onceAt' && k !== 'cron').map((k) => k + ' = ' + JSON.stringify((patch as Record<string, unknown>)[k]).slice(0, 120))
+            .concat('cron' in patch ? ['schedule = ' + describeSchedule(after, tz())] : [])
+            .join(', '),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      ctx.repos.updateRoutine(cur.id, patch);
+      changed();
+      h.sysNote('@' + ctx.bot.handle + ' changed routine "' + after.name + '": ' + Object.keys(patch).filter((k) => k !== 'onceAt').join(', ').replace('cron', 'schedule') + '.');
+      return text('Updated "' + after.name + '" (' + describeSchedule(after, tz()) + (after.enabled ? '' : ', paused') + ').');
+    },
+  );
+
+  const deleteRoutine = hubTool(
+    'delete_routine',
+    'Delete a routine (by name or id) and its run history. Shows ' + settings.get().userName + ' an approval card first.',
+    { routine: z.string().describe('Routine name or id, from list_routines') },
+    async (a) => {
+      const cur = find(a.routine);
+      if ('content' in cur) return cur;
+      const denied = await h.gate(
+        'delete_routine',
+        'Delete routine "' + cur.name + '" (' + who(cur.botId) + ' in "' + where(cur.roomId) + '", ' + describeSchedule(cur, tz()) + ')',
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      ctx.repos.deleteRoutine(cur.id);
+      changed();
+      h.sysNote('@' + ctx.bot.handle + ' deleted routine "' + cur.name + '".');
+      return text('Deleted "' + cur.name + '".');
+    },
+  );
+
+  return [listRoutines, createRoutine, updateRoutine, deleteRoutine];
 }

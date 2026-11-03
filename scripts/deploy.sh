@@ -40,12 +40,12 @@ if [ -d /root/pocketrocket ] && [ ! -d "$DIR" ]; then
 fi
 REMOTE
 
-echo "==> ensuring the pocketrocket service user exists on $HOST"
-ssh "$HOST" 'id -u pocketrocket >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/pocketrocket --shell /bin/bash --user-group pocketrocket'
+echo "==> ensuring the $APP_USER service user exists on $HOST"
+ssh "$HOST" "id -u $APP_USER >/dev/null 2>&1 || useradd --system --create-home --home-dir /home/$APP_USER --shell /bin/bash --user-group $APP_USER"
 
 echo "==> uploading to $HOST:$DIR"
 ssh "$HOST" "mkdir -p '$DIR'"
-tar --exclude=node_modules --exclude=data --exclude=dist --exclude=.env \
+tar --exclude=.git --exclude=node_modules --exclude=data --exclude=dist --exclude=.env --exclude='packages/desktop/src-tauri/target' \
     --exclude='packages/*/node_modules' --exclude='packages/web/dist' -czf - . \
   | ssh "$HOST" "tar -xzf - -C '$DIR'"
 

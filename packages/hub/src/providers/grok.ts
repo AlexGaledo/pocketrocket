@@ -11,7 +11,7 @@ import { NdjsonParser, renderToolOutput, tokensFrom, type GrokEvent, type GrokUs
 export const GROK_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   id: 'grok',
   label: 'Grok',
-  blurb: 'xAI Grok through the Grok Build CLI (`grok -p`). Sign in with `grok login` or paste an xAI API key.',
+  blurb: 'xAI Grok. Sign in to Grok or paste an xAI API key.',
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['XAI_API_KEY'],
   permissions: 'best-effort',

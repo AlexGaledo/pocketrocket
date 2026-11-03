@@ -1,6 +1,7 @@
 /**
- * Settings › Appearance: theme (follow the computer, light, dark) and sound cues with previews.
+ * Settings › Appearance: theme (follow the computer, light, dark), font, and sound cues with previews.
  * Both apply the moment they change; the store saves them and rolls back if the save fails.
+ * `readOnly` (a paired phone, which may not write hub settings): shown, not changeable; previews still play.
  */
 import { useId } from 'react';
 import { Volume2 } from 'lucide-react';
@@ -16,6 +17,11 @@ const THEMES: { id: Settings['theme']; label: string }[] = [
   { id: 'dark', label: 'Dark' },
 ];
 
+const FONTS: { id: Settings['font']; label: string; family: string }[] = [
+  { id: 'google-sans', label: 'Google Sans', family: '"Google Sans Variable", sans-serif' },
+  { id: 'figtree', label: 'Figtree', family: '"Figtree Variable", sans-serif' },
+];
+
 const CUES: { id: Cue; label: string }[] = [
   { id: 'send', label: 'Send' },
   { id: 'receive', label: 'Reply arrives' },
@@ -27,29 +33,32 @@ const CUES: { id: Cue; label: string }[] = [
   { id: 'connected', label: 'Connected' },
 ];
 
-export function AppearanceSection() {
+export function AppearanceSection({ readOnly = false }: { readOnly?: boolean } = {}) {
   const theme = useStore((s) => s.settings.theme);
+  const font = useStore((s) => s.settings.font);
   const sounds = useStore((s) => s.settings.sounds);
   const updateSettings = useStore((s) => s.updateSettings);
   const themeLabelId = useId();
+  const fontLabelId = useId();
   const soundsLabelId = useId();
   const soundsHintId = useId();
 
   return (
     <>
-      <SectionHeader title="Appearance" description="How PocketRocket looks and sounds." />
+      <SectionHeader title="Appearance" description={readOnly ? 'Change these on the desktop app.' : undefined} />
 
       <Group title="Theme" titleId={themeLabelId}>
         {/* A group of toggle buttons (aria-pressed), not tabs: picking one changes a setting, it doesn't swap a view. */}
-        <div role="group" aria-labelledby={themeLabelId} className="flex gap-0.5 rounded-full bg-card2 p-0.5">
+        <div role="group" aria-labelledby={themeLabelId} className="flex gap-0.5 rounded-md bg-card2 p-0.5">
           {THEMES.map((t) => (
             <button
               key={t.id}
               type="button"
               aria-pressed={theme === t.id}
+              disabled={readOnly}
               className={cn(
-                'flex-1 rounded-full px-2 py-1.5 text-[12.5px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
-                theme === t.id ? 'bg-panel text-fg shadow-[var(--shadow)]' : 'text-muted hover:text-fg',
+                'flex-1 rounded-sm px-2 py-1.5 text-label focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default',
+                theme === t.id ? 'bg-panel text-fg shadow-[var(--shadow-sm)]' : readOnly ? 'text-muted' : 'text-muted hover:text-fg',
               )}
               onClick={() => void updateSettings({ theme: t.id })}
             >
@@ -59,17 +68,38 @@ export function AppearanceSection() {
         </div>
       </Group>
 
+      <Group title="Font" titleId={fontLabelId}>
+        <div role="group" aria-labelledby={fontLabelId} className="flex gap-0.5 rounded-md bg-card2 p-0.5">
+          {FONTS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              aria-pressed={font === f.id}
+              disabled={readOnly}
+              style={{ fontFamily: f.family }}
+              className={cn(
+                'flex-1 rounded-sm px-2 py-1.5 text-label focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default',
+                font === f.id ? 'bg-panel text-fg shadow-[var(--shadow-sm)]' : readOnly ? 'text-muted' : 'text-muted hover:text-fg',
+              )}
+              onClick={() => void updateSettings({ font: f.id })}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </Group>
+
       <Group>
         <Card>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div id={soundsLabelId} className="text-[13px] font-semibold">Sounds</div>
-              <p id={soundsHintId} className="text-[12px] text-muted">Short cues for new replies, approvals and finished work.</p>
+              <div id={soundsLabelId} className="text-label">Sounds</div>
+              <p id={soundsHintId} className="text-hint text-muted">Cues for replies, approvals, finished work.</p>
             </div>
-            <Switch checked={sounds} aria-labelledby={soundsLabelId} aria-describedby={soundsHintId} onChange={(next) => void updateSettings({ sounds: next })} />
+            <Switch checked={sounds} disabled={readOnly} aria-labelledby={soundsLabelId} aria-describedby={soundsHintId} onChange={(next) => void updateSettings({ sounds: next })} />
           </div>
           <div className="mt-4 border-t border-line pt-3">
-            <div className="mb-2 flex items-center gap-1.5 text-[12px] text-muted">
+            <div className="mb-2 flex items-center gap-1.5 text-hint text-muted">
               <Volume2 size={13} aria-hidden /> Preview
             </div>
             <div className="flex flex-wrap gap-1.5">

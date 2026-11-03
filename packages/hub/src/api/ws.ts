@@ -1,7 +1,8 @@
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ClientEventSchema, type ServerEvent } from '@pocketrocket/shared';
 import { MAX_WS_BYTES } from './body.js';
+import { deviceIdOf } from './guard.js';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
@@ -21,8 +22,11 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
     for (const c of wss.clients) send(c, ev);
   });
 
-  wss.on('connection', (ws) => {
-    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: deps.settings.get() });
+  wss.on('connection', (ws, req?: IncomingMessage) => {
+    // P9: a paired phone answers cards once; a standing "always" grant is the desktop's call.
+    const device = req ? deviceIdOf(req) : null;
+    // The client hides what a device is refused from this one flag rather than guessing per button.
+    send(ws, { type: 'hello', bots: deps.repos.listBots(), rooms: deps.repos.listRooms(), botStates: deps.router.botStates(), settings: deps.settings.get(), principal: device ? 'device' : 'hub', openApprovals: deps.repos.openApprovals() });
     ws.on('message', (raw) => {
       let data: unknown;
       try {
@@ -36,7 +40,8 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
       try {
         if (ev.type === 'message.send') deps.router.onUserMessage(ev.roomId, ev.text);
         else if (ev.type === 'approval.decide') {
-          if (!deps.broker.resolve(ev.approvalId, ev.decision)) send(ws, { type: 'error', message: 'Approval no longer pending', context: ev.approvalId });
+          if (device && ev.decision === 'always') return send(ws, { type: 'error', message: '"Always allow" can only be granted from the desktop app', context: ev.approvalId });
+          if (!deps.broker.resolve(ev.approvalId, ev.decision, { device: !!device })) send(ws, { type: 'error', message: 'Approval no longer pending', context: ev.approvalId });
         } else if (ev.type === 'turn.interrupt') {
           if (!deps.router.interrupt(ev.turnId)) send(ws, { type: 'error', message: 'Turn not active', context: ev.turnId });
         }

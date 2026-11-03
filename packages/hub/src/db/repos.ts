@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import {
   AUTO_MEMORY_EVERY,
   type Bot, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
+  type CauseKind, type UsageGroup, type OpenApproval,
 } from '@pocketrocket/shared';
 import type { Db, Row } from './db.js';
 
@@ -22,7 +23,7 @@ export class Repos {
       handle: r.handle as string,
       title: (r.title as string) ?? '',
       description: (r.description as string) ?? '',
-      avatar: (r.avatar as string) || '🤖',
+      avatar: (r.avatar as string) || '',
       model: r.model as string,
       allowedTools: JSON.parse((r.allowed_tools as string) || '[]'),
       maxBudgetUsd: r.max_budget_usd as number,
@@ -71,6 +72,7 @@ export class Repos {
       this.db.run('DELETE FROM auto_memory WHERE bot_id=?', id);
       this.db.run('DELETE FROM bot_skills WHERE bot_id=?', id);
       this.db.run('DELETE FROM routines WHERE bot_id=?', id);
+      this.db.run('UPDATE rooms SET coordinator_bot_id=NULL WHERE coordinator_bot_id=?', id);
     });
   }
 
@@ -86,6 +88,8 @@ export class Repos {
       memberIds: members,
       coordinatorBotId: (r.coordinator_bot_id as string) ?? null,
       createdAt: r.created_at as number,
+      chatModel: (r.chat_model as string) ?? null,
+      avatar: (r.avatar as string) || '',
     };
   }
   listRooms(): Room[] {
@@ -95,25 +99,26 @@ export class Repos {
     const r = this.db.get('SELECT * FROM rooms WHERE id=?', id);
     return r && this.rowToRoom(r);
   }
-  createRoom(input: { kind: Room['kind']; name: string; memberIds: string[]; coordinatorBotId: string | null }): Room {
+  createRoom(input: { kind: Room['kind']; name: string; memberIds: string[]; coordinatorBotId: string | null; avatar?: string }): Room {
     const id = nanoid(10);
     this.db.tx(() => {
       this.db.run(
-        'INSERT INTO rooms (id,kind,name,coordinator_bot_id,created_at) VALUES (?,?,?,?,?)',
-        id, input.kind, input.name, input.coordinatorBotId, now(),
+        'INSERT INTO rooms (id,kind,name,coordinator_bot_id,created_at,avatar) VALUES (?,?,?,?,?,?)',
+        id, input.kind, input.name, input.coordinatorBotId, now(), input.avatar ?? '',
       );
       for (const m of new Set(input.memberIds)) this.db.run('INSERT INTO room_members (room_id,bot_id) VALUES (?,?)', id, m);
     });
     return this.getRoom(id)!;
   }
-  updateRoom(id: string, patch: Partial<{ name: string; memberIds: string[]; coordinatorBotId: string | null }>): Room | undefined {
+  updateRoom(id: string, patch: Partial<{ name: string; memberIds: string[]; coordinatorBotId: string | null; avatar: string }>): Room | undefined {
     const cur = this.getRoom(id);
     if (!cur) return undefined;
     this.db.tx(() => {
       this.db.run(
-        'UPDATE rooms SET name=?, coordinator_bot_id=? WHERE id=?',
+        'UPDATE rooms SET name=?, coordinator_bot_id=?, avatar=? WHERE id=?',
         patch.name ?? cur.name,
         patch.coordinatorBotId === undefined ? cur.coordinatorBotId : patch.coordinatorBotId,
+        patch.avatar ?? cur.avatar ?? '',
         id,
       );
       if (patch.memberIds) {
@@ -121,6 +126,11 @@ export class Repos {
         for (const m of new Set(patch.memberIds)) this.db.run('INSERT INTO room_members (room_id,bot_id) VALUES (?,?)', id, m);
       }
     });
+    return this.getRoom(id);
+  }
+  /** The composer's pick for this chat. Only the owner's REST route calls this; no bot tool does. */
+  setRoomChatModel(id: string, model: string | null): Room | undefined {
+    this.db.run('UPDATE rooms SET chat_model=? WHERE id=?', model, id);
     return this.getRoom(id);
   }
   deleteRoom(id: string) {
@@ -150,6 +160,7 @@ export class Repos {
       hop: (r.hop as number) ?? 0,
       turnId: (r.turn_id as string) ?? null,
       createdAt: r.created_at as number,
+      ...(r.model ? { model: r.model as string, modelReason: (r.model_reason as string) ?? undefined } : {}),
     };
   }
   insertMessage(m: Omit<Message, 'id' | 'seq' | 'createdAt'> & { id?: string }): Message {
@@ -158,9 +169,10 @@ export class Repos {
         this.db.get<{ s: number }>('SELECT COALESCE(MAX(seq),0)+1 AS s FROM messages WHERE room_id=?', m.roomId)?.s ?? 1;
       const msg: Message = { ...m, id: m.id ?? nanoid(12), seq, createdAt: now() };
       this.db.run(
-        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         msg.id, msg.roomId, msg.seq, msg.authorType, msg.authorId, msg.kind, msg.text,
         msg.payload ? JSON.stringify(msg.payload) : null, msg.causeId, msg.hop, msg.turnId, msg.createdAt,
+        msg.model ?? null, msg.modelReason ?? null,
       );
       return msg;
     });
@@ -264,6 +276,7 @@ export class Repos {
       enabled: !!(r.enabled as number),
       lastRunAt: (r.last_run_at as number) ?? null,
       nextRunAt: (r.next_run_at as number) ?? null,
+      onceAt: (r.once_at as number) ?? null,
     };
   }
   listRoutines(): Routine[] {
@@ -273,11 +286,11 @@ export class Repos {
     const r = this.db.get('SELECT * FROM routines WHERE id=?', id);
     return r && this.rowToRoutine(r);
   }
-  createRoutine(i: Omit<Routine, 'id' | 'lastRunAt' | 'nextRunAt'>): Routine {
+  createRoutine(i: Omit<Routine, 'id' | 'lastRunAt' | 'nextRunAt' | 'onceAt'> & { onceAt?: number | null }): Routine {
     const id = nanoid(10);
     this.db.run(
-      'INSERT INTO routines (id,bot_id,room_id,name,cron,prompt,enabled) VALUES (?,?,?,?,?,?,?)',
-      id, i.botId, i.roomId, i.name, i.cron, i.prompt, i.enabled ? 1 : 0,
+      'INSERT INTO routines (id,bot_id,room_id,name,cron,prompt,enabled,once_at) VALUES (?,?,?,?,?,?,?,?)',
+      id, i.botId, i.roomId, i.name, i.cron, i.prompt, i.enabled ? 1 : 0, i.onceAt ?? null,
     );
     return this.getRoutine(id)!;
   }
@@ -286,8 +299,8 @@ export class Repos {
     if (!cur) return undefined;
     const r = { ...cur, ...patch };
     this.db.run(
-      'UPDATE routines SET bot_id=?,room_id=?,name=?,cron=?,prompt=?,enabled=?,last_run_at=?,next_run_at=? WHERE id=?',
-      r.botId, r.roomId, r.name, r.cron, r.prompt, r.enabled ? 1 : 0, r.lastRunAt, r.nextRunAt, id,
+      'UPDATE routines SET bot_id=?,room_id=?,name=?,cron=?,prompt=?,enabled=?,last_run_at=?,next_run_at=?,once_at=? WHERE id=?',
+      r.botId, r.roomId, r.name, r.cron, r.prompt, r.enabled ? 1 : 0, r.lastRunAt, r.nextRunAt, r.onceAt, id,
     );
     return r;
   }
@@ -330,10 +343,17 @@ export class Repos {
       source: r.source as Skill['source'],
       reviewStatus: r.review_status as Skill['reviewStatus'],
       createdByBot: (r.created_by_bot as string) ?? null,
+      // P6: the live version; candidate versions (parent_id set) never come out of listSkills.
+      version: (r.version as number) ?? 1,
+      parentId: (r.parent_id as string) ?? null,
+      ...(r.pending_versions !== undefined ? { pendingVersions: r.pending_versions as number } : {}),
     };
   }
   listSkills(): Skill[] {
-    return this.db.all('SELECT * FROM skills ORDER BY name').map((r) => this.rowToSkill(r));
+    // P6: candidate versions are rows with parent_id set; they are not pool skills.
+    return this.db
+      .all("SELECT s.*, (SELECT COUNT(*) FROM skills v WHERE v.parent_id=s.id AND v.review_status='pending') AS pending_versions FROM skills s WHERE s.parent_id IS NULL ORDER BY s.name")
+      .map((r) => this.rowToSkill(r));
   }
   getSkill(id: string): Skill | undefined {
     const r = this.db.get('SELECT * FROM skills WHERE id=?', id);
@@ -386,16 +406,45 @@ export class Repos {
   decideApproval(id: string, status: string) {
     this.db.run('UPDATE approvals SET status=?, decided_at=? WHERE id=?', status, now(), id);
   }
+  /** Cards still waiting for an answer, parked ones included (expirePendingApprovals clears the rest at startup). */
+  openApprovals(): OpenApproval[] {
+    return this.db.all<{ id: string; bot_id: string; room_id: string }>("SELECT id, bot_id, room_id FROM approvals WHERE status='pending'")
+      .map((r) => ({ approvalId: r.id, botId: r.bot_id, roomId: r.room_id }));
+  }
+  /**
+   * Startup: every approval still `pending` belonged to a turn that died with the previous hub process, so
+   * nothing can act on it. Marks those rows and their cards `expired`; returns the card messages it changed.
+   */
+  expirePendingApprovals(): Message[] {
+    return this.db.tx(() => {
+      // P2: a parked card or takeover (its turn ended and waits for the user) survives a restart.
+      this.db.run("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending' AND parked_at IS NULL", now());
+      const open = "((kind='approval' AND json_extract(payload, '$.status')='pending' AND json_extract(payload, '$.parked') IS NOT 1) OR " +
+        "(kind='takeover' AND json_extract(payload, '$.status')='waiting'))";
+      const ids = this.db.all<{ id: string }>('SELECT id FROM messages WHERE ' + open).map((r) => r.id);
+      this.db.run("UPDATE messages SET payload=json_set(payload, '$.status', 'expired') WHERE " + open);
+      return ids.map((id) => this.getMessage(id)).filter((m): m is Message => !!m);
+    });
+  }
+
+  /** Takeover cards whose turn ended and which still wait for the user to hand back. */
+  parkedTakeovers(): Message[] {
+    return this.db.all<{ id: string }>("SELECT id FROM messages WHERE kind='takeover' AND json_extract(payload, '$.status')='parked' ORDER BY rowid")
+      .map((r) => this.getMessage(r.id)).filter((m): m is Message => !!m);
+  }
 
   // ---------- usage ----------
   recordUsage(u: {
     botId: string; roomId: string; turnId: string; causeId: string | null; costUsd: number; inputTokens: number;
     outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; modelUsage: unknown; durationMs: number;
+    /** P8: the model that ran, why the router chose it, and what kind of cause started the turn. */
+    model?: string; routeReason?: string; causeKind?: CauseKind;
   }) {
     this.db.run(
-      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at,model,route_reason,cause_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       u.botId, u.roomId, u.turnId, u.causeId, u.costUsd, u.inputTokens, u.outputTokens, u.cacheReadTokens,
       u.cacheWriteTokens, JSON.stringify(u.modelUsage ?? null), u.durationMs, now(),
+      u.model ?? null, u.routeReason ?? null, u.causeKind ?? null,
     );
   }
   private totalsFrom(r: Row | undefined): UsageTotals {
@@ -424,4 +473,71 @@ export class Repos {
       ...this.totalsFrom(r),
     }));
   }
+
+  // ---------- P8: usage by model / cause kind ----------
+  /** Spend grouped by the model that ran or by what started the turn. Rows from before P8 group under ''. */
+  usageBy(by: 'model' | 'causeKind'): UsageGroup[] {
+    const col = by === 'model' ? 'model' : 'cause_kind';
+    return this.db
+      .all('SELECT COALESCE(' + col + ", '') k, " + SUM + ' FROM usage GROUP BY k ORDER BY cost DESC')
+      .map((r) => ({ key: r.k as string, ...this.totalsFrom(r) }));
+  }
+  // ---------- P3: lane journal (services/FollowUp.ts) ----------
+  journalAdd(e: Omit<LaneJournalRow, 'id' | 'attempts' | 'createdAt'> & { attempts?: number }): string {
+    const id = nanoid(10);
+    this.db.run(
+      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,note,attempts,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, e.runId, e.note, e.attempts ?? 0, now(),
+    );
+    return id;
+  }
+  journalRemove(ids: string[]) {
+    for (const id of ids) this.db.run('DELETE FROM lane_journal WHERE id=?', id);
+  }
+  /** Every row, oldest first, and empties the table: the caller re-enqueues what it still wants. */
+  journalTakeAll(): LaneJournalRow[] {
+    return this.db.tx(() => {
+      const rows = this.db.all('SELECT * FROM lane_journal ORDER BY created_at, rowid').map((r) => ({
+        id: r.id as string,
+        botId: r.bot_id as string,
+        roomId: r.room_id as string,
+        causeId: r.cause_id as string,
+        hop: r.hop as number,
+        triggerSeq: r.trigger_seq as number,
+        runId: (r.run_id as string) ?? null,
+        note: (r.note as string) ?? null,
+        attempts: r.attempts as number,
+        createdAt: r.created_at as number,
+      }));
+      this.db.run('DELETE FROM lane_journal');
+      return rows;
+    });
+  }
+  /** Routine runs still `running`: their turn died with the previous hub process. */
+  runningRuns(): { id: string; routineId: string }[] {
+    return this.db.all<{ id: string; routine_id: string }>("SELECT id, routine_id FROM routine_runs WHERE status='running'")
+      .map((r) => ({ id: r.id, routineId: r.routine_id }));
+  }
+
+  // ---------- P6: skill reflection ----------
+  /** Every message one turn wrote (text and tool calls), in order. */
+  messagesOfTurn(roomId: string, turnId: string): Message[] {
+    return this.db
+      .all('SELECT * FROM messages WHERE room_id=? AND turn_id=? ORDER BY seq', roomId, turnId)
+      .map((r) => this.rowToMessage(r));
+  }
+}
+
+/** One queued or running lane item (P3, `lane_journal`). */
+export interface LaneJournalRow {
+  id: string;
+  botId: string;
+  roomId: string;
+  causeId: string;
+  hop: number;
+  triggerSeq: number;
+  runId: string | null;
+  note: string | null;
+  attempts: number;
+  createdAt: number;
 }

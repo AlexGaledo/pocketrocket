@@ -36,8 +36,9 @@ pnpm start            # hub serves the built UI at http://127.0.0.1:7788
 pnpm test             # vitest, run before every PR
 ```
 
-With `pnpm start`, either copy the token URL the hub prints or read the token straight from
-`<data>/hub-token`. Debug a subprocess with `POCKETROCKET_DEBUG=1`.
+The hub does not print its token, because its output ends up in logs. Read it from `<data>/hub-token`
+and paste it into the prompt the UI shows, with `pnpm start` and on the Vite dev server alike, or open
+`http://127.0.0.1:7788/#token=<token>`. Debug a subprocess with `POCKETROCKET_DEBUG=1`.
 
 ## Desktop app
 
