@@ -1,5 +1,5 @@
 /**
- * Sign-in for the optional PocketRocket account, shared by Settings › Account and the onboarding
+ * Sign-in for the optional Homeroom account, shared by Settings › Account and the onboarding
  * "Create an account" step. It covers the two states before you are signed in:
  *   - signed out: an email field ("Email me a sign-in link"), plus Google/GitHub when the hub has them on
  *     (after either button, a local "finish in your browser" state with Cancel);

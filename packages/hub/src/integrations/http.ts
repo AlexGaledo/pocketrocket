@@ -50,7 +50,7 @@ export function withQuery(url: string, query?: RequestOpts['query']): string {
 
 /** One HTTPS call. Throws IntegrationError on anything but 2xx, 304 or a status listed in `allow`. */
 export async function apiRequest<T = unknown>(fetchFn: Fetch, url: string, opts: RequestOpts = {}): Promise<ApiResponse<T>> {
-  const headers: Record<string, string> = { accept: 'application/json', 'user-agent': 'PocketRocket', ...opts.headers };
+  const headers: Record<string, string> = { accept: 'application/json', 'user-agent': 'Homeroom', ...opts.headers };
   let body: string | undefined;
   if (opts.json !== undefined) {
     body = JSON.stringify(opts.json);

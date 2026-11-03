@@ -4,7 +4,7 @@
 
 Please report security issues via [GitHub private security advisories](https://github.com/AlexGaledo/pocketrocket/security/advisories/new) rather than a public issue. We'll respond as soon as we can.
 
-## How PocketRocket is designed to be safe
+## How Homeroom is designed to be safe
 
 - The hub binds to `127.0.0.1` only, on every platform and in every run mode (local, VPS, screen). It is never meant to be reachable from another host directly.
 - **Never expose the hub's port (default `7788`) to the internet or a LAN.** Reach a remote hub over an SSH tunnel or a private overlay network (e.g. Tailscale) instead.
@@ -14,7 +14,7 @@ Please report security issues via [GitHub private security advisories](https://g
   `ANTHROPIC_API_KEY` you set instead lives in `data/secrets.json` (or your environment). Neither
   is transmitted anywhere except to Claude.
 - **Outbound calls are limited to three things**: the Claude provider (every bot turn), the GitHub
-  releases page (Help → Check for updates, a plain link), and Supabase — PocketRocket's auth
+  releases page (Help → Check for updates, a plain link), and Supabase — Homeroom's auth
   provider. At startup the hub reads Supabase's public sign-in options (which sign-in buttons to
   show; nothing about you is sent). Signing in from Settings → Account shares your GitHub (or
   Google) identity and email with Supabase; it does not touch bot conversations, files, memory, or
@@ -52,7 +52,7 @@ A sufficiently motivated or injected bot can still find gaps, including but not 
 - **Interpreters it's allowed to run** (`node`, `python`, `bun`, etc.) can execute arbitrary code that never goes through the bash/path rules at all.
 - **Relative paths and path tricks** (`../`, junctions, not-yet-existing files) can land outside the intended workspace even when the rules look right on paper.
 - **Symlinks** created inside the workspace can point anywhere the hub process can reach.
-- **External CLIs bring their own sandboxing** (or lack of it) — a provider's CLI, an MCP server, or a tool it shells out to may not respect PocketRocket's rules at all.
+- **External CLIs bring their own sandboxing** (or lack of it) — a provider's CLI, an MCP server, or a tool it shells out to may not respect Homeroom's rules at all.
 
 Treat every bot — including one running a "trusted" model — like **a junior contractor who has a shell on your machine**: give it the least access it needs, review what it's about to do, and assume that anything it reads (web pages, files, other bots' messages) could be an attempt to redirect it.
 
@@ -60,13 +60,13 @@ Treat every bot — including one running a "trusted" model — like **a junior 
 
 ## Audits
 
-PocketRocket had an internal security review before its first public release (2026-09-09), and a second
+Homeroom had an internal security review before its first public release (2026-09-09), and a second
 one before v0.2.0 shipped. Between them they covered the hub's token guard and origin checks, the
 permission rules, bot-authored markdown, the desktop app's SSH handling and server scan, the Windows
 installer, and the CI workflows. Everything they found was fixed before release; the fixes are listed
 under **Security** in [CHANGELOG.md](CHANGELOG.md). The detailed reports are kept private, because they
 name specific files and lines and would mostly help someone attacking an installation that is behind on
-updates. If you are assessing PocketRocket for your own use and want more detail than the changelog
+updates. If you are assessing Homeroom for your own use and want more detail than the changelog
 gives, ask through the contact above.
 
 ## Scope

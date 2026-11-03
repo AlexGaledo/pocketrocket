@@ -1,4 +1,4 @@
-// Optional PocketRocket account (Supabase Auth). The hub owns the session; the UI only ever sees AccountState.
+// Optional Homeroom account (Supabase Auth). The hub owns the session; the UI only ever sees AccountState.
 
 export type Plan = 'free' | 'pro';
 

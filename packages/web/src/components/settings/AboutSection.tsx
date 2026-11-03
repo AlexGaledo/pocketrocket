@@ -32,7 +32,7 @@ export function AboutSection({ health }: { health: HealthResponse | null }) {
         <div className="flex items-center gap-4">
           <RocketMark size={52} />
           <div>
-            <div className="text-title-sm">PocketRocket</div>
+            <div className="text-title-sm">Homeroom</div>
             <div className="text-ui text-muted">{health?.version ? 'Version ' + health.version : 'Version unknown'}</div>
             <div className="text-ui text-muted">Your pocket fleet of AI agents.</div>
           </div>

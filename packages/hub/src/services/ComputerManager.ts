@@ -18,7 +18,7 @@ import { events } from '../events.js';
  * systemd user unit `pocketrocket-computer@<n>-<botId>.service` (deploy/computer.sh). These ranges were
  * picked to stay clear of the legacy shared screen (:99/9222/5900/6080, and the retired Crew fork :98/9223/5901/6081), of the
  * X11 TCP range 6000-6063, and of the :100+n / 9300+n ranges the upstream spec sketches, so a stock
- * PocketRocket that adopts per-bot computers can still share the VPS.
+ * Homeroom that adopts per-bot computers can still share the VPS.
  *
  * Every computer runs as the same uid as the hub. Separate screens and profiles are NOT a security boundary.
  *

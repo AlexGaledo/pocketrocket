@@ -66,10 +66,10 @@ function definitions(root: string, workspace: string): BotDefinition[] {
     {
       handle: SUPPORT_HANDLE,
       icon: 'shield',
-      name: 'PocketRocket Support',
+      name: 'Homeroom Support',
       title: 'App help and improvements',
       description: [
-        'Answers questions about this PocketRocket install and proposes improvements to it.',
+        'Answers questions about this Homeroom install and proposes improvements to it.',
         '',
         'The app source is at ' + root + ' (packages/hub, packages/web, packages/shared, docs, deploy, scripts). ' +
           'Read it before answering; do not guess how the app works.',
