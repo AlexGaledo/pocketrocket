@@ -395,4 +395,20 @@ registerMigrations([110, 119], [
       db.prepare("UPDATE messages SET author_id=? WHERE author_type='user' AND author_id IS NULL").run(id);
     },
   },
+  {
+    version: 113,
+    name: 'sign-in: owner password, browser sessions, audit log',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS user_credentials (' +
+          'user_id TEXT PRIMARY KEY, password_hash TEXT NOT NULL, updated_at INTEGER NOT NULL);' +
+          'CREATE TABLE IF NOT EXISTS user_sessions (' +
+          'id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, user_agent TEXT, ip TEXT, ' +
+          'created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, revoked_at INTEGER);' +
+          'CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);' +
+          'CREATE TABLE IF NOT EXISTS audit_log (' +
+          'id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, actor_kind TEXT NOT NULL, actor_id TEXT, ' +
+          'action TEXT NOT NULL, target TEXT, detail TEXT, ip TEXT)',
+      ),
+  },
 ]);

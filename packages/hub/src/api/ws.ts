@@ -1,3 +1,4 @@
+import { actorOf, recordAudit } from '../services/AuditLog.js';
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ClientEventSchema, type ServerEvent } from '@pocketrocket/shared';
@@ -41,7 +42,12 @@ export function attachWs(_server: Server, deps: { repos: Repos; router: RoomRout
         if (ev.type === 'message.send') deps.router.onUserMessage(ev.roomId, ev.text);
         else if (ev.type === 'approval.decide') {
           if (device && ev.decision === 'always') return send(ws, { type: 'error', message: '"Always allow" can only be granted from the desktop app', context: ev.approvalId });
-          if (!deps.broker.resolve(ev.approvalId, ev.decision, { device: !!device })) send(ws, { type: 'error', message: 'Approval no longer pending', context: ev.approvalId });
+          const card = deps.repos.db.get('SELECT tool_name, bot_id FROM approvals WHERE id=?', ev.approvalId);
+          const who = req ? actorOf(req) : null;
+          const answered = deps.broker.resolve(ev.approvalId, ev.decision, { device: !!device });
+          // Only a card this answer actually settled: an expired or repeated one changed nothing.
+          if (answered && who && card) recordAudit(deps.repos.db, who, 'approval.' + ev.decision, ev.approvalId, String(card.tool_name) + ' by bot ' + String(card.bot_id));
+          if (!answered) send(ws, { type: 'error', message: 'Approval no longer pending', context: ev.approvalId });
         } else if (ev.type === 'turn.interrupt') {
           if (!deps.router.interrupt(ev.turnId)) send(ws, { type: 'error', message: 'Turn not active', context: ev.turnId });
         }

@@ -27,7 +27,7 @@ import { createProviders } from './providers/registry.js';
 import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
-import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, presentsHubToken, tokenMatches } from './api/guard.js';
+import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, dropCookie, presentsHubToken, tokenMatches } from './api/guard.js';
 import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
 import { readBody } from './api/body.js';
 import { handleAuthCallback } from './api/authCallback.js';
@@ -49,6 +49,9 @@ import { DEVICE_PAIR_PATH, deviceMayAccess, setPrincipal } from './api/guard.js'
 import { DevicesRepo } from './db/devices.js';
 import { DeviceService } from './services/DeviceService.js';
 import { PushService } from './services/PushService.js';
+import { AUTH_LOGIN_PATH, AUTH_STATUS_PATH, createAuthApi, handleAuthStatus, handleLogin } from './api/auth.js';
+import { AuthService, SESSION_COOKIE } from './services/AuthService.js';
+import { auditRequest } from './services/AuditLog.js';
 import { createDevicesApi, handleDevicePair } from './api/devices.js';
 import type { WebSocket as WsSocket } from 'ws';
 import { ApprovalStore, type ParkedApproval } from './db/approvalStore.js';
@@ -376,6 +379,18 @@ export function createHub(opts: HubOptions = {}): Hub {
   }
 
   const limiter = new AuthRateLimiter();
+  const auth = new AuthService(db);
+  // Cookies ignore ports, so hubs on one machine need different names or signing in to one signs out the other.
+  const sessionCookieName = () => SESSION_COOKIE + '_' + port;
+  const authDeps = { db, repos, auth, limiter, cookieName: sessionCookieName };
+  const authApi = createAuthApi(authDeps);
+  const offSessionRevoke = auth.onRevoke((id) => {
+    screenSessions.revokeOwner('session:' + id);
+    for (const s of deviceSockets.get('session:' + id) ?? []) s.close();
+    deviceSockets.delete('session:' + id);
+  });
+  /** The live session behind this request's cookie, if any. */
+  const sessionOf = (req: http.IncomingMessage) => auth.authenticate(cookieValue(req, sessionCookieName()));
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -414,15 +429,19 @@ export function createHub(opts: HubOptions = {}): Hub {
       }
       let deviceId: string | null = null;
       const deviceToken = (t: string) => (deviceId = devices.authenticate(t)) !== null;
-      if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken })) {
+      const session = sessionOf(req);
+      if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken, session: () => !!session })) {
         limiter.fail(ip);
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Missing or invalid hub token' }));
         return;
       }
       // P9: who this is. A device token only reaches what deviceMayAccess lists (403 otherwise, never 401).
-      if (presentsHubToken(req, url, token)) setPrincipal(req, { kind: 'hub' });
-      else if (deviceId) {
+      if (presentsHubToken(req, url, token)) setPrincipal(req, { kind: 'hub', userId: repos.owner().id });
+      else if (session) {
+        // Does not clear the limiter: a held session must not wipe failed password tries from this address.
+        setPrincipal(req, { kind: 'hub', sessionId: session.sessionId, userId: session.userId });
+      } else if (deviceId) {
         setPrincipal(req, { kind: 'device', deviceId });
         limiter.succeed(ip);
         if (!deviceMayAccess(req.method ?? 'GET', url.pathname)) {
@@ -431,6 +450,21 @@ export function createHub(opts: HubOptions = {}): Hub {
           return;
         }
       }
+      const auditMethod = req.method ?? 'GET';
+      const auditPath = url.pathname;
+      // On the answer rather than on 'finish', which never fires if the client hangs up after the change is made.
+      if (auditMethod !== 'GET') {
+        const end = res.end.bind(res) as (...a: unknown[]) => http.ServerResponse;
+        let logged = false;
+        res.end = ((...a: unknown[]) => {
+          if (!logged) {
+            logged = true;
+            auditRequest(db, req, auditMethod, auditPath, res.statusCode);
+          }
+          return end(...a);
+        }) as typeof res.end;
+      }
+      if (url.pathname === AUTH_STATUS_PATH && auditMethod === 'GET') { handleAuthStatus(req, res, authDeps); return; }
       // Token-exempt, so reaching it proves nothing: it must not clear the limiter, and it feeds it on failure.
       if (url.pathname === AUTH_CALLBACK_PATH && (req.method ?? 'GET') === 'GET') {
         await handleAuthCallback(req, res, url, { account, limiter });
@@ -472,6 +506,8 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleOAuthStart(req, res, url, { integrations });
         return;
       }
+      if (url.pathname === AUTH_LOGIN_PATH && auditMethod === 'POST') { await handleLogin(req, res, authDeps); return; }
+      if (await authApi(req, res, url)) return;
       if (await mediaApi(req, res)) return;
       if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
@@ -482,6 +518,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (url.pathname.startsWith('/screen/')) {
         const route = screenRoute(url.pathname);
         req.url = route.rest + url.search;
+        // The screen backend runs beside the bots, and a sign-in cookie opens the whole hub.
+        dropCookie(req, sessionCookieName());
         screenProxy.web(req, res, { target: route.target });
         return;
       }
@@ -522,21 +560,26 @@ export function createHub(opts: HubOptions = {}): Hub {
     // Applies to /screen/* too: the noVNC proxy used to be exempt (audit 2026-09-09, B2).
     let deviceId: string | null = null;
     const deviceToken = (t: string) => (deviceId = devices.authenticate(t)) !== null;
-    if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken })) {
+    const session = sessionOf(req);
+    if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken, session: () => !!session })) {
       limiter.fail(ip);
       socket.destroy();
       return;
     }
     if (presentsHubToken(req, url, token)) {
       limiter.succeed(ip);
-      setPrincipal(req, { kind: 'hub' });
+      setPrincipal(req, { kind: 'hub', userId: repos.owner().id });
+    } else if (session) {
+      setPrincipal(req, { kind: 'hub', sessionId: session.sessionId, userId: session.userId });
     } else if (deviceId) {
       limiter.succeed(ip);
       setPrincipal(req, { kind: 'device', deviceId });
     }
     if (url.pathname === '/ws') {
       const id: string | null = deviceId;
+      const sessionId = session?.sessionId;
       wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
+        if (sessionId && !presentsHubToken(req, url, token)) trackDeviceSocket('session:' + sessionId, { close: () => ws.close(4001, 'signed out') }, (fn) => ws.once('close', fn));
         if (id) trackDeviceSocket(id, { close: () => ws.close(4001, 'device revoked') }, (fn) => ws.once('close', fn));
         wss.emit('connection', ws, req);
       });
@@ -548,6 +591,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       // P9: a Screen a paired device opened closes with the device.
       const owner = screenSessions.ownerOf(cookieValue(req, screenCookieName(route.scope)), route.scope);
       if (owner) trackDeviceSocket(owner, { close: () => socket.destroy() }, (fn) => socket.once('close', fn));
+      dropCookie(req, sessionCookieName());
       screenProxy.ws(req, socket, head, { target: route.target });
     } else {
       socket.destroy();
@@ -569,7 +613,7 @@ export function createHub(opts: HubOptions = {}): Hub {
           // P2: re-apply view-only as computers come up; give up on parked cards and takeovers after 24 h.
           control.start();
           broker.sweepParked();
-          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); }, 60_000);
+          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); }, 60_000);
           p2Timer.unref();
           sweepMedia();
           mediaTimer ??= setInterval(sweepMedia, MEDIA_SWEEP_MS);
@@ -626,6 +670,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       account.stop();
       push.stop();
       offRevoke();
+      offSessionRevoke();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).
       router.freeze();
       runner.interruptAll();

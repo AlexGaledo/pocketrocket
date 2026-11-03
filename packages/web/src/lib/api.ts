@@ -4,6 +4,7 @@ import type {
   ComputerStatus,
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
+import type { AuditEntry, UserSessionInfo } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
@@ -53,6 +54,16 @@ export type HealthResponse = HealthInfo & { version?: string; provider?: Provide
 export type AccountActionResponse = AccountState | { ok: boolean } | Record<string, unknown>;
 
 export const api = {
+  auth: {
+    status: () => req<{ passwordSet: boolean; signedIn: boolean }>('GET', '/api/auth/status'),
+    sessions: () => req<{ sessions: UserSessionInfo[]; current: string | null; passwordSet: boolean }>('GET', '/api/auth/sessions'),
+    setPassword: (password: string, currentPassword?: string) => req<{ ok: boolean }>('POST', '/api/auth/password', { password, currentPassword }),
+    logout: () => req<{ ok: boolean }>('POST', '/api/auth/logout', {}),
+    revoke: (id: string) => req<{ ok: boolean }>('DELETE', '/api/auth/sessions/' + encodeURIComponent(id)),
+    revokeOthers: () => req<{ ended: number }>('POST', '/api/auth/sessions/revoke-others', {}),
+  },
+  audit: (opts: { limit?: number; before?: number } = {}) =>
+    req<{ entries: AuditEntry[] }>('GET', '/api/audit?limit=' + (opts.limit ?? 50) + (opts.before ? '&before=' + opts.before : '')),
   health: () => req<HealthResponse>('GET', '/api/health'),
   // P1: with a botId, that bot's own computer (`computer` says whether this hub has per-bot computers at all).
   screen: (botId?: string) =>
