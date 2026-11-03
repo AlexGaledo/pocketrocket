@@ -110,6 +110,22 @@ if [ "$userns_ok" != "1" ]; then
   SANDBOX_ARGS=(--no-sandbox)
 fi
 
+# Keep logins across restarts. Many sites sign in with a session-only cookie, and Chrome discards those at startup
+# unless it is set to continue where it left off. This also reopens the last tabs, so the start page only opens on
+# a profile with no tabs to reopen; otherwise every start would add one more.
+mkdir -p "$PROFILE/Default"
+python3 - "$PROFILE/Default/Preferences" <<'PY' || echo "screen.sh: could not set Chrome to keep session cookies" >&2
+import json, os, sys
+path = sys.argv[1]
+prefs = json.load(open(path)) if os.path.exists(path) else {}
+prefs.setdefault("session", {})["restore_on_startup"] = 1
+with open(path + ".tmp", "w") as f:
+    json.dump(prefs, f)
+os.replace(path + ".tmp", path)
+PY
+START_URL=()
+[ -d "$PROFILE/Default/Sessions" ] || START_URL=("https://www.google.com")
+
 # No --remote-allow-origins: Playwright/CDP clients connect from Node over a plain WebSocket with
 # no Origin header, which Chromium's remote-debugging Origin allowlist only checks/enforces when
 # an Origin header is present (i.e. a browser page trying to reach it) — see deploy/setup-vps.sh
@@ -118,7 +134,7 @@ fi
   --disable-session-crashed-bubble --disable-features=TranslateUI --password-store=basic \
   --remote-debugging-port="$CDP_PORT" --remote-debugging-address=127.0.0.1 \
   --user-data-dir="$PROFILE" --window-position=0,0 --window-size="$W,$((H-40))" \
-  "https://www.google.com" >/dev/null 2>&1 &
+  ${START_URL[@]+"${START_URL[@]}"} >/dev/null 2>&1 &
 
 # P2: VNC_VIEWONLY=1 (per-bot computers) starts the viewer view-only: the bot has control until the user takes
 # over, and the hub flips it live with `x11vnc -R viewonly|noviewonly` (services/ComputerControl.ts). Remote
