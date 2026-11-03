@@ -76,6 +76,7 @@ connection modes once one is set up.
   unless there is a problem.
 - A server install starts with two bots, each created once: PocketRocket Support reads the app source without
   approval cards (not `data/`), and Data Engineer keeps the shared workspace organized and indexed.
+- A bot that reads or posts in a chat it is not in now asks first with an approval card. Chats it belongs to need no card, and "Always" covers that one chat.
 - Room members can be set up to 10 bots over REST (was 6), matching what bots can do.
 
 - Bots wear a line icon on a soft tint instead of an emoji. Each bot gets one from its ID, and you can pick another in

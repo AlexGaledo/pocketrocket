@@ -45,6 +45,7 @@ export function approvalSubject(toolName: string, input: Record<string, unknown>
   if (toolName === 'request_approval') return s(input.command) || s(input.action) || '*';
   // A rule for an outside hand-off is per pair: this bot to that one.
   if (toolName === 'handoff') return s(input.to_bot) || '*';
+  if (toolName === 'read_room' || toolName === 'send_message') return s(input.room) || '*';
   return '*';
 }
 
