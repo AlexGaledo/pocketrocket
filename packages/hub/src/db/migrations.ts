@@ -315,8 +315,11 @@ registerMigrations([60, 69], [
 
 // ---------------------------------------------------------------------------------------------------
 // [100, 109]: past the P0-P9 blocks. Bot avatars become line icon keys.
-/** The emoji our own presets and defaults wrote, without variation selectors. */
-const LEGACY_AVATARS: Record<string, string> = { '🧭': 'compass', '🔎': 'search', '🛠': 'wrench', '✍': 'pen', '🙂': 'smile', '🤖': '' };
+/** Emoji with an obvious icon, without variation selectors: our presets and common picks. The rest derive from the id. */
+const LEGACY_AVATARS: Record<string, string> = {
+  '🧭': 'compass', '🔎': 'search', '🛠': 'wrench', '✍': 'pen', '🙂': 'smile', '🤖': '',
+  '🔍': 'search', '🚀': 'rocket', '💻': 'terminal', '🧑‍💻': 'terminal', '⚙': 'wrench', '🎨': 'palette',
+};
 /** Seeded before they had icons, with `''`. By handle alone, so a seeded bot the owner renamed still gets its icon. */
 const SEEDED_ICONS: Record<string, string> = { 'pocketrocket-support': 'shield', 'data-engineer': 'database' };
 registerMigrations([100, 109], [
