@@ -98,7 +98,7 @@ export interface AccountOptions {
 }
 
 /**
- * The optional Homeroom account. The hub, not the browser, owns the Supabase session: the UI runs in the
+ * The optional PocketRocket account. The hub, not the browser, owns the Supabase session: the UI runs in the
  * Tauri webview or in a browser over an SSH tunnel, and the email link opens in the default browser, which
  * shares storage with neither. The UI only ever sees AccountState (GET /api/account, `account.changed`).
  *
@@ -213,7 +213,7 @@ export class AccountService {
   /** The link callback: only this hub holds the PKCE verifier the code is exchangeable with. */
   async exchangeCode(code: string): Promise<AccountState> {
     const client = this.need();
-    if (!this.pending()) throw new AccountError('No sign-in is waiting on this Homeroom', 409);
+    if (!this.pending()) throw new AccountError('No sign-in is waiting on this PocketRocket', 409);
     const { data, error } = await client.auth.exchangeCodeForSession(code);
     if (error) throw refused(error);
     this.signedIn(data.user);
@@ -224,7 +224,7 @@ export class AccountService {
   /** Provider sign-in URL for the UI to open; the provider sends the browser back to /auth/callback. */
   async oauthUrl(provider: OAuthProvider, redirectTo: string): Promise<string> {
     const client = this.need();
-    if (!this.current.oauth[provider]) throw new AccountError(provider + ' sign-in is not enabled for Homeroom accounts');
+    if (!this.current.oauth[provider]) throw new AccountError(provider + ' sign-in is not enabled for PocketRocket accounts');
     if (this.current.signedIn) throw new AccountError('Already signed in; sign out first', 409);
     const { data, error } = await client.auth.signInWithOAuth({ provider, options: { redirectTo, skipBrowserRedirect: true } });
     if (error) throw refused(error);
@@ -371,9 +371,9 @@ function parseJson<T>(schema: z.ZodType<T>, raw: string | null): T | null {
 
 /** A Supabase auth error as something the Account UI can show as is. */
 function refused(error: AuthError): AccountError {
-  if (isAuthRetryableFetchError(error)) return new AccountError('Could not reach Homeroom accounts; check your connection and try again', 503);
+  if (isAuthRetryableFetchError(error)) return new AccountError('Could not reach PocketRocket accounts; check your connection and try again', 503);
   if (isAuthPKCECodeVerifierMissingError(error)) {
-    return new AccountError('This link was requested from another Homeroom or already used; enter the code from the email instead');
+    return new AccountError('This link was requested from another PocketRocket or already used; enter the code from the email instead');
   }
   if (error.code === 'otp_expired') return new AccountError('That code is wrong or has expired; request a new one');
   if (error.status === 429) return new AccountError(error.message || 'Too many attempts; wait a minute and try again', 429);

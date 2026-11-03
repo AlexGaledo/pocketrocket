@@ -60,7 +60,7 @@ const PROVIDERS: Record<IntegrationProvider, ProviderMeta> = {
       <>Paste the Client ID and a client secret from the same page.</>,
     ],
     tokenSteps: () => [
-      <>Create a <A href="https://github.com/settings/tokens/new?scopes=repo,notifications&description=Homeroom%20Crew">classic token</A> with the <C>repo</C> and <C>notifications</C> scopes.</>,
+      <>Create a <A href="https://github.com/settings/tokens/new?scopes=repo,notifications&description=PocketRocket%20Crew">classic token</A> with the <C>repo</C> and <C>notifications</C> scopes.</>,
       <>A fine-grained token works for repositories but <strong>cannot read notifications</strong>.</>,
     ],
     token: { label: 'Personal access token', placeholder: 'ghp_… or github_pat_…' },
@@ -322,7 +322,7 @@ function OAuthConnect({ provider, app, pending, redirectUri, onChange }: {
     } else if (onLoopback()) {
       throw new Error(meta.name + ' needs the client secret. Use Change app to add it.');
     } else {
-      throw new Error('Open Homeroom through your SSH tunnel to connect ' + meta.name + '. It sends you back to 127.0.0.1.');
+      throw new Error('Open PocketRocket through your SSH tunnel to connect ' + meta.name + '. It sends you back to 127.0.0.1.');
     }
   };
   const saveApp = (e: FormEvent) => {

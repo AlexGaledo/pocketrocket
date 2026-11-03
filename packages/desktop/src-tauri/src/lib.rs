@@ -1,4 +1,4 @@
-//! Homeroom desktop.
+//! PocketRocket desktop.
 //! Modes:
 //!   local  – the app runs its own hub as a child process; every bit of state (SQLite, memories,
 //!            workspace, skills) lives in the app's data dir. No network hop, lowest latency.
@@ -25,7 +25,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewWindowBuilder};
@@ -181,7 +181,7 @@ fn parse_http_response(raw: &str) -> Option<(u16, String)> {
     Some((code, body.to_string()))
 }
 
-/// Something that talks like a Homeroom hub answers GET /api/health. Deliberately not `"ok":true`:
+/// Something that talks like a PocketRocket hub answers GET /api/health. Deliberately not `"ok":true`:
 /// the hub reports ok=false when Claude Code is missing, and it still serves the UI that says so.
 fn hub_responding(port: u16, read_timeout: Duration) -> bool {
     match local_http(port, "GET", "/api/health", "", "", read_timeout) {
@@ -400,8 +400,8 @@ fn bundled_hub_command(app: &AppHandle, hub: &std::path::Path) -> Result<(Comman
         _ => {
             let side = sidecar_node(app).ok_or_else(|| {
                 format!(
-                    "no usable JavaScript runtime. Homeroom ships its own Node but {NODE_BIN} was not found next to the app; \
-                     reinstall Homeroom, or install Node {}.{}+ and put it on PATH.",
+                    "no usable JavaScript runtime. PocketRocket ships its own Node but {NODE_BIN} was not found next to the app; \
+                     reinstall PocketRocket, or install Node {}.{}+ and put it on PATH.",
                     MIN_NODE.0, MIN_NODE.1
                 )
             })?;
@@ -460,7 +460,7 @@ fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, Strin
         let (cmd, hub) = dev_hub_command(std::path::Path::new(REPO_ROOT))?;
         (cmd, "dev (tsx)".to_string(), Some(hub), None)
     } else {
-        return Err("the bundled hub is missing from this installation (resources/hub/hub.mjs). Reinstall Homeroom.".into());
+        return Err("the bundled hub is missing from this installation (resources/hub/hub.mjs). Reinstall PocketRocket.".into());
     };
 
     let dir = config_dir(app);
@@ -569,10 +569,10 @@ fn show_splash(app: &AppHandle) {
 
 fn window_title(cfg: &Config) -> String {
     match cfg.mode.as_str() {
-        "local" => "Homeroom · this PC".to_string(),
-        "remote" if !cfg.ssh_host.trim().is_empty() => format!("Homeroom · {}", cfg.ssh_host.trim()),
-        "attach" => "Homeroom · attached".to_string(),
-        _ => "Homeroom".to_string(),
+        "local" => "PocketRocket · this PC".to_string(),
+        "remote" if !cfg.ssh_host.trim().is_empty() => format!("PocketRocket · {}", cfg.ssh_host.trim()),
+        "attach" => "PocketRocket · attached".to_string(),
+        _ => "PocketRocket".to_string(),
     }
 }
 
@@ -670,7 +670,7 @@ fn run_connection(app: AppHandle, state: AppState, cfg: Config, gen: u64, old: O
                 port_has_hub = hub_responding(cfg.port, Duration::from_millis(1500));
                 error = Some(if port_has_hub {
                     format!(
-                        "Port {} is already used by another Homeroom hub (one started with pnpm start, or a VPS tunnel). \
+                        "Port {} is already used by another PocketRocket hub (one started with pnpm start, or a VPS tunnel). \
                          Attach to it, or pick another port.",
                         cfg.port
                     )
@@ -733,7 +733,7 @@ fn run_connection(app: AppHandle, state: AppState, cfg: Config, gen: u64, old: O
                 inner.child_kind = "";
                 inner.status.child_running = false;
                 if kind == "hub" {
-                    inner.status.error = Some(format!("The hub exited ({code}). View → Open hub log shows why."));
+                    inner.status.error = Some(format!("The hub exited ({code}). Open hub log in the tray menu shows why."));
                 } else {
                     let err = tail.text();
                     inner.status.error = Some(ssh::explain(&err, &cfg.ssh_host, cfg.port));
@@ -761,7 +761,7 @@ fn run_connection(app: AppHandle, state: AppState, cfg: Config, gen: u64, old: O
             }
             inner.status.error = Some(match cfg.mode.as_str() {
                 "remote" => format!("No answer from the hub through the tunnel after 60s. On the server: systemctl status pocketrocket. From a terminal: ssh {}", cfg.ssh_host),
-                "local" => "The hub did not come up within 60s. View → Open hub log shows why.".to_string(),
+                "local" => "The hub did not come up within 60s. Open hub log in the tray menu shows why.".to_string(),
                 _ => format!("No hub on 127.0.0.1:{}. Start one with `pnpm start` and retry.", cfg.port),
             });
             return;
@@ -825,7 +825,7 @@ fn monitor(app: AppHandle, state: AppState, cfg: Config, gen: u64, mut tail: Tai
         };
         if let Some((code, kind)) = exited {
             if kind == "hub" {
-                let msg = format!("The hub stopped unexpectedly ({code}). View → Open hub log shows why; Restart hub starts it again.");
+                let msg = format!("The hub stopped unexpectedly ({code}). Open hub log in the tray menu shows why; Restart hub starts it again.");
                 return lose(&app, &state, gen, msg, None);
             }
             if last_restart.is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
@@ -864,7 +864,7 @@ fn monitor(app: AppHandle, state: AppState, cfg: Config, gen: u64, mut tail: Tai
         strikes += 1;
         if strikes >= HEALTH_STRIKES {
             let msg = match cfg.mode.as_str() {
-                "local" => "The hub on this PC stopped answering. View → Open hub log shows why; Restart hub starts it again.".to_string(),
+                "local" => "The hub on this PC stopped answering. Open hub log in the tray menu shows why; Restart hub starts it again.".to_string(),
                 "remote" => format!("Lost contact with the hub on {host}. If the server is up, check it with: ssh {host} systemctl status pocketrocket"),
                 _ => format!("The hub on 127.0.0.1:{} stopped answering.", cfg.port),
             };
@@ -944,7 +944,7 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-/// The one way out: from the tray, the View menu or Ctrl/Cmd+Q. `quitting` first, so the close handler
+/// The one way out: from the tray. `quitting` first, so the close handler
 /// never hides the window on the way out; `RunEvent::Exit` then kills the hub / tunnel tree, and on Windows
 /// the kill-on-close Job Object catches anything left when the process ends.
 fn quit_app(app: &AppHandle) {
@@ -1040,19 +1040,18 @@ async fn remote_claude_status(state: State<'_, AppState>, refresh: Option<bool>)
 
 /// Keep the local-only View items honest about where the data and log are. Switching modes lives on the
 /// Connection settings page only, so the menu has no mode checkmarks to keep in sync.
+/// Tray items that only work when the hub runs on this PC.
+struct LocalOnlyItems(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>);
+
 fn sync_mode_menu(app: &AppHandle, mode: &str) {
-    let Some(menu) = app.menu() else { return };
+    let Some(items) = app.try_state::<LocalOnlyItems>() else { return };
     let local_only = mode != "remote";
-    for (id, text, remote_text) in [
-        ("open_data", "Open data folder", "Open data folder (on the server in server mode)"),
-        ("open_log", "Open hub log", "Open hub log (on the server in server mode)"),
+    for (item, text, remote_text) in [
+        (&items.0, "Open data folder", "Open data folder (on the server in server mode)"),
+        (&items.1, "Open hub log", "Open hub log (on the server in server mode)"),
     ] {
-        if let Some(item) = menu.get(id) {
-            if let Some(mi) = item.as_menuitem() {
-                let _ = mi.set_enabled(local_only);
-                let _ = mi.set_text(if local_only { text } else { remote_text });
-            }
-        }
+        let _ = item.set_enabled(local_only);
+        let _ = item.set_text(if local_only { text } else { remote_text });
     }
 }
 
@@ -1127,34 +1126,37 @@ pub fn run() {
                 })
                 .build()?;
 
-            let m_reload = MenuItem::with_id(app, "reload", "Reload", true, Some("F5"))?;
+            // The window has no menu bar and opens full screen, so everything lives in the tray menu.
+            // P9: tray icon. Left click (Windows/macOS) shows the window. Linux tray menus need
+            // libayatana-appindicator3 (a deb dependency), and there a click always opens the menu, which is
+            // why Show is in it.
+            let keep = close_to_tray(&state.0.lock().unwrap().config);
+            let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket", true, None::<&str>)?;
+            let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
+            let m_reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;
-            let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
             let m_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
-            let m_about = MenuItem::with_id(app, "about", "About Homeroom", true, None::<&str>)?;
-            let conn = Submenu::with_items(app, "Connection", true, &[&m_settings])?;
-            // Our own Quit rather than the predefined one: it must set `quitting` (see quit_app), and the
-            // predefined item does nothing on Linux.
-            let m_quit = MenuItem::with_id(app, "quit", "Quit", true, Some("CmdOrCtrl+Q"))?;
-            let view = Submenu::with_items(app, "View", true, &[&m_reload, &m_data, &m_log, &PredefinedMenuItem::separator(app)?, &m_quit])?;
-            let help = Submenu::with_items(app, "Help", true, &[&m_updates, &m_about])?;
-            let menu = Menu::with_items(app, &[&conn, &view, &help])?;
-            app.set_menu(menu)?;
-            sync_mode_menu(&handle, &initial_mode);
-
-            // P9: tray icon. Left click (Windows/macOS) shows the window; the menu has Show, the close
-            // behaviour and Quit. Linux tray menus need libayatana-appindicator3 (a deb dependency), and
-            // there a click always opens the menu, which is why Show is in it.
-            let keep = close_to_tray(&state.0.lock().unwrap().config);
-            let t_show = MenuItem::with_id(app, "tray_show", "Show Homeroom", true, None::<&str>)?;
+            let m_about = MenuItem::with_id(app, "about", "About PocketRocket", true, None::<&str>)?;
             let t_keep = CheckMenuItem::with_id(app, "tray_keep", "Keep running when window closes", true, keep, None::<&str>)?;
             let t_quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&t_show, &PredefinedMenuItem::separator(app)?, &t_keep, &PredefinedMenuItem::separator(app)?, &t_quit])?;
+            let tray_menu = Menu::with_items(app, &[
+                &t_show, &m_settings, &m_reload,
+                &PredefinedMenuItem::separator(app)?,
+                &m_data, &m_log,
+                &PredefinedMenuItem::separator(app)?,
+                &m_updates, &m_about,
+                &PredefinedMenuItem::separator(app)?,
+                &t_keep,
+                &PredefinedMenuItem::separator(app)?,
+                &t_quit,
+            ])?;
+            app.manage(LocalOnlyItems(m_data.clone(), m_log.clone()));
+            sync_mode_menu(&handle, &initial_mode);
             app.manage(TrayCheck(t_keep.clone()));
             let tray_state = state.clone();
             let mut tray = TrayIconBuilder::with_id("main")
-                .tooltip("Homeroom")
+                .tooltip("PocketRocket")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -1194,6 +1196,7 @@ pub fn run() {
                             (inner.status.connected, inner.first_run, inner.config.port)
                         };
                         if first_run || (connected && hub_responding(port, Duration::from_millis(1500))) {
+                            show_main_window(&app);
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.eval("location.reload()");
                             }
@@ -1202,18 +1205,21 @@ pub fn run() {
                         }
                     });
                 }
-                "quit" => quit_app(app),
                 "open_data" => open_data_folder(app),
                 "open_log" => open_log_file(app),
-                "settings" => show_splash(app),
+                "settings" => {
+                    show_main_window(app);
+                    show_splash(app);
+                }
                 "check_updates" => { if let Ok(u) = Url::parse(RELEASES_URL) { open_in_browser(&u); } }
                 "about" => {
+                    show_main_window(app);
                     let (runtime, data, log) = {
                         let inner = st.0.lock().unwrap();
                         (inner.status.runtime.clone(), inner.status.data_dir.clone(), inner.status.log_path.clone())
                     };
                     let body = format!(
-                        "Homeroom {}\\n\\nRuntime: {}\\nData folder: {}\\nHub log: {}\\n\\n{}",
+                        "PocketRocket {}\\n\\nRuntime: {}\\nData folder: {}\\nHub log: {}\\n\\n{}",
                         env!("CARGO_PKG_VERSION"),
                         if runtime.is_empty() { "not started".into() } else { runtime },
                         data.replace('\\', "\\\\"),
@@ -1247,7 +1253,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building Homeroom")
+        .expect("error while building PocketRocket")
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 if let Some(st) = app.try_state::<AppState>() {
@@ -1293,11 +1299,11 @@ mod tests {
     #[test]
     fn titles_never_end_in_a_dangling_separator() {
         let mut c = Config { mode: "remote".into(), ..Default::default() };
-        assert_eq!(window_title(&c), "Homeroom");
+        assert_eq!(window_title(&c), "PocketRocket");
         c.ssh_host = "vps".into();
-        assert_eq!(window_title(&c), "Homeroom · vps");
+        assert_eq!(window_title(&c), "PocketRocket · vps");
         c.mode = "local".into();
-        assert_eq!(window_title(&c), "Homeroom · this PC");
+        assert_eq!(window_title(&c), "PocketRocket · this PC");
     }
 
     #[test]

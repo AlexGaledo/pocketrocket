@@ -16,7 +16,7 @@ Status: **Executed 2026-09-08; see CHANGELOG.** Approved by Alex on 2026-09-08 (
 | Sounds | WebAudio synth (no assets), **on by default**, settings toggle, respects `prefers-reduced-motion`. Cues: send, reply arrives, approval request, approve/deny, turn done, turn error, desktop connected. |
 | GitHub | `AlexGaledo/pocketrocket`, **private for now**, MIT. Created via `gh`. |
 | Migration | Hard rename everywhere; hub + desktop auto-migrate old Claudebot data on first start; deploy script migrates VPS units/dirs. |
-| Release | GitHub Actions: CI on push; tag `v*` → NSIS installer → GitHub Release. Unsigned, no auto-updater (Help → Check for updates opens Releases). |
+| Release | GitHub Actions: CI on push; tag `v*` → NSIS installer → GitHub Release. Unsigned, no auto-updater (Check for updates in the tray menu opens Releases). |
 | VPS/screen | Keep all, made generic (no hardcoded `<host>` / `Alex`). |
 | Onboarding | First-run wizard: pick provider, detect CLI + login, ask user's name, create first bot. |
 | Icon | Generated rocket mark (SVG → full Tauri icon set), black circle / white glyph. |

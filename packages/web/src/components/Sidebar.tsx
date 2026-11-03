@@ -1,8 +1,6 @@
-import { useState } from 'react';
-import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose } from 'lucide-react';
+import { Plus, Hand, Settings2, PanelLeftClose } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
 import { Avatar, RoomAvatar, cn } from './ui';
-import { BotGroupHeader, useBotGroups } from './BotGroups';
 import { ProfileMenu } from './ProfileMenu';
 import { RocketMark } from './RocketMark';
 import { api } from '../lib/api';
@@ -13,16 +11,6 @@ import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
 
 /** Shared by bot and room rows: a whole-row button, so Tab reaches every chat and Enter/Space opens it. */
 const ROW = 'flex w-full min-w-0 items-center gap-2.5 rounded-sm px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
-
-const GROUPS_COLLAPSED_KEY = 'pocketrocket.groupChatsCollapsed';
-/** Browser storage is a convenience here: with none, the list just starts expanded. */
-function readGroupsCollapsed() {
-  try {
-    return localStorage.getItem(GROUPS_COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
 
 /**
  * The dot on the provider chip. Green only when the hub is connected and says the provider is ready;
@@ -78,15 +66,6 @@ export function Sidebar() {
   // On a narrow window this sidebar is a drawer over the chat (App.tsx), so picking a chat closes it.
   const inDrawer = useMediaQuery(NARROW_SIDEBAR_QUERY);
   const leaveDrawer = () => { if (inDrawer) setSidebarOpen(false); };
-  const [groupsCollapsed, setGroupsCollapsed] = useState(readGroupsCollapsed);
-  const toggleGroups = () => {
-    setGroupsCollapsed(!groupsCollapsed);
-    try {
-      localStorage.setItem(GROUPS_COLLAPSED_KEY, groupsCollapsed ? '0' : '1');
-    } catch {
-      /* storage unavailable; the list still folds for this session */
-    }
-  };
 
   const activeProvider = providers?.providers.find((p) => p.id === settings.provider);
   const status = providerStatus(connected, activeProvider, !!providers);
@@ -96,8 +75,10 @@ export function Sidebar() {
   const dmFor = (botId: string) => dms.find((r) => r.memberIds[0] === botId);
   // Who the user is holding up, pinned above every group so it can't be missed in a fleet.
   const needsYou = bots.filter((b) => statusOf(b.id) === 'needs_you');
-
-  const { sections, collapsed, toggle, move } = useBotGroups(bots, groups);
+  // A bot already reachable from its group chat row stays out of this list — otherwise every fleet bot
+  // shows up twice, once here and once inside each room it is in.
+  const inAnyGroup = new Set(groups.flatMap((r) => r.memberIds));
+  const soloBots = bots.filter((b) => !inAnyGroup.has(b.id));
 
   const openRoom = (roomId: string) => {
     useStore.getState().closePage();
@@ -122,7 +103,7 @@ export function Sidebar() {
       <div className="flex h-14 items-center justify-between gap-1.5 pl-3 pr-1.5">
         <div className="flex min-w-0 items-center gap-2 text-ui font-semibold">
           <RocketMark size={24} />
-          <span className="truncate">Homeroom</span>
+          <span className="truncate">PocketRocket</span>
         </div>
         <button
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-dim hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -171,39 +152,25 @@ export function Sidebar() {
         )}
         <SectionHeader label="Bots" onAdd={device ? undefined : () => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
         <div className="mb-3">
-          {sections.map((section, i) => (
-            <div key={section.key}>
-              <BotGroupHeader
-                group={section}
-                index={i}
-                count={section.bots.length}
-                isCollapsed={collapsed.includes(section.key)}
-                onToggle={() => toggle(section.key)}
-                onMove={move}
-              />
-              {!collapsed.includes(section.key) && (
-                // Indented past the header's chevron: without this the rows start left of their own
-                // heading and the grouping reads as flat.
-                <ul className="ml-2 space-y-0.5 border-l border-line/60 pl-1">
-                  {section.bots.map((b) => {
-            const dm = dmFor(b.id);
-            return (
-              <BotRow
-                key={b.id}
-                bot={b}
-                status={statusOf(b.id)}
-                activity={activityFor(b, messages)}
-                active={!!dm && dm.id === activeRoomId}
-                unread={dm ? unread[dm.id] ?? 0 : 0}
-                onOpen={() => void openDm(b.id)}
-                onSettings={device ? undefined : () => openDialog({ kind: 'bot', bot: b })}
-              />
-            );
-                  })}
-                </ul>
-              )}
-            </div>
-          ))}
+          {/* Only bots outside every group chat: one is in a room already, reach it from "Group chats" below
+              instead of listing it twice. */}
+          <ul className="space-y-0.5">
+            {soloBots.map((b) => {
+              const dm = dmFor(b.id);
+              return (
+                <BotRow
+                  key={b.id}
+                  bot={b}
+                  status={statusOf(b.id)}
+                  activity={activityFor(b, messages)}
+                  active={!!dm && dm.id === activeRoomId}
+                  unread={dm ? unread[dm.id] ?? 0 : 0}
+                  onOpen={() => void openDm(b.id)}
+                  onSettings={device ? undefined : () => openDialog({ kind: 'bot', bot: b })}
+                />
+              );
+            })}
+          </ul>
           {/* Before the hub's hello there is nothing to show yet, which is not the same as having no bots. */}
           {!helloReceived ? <SkeletonRows count={3} /> : !bots.length && <div className="px-3 py-2 text-ui text-muted">No bots yet.</div>}
         </div>
@@ -212,16 +179,21 @@ export function Sidebar() {
           label="Group chats"
           onAdd={device ? undefined : () => openDialog({ kind: 'room', room: null })}
           addTitle="New group chat"
-          collapsed={groupsCollapsed}
-          onToggle={toggleGroups}
-          unread={groups.reduce((n, r) => n + (unread[r.id] ?? 0), 0)}
         />
-        {groupsCollapsed ? null : !helloReceived ? (
+        {!helloReceived ? (
           <SkeletonRows count={1} />
         ) : (
           <ul className="space-y-0.5">
             {groups.map((r) => (
-              <RoomItem key={r.id} room={r} statusOf={statusOf} active={r.id === activeRoomId} unread={unread[r.id] ?? 0} onClick={() => openRoom(r.id)} />
+              <RoomItem
+                key={r.id}
+                room={r}
+                statusOf={statusOf}
+                active={r.id === activeRoomId}
+                unread={unread[r.id] ?? 0}
+                onClick={() => openRoom(r.id)}
+                onSettings={device ? undefined : () => openDialog({ kind: 'room', room: r })}
+              />
             ))}
             {!groups.length && <li className="px-3 py-2 text-ui text-muted">Bots here pass work to each other.</li>}
           </ul>
@@ -279,19 +251,10 @@ function BotRow({ bot, status, activity, active, unread, onOpen, onSettings }: {
   );
 }
 
-function SectionHeader({ label, onAdd, addTitle, collapsed, onToggle, unread = 0 }: { label: string; onAdd?: () => void; addTitle: string; collapsed?: boolean; onToggle?: () => void; unread?: number }) {
+function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd?: () => void; addTitle: string }) {
   return (
     <div className="mb-0.5 flex items-center justify-between px-3 pt-2">
-      {onToggle ? (
-        <button type="button" onClick={onToggle} aria-expanded={!collapsed} className="flex min-w-0 flex-1 items-center gap-1 rounded-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-          <ChevronRight size={12} aria-hidden className={cn('shrink-0 text-dim', !collapsed && 'rotate-90')} />
-          <span className="truncate text-label text-dim">{label}</span>
-          {/* Folded away, unread messages would otherwise be out of sight. */}
-          {collapsed && unread > 0 && <span className="ml-1 shrink-0 rounded-full bg-ink px-1.5 text-hint font-medium text-ink-fg">{unread}<span className="sr-only"> unread</span></span>}
-        </button>
-      ) : (
-        <span className="text-label text-dim">{label}</span>
-      )}
+      <span className="text-label text-dim">{label}</span>
       {onAdd && (
         <button className="rounded-sm p-1 text-dim hover:bg-hover hover:text-fg" onClick={onAdd} title={addTitle}>
           <Plus size={14} />
@@ -301,13 +264,22 @@ function SectionHeader({ label, onAdd, addTitle, collapsed, onToggle, unread = 0
   );
 }
 
-function RoomItem({ room, statusOf, active, unread, onClick }: { room: Room; statusOf: (botId: string) => BotStatus; active: boolean; unread: number; onClick: () => void }) {
+/** One group chat, always shown in full — never folded behind a dropdown, so its bots and the edit
+ *  button that reaches them (its avatar, its members) are one click away, not two. */
+function RoomItem({ room, statusOf, active, unread, onClick, onSettings }: {
+  room: Room;
+  statusOf: (botId: string) => BotStatus;
+  active: boolean;
+  unread: number;
+  onClick: () => void;
+  onSettings?: () => void;
+}) {
   const bots = useStore((s) => s.bots);
   const busy = room.memberIds.filter((id) => isWorking(statusOf(id))).length;
   const needs = room.memberIds.filter((id) => statusOf(id) === 'needs_you').length;
   return (
-    <li>
-      <button className={cn(ROW, 'hover:bg-hover', active && 'bg-active')} aria-current={active ? 'page' : undefined} onClick={onClick}>
+    <li className="group flex items-center rounded-sm hover:bg-hover">
+      <button className={cn(ROW, active && 'bg-active')} aria-current={active ? 'page' : undefined} onClick={onClick}>
         <RoomAvatar room={room} size={34} className={busy ? 'text-ok' : 'text-muted'} />
         <span className="block min-w-0 flex-1">
           <span className="block truncate text-ui font-medium">{room.name}</span>
@@ -315,6 +287,14 @@ function RoomItem({ room, statusOf, active, unread, onClick }: { room: Room; sta
         </span>
         {unread > 0 && <span className="rounded-full bg-ink px-1.5 text-hint font-medium text-ink-fg">{unread}<span className="sr-only"> unread</span></span>}
       </button>
+      {onSettings && <button
+        className="mr-1.5 shrink-0 rounded-sm p-1.5 text-muted opacity-0 hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+        title="Group chat settings"
+        aria-label={room.name + ' settings'}
+        onClick={onSettings}
+      >
+        <Settings2 size={14} />
+      </button>}
     </li>
   );
 }

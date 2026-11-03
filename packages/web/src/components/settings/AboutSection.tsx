@@ -32,7 +32,7 @@ export function AboutSection({ health }: { health: HealthResponse | null }) {
         <div className="flex items-center gap-4">
           <RocketMark size={52} />
           <div>
-            <div className="text-title-sm">Homeroom</div>
+            <div className="text-title-sm">PocketRocket</div>
             <div className="text-ui text-muted">{health?.version ? 'Version ' + health.version : 'Version unknown'}</div>
             <div className="text-ui text-muted">Your pocket fleet of AI agents.</div>
           </div>
@@ -51,7 +51,7 @@ export function AboutSection({ health }: { health: HealthResponse | null }) {
                 </Fact>
               )}
               <Fact label="Approvals">
-                {health.approvals === 'ask' ? 'Ask before risky actions' : 'Run without asking'}
+                {health.approvals === 'read-only' ? 'Read only' : health.approvals === 'ask' ? 'Approval' : 'Full permission'}
                 {health.approvalsLocked && <span className="text-muted"> · set by the server</span>}
               </Fact>
             </dl>

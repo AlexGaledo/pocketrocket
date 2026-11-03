@@ -143,6 +143,8 @@ export class PermissionBroker {
     private repos: Repos,
     private opts: {
       bypass?: () => boolean;
+      /** The approvals setting is 'read-only': refuse every write outright, no card, nothing to bypass into. */
+      globalReadOnly?: () => boolean;
       /** P7: folders bots may read but never write (the knowledge repo). Read live, per decision. */
       readOnlyRoots?: () => string[];
       // ---- P2 ----
@@ -182,6 +184,12 @@ export class PermissionBroker {
     if (isComputerTool(toolName)) {
       const why = ctx.controlBlocked?.();
       if (why) return { behavior: 'deny', message: why };
+    }
+    // Read-only: ahead of bypass (the two settings are mutually exclusive anyway) and of every card, so a
+    // write is refused outright rather than asked about.
+    if (this.opts.globalReadOnly?.()) {
+      const refusal = this.readOnlyRefusal(ctx, toolName, input);
+      if (refusal) return { behavior: 'deny', message: refusal };
     }
     if (this.bypassedFor(ctx)) {
       // Hardening pass: a shell write into a read-only root is refused even in bypass (P7 read-only rule).
@@ -229,6 +237,23 @@ export class PermissionBroker {
   /** A shell command's write into a read-only root (the knowledge repo), if the command line shows one. */
   private readOnlyShellWrite(cmd: string): string | null {
     return bashWritesReadOnly(cmd, WORKSPACE_DIR, this.opts.readOnlyRoots?.() ?? []);
+  }
+
+  /**
+   * The global 'read-only' approvals setting: a plain-language refusal for a call that writes anything, or
+   * null when the call only reads. `Bash` goes through the same allowlist 'ask' mode uses for "safe enough
+   * not to ask" — here that list draws the read/write line instead, so `ls`/`cat`/`grep` pass and anything
+   * not on it (including every command classifyBash cannot prove is safe) does not.
+   */
+  private readOnlyRefusal(ctx: PermCtx, toolName: string, input: Record<string, unknown>): string | null {
+    const bare = toolName.startsWith(HUB_PREFIX) ? toolName.slice(HUB_PREFIX.length) : toolName;
+    if (GATED_HUB_TOOLS.has(bare)) return 'Read-only mode: fleet, room and integration changes are turned off.';
+    if (PATH_TOOLS.has(toolName) && !READ_TOOLS.has(toolName)) return 'Read-only mode: ' + toolName + ' cannot write files.';
+    if (toolName === 'Bash') {
+      const v = classifyBash(String(input.command ?? ''), botRoots(ctx.bot.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] });
+      if (v.verdict !== 'allow') return 'Read-only mode: not a known read-only command (' + v.reason + ').';
+    }
+    return null;
   }
 
   // ---------- P2: approval rules ----------
@@ -324,6 +349,10 @@ export class PermissionBroker {
   ): Promise<{ allowed: boolean; message: string; approvalId?: string }> {
     const refused = req.command ? routingFileWrite('Bash', { command: req.command }, WORKSPACE_DIR) : null;
     if (refused) return { allowed: false, message: refused };
+    if (this.opts.globalReadOnly?.()) {
+      const v = req.command ? classifyBash(req.command, botRoots(ctx.bot.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] }) : null;
+      if (!v || v.verdict !== 'allow') return { allowed: false, message: 'Read-only mode: this hub refuses writes outright. Choose another approach or ask in chat.' };
+    }
     if (this.bypassedFor(ctx)) {
       const hit = req.command ? this.readOnlyShellWrite(req.command) : null;
       if (hit) return { allowed: false, message: 'The knowledge repo is read-only; this command writes there: ' + hit };
@@ -389,6 +418,7 @@ export class PermissionBroker {
     /** A hand-off that adds a bot to this chat: the owner's call on any hub, because that bot has other logins. */
     opts: { evenUnderBypass?: boolean } = {},
   ): Promise<{ allowed: boolean; message: string }> {
+    if (this.opts.globalReadOnly?.()) return { allowed: false, message: 'Read-only mode: fleet and room changes are turned off.' };
     if (this.bypassedFor(ctx) && !opts.evenUnderBypass) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     const rule = this.matchPolicy(ctx.bot.id, toolName, approvalSubject(toolName, input));
     if (rule === 'allow') return { allowed: true, message: 'Allowed by an approval rule the user set.' };
@@ -459,6 +489,7 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
+    if (this.opts.globalReadOnly?.()) return { allowed: false, message: 'Read-only mode: nothing is sent to a third party. Do not retry it; say so in the room.' };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });
     if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
     return {

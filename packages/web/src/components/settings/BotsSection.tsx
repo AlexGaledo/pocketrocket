@@ -54,10 +54,13 @@ export function BotsSection({ health, onHealthStale }: {
 
       <Group title="Approvals" titleId={titleId}>
         <div role="radiogroup" aria-labelledby={titleId} aria-disabled={locked || undefined} className="flex flex-col gap-2">
-          <RadioCard checked={inForce === 'ask'} disabled={locked} onSelect={() => choose('ask')} title="Ask before risky actions" badge={<Badge tone="ok">Recommended</Badge>}>
+          <RadioCard checked={inForce === 'read-only'} disabled={locked} onSelect={() => choose('read-only')} title="Read only">
+            Bots can look around, but every write — files, commands, bot or room changes, sending anything — is refused outright. Nothing to approve.
+          </RadioCard>
+          <RadioCard checked={inForce === 'ask'} disabled={locked} onSelect={() => choose('ask')} title="Approval" badge={<Badge tone="ok">Recommended</Badge>}>
             Asks before commands, outside files, or bot changes.
           </RadioCard>
-          <RadioCard checked={inForce === 'bypass'} disabled={locked} onSelect={() => choose('bypass')} title="Run without asking">
+          <RadioCard checked={inForce === 'bypass'} disabled={locked} onSelect={() => choose('bypass')} title="Full permission (bypass all)">
             No checks. Only on computers you trust.
           </RadioCard>
         </div>

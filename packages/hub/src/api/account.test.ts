@@ -138,7 +138,7 @@ describe('GET /auth/callback', () => {
     expect(r.headers['content-type']).toContain('text/html');
     expect(r.headers['cache-control']).toBe('no-store');
     expect(r.headers['content-security-policy']).toContain("default-src 'none'");
-    expect(r.text).toContain('Signed in to Homeroom');
+    expect(r.text).toContain('Signed in to PocketRocket');
     expect(r.text).toContain('alex@example.com');
     expect(hub.account.state().signedIn).toBe(true);
   });

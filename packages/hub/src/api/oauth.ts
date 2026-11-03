@@ -49,7 +49,7 @@ export async function handleOAuthCallback(
   const provider = providerFrom(url.pathname, OAUTH_CALLBACK_PREFIX);
   if (!provider || !deps.integrations.hasPendingBrowser()) {
     deps.limiter.fail(ip);
-    return send(res, 400, failure('No sign-in is waiting on this Homeroom. Start again from Settings → Connections.'));
+    return send(res, 400, failure('No sign-in is waiting on this PocketRocket. Start again from Settings → Connections.'));
   }
   const r = await deps.integrations.completeBrowser(provider, url.searchParams);
   if (!r.ok) {
@@ -58,7 +58,7 @@ export async function handleOAuthCallback(
   }
   send(res, 200, page(
     'Connected',
-    '<h1>' + escapeHtml(label(provider)) + ' is connected</h1><p>Go back to Homeroom and choose which bots may use it. You can close this tab.</p>',
+    '<h1>' + escapeHtml(label(provider)) + ' is connected</h1><p>Go back to PocketRocket and choose which bots may use it. You can close this tab.</p>',
     true,
   ));
 }
@@ -66,7 +66,7 @@ export async function handleOAuthCallback(
 function failure(message: string): string {
   return page(
     'Connection failed',
-    '<h1>Connection failed</h1><p>' + escapeHtml(message.slice(0, 300)) + '</p><p class="hint">Go back to Homeroom → Settings → Connections to try again.</p>',
+    '<h1>Connection failed</h1><p>' + escapeHtml(message.slice(0, 300)) + '</p><p class="hint">Go back to PocketRocket → Settings → Connections to try again.</p>',
     false,
   );
 }

@@ -154,6 +154,8 @@ export function createHub(opts: HubOptions = {}): Hub {
     modelsAsync: (p) => providers.modelsAwaited(p),
   });
   installSettings(settings);
+  // A name set before migration 112, or the OS account default, reaches the owner's row here.
+  repos.renameOwner(settings.get().userName);
   if (opts.seedBots) {
     const seeded = seedDefaultBots(repos, memory);
     if (seeded.length) console.log('created default bots: ' + seeded.map((b) => '@' + b.handle).join(', '));
@@ -169,6 +171,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   approvalStore.clearSessionPolicies();
   const broker = new PermissionBroker(repos, {
     bypass: () => settings.approvals() === 'bypass',
+    globalReadOnly: () => settings.approvals() === 'read-only',
     readOnlyRoots: () => { const d = knowledge.activeDir(); return d ? [d] : []; },
     store: approvalStore,
   });
@@ -488,7 +491,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(WEB_DIST, 'index.html');
       if (!fs.existsSync(file)) {
         res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end('Homeroom hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
+        res.end('PocketRocket hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
         return;
       }
       // P9: the service worker and the manifest have fixed names, so they must be revalidated like the shell;
@@ -584,7 +587,7 @@ export function createHub(opts: HubOptions = {}): Hub {
           // Async on purpose: an offline start must not hold the hub up (see AccountService).
           void account.start();
           console.log(
-            'Homeroom hub v' + VERSION + ' · node ' + process.versions.node +
+            'PocketRocket hub v' + VERSION + ' · node ' + process.versions.node +
             ' · provider ' + settings.get().provider + ' · data ' + DATA_DIR +
             ' · http://' + HOST + ':' + port,
           );

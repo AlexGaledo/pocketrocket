@@ -105,7 +105,7 @@ export class RoomRouter {
   onUserMessage(roomId: string, text: string): Message {
     const room = this.repos.getRoom(roomId);
     if (!room) throw new Error('Room not found');
-    const msg = this.repos.insertMessage({ roomId, authorType: 'user', authorId: null, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null });
+    const msg = this.repos.insertMessage({ roomId, authorType: 'user', authorId: this.repos.owner().id, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null });
     // a user message starts a new cause chain
     const withCause = this.repos.updateMessage(msg.id, {}) ?? msg;
     this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);

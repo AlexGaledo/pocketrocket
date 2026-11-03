@@ -15,7 +15,7 @@ export async function handleAuthCallback(
   const ip = clientIp(req);
   if (!deps.account.pending()) {
     deps.limiter.fail(ip);
-    return send(res, 400, failurePage('No sign-in is waiting on this Homeroom. Start again from Settings → Account.'));
+    return send(res, 400, failurePage('No sign-in is waiting on this PocketRocket. Start again from Settings → Account.'));
   }
   const supabaseError = url.searchParams.get('error_description') || url.searchParams.get('error');
   if (supabaseError) return send(res, 400, failurePage(supabaseError));
@@ -39,13 +39,13 @@ export function escapeHtml(s: string): string {
 }
 
 export function successPage(email: string): string {
-  return page('Signed in', '<h1>Signed in to Homeroom</h1><p>as <strong>' + escapeHtml(email) + '</strong> — you can close this tab.</p>', true);
+  return page('Signed in', '<h1>Signed in to PocketRocket</h1><p>as <strong>' + escapeHtml(email) + '</strong> — you can close this tab.</p>', true);
 }
 
 export function failurePage(message: string): string {
   return page(
     'Sign-in failed',
-    '<h1>Sign-in failed</h1><p>' + escapeHtml(message.slice(0, 300)) + '</p><p class="hint">Go back to Homeroom to try again, or enter the code from the email.</p>',
+    '<h1>Sign-in failed</h1><p>' + escapeHtml(message.slice(0, 300)) + '</p><p class="hint">Go back to PocketRocket to try again, or enter the code from the email.</p>',
     false,
   );
 }
@@ -53,7 +53,7 @@ export function failurePage(message: string): string {
 /** Exported for the integrations OAuth callback (api/oauth.ts), so both pages look the same. */
 export function page(title: string, body: string, ok: boolean): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} · Homeroom</title><style>
+<title>${title} · PocketRocket</title><style>
 :root{color-scheme:light dark;--bg:#f5f5f3;--card:#fff;--fg:#1b1b19;--muted:#63635e;--line:#e3e3de;--mark:${ok ? '#15803d' : '#b91c1c'}}
 @media (prefers-color-scheme:dark){:root{--bg:#131312;--card:#1c1c1a;--fg:#ececea;--muted:#a1a19b;--line:#2d2d2a;--mark:${ok ? '#4ade80' : '#f87171'}}}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 16px}

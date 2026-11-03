@@ -200,6 +200,7 @@ export function createRest(deps: RestDeps) {
   });
 
   // ---- settings / secrets / providers
+  add('GET', '/api/me', () => repos.owner());
   add('GET', '/api/settings', () => settings.get());
   // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
   add('PUT', '/api/settings', ({ body }) => {
@@ -208,6 +209,7 @@ export function createRest(deps: RestDeps) {
     const before = settings.approvals();
     try {
       const next = settings.patch(patch);
+      if (patch.userName !== undefined) repos.renameOwner(next.userName);
       if (before !== 'bypass' && settings.approvals() === 'bypass') {
         console.warn('[pocketrocket] WARNING: approvals turned off in Settings — bots now run every action with no approval card');
       }

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { isBotIconKey } from '@pocketrocket/shared';
+import { nanoid } from 'nanoid';
 
 /**
  * Versioned schema migrations. See the header of `db.ts` for how phases add theirs.
@@ -373,6 +374,25 @@ registerMigrations([110, 119], [
       // retry: blocked only because the verifier never judged it, so it may be proposed again.
       addColumnIfMissing(db, 'training_proposals', 'retry', 'INTEGER NOT NULL DEFAULT 0');
       addColumnIfMissing(db, 'approvals', 'decided_by', 'TEXT');
+    },
+  },
+  {
+    version: 112,
+    name: 'users: a stable id for the owner, separate from the display name',
+    up: (db) => {
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS users (' +
+          "id TEXT PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '', " +
+          "role TEXT NOT NULL CHECK(role IN ('owner','admin','member')), " +
+          "previous_names TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL)",
+      );
+      const stored = db.prepare("SELECT value FROM settings WHERE key='userName'").get() as { value?: string } | undefined;
+      let name = '';
+      try { name = stored?.value ? String(JSON.parse(stored.value)) : ''; } catch { /* left empty; the hub fills it in at start */ }
+      const id = nanoid(10);
+      db.prepare("INSERT INTO users (id, display_name, role, created_at) VALUES (?,?,'owner',?)").run(id, name, Date.now());
+      // Every human message so far came from the one login this hub has ever had.
+      db.prepare("UPDATE messages SET author_id=? WHERE author_type='user' AND author_id IS NULL").run(id);
     },
   },
 ]);
