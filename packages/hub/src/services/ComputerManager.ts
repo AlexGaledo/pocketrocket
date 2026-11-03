@@ -15,8 +15,8 @@ import { events } from '../events.js';
  *
  * Each bot that uses Browser or Desktop gets a slot. Slot n is display :(200+n), Chromium CDP on
  * 127.0.0.1:(9400+n), x11vnc on 127.0.0.1:(5800+n) and websockify (noVNC) on 127.0.0.1:(6200+n), run by the
- * systemd user unit `pocketrocket-crew-computer@<n>-<botId>.service` (deploy/computer.sh). These ranges were
- * picked to stay clear of the legacy shared screen (Crew :98/9223/5901/6081, stock :99/9222/5900/6080), of the
+ * systemd user unit `pocketrocket-computer@<n>-<botId>.service` (deploy/computer.sh). These ranges were
+ * picked to stay clear of the legacy shared screen (:99/9222/5900/6080, and the retired Crew fork :98/9223/5901/6081), of the
  * X11 TCP range 6000-6063, and of the :100+n / 9300+n ranges the upstream spec sketches, so a stock
  * PocketRocket that adopts per-bot computers can still share the VPS.
  *
@@ -28,7 +28,7 @@ import { events } from '../events.js';
 
 export const SLOT_BASE = { display: 200, cdp: 9400, vnc: 5800, novnc: 6200 } as const;
 export const MAX_SLOT = 99;
-export const COMPUTER_UNIT_PREFIX = 'pocketrocket-crew-computer@';
+export const COMPUTER_UNIT_PREFIX = 'pocketrocket-computer@';
 /** A computer is not stopped for idleness when one of its bot's routines is due within this window. */
 export const ROUTINE_GRACE_MS = 10 * 60 * 1000;
 const BOT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -62,7 +62,7 @@ export function slotPorts(slot: number): SlotPorts {
   };
 }
 
-/** `pocketrocket-crew-computer@<slot>-<botId>.service`; refuses ids that could smuggle anything into a unit name. */
+/** `pocketrocket-computer@<slot>-<botId>.service`; refuses ids that could smuggle anything into a unit name. */
 export function unitName(slot: number, botId: string): string {
   if (!BOT_ID_RE.test(botId)) throw new Error('bad bot id for a computer unit');
   slotPorts(slot);
@@ -650,7 +650,7 @@ export class ComputerManager {
     const target = [...bots].filter((b) => b.allowedTools.includes('Browser')).sort((a, b) => a.createdAt - b.createdAt)[0];
     if (!target || !BOT_ID_RE.test(target.id)) return null;
     if (await legacyRunning()) {
-      console.warn('[computers] the shared screen is still running, so its logins were not moved to @' + target.handle + '. Stop pocketrocket-crew-screen and restart the hub.');
+      console.warn('[computers] the shared screen is still running, so its logins were not moved to @' + target.handle + '. Stop pocketrocket-screen and restart the hub.');
       return null;
     }
     if (!this.repo.allocate(target.id, MAX_SLOT, this.quotaBytes, this.now())) return null;

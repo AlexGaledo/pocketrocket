@@ -15,8 +15,8 @@ permissions:
 jobs:
   release:
     name: Build + release (Windows)
-    # Releases for this fork are published to AlexGaledo/pocketrocket-crew only.
-    if: github.repository == 'AlexGaledo/pocketrocket-crew'
+    # Releases for this fork are published to AlexGaledo/pocketrocket only.
+    if: github.repository == 'AlexGaledo/pocketrocket'
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -98,9 +98,9 @@ jobs:
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
-          repo: pocketrocket-crew
+          repo: pocketrocket
           tagName: v__VERSION__
-          releaseName: 'PocketRocket Crew v__VERSION__'
+          releaseName: 'PocketRocket v__VERSION__'
           releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: false
           prerelease: false
@@ -121,7 +121,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pocketrocket-crew-windows-installer
+          name: pocketrocket-windows-installer
           path: packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
 
@@ -130,7 +130,7 @@ jobs:
   # build natively and upload into that same release (tauri-action reuses the release for the tag).
   release-unix:
     name: Build + release (${{ matrix.name }})
-    if: github.repository == 'AlexGaledo/pocketrocket-crew'
+    if: github.repository == 'AlexGaledo/pocketrocket'
     needs: release
     strategy:
       fail-fast: false
@@ -139,14 +139,14 @@ jobs:
           - name: Linux
             os: ubuntu-22.04
             bundles: appimage,deb
-            artifact: pocketrocket-crew-linux
+            artifact: pocketrocket-linux
             paths: |
               packages/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
               packages/desktop/src-tauri/target/release/bundle/deb/*.deb
           - name: macOS
             os: macos-15
             bundles: dmg
-            artifact: pocketrocket-crew-macos
+            artifact: pocketrocket-macos
             paths: |
               packages/desktop/src-tauri/target/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
@@ -193,9 +193,9 @@ jobs:
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
-          repo: pocketrocket-crew
+          repo: pocketrocket
           tagName: v__VERSION__
-          releaseName: 'PocketRocket Crew v__VERSION__'
+          releaseName: 'PocketRocket v__VERSION__'
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: false

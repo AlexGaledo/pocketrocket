@@ -32,13 +32,13 @@ Requirements: Node ≥ 22.13 (uses built-in `node:sqlite`), pnpm, and Claude Cod
 pnpm install
 pnpm dev             # hub (tsx watch) + Vite UI at http://127.0.0.1:5173
 pnpm build            # typecheck + build every package
-pnpm start            # hub serves the built UI at http://127.0.0.1:7790
+pnpm start            # hub serves the built UI at http://127.0.0.1:7788
 pnpm test             # vitest, run before every PR
 ```
 
 The hub does not print its token, because its output ends up in logs. Read it from `<data>/hub-token`
 and paste it into the prompt the UI shows, with `pnpm start` and on the Vite dev server alike, or open
-`http://127.0.0.1:7790/#token=<token>`. Debug a subprocess with `POCKETROCKET_DEBUG=1`.
+`http://127.0.0.1:7788/#token=<token>`. Debug a subprocess with `POCKETROCKET_DEBUG=1`.
 
 ## Desktop app
 
@@ -46,8 +46,8 @@ Building it additionally requires Rust (MSVC toolchain), Visual Studio Build Too
 (bundled with Windows 11), and `cargo tauri`.
 
 ```bash
-pnpm desktop:build      # -> packages/desktop/src-tauri/target/release/PocketRocketCrew.exe
-                        #    + bundle/nsis/PocketRocket Crew_<version>_x64-setup.exe
+pnpm desktop:build      # -> packages/desktop/src-tauri/target/release/PocketRocket.exe
+                        #    + bundle/nsis/PocketRocket_<version>_x64-setup.exe
 pnpm desktop:dev
 ```
 

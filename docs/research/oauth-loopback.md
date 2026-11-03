@@ -1,6 +1,6 @@
 # OAuth on the loopback, paste-a-key options, and polling per provider (researched 2026-10-31)
 
-The hub listens on `http://127.0.0.1:7790`. Each user connects with **either** their own OAuth app (PKCE plus a loopback redirect `http://127.0.0.1:<port>/oauth/callback/<provider>`) **or** a pasted key or token. Events arrive by outbound polling, plus Slack Socket Mode. Items marked *unverified* are uncertain.
+The hub listens on `http://127.0.0.1:7788`. Each user connects with **either** their own OAuth app (PKCE plus a loopback redirect `http://127.0.0.1:<port>/oauth/callback/<provider>`) **or** a pasted key or token. Events arrive by outbound polling, plus Slack Socket Mode. Items marked *unverified* are uncertain.
 
 ## Summary
 
@@ -17,7 +17,7 @@ The hub listens on `http://127.0.0.1:7790`. Each user connects with **either** t
   - Google, Teams and GitHub use OAuth by default. GitHub also accepts a PAT; warn that a fine-grained PAT can't read notifications.
   - Slack and ClickUp use paste by default.
   - Offer the **device flow** for GitHub and Microsoft when the hub runs on a VPS behind a tunnel.
-- **SSH tunnel:** the OAuth redirect only works when the tunnel forwards the same local port that appears in the redirect URI (`ssh -L 7790:127.0.0.1:7790`).
+- **SSH tunnel:** the OAuth redirect only works when the tunnel forwards the same local port that appears in the redirect URI (`ssh -L 7788:127.0.0.1:7788`).
 - **Google:** in Testing mode, refresh tokens expire after 7 days. The user should publish their own app to "In production" and click through the unverified-app warning once. Request `access_type=offline` and `prompt=consent`.
 - **Scopes:**
 

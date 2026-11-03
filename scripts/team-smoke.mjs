@@ -30,7 +30,7 @@ const TOKEN = flag('token') ?? process.env.POCKETROCKET_TOKEN ?? tokenFromDataDi
 if (!TOKEN) console.warn('[team-smoke] no token found (--token, POCKETROCKET_TOKEN or <data>/hub-token); expect 401s');
 const authHeaders = TOKEN ? { authorization: 'Bearer ' + TOKEN } : {};
 
-const BASE = process.env.HUB ?? 'http://127.0.0.1:7790';
+const BASE = process.env.HUB ?? 'http://127.0.0.1:7788';
 const text = argv[0] ?? 'We have no team yet. Create a @researcher (web tools only) and a @writer, then ask @researcher for 3 one-line facts about pnpm workspaces and have @writer turn them into a single tweet. Keep every message under 3 sentences.';
 
 async function api(method, path, body) {

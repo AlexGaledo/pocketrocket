@@ -1,16 +1,13 @@
 <p align="center"><img src="packages/site/assets/rocket.svg" alt="PocketRocket logo" width="96" height="96" /></p>
 
-# PocketRocket Crew
+# PocketRocket
 
 **Your pocket fleet of AI agents.**
 
-A fork of [PocketRocket](https://github.com/AlexGaledo/pocketrocket) that installs side by side with it
-(its own app id `com.pocketrocket.crew`, hub port 7790, and `pocketrocket-crew*` services on a server).
-
-[**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/pocketrocket-crew/releases/latest) · [Changelog](CHANGELOG.md)
+[**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/pocketrocket/releases/latest) · [Changelog](CHANGELOG.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket-crew?include_prereleases&label=release)](https://github.com/AlexGaledo/pocketrocket-crew/releases)
+[![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket?include_prereleases&label=release)](https://github.com/AlexGaledo/pocketrocket/releases)
 ![Desktop](https://img.shields.io/badge/desktop-Windows-blue)
 
 PocketRocket is a messenger for a team of AI bots that run on your own computer with your Claude
@@ -34,7 +31,7 @@ From download to your first conversation, about five minutes.
 
 ### 1. Download
 
-Open the [latest release](https://github.com/AlexGaledo/pocketrocket-crew/releases/latest) and download
+Open the [latest release](https://github.com/AlexGaledo/pocketrocket/releases/latest) and download
 `PocketRocket_<version>_x64-setup.exe` from **Assets**.
 
 ### 2. Run the installer
@@ -109,7 +106,7 @@ newer installer and run it over the existing install. Your bots, chats and setti
 app folder and its shortcuts: no service, no scheduled task, no autostart entry.
 
 **Your data is kept by default.** Uninstalling removes the program, not
-`%APPDATA%\com.pocketrocket.crew\`: the database, every bot's memory and skills, the shared
+`%APPDATA%\com.pocketrocket.app\`: the database, every bot's memory and skills, the shared
 workspace, and logs. Reinstalling picks up where you left off. To erase it too, tick **"Also
 delete all bots, conversations and settings"** in the uninstaller (unchecked by default).
 
@@ -127,7 +124,7 @@ delete all bots, conversations and settings"** in the uninstaller (unchecked by 
 | A server shows *Host key changed* | Don't connect. Check with whoever runs the server; this can mean someone is intercepting the connection. |
 | Connection settings open while you're connected | Press **Back to PocketRocket**. |
 
-Still stuck? [Open an issue](https://github.com/AlexGaledo/pocketrocket-crew/issues/new/choose).
+Still stuck? [Open an issue](https://github.com/AlexGaledo/pocketrocket/issues/new/choose).
 
 ## More
 

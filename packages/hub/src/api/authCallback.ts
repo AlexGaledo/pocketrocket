@@ -53,7 +53,7 @@ export function failurePage(message: string): string {
 /** Exported for the integrations OAuth callback (api/oauth.ts), so both pages look the same. */
 export function page(title: string, body: string, ok: boolean): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} · PocketRocket Crew</title><style>
+<title>${title} · PocketRocket</title><style>
 :root{color-scheme:light dark;--bg:#f5f5f3;--card:#fff;--fg:#1b1b19;--muted:#63635e;--line:#e3e3de;--mark:${ok ? '#15803d' : '#b91c1c'}}
 @media (prefers-color-scheme:dark){:root{--bg:#131312;--card:#1c1c1a;--fg:#ececea;--muted:#a1a19b;--line:#2d2d2a;--mark:${ok ? '#4ade80' : '#f87171'}}}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:0 16px}

@@ -7,8 +7,8 @@ export type PaneId = 'sidebar' | 'panel';
 export type PaneWidths = Record<PaneId, number>;
 
 export const PANES = {
-  sidebar: { def: 260, min: 200, max: 420, key: 'prcrew.width.sidebar' },
-  panel: { def: 400, min: 320, max: 1200, key: 'prcrew.width.panel' },
+  sidebar: { def: 260, min: 200, max: 420, key: 'pocketrocket.width.sidebar' },
+  panel: { def: 400, min: 320, max: 1200, key: 'pocketrocket.width.panel' },
 } as const;
 
 export const CHAT_MIN = 440;

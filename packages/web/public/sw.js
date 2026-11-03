@@ -1,5 +1,5 @@
 /*
- * PocketRocket Crew service worker (P9).
+ * PocketRocket service worker (P9).
  *
  * Caches the APP SHELL only: index.html, the hashed /assets/* bundles, icons and the manifest, so the app
  * opens instantly and installs as a PWA. It never caches what the hub says: /api/*, /ws, /screen/*, /auth/*,
@@ -8,7 +8,7 @@
  *
  * Pushes are content-free: the payload is {"kind":"approval"|"routine"|"test"} and the wording below is fixed.
  */
-const CACHE = 'prcrew-shell-v1';
+const CACHE = 'pocketrocket-shell-v1';
 const SHELL = ['/', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png', '/favicon.svg'];
 const NEVER = [/^\/api\//, /^\/ws(\/|$)/, /^\/screen(\/|$)/, /^\/auth\//, /^\/oauth\//, /^\/mcp(\/|$)/, /^\/sw\.js$/];
 
@@ -19,7 +19,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('prcrew-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('pocketrocket-') && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -62,9 +62,9 @@ self.addEventListener('fetch', (event) => {
 });
 
 const TEXT = {
-  approval: { title: 'A bot needs your approval', body: 'Open PocketRocket Crew to review it.' },
-  routine: { title: 'Routine finished', body: 'Open PocketRocket Crew to see the result.' },
-  test: { title: 'Test notification from PocketRocket Crew', body: 'Notifications work on this device.' },
+  approval: { title: 'A bot needs your approval', body: 'Open PocketRocket to review it.' },
+  routine: { title: 'Routine finished', body: 'Open PocketRocket to see the result.' },
+  test: { title: 'Test notification from PocketRocket', body: 'Notifications work on this device.' },
 };
 
 self.addEventListener('push', (event) => {
@@ -78,7 +78,7 @@ self.addEventListener('push', (event) => {
   const t = TEXT[kind];
   event.waitUntil(self.registration.showNotification(t.title, {
     body: t.body,
-    tag: 'prcrew-' + kind,
+    tag: 'pocketrocket-' + kind,
     renotify: kind === 'approval',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',

@@ -91,7 +91,7 @@ The hub always requires a bearer token — every run mode, no exceptions. It's m
 start, stored in `<data>/hub-token`, and reused on later starts (so restarting the hub doesn't
 lock an open window out). It is never written to the hub's logs. The desktop app handles it for you;
 anywhere else, paste the file's contents into the prompt the web UI shows, or open
-`http://127.0.0.1:7790/#token=<token>`, which the web UI consumes automatically.
+`http://127.0.0.1:7788/#token=<token>`, which the web UI consumes automatically.
 
 PocketRocket has had two internal security reviews; what they changed is under **Security** in
 [CHANGELOG.md](../CHANGELOG.md), and [SECURITY.md](../SECURITY.md) has the summary.

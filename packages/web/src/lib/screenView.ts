@@ -15,10 +15,10 @@ export type ScreenSize = 'glance' | 'watch' | 'focus';
 /** This browser's id, sent as the control `holder` so the hub can say who took over. Not a secret. */
 export function deviceId(): string {
   try {
-    let id = localStorage.getItem('prcrew.deviceId');
+    let id = localStorage.getItem('pocketrocket.deviceId');
     if (!id) {
       id = 'web-' + Math.random().toString(36).slice(2, 10);
-      localStorage.setItem('prcrew.deviceId', id);
+      localStorage.setItem('pocketrocket.deviceId', id);
     }
     return id;
   } catch {

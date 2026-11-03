@@ -37,7 +37,7 @@ describe('per-bot computers stay on loopback (P1)', () => {
     expect(computer).toMatch(/VNC_PORT="\$\(\(5800 \+ SLOT\)\)"/);
     expect(computer).toMatch(/NOVNC_PORT="\$\(\(6200 \+ SLOT\)\)"/);
     expect(computer).toMatch(/exec bash "\$\(dirname "\$0"\)\/screen\.sh"/);
-    expect(read('deploy/pocketrocket-crew-computer@.service')).toMatch(/ExecStart=.*deploy\/computer\.sh %i/);
+    expect(read('deploy/pocketrocket-computer@.service')).toMatch(/ExecStart=.*deploy\/computer\.sh %i/);
   });
 
   it('screen.sh binds X, CDP, VNC and noVNC to 127.0.0.1 only', () => {

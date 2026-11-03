@@ -3,10 +3,10 @@
 #
 #   computer.sh <slot> <botId>      or      computer.sh <slot>-<botId>   (the systemd instance name, %i)
 #
-# Run by the systemd *user* unit pocketrocket-crew-computer@<slot>-<botId>.service, which the hub starts and
+# Run by the systemd *user* unit pocketrocket-computer@<slot>-<botId>.service, which the hub starts and
 # stops itself (services/ComputerManager.ts; no root). Slot n (1-99) is:
 #   display :(200+n)   CDP 127.0.0.1:(9400+n)   VNC 127.0.0.1:(5800+n)   noVNC/websockify 127.0.0.1:(6200+n)
-# These never collide with the shared Crew screen (:98, 9223, 5901, 6081), stock PocketRocket (:99, 9222,
+# These never collide with the shared screen (:99, 9222,
 # 5900, 6080) or the X11 TCP range. Every port binds 127.0.0.1 only (screen.sh), and X needs the per-computer
 # MIT cookie in its home.
 #
@@ -26,7 +26,7 @@ if ! [[ "$BOT_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || [ "$BOT_ID" = "$ARG1" ]; then
   echo "computer.sh: bad bot id '$BOT_ID'" >&2; exit 2
 fi
 
-DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket-crew/data}"
+DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket/data}"
 CDIR="$DATA/computers/$BOT_ID"
 mkdir -p "$CDIR/home" "$CDIR/browser" "$CDIR/files/Desktop" "$CDIR/files/Downloads"
 chmod 700 "$CDIR"

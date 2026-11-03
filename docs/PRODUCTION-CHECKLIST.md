@@ -21,12 +21,12 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 
 | Item | Status | How to verify |
 |---|---|---|
-| Hub binds `127.0.0.1` only | ☑ | `netstat -ano \| findstr 7790` |
-| Origin check on REST + WS + `/screen/` upgrade, including `Origin: null` | ☑ tests | `curl -H "Origin: null" http://127.0.0.1:7790/api/bots` → 403 |
+| Hub binds `127.0.0.1` only | ☑ | `netstat -ano \| findstr 7788` |
+| Origin check on REST + WS + `/screen/` upgrade, including `Origin: null` | ☑ tests | `curl -H "Origin: null" http://127.0.0.1:7788/api/bots` → 403 |
 | Host check (DNS rebinding) | ☑ tests | `curl -H "Host: evil.example" ...` → rejected |
 | Bearer token always required (audit B3/D3) — auto-generated to `<data>/hub-token` when `POCKETROCKET_TOKEN` unset, health stays open | ☑ | `/api/bots` 401 without token, `/api/health` 200 |
-| `/screen/*` behind the same token (audit B2) | ☑ | `curl http://127.0.0.1:7790/screen/vnc.html` → 401 without token |
-| `/screen/*` authenticated by a `/screen`-scoped httpOnly cookie, bought with a single-use ticket; no `?token=` there | ☑ tests | `curl 'http://127.0.0.1:7790/screen/vnc.html?token=<token>'` → 401; `screenTicket.test.ts` |
+| `/screen/*` behind the same token (audit B2) | ☑ | `curl http://127.0.0.1:7788/screen/vnc.html` → 401 without token |
+| `/screen/*` authenticated by a `/screen`-scoped httpOnly cookie, bought with a single-use ticket; no `?token=` there | ☑ tests | `curl 'http://127.0.0.1:7788/screen/vnc.html?token=<token>'` → 401; `screenTicket.test.ts` |
 | Per-turn MCP token on `/mcp`; tools scoped to that turn | ☑ tests | `mcp/httpServer.test.ts` |
 | Secrets file never returned by the API (`GET /api/secrets` = which keys set) | ☑ | `SecretsStore.test.ts` |
 | No telemetry / no outbound calls except Claude, the GitHub releases page, Supabase auth (only when signed in), and these, each only after the user turns it on: **integration providers the user connected** (P4 tools, P5 trigger polling): `api.github.com` `github.com` (incl. device flow) · `accounts.google.com` `oauth2.googleapis.com` `openidconnect.googleapis.com` `gmail.googleapis.com` `www.googleapis.com` (Calendar, Drive) · `slack.com` (Web API, `apps.connections.open`) and **Slack Socket Mode `wss-*.slack.com`** (outbound WebSocket, P5) · `api.clickup.com` `app.clickup.com` · `login.microsoftonline.com` (incl. device flow) `graph.microsoft.com`; **Web Push services** (P9, per subscribed phone; the hub refuses any other endpoint): `fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`; **git remotes the user names** (P7): the knowledge repo URL and Skills › From git URLs | ☐ | grep for `fetch(`/`https://`/`wss://` in hub; integration hosts live only in `packages/hub/src/integrations/*` and `services/TriggerService.ts`/`SlackSocketMode.ts`; push hosts in `services/WebPush.ts` (`PUSH_HOSTS`); SECURITY.md |
@@ -43,7 +43,7 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | CI: top-level `permissions: contents: read`, every third-party action SHA-pinned, Dependabot configured (audit #21) | ☑ | `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml` |
 | Screenshots/docs/fixtures redacted of the local username and SSH host alias (audit A) | ☑ | see this file's redaction grep in the audit report |
 | Dependency audit | ☑ | `pnpm audit --prod` → 0 |
-| Integration tokens encrypted at rest (AES-256-GCM, `vault.key` 0600) and `vault.key` left out of `backup.sh` archives (P4) | ☑ tests | `IntegrationVault.test.ts`; `tar -tzf /var/backups/pocketrocket-crew/data-*.tgz \| grep vault.key` → nothing |
+| Integration tokens encrypted at rest (AES-256-GCM, `vault.key` 0600) and `vault.key` left out of `backup.sh` archives (P4) | ☑ tests | `IntegrationVault.test.ts`; `tar -tzf /var/backups/pocketrocket/data-*.tgz \| grep vault.key` → nothing |
 | Integration write tools (send mail, post, comment, create) always show a card, also under bypass; a bot without a grant gets no integration tools (P4) | ☑ tests | `integrations/tools.test.ts` |
 | Branch protection on `main` (required checks, no force-push), Dependabot alerts + security fixes | ☑ | `gh api repos/AlexGaledo/pocketrocket/branches/main/protection` |
 | Secret scanning + push protection | ☐ not available on a private free-plan repo; auto-enabled when public | repo Settings → Code security |
@@ -55,7 +55,7 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | Installer builds locally (`pnpm desktop:build`) | ☑ release | `target/release/bundle/nsis/PocketRocket_<v>_x64-setup.exe` |
 | Installer size acceptable | ☑ 29.7 MB (unused vendored Claude CLI pruned) | `PocketRocket_0.2.0_x64-setup.exe` |
 | Runs with system Node ≥ 22.13 and with the bundled Node 24 sidecar | ☑ both | splash shows runtime; `hub.log` startup line |
-| First run: onboarding wizard appears, provider check works, first bot created | ☑ Playwright run | fresh `%APPDATA%\com.pocketrocket.crew` |
+| First run: onboarding wizard appears, provider check works, first bot created | ☑ Playwright run | fresh `%APPDATA%\com.pocketrocket.app` |
 | Legacy Claudebot data migrated on first launch | ☑ verified (config + db) | launch with old `com.claudebot.desktop` present |
 | Quit kills the hub + provider children (no orphan `node`/`opencode`) | ☑ (shutdown deadlock fixed) | `tasklist` after quit |
 | `hub.log` rotates (2 MB × 5) | ☑ code | fill the log |
@@ -64,8 +64,8 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | SmartScreen warning documented (unsigned) | ☑ | README, site FAQ |
 | Code signing certificate | ☐ deferred (decided) | — |
 | Auto-updater | ☐ deferred (decided) | — |
-| Uninstall leaves no service/task; data dir kept by default, deletable via checkbox (documented) | ☑ | No service, scheduled task or autostart entry (`grep -riE "schtasks\|autostart\|CurrentVersion.Run" packages/desktop/src-tauri/src` → nothing). The NSIS uninstaller deletes `$INSTDIR` + shortcuts, plus an opt-in "Also delete all bots, conversations and settings" checkbox (unchecked by default) that also removes `%APPDATA%\com.pocketrocket.crew\`. Data retention documented in README → Uninstalling. |
-| Uninstall tested both ways: checkbox left unchecked (data dir survives) and checkbox ticked (data dir removed) | ☐ | uninstall once with the box unchecked, confirm `%APPDATA%\com.pocketrocket.crew\` still exists; reinstall, uninstall again with the box ticked, confirm it's gone |
+| Uninstall leaves no service/task; data dir kept by default, deletable via checkbox (documented) | ☑ | No service, scheduled task or autostart entry (`grep -riE "schtasks\|autostart\|CurrentVersion.Run" packages/desktop/src-tauri/src` → nothing). The NSIS uninstaller deletes `$INSTDIR` + shortcuts, plus an opt-in "Also delete all bots, conversations and settings" checkbox (unchecked by default) that also removes `%APPDATA%\com.pocketrocket.app\`. Data retention documented in README → Uninstalling. |
+| Uninstall tested both ways: checkbox left unchecked (data dir survives) and checkbox ticked (data dir removed) | ☐ | uninstall once with the box unchecked, confirm `%APPDATA%\com.pocketrocket.app\` still exists; reinstall, uninstall again with the box ticked, confirm it's gone |
 
 ## 4. Providers
 
@@ -134,18 +134,17 @@ The accessibility pass covered, and fixed:
 
 | Item | Status |
 |---|---|
-| `scripts/deploy.sh <host>` requires a host and installs as `pocketrocket-crew` (no Claudebot/stock migration; a stock PocketRocket on the same VPS is left alone) | ☑ code, ☐ run against the VPS: nobody watched the script run. On 2026-11-02 Crew was found installed at `/home/pocketrocket-crew/pocketrocket-crew` on 724677b, service up since 2026-10-31 |
-| Screen service + backups renamed and running | ☐ verify after redeploy. 2026-11-02: Crew's screen service is installed but disabled because per-bot computers are on; backups not checked |
+| `scripts/deploy.sh <host>` requires a host and installs as `pocketrocket` | ☑ code, ☐ run against the VPS: nobody watched the script run. On 2026-11-02 Crew was found installed at `/home/pocketrocket/pocketrocket` on 724677b, service up since 2026-10-31 |
+| Screen service + backups renamed and running | ☐ verify after redeploy. 2026-11-02: the screen service is installed but disabled because per-bot computers are on; backups not checked |
 | Hub token: **always required in server mode too**, minted to `<data>/hub-token` on the VPS and stable across restarts; docs insist on tunnel-only access | ☑ |
 
-## 7b. PocketRocket Crew phases: checks that need a VPS, a phone or a real account
+## 7b. PocketRocket phases: checks that need a VPS, a phone or a real account
 
 Each phase's tests use fakes for these (`docs/changes/pN.md` → "Not verified" / "Known limits").
 
 | Phase | Item | Status | How to verify |
 |---|---|---|---|
-| P0 | Crew and stock PocketRocket side by side on one VPS: separate users, units, ports (7790 vs 7788), screens (`:98` vs `:99`) | ◐ live 2026-11-02 on `crm-agency`: `pocketrocket` (7788) and `pocketrocket-crew` (7790) both active, separate users, all listening on loopback, stock untouched throughout. `:98` not exercised: Crew's screen service is disabled while per-bot computers are on | deploy both; `systemctl status pocketrocket-crew pocketrocket`; `ss -ltnp` shows only 127.0.0.1 |
-| P1 | Per-bot computers: `pocketrocket-crew-computer@<slot>-<bot>` starts on first Browser/Desktop use, sleeps after `COMPUTER_IDLE_MIN`, at most `MAX_RUNNING_COMPUTERS` run, quota warning at 80% | ◐ live 2026-11-02. Start: two Browser bots each got their own unit, own tabs on separate CDP ports, correct answers from real turns. Sleep: an idle computer was found asleep with no unit running at 42 min idle (default 30); exact moment not observed. Cap: with `MAX_RUNNING_COMPUTERS=2`, waking a third put the idle one to sleep rather than refusing. Quota, live 2026-11-03 with a temporary 1 GB quota: badge turns amber at 88%, wake refused over 100% with the reason, and the bot says its computer tools are off. See finding 14 | two Browser bots; watch `systemctl --user list-units 'pocketrocket-crew-computer@*'` as the service user |
+| P1 | Per-bot computers: `pocketrocket-computer@<slot>-<bot>` starts on first Browser/Desktop use, sleeps after `COMPUTER_IDLE_MIN`, at most `MAX_RUNNING_COMPUTERS` run, quota warning at 80% | ◐ live 2026-11-02. Start: two Browser bots each got their own unit, own tabs on separate CDP ports, correct answers from real turns. Sleep: an idle computer was found asleep with no unit running at 42 min idle (default 30); exact moment not observed. Cap: with `MAX_RUNNING_COMPUTERS=2`, waking a third put the idle one to sleep rather than refusing. Quota, live 2026-11-03 with a temporary 1 GB quota: badge turns amber at 88%, wake refused over 100% with the reason, and the bot says its computer tools are off. See finding 14 | two Browser bots; watch `systemctl --user list-units 'pocketrocket-computer@*'` as the service user |
 | P1 | Every computer port on loopback (CDP 9400+n, VNC 5800+n, noVNC 6200+n; X no TCP) | ☑ static test, ◐ on the VPS 2026-11-02: with computers awake, 58xx, 62xx and 94xx listen only on 127.0.0.1 (58xx also on [::1]); X no-TCP not checked live | `deployScripts.test.ts`; with a computer awake, `ss -ltnp` lists its 94xx/58xx/62xx ports on `127.0.0.1` only |
 | P1 | Shared screen's logins move to the oldest Browser bot once; RAM sizing table holds | ◐ live 2026-11-03 with marker files, not a real profile: both folders moved to the oldest Browser bot once, `.legacy-migrated` written. RAM table not checked | first start with computers on; `docs/SERVER.md` table |
 | P2 | `x11vnc -R viewonly/noviewonly` toggles a running computer, and a viewer really cannot click while the bot has control | ☑ live 2026-11-03 through the real Screen tab in Chrome: under user control clicks and keys reached the page; after Hand back a click and typing changed nothing | Screen tab: try to click while bot has control; Take over; click works |
@@ -153,21 +152,21 @@ Each phase's tests use fakes for these (`docs/changes/pN.md` → "Not verified" 
 | P2 | A real login through `request_takeover` (card → take over → hand back with note → bot continues) | ◐ live 2026-11-03 on a local test form: typed into the Screen tab, handed back with a note, bot continued. Parked path passed: after the 10 minute wait the card parks, and a later hand-back starts a new turn with the note. It also survives a restart, finding 11. No real site login yet | spec manual test |
 | P3 | Routines fire in `settings.timezone` on a UTC server; a turn cut off by `systemctl restart` resumes once | ☑ live 2026-11-03 on UTC: cron and `onceAt` in Asia/Manila fired on the minute, `onceAt` disabled itself. `systemctl restart` mid-turn: one system note, one resume, one complete reply. A routine parked on a card survived a restart and finished after allow. Stalled-handoff nudge not tested live | daily 09:00 Asia/Manila routine; restart mid-turn |
 | P4 | A real OAuth round trip per provider (GitHub, Google, Slack, ClickUp, Teams); ClickUp accepts the loopback redirect; Microsoft device flow on a single-tenant app | ☐ | Settings › Integrations › Connect, Test connection |
-| P4 | `vault.key` absent from backups (tar and restic) | ☑ static test, ◐ on the VPS 2026-11-03: real `backup.sh` run against a dummy tree left `vault.key` out. restic path not run. See findings 7 and 12 | `tar -tzf /var/backups/pocketrocket-crew/data-*.tgz \| grep vault.key` → nothing |
+| P4 | `vault.key` absent from backups (tar and restic) | ☑ static test, ◐ on the VPS 2026-11-03: real `backup.sh` run against a dummy tree left `vault.key` out. restic path not run. See findings 7 and 12 | `tar -tzf /var/backups/pocketrocket/data-*.tgz \| grep vault.key` → nothing |
 | P5 | Slack Socket Mode against a live app (connect, ack, reconnect on `disconnect`); GitHub `X-Poll-Interval` on `/repos/*/events`; ClickUp `date_updated_gt` over 100 tasks | ☐ needs real accounts. Live 2026-11-03 through test fire only: injected text ran no tool, rate limit skipped the third fire, a Bash request under approvals=bypass still raised a card | one trigger per source; Automations › Triggers shows last check and fires |
 | P5 | Trigger turn resumed after a restart or a parked approval stays inside the trigger's daily budget | ☑ tests | `rooms/triggerBudget.test.ts` |
 | P6 | Teach: password absent from the trace, distill to a pending skill, correction to a pending version, replay | ◐ live 2026-11-03 on one task (spec asks three): password field masked and its frame dropped, live skill unchanged until the version was approved, replay handed off for secrets and finished. Other fields leak, finding 10 | Teach on a form, Done, Distill, correct, approve, replay |
 | P7 | Knowledge repo clones over ssh with a deploy key non-interactively (BatchMode) and pulls on the timer | ◐ live 2026-11-03 over `file://`: clone, pull on Sync now, bot answered from it. `ext::` refused. ssh deploy key and the timer not tested | Settings › Knowledge with a private `git@` URL; Sync now |
 | P7 | A shell write into the knowledge repo is refused under bypass (and cards otherwise) | ☑ tests, ☑ live 2026-11-03: Bash write carded under ask and refused under bypass, file unchanged. Write tool under bypass not exercised (bot lacked the tool) | `permissions/knowledgeReadOnly.test.ts` |
 | P8 | Auto model picks per turn; usage by model and cause | ◐ live 2026-11-03: routine and trigger on Haiku, chat on Sonnet, "think hard" on Opus; `/api/usage` returns `byModel` and `byCause`. Escalation on retry not exercised | one `auto` bot |
-| P9 | Phone over Tailscale Serve with `POCKETROCKET_ALLOWED_HOSTS`: pair by QR, chat, answer a card; settings writes refused; revoke closes the phone's socket | ◐ live 2026-11-03 without a phone or Tailscale: pairing code single use; device token refused on settings, secrets, bot writes, pairing, git import and `/mcp`; revoke closed its socket in 23 ms and its next request got 401. Allowed host needs forwarded https, other hosts 403 | `tailscale serve --bg 7790`; pair an iPhone and an Android phone |
+| P9 | Phone over Tailscale Serve with `POCKETROCKET_ALLOWED_HOSTS`: pair by QR, chat, answer a card; settings writes refused; revoke closes the phone's socket | ◐ live 2026-11-03 without a phone or Tailscale: pairing code single use; device token refused on settings, secrets, bot writes, pairing, git import and `/mcp`; revoke closed its socket in 23 ms and its next request got 401. Allowed host needs forwarded https, other hosts 403 | `tailscale serve --bg 7788`; pair an iPhone and an Android phone |
 | P9 | Web Push delivered on iOS (installed PWA) and Android; payload has no content; `vapid.json` 0600 and kept in backups | ☐ push, ☑ `vapid.json` 600 on the VPS 2026-11-03 | Settings › Devices › Send a test; `stat -c %a data/vapid.json` → 600 |
 | P9 | Tray and close-to-tray on Windows; Linux AppImage/deb and unsigned macOS dmg from the release workflow install and start the hub | ☐ | release workflow artifacts on each OS |
 
 Findings from the 2026-11-02 tests (open unless stated):
 
 1. One earlier run flagged a hand-back note as prompt injection. That run's prompt said "then stop" and its note asked for an odd word. Not reproduced in 8 normal runs. The note reaches the bot as a tool result (`agent/takeoverTool.ts:56-58`).
-2. Cards and refusals name `pocketrocket-crew` because `settings.userName` is the OS user on a server that skipped onboarding (seen in `GET /api/settings`; used in `agent/takeoverTool.ts`).
+2. Cards and refusals name `pocketrocket` because `settings.userName` is the OS user on a server that skipped onboarding (seen in `GET /api/settings`; used in `agent/takeoverTool.ts`).
 3. Browser tools run with no approval card under approvals=ask. Open decision.
 4. Fixed and live in 22e9ec0: Playwright output now lives in the bot's home, so deleting the bot removes it. Claude session transcripts in the service user's `~/.claude/projects` still outlive the bot.
 5. `RoutineScheduler.test.ts` "resolves a local once_at" fails since 2026-11-02, also on master. The test hardcodes `2026-11-02T09:00` (line 76), and `resolveSchedule` reads the real clock through `Cron`, not its `now` (`services/RoutineScheduler.ts:43-44`).

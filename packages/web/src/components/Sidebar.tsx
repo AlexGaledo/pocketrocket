@@ -14,7 +14,7 @@ import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
 /** Shared by bot and room rows: a whole-row button, so Tab reaches every chat and Enter/Space opens it. */
 const ROW = 'flex w-full min-w-0 items-center gap-2.5 rounded-sm px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
 
-const GROUPS_COLLAPSED_KEY = 'prcrew.groupChatsCollapsed';
+const GROUPS_COLLAPSED_KEY = 'pocketrocket.groupChatsCollapsed';
 /** Browser storage is a convenience here: with none, the list just starts expanded. */
 function readGroupsCollapsed() {
   try {

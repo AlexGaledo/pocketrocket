@@ -8,8 +8,8 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PORT` ★ | `7790` | Hub HTTP/WS port, always bound to `127.0.0.1`. |
-| `POCKETROCKET_DATA` ★ | `<repo>/data` | Data root: `pocketrocket.db`, `bots/`, `workspace/`, `skills/`, `secrets.json`, `account.json`, `integrations.json` + `vault.key` (§7), `grok-home/`. Desktop: `%APPDATA%\com.pocketrocket.crew\data`. |
+| `PORT` ★ | `7788` | Hub HTTP/WS port, always bound to `127.0.0.1`. |
+| `POCKETROCKET_DATA` ★ | `<repo>/data` | Data root: `pocketrocket.db`, `bots/`, `workspace/`, `skills/`, `secrets.json`, `account.json`, `integrations.json` + `vault.key` (§7), `grok-home/`. Desktop: `%APPDATA%\com.pocketrocket.app\data`. |
 | `POCKETROCKET_WEB_DIST` ★ | `<repo>/packages/web/dist` | Where the built web UI is served from. Desktop points it at the bundled `hub/web`. |
 | `POCKETROCKET_TOKEN` ★ | auto-generated when unset, stored in `<data>/hub-token` | Bearer token required on every `/api/*` route (except `GET /api/health`), `/ws`, and `/screen/*`. When unset, the hub reuses the token in `<data>/hub-token` (0600), minting and writing one the first time or whenever that file is missing or malformed. The value is never printed: startup output names the file (or this variable) and gives the URL without the token. Reuse is what keeps an already-open UI working across a restart. Desktop generates its own per-launch token in `local` mode and reads the remote one over SSH in `remote` mode. There is no unauthenticated mode. |
 | `POCKETROCKET_ROTATE_TOKEN` | unset | `1` = mint a brand-new hub token on every start instead of reusing `<data>/hub-token`. Tighter (a leaked token dies with the process) but every restart makes an already-open UI ask you to paste the new one. |
@@ -71,20 +71,20 @@ Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`. `GET` returns only `
 
 `model`, `allowedTools` (`Read Write Edit Glob Grep Bash WebSearch WebFetch Browser Desktop`), `maxBudgetUsd` per turn (0.05–50, default 2), identity text, skills.
 
-## 5. Desktop app `config.json` (`%APPDATA%\com.pocketrocket.crew\config.json`)
+## 5. Desktop app `config.json` (`%APPDATA%\com.pocketrocket.app\config.json`)
 
 | Key | Default | Notes |
 |---|---|---|
 | `mode` | `local` | `local` (app spawns the hub) · `remote` (`ssh -N -L` tunnel) · `attach` (hub already on the port). |
 | `sshHost` | `""` | Host alias from `~/.ssh/config` for `remote`. |
-| `port` | `7790` | Hub port for all modes. |
+| `port` | `7788` | Hub port for all modes. |
 | `hubDir` | unset | Dev override: run the hub from a repo checkout with `tsx` instead of the bundled `hub/hub.mjs`. **Debug builds only** — a released app ignores the key (it would be arbitrary code execution for anything that can write this file) and logs that it did. Set `POCKETROCKET_HUB_DIR` in the environment to point a released build at a checkout. |
 
-Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the app's own directory), else the bundled Node 24 next to the exe. Logs: `%APPDATA%\com.pocketrocket.crew\hub.log` (rotated at 2 MB × 5).
+Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the app's own directory), else the bundled Node 24 next to the exe. Logs: `%APPDATA%\com.pocketrocket.app\hub.log` (rotated at 2 MB × 5).
 
 ## 6. Server mode (`deploy/`, `scripts/deploy.sh <host>`)
 
-Systemd units `pocketrocket-crew` and `pocketrocket-crew-screen` run as the unprivileged `pocketrocket-crew` user under `/home/pocketrocket-crew/pocketrocket-crew` (hub on 7790, screen on display `:98`, CDP 9223, VNC 5901, noVNC 6081, so a stock PocketRocket can run on the same VPS); env for the hub lives in the unit file (`PORT`, `POCKETROCKET_DATA`, `SCREEN_*`, `CDP_URL`). `SCREEN_W`/`SCREEN_H` in the screen unit. The hub token applies in server mode too: it is written to `<data>/hub-token` on the VPS; reach the hub only through an SSH tunnel, then paste that value or open `http://127.0.0.1:7790/#token=<token>`. The Screen tab has no separate VNC password: `x11vnc` runs `-nopw` on loopback and the hub's `/screen/` cookie auth is the gate.
+Systemd units `pocketrocket` and `pocketrocket-screen` run as the unprivileged `pocketrocket` user under `/home/pocketrocket/pocketrocket` (hub on 7788, screen on display `:98`, CDP 9223, VNC 5901, noVNC 6081, so a stock PocketRocket can run on the same VPS); env for the hub lives in the unit file (`PORT`, `POCKETROCKET_DATA`, `SCREEN_*`, `CDP_URL`). `SCREEN_W`/`SCREEN_H` in the screen unit. The hub token applies in server mode too: it is written to `<data>/hub-token` on the VPS; reach the hub only through an SSH tunnel, then paste that value or open `http://127.0.0.1:7788/#token=<token>`. The Screen tab has no separate VNC password: `x11vnc` runs `-nopw` on loopback and the hub's `/screen/` cookie auth is the gate.
 
 ## 7. Integrations (Settings → Connections; `<data>/integrations.json` + `<data>/vault.key`)
 
@@ -100,7 +100,7 @@ Connections to GitHub, Google (Gmail, Calendar, Drive), Slack, ClickUp and Micro
 
 - **Storage.** Credentials (tokens and your OAuth app's client secret) are AES-256-GCM encrypted in `integrations.json`; the 256-bit key is `vault.key` (owner-only, created on first connect). A tampered file is refused, not reset. Only the account name, scopes and status sit in the `integrations` / `bot_integrations` tables. The REST API never returns a credential.
 - **Backups.** `deploy/backup.sh` excludes `vault.key`, so an archive holds no usable token. Copy the key somewhere safe yourself, or plan to reconnect after a restore. Lose the key and you must delete `integrations.json` and reconnect.
-- **On a VPS.** The OAuth redirect lands on the hub through the SSH tunnel only if the local port equals the hub port (`ssh -L 7790:127.0.0.1:7790`). Otherwise use "Sign in with a code" (GitHub, Teams).
+- **On a VPS.** The OAuth redirect lands on the hub through the SSH tunnel only if the local port equals the hub port (`ssh -L 7788:127.0.0.1:7788`). Otherwise use "Sign in with a code" (GitHub, Teams).
 - **Disconnect** deletes the stored token; it does not revoke it at the provider (the UI links to where you do that).
 - **Outbound hosts** the hub calls once something is connected: `api.github.com`, `github.com`; `oauth2.googleapis.com`, `accounts.google.com`, `openidconnect.googleapis.com`, `gmail.googleapis.com`, `www.googleapis.com`; `slack.com`; `api.clickup.com`, `app.clickup.com`; `login.microsoftonline.com`, `graph.microsoft.com`.
 - **Routes.** `GET /api/integrations`; `PUT|DELETE /api/integrations/apps/:provider`; `POST /api/integrations/token/:provider`; `POST /api/integrations/device/:provider`; `POST /api/integrations/cancel/:provider`; `POST /api/integrations/:id/test`; `PUT /api/integrations/:id/grants`; `DELETE /api/integrations/:id`; `POST /oauth/start/:provider` (hub token, JSON); `GET /oauth/callback/:provider` (token-exempt, accepted only for a pending sign-in).

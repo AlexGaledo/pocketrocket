@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # PocketRocket "computer": a persistent XFCE desktop on a virtual display, exposed via VNC -> noVNC.
 # Display and ports come from SCREEN_DISPLAY / CDP_PORT / VNC_PORT / NOVNC_PORT (defaults below:
-# :99, 9222, 5900, 6080). The PocketRocket Crew units set :98 / 9223 / 5901 / 6081 so a stock
-# PocketRocket screen can run on the same VPS.
+# :99, 9222, 5900, 6080).
 # - Desktop folder = $DATA/workspace (what bots write shows up on the desktop)
 # - Desktop config/home persists in $DATA/desktop-home; Chromium profile in $DATA/browser-profile
 # - CDP on 127.0.0.1:9222 (Browser tool), xdotool/scrot on DISPLAY :99 (Desktop tool)
 # - noVNC on 127.0.0.1:6080, proxied by the hub at /screen/
 # deploy/computer.sh reuses this script for per-bot computers: it also sets SCREEN_HOME / SCREEN_PROFILE /
 # SCREEN_DESKTOP_DIR / SCREEN_DOWNLOAD_DIR (the defaults below keep the shared screen exactly as it was).
-# Runs as the unprivileged `pocketrocket-crew` user (see deploy/setup-vps.sh); everything above binds
+# Runs as the unprivileged `pocketrocket` user (see deploy/setup-vps.sh); everything above binds
 # 127.0.0.1 only and X requires the cookie below. VNC itself has no password: the only way in is the
 # hub's /screen/ proxy, which already demands the hub token (a /screen-scoped httpOnly cookie), and a
 # second prompt for a VNC password on every Screen tab load added nothing but friction.
@@ -17,7 +16,7 @@ set -euo pipefail
 DISP="${SCREEN_DISPLAY:-:99}"
 CDP_PORT="${CDP_PORT:-9222}"; VNC_PORT="${VNC_PORT:-5900}"; NOVNC_PORT="${NOVNC_PORT:-6080}"
 export DISPLAY="$DISP"
-DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket-crew/data}"
+DATA="${POCKETROCKET_DATA:-$HOME/pocketrocket/data}"
 PROFILE="${SCREEN_PROFILE:-$DATA/browser-profile}"
 DHOME="${SCREEN_HOME:-$DATA/desktop-home}"
 WS="$DATA/workspace"

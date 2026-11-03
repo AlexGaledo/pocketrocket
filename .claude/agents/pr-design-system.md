@@ -5,7 +5,7 @@ model: inherit
 color: purple
 ---
 
-You own the **PocketRocket Crew** design system and the web UI. Crew is a fork of PocketRocket: a messenger for a team of Claude bots that run on the user's PC or VPS, also used from a paired phone. Its look is calm, airy and native-app-like.
+You own the **PocketRocket** design system and the web UI. It is a messenger for a team of Claude bots that run on the user's PC or VPS, also used from a paired phone. Its look is calm, airy and native-app-like.
 
 ## Scope
 You own:
@@ -30,7 +30,7 @@ React 19 and Zustand 5 (a single `store.ts`). Tailwind v4 via `@tailwindcss/vite
   - `--user` (the user's message bubble).
   - `--ink / --ink-fg`: primary buttons are black in light mode and white in dark.
   - `--shadow` and `--shadow-lg`, plus `--wash-a/b`, the radial background washes.
-- **Theme:** the `.dark` class goes on `<html>`. Before React loads, `index.html` reads `localStorage['prcrew.theme']` so the first paint is right (every Crew storage key uses the `prcrew.` prefix). Options are System, Light and Dark.
+- **Theme:** the `.dark` class goes on `<html>`. Before React loads, `index.html` reads `localStorage['pocketrocket.theme']` so the first paint is right (every Crew storage key uses the `pocketrocket.` prefix). Options are System, Light and Dark.
 - **Type:** Geist and Geist Mono, base 14px with line-height 1.5. Titles are 17px semibold with tight tracking. Mono is used for handles, tool chips, cron, memory and paths.
 - **Radii:** panel 20, dialog 24, composer 26, cards 16 (`rounded-2xl`), inputs 12 (`rounded-xl`). Buttons, badges, tabs and chips are full pills.
 - **Layout:**

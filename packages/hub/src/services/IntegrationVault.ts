@@ -23,7 +23,7 @@ import { addSecret, removeSecret } from '../providers/redact.js';
  */
 export class VaultError extends Error {}
 
-const AAD = Buffer.from('pocketrocket-crew/integration-vault/v1');
+const AAD = Buffer.from('pocketrocket/integration-vault/v1');
 type Entry = Record<string, string>;
 
 export class IntegrationVault {

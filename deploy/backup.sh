@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Daily snapshot of PocketRocket Crew's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
-# Installed as /etc/cron.daily/pocketrocket-crew-backup by setup-vps.sh. Keeps the 7 newest archives.
+# Daily snapshot of PocketRocket's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
+# Installed as /etc/cron.daily/pocketrocket-backup by setup-vps.sh. Keeps the 7 newest archives.
 # Per-bot computers (data/computers/<id>/: home, browser profile, files) are included, minus their caches.
 #
 # Optional and off by default: incremental, deduplicated snapshots with restic into a repository on this VPS
-# (see docs/SERVER.md). Put RESTIC_REPOSITORY and RESTIC_PASSWORD_FILE in /etc/default/pocketrocket-crew-backup;
+# (see docs/SERVER.md). Put RESTIC_REPOSITORY and RESTIC_PASSWORD_FILE in /etc/default/pocketrocket-backup;
 # when both are set and restic is installed, a restic snapshot (7 daily kept) replaces the tarball.
 # data/vault.key is left out on purpose: it decrypts data/integrations.json (OAuth/API tokens for GitHub,
 # Google, Slack, ...), so an archive alone must hold no usable token. Back the key up separately.
@@ -12,9 +12,9 @@
 # Archives still hold data/secrets.json, so they are readable by root only.
 set -euo pipefail
 umask 077
-if [ -r /etc/default/pocketrocket-crew-backup ]; then . /etc/default/pocketrocket-crew-backup; fi
-ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket-crew/pocketrocket-crew}"
-OUT="${POCKETROCKET_BACKUPS:-/var/backups/pocketrocket-crew}"
+if [ -r /etc/default/pocketrocket-backup ]; then . /etc/default/pocketrocket-backup; fi
+ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket/pocketrocket}"
+OUT="${POCKETROCKET_BACKUPS:-/var/backups/pocketrocket}"
 # Relative to $ROOT. Caches rebuild themselves; logins, cookies and files are what matter.
 EXCLUDES=(
   'data/browser-profile/*/Cache' 'data/browser-profile/*/Code Cache'
@@ -32,8 +32,8 @@ if [ -n "${RESTIC_REPOSITORY:-}" ] && [ -n "${RESTIC_PASSWORD_FILE:-}" ] && comm
   restic cat config >/dev/null 2>&1 || restic init
   args=()
   for e in "${EXCLUDES[@]}"; do args+=(--exclude "$ROOT/$e"); done
-  restic backup --quiet --tag pocketrocket-crew "${args[@]}" "$ROOT/data"
-  restic forget --quiet --tag pocketrocket-crew --keep-daily 7 --prune
+  restic backup --quiet --tag pocketrocket "${args[@]}" "$ROOT/data"
+  restic forget --quiet --tag pocketrocket --keep-daily 7 --prune
   echo "backup: restic snapshot in $RESTIC_REPOSITORY"
   exit 0
 fi

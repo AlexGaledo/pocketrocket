@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PocketRocket Crew",
-  "mainBinaryName": "PocketRocketCrew",
+  "productName": "PocketRocket",
+  "mainBinaryName": "PocketRocket",
   "version": "0.2.0",
-  "identifier": "com.pocketrocket.crew",
+  "identifier": "com.pocketrocket.app",
   "build": {
     "frontendDist": "../ui"
   },
@@ -13,7 +13,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "PocketRocket Crew",
+        "title": "PocketRocket",
         "width": 1400,
         "height": 900,
         "minWidth": 900,
@@ -32,7 +32,7 @@
     "publisher": "Alex Galedo",
     "copyright": "Copyright (c) 2026 Alex Galedo",
     "shortDescription": "Your pocket fleet of AI agents",
-    "longDescription": "PocketRocket Crew runs a fleet of AI coding agents on your own machine: rooms, memory, skills and routines, with a hub that never leaves 127.0.0.1.",
+    "longDescription": "PocketRocket runs a fleet of AI coding agents on your own machine: rooms, memory, skills and routines, with a hub that never leaves 127.0.0.1.",
     "licenseFile": "../LICENSE.txt",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "externalBin": ["binaries/node"],

@@ -70,7 +70,7 @@ export const CLAUDE_EXE =
     : path.join(os.homedir(), '.local', 'bin', 'claude'));
 
 export const HOST = '127.0.0.1';
-export const PORT = Number(process.env.PORT ?? 7790);
+export const PORT = Number(process.env.PORT ?? 7788);
 /** Explicit token from the environment (the desktop app sets one), or null when the hub must mint its own. */
 // `|| null`, not `?? null`: an empty POCKETROCKET_TOKEN means "unset", never "no token required".
 export const HUB_TOKEN = process.env.POCKETROCKET_TOKEN || null;

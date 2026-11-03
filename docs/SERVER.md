@@ -11,7 +11,7 @@ Switch from the **Connection** menu:
 
 | Mode | What happens | State lives in |
 |---|---|---|
-| **Local: this PC** (default) | The app starts its own hub as a child process and shuts it down on quit. No network hop. | `%APPDATA%\com.pocketrocket.crew\data\` — SQLite db (WAL), bot memories, workspace, skills. `hub.log` next to it. |
+| **Local: this PC** (default) | The app starts its own hub as a child process and shuts it down on quit. No network hop. | `%APPDATA%\com.pocketrocket.app\data\` — SQLite db (WAL), bot memories, workspace, skills. `hub.log` next to it. |
 | **VPS over SSH tunnel** | Opens an SSH tunnel to the hub on your server itself, waits for it, and respawns the tunnel if it drops. Gets the virtual desktop/screen. | on the VPS |
 | **Attach** | Connects to a hub you already run (`pnpm dev` / `pnpm start`). | wherever that hub points |
 
@@ -23,25 +23,25 @@ and a changed host key is refused.
 
 ```bash
 # once, on the VPS: install Node 22.13+, pnpm, and the Claude CLI
-scripts/deploy.sh <host>            # creates the `pocketrocket-crew` user, uploads, installs, builds, (re)starts both systemd units
-ssh -L 7790:127.0.0.1:7790 <host>   # then open the token URL printed by the hub (see below)
+scripts/deploy.sh <host>            # creates the `pocketrocket` user, uploads, installs, builds, (re)starts both systemd units
+ssh -L 7788:127.0.0.1:7788 <host>   # then open the token URL printed by the hub (see below)
 ```
 
-Everything runs as an unprivileged `pocketrocket-crew` system user, not root; `deploy/setup-vps.sh`
+Everything runs as an unprivileged `pocketrocket` system user, not root; `deploy/setup-vps.sh`
 creates it the first time. Log the Claude CLI in **as that user**, since that is who runs it:
 
 ```bash
-sudo -u pocketrocket-crew -H claude
+sudo -u pocketrocket -H claude
 ```
 
-The service (`/etc/systemd/system/pocketrocket-crew.service`) binds `127.0.0.1:7790` only and requires
+The service (`/etc/systemd/system/pocketrocket.service`) binds `127.0.0.1:7788` only and requires
 the hub token like every other mode: read it with
-`sudo cat /home/pocketrocket-crew/pocketrocket-crew/data/hub-token` and open
-`http://127.0.0.1:7790/#token=<token>` through the tunnel (the hub does not print it to the journal).
-To replace it, `sudo rm` that file and `sudo systemctl restart pocketrocket-crew`: the hub mints a new
+`sudo cat /home/pocketrocket/pocketrocket/data/hub-token` and open
+`http://127.0.0.1:7788/#token=<token>` through the tunnel (the hub does not print it to the journal).
+To replace it, `sudo rm` that file and `sudo systemctl restart pocketrocket`: the hub mints a new
 one and the old value stops working. **Never expose the port directly**;
-reach it over an SSH tunnel or Tailscale. Data lives in `/home/pocketrocket-crew/pocketrocket-crew/data/` on
-the VPS. Logs: `journalctl -u pocketrocket-crew -f`.
+reach it over an SSH tunnel or Tailscale. Data lives in `/home/pocketrocket/pocketrocket/data/` on
+the VPS. Logs: `journalctl -u pocketrocket -f`.
 
 ## Screen: a persistent desktop the bots and you share
 
@@ -49,10 +49,10 @@ This is the **shared** screen, used when per-bot computers are off. With them on
 VPS), see [Per-bot computers](#per-bot-computers) below.
 
 `deploy/setup-vps.sh` (run by `scripts/deploy.sh`) installs Xvfb + XFCE + x11vnc + noVNC +
-xdotool/scrot + a pinned Playwright Chromium, and starts `pocketrocket-crew-screen.service`, also as
-`pocketrocket-crew`, not root.
+xdotool/scrot + a pinned Playwright Chromium, and starts `pocketrocket-screen.service`, also as
+`pocketrocket`, not root.
 
-What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket-crew`, 7 kept):
+What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket`, 7 kept):
 
 - `data/workspace`: the desktop folder itself (Desktop/Downloads/Documents point here)
 - `data/desktop-home`: XFCE settings, panel layout, app config, and the X auth cookie
@@ -72,9 +72,9 @@ screenshot), so bots are told to prefer shell, file and Browser tools first. Nei
 through approval cards, so only give them to bots you trust with the logged-in sessions on that
 machine.
 
-Ops: `systemctl status pocketrocket-crew-screen`, `journalctl -u pocketrocket-crew-screen -f`. Restore a
-backup: stop both services, untar into `/home/pocketrocket-crew/pocketrocket-crew`, `chown -R
-pocketrocket-crew:pocketrocket-crew` it, start them again.
+Ops: `systemctl status pocketrocket-screen`, `journalctl -u pocketrocket-screen -f`. Restore a
+backup: stop both services, untar into `/home/pocketrocket/pocketrocket`, `chown -R
+pocketrocket:pocketrocket` it, start them again.
 
 ## Per-bot computers
 
@@ -86,21 +86,21 @@ disk. The shared screen unit is turned off. The screen on the right follows the 
 (Starting, Ready, or why it did not start, with **Try again**). **Always on** and the disk badge are on the bot's
 page, under Computer.
 
-**Not isolation.** Every computer runs as the same `pocketrocket-crew` user as the hub, so a bot with
+**Not isolation.** Every computer runs as the same `pocketrocket` user as the hub, so a bot with
 shell access can read another bot's files, cookies and logins, exactly as it could read the one shared
 profile before. Separate computers keep bots from clicking on each other's screens; they are not a security
 boundary. Give Browser, Desktop and Bash only to bots you trust with every login on the server.
 
 How it runs:
 
-- A computer is the systemd **user** unit `pocketrocket-crew-computer@<slot>-<botId>.service`
+- A computer is the systemd **user** unit `pocketrocket-computer@<slot>-<botId>.service`
   (`deploy/computer.sh`, which runs `deploy/screen.sh` with per-slot values). `setup-vps.sh` installs it
-  into `~pocketrocket-crew/.config/systemd/user/` and runs `loginctl enable-linger pocketrocket-crew`, so
+  into `~pocketrocket/.config/systemd/user/` and runs `loginctl enable-linger pocketrocket`, so
   the hub starts and stops computers with `systemctl --user` and needs no root. Computers are not hub child
   processes, so restarting the hub does not close them.
 - Slot `n` (1–99) is display `:(200+n)`, CDP `127.0.0.1:(9400+n)`, VNC `127.0.0.1:(5800+n)` and noVNC
-  `127.0.0.1:(6200+n)`. Every port binds loopback only. These ranges stay clear of the shared Crew screen
-  (`:98`, 9223, 5901, 6081) and of stock PocketRocket (`:99`, 9222, 5900, 6080).
+  `127.0.0.1:(6200+n)`. Every port binds loopback only. These ranges stay clear of the shared screen
+  (`:99`, 9222, 5900, 6080).
 - The hub proxies `/screen/<botId>/*` to that bot's noVNC. A Screen tab ticket opens one bot's screen and
   nothing else.
 - A computer starts when its bot uses Browser or Desktop in a turn, and without being asked in three cases:
@@ -128,7 +128,7 @@ How it runs:
   logins carry over. It waits until the shared screen is stopped (setup-vps.sh stops it) and writes
   `data/computers/.legacy-migrated` when done.
 
-Set the knobs in a drop-in, for example `systemctl edit pocketrocket-crew`:
+Set the knobs in a drop-in, for example `systemctl edit pocketrocket`:
 
 ```ini
 [Service]
@@ -149,9 +149,9 @@ Deleting a bot stops its computer and erases `data/computers/<botId>`.
 Ops (as root):
 
 ```sh
-U=pocketrocket-crew; R="XDG_RUNTIME_DIR=/run/user/$(id -u $U)"
-sudo -u $U env $R systemctl --user list-units 'pocketrocket-crew-computer@*'
-sudo -u $U env $R journalctl --user -u 'pocketrocket-crew-computer@*' -f
+U=pocketrocket; R="XDG_RUNTIME_DIR=/run/user/$(id -u $U)"
+sudo -u $U env $R systemctl --user list-units 'pocketrocket-computer@*'
+sudo -u $U env $R journalctl --user -u 'pocketrocket-computer@*' -f
 ss -ltnp | grep -E ':(94|58|62)[0-9]{2} '    # every computer port must show 127.0.0.1
 ```
 
@@ -174,12 +174,12 @@ Add swap on small VPSes; Chromium is the part that grows with heavy sites.
 
 The daily tarball includes every computer but skips browser and desktop caches (`deploy/backup.sh`), so its
 size grows with logins and the files bots keep, bounded by the per-bot quota. For incremental, deduplicated
-backups that stay on the VPS, install restic and create `/etc/default/pocketrocket-crew-backup`
+backups that stay on the VPS, install restic and create `/etc/default/pocketrocket-backup`
 (root-only, mode 600):
 
 ```sh
-RESTIC_REPOSITORY=/var/backups/pocketrocket-crew-restic
-RESTIC_PASSWORD_FILE=/root/.pocketrocket-crew-restic-pass
+RESTIC_REPOSITORY=/var/backups/pocketrocket-restic
+RESTIC_PASSWORD_FILE=/root/.pocketrocket-restic-pass
 ```
 
 With both set, the daily job takes a restic snapshot instead of a tarball and keeps 7 daily snapshots. It is
@@ -187,7 +187,7 @@ off until you create that file. Offsite copies are up to you.
 
 ## Phone access over Tailscale Serve
 
-The hub still binds `127.0.0.1` only. To use PocketRocket Crew from a phone, put
+The hub still binds `127.0.0.1` only. To use PocketRocket from a phone, put
 [Tailscale Serve](https://tailscale.com/kb/1312/serve) in front of it: Serve terminates HTTPS for your
 machine's tailnet name and forwards to the loopback port, so only devices **signed in to your own tailnet**
 can reach it.
@@ -212,7 +212,7 @@ tailscale status --json | grep -m1 DNSName     # "DNSName": "myhub.tail1234.ts.n
 On the machine the hub runs on (the VPS, or your PC in local mode):
 
 ```sh
-sudo tailscale serve --bg http://127.0.0.1:7790   # https://myhub.tail1234.ts.net/ -> the hub
+sudo tailscale serve --bg http://127.0.0.1:7788   # https://myhub.tail1234.ts.net/ -> the hub
 tailscale serve status                            # check: one https:// entry, "tailnet only"
 ```
 
@@ -226,7 +226,7 @@ The hub refuses any `Host` that is not loopback, which is what stops DNS rebindi
 let it through:
 
 ```sh
-sudo systemctl edit pocketrocket-crew
+sudo systemctl edit pocketrocket
 ```
 
 ```ini
@@ -235,7 +235,7 @@ Environment=POCKETROCKET_ALLOWED_HOSTS=myhub.tail1234.ts.net
 ```
 
 ```sh
-sudo systemctl restart pocketrocket-crew
+sudo systemctl restart pocketrocket
 ```
 
 In local mode on your PC, set `POCKETROCKET_ALLOWED_HOSTS` as a user environment variable and restart the
@@ -282,6 +282,6 @@ A phone can also unpair itself. Lost the phone? Revoke it; the hub token was nev
 ### Without Tailscale
 
 The fallback that bends nothing: an SSH client app on the phone with local port forwarding
-(`-L 7790:127.0.0.1:7790`), then open `http://127.0.0.1:7790` on the phone. It works, but the phone browser
+(`-L 7788:127.0.0.1:7788`), then open `http://127.0.0.1:7788` on the phone. It works, but the phone browser
 sees plain `http://`, so the app cannot be installed and push is unavailable. Pair it the same way, typing
-`http://127.0.0.1:7790` as the phone's URL in Settings › Devices.
+`http://127.0.0.1:7788` as the phone's URL in Settings › Devices.

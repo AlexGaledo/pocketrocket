@@ -87,7 +87,7 @@ describe('openWorkspace', () => {
   });
 });
 
-// P1: on a hub with per-bot computers the shared screen (:98) is stopped, so the folder must open on a bot's
+// P1: on a hub with per-bot computers the shared screen (:99) is stopped, so the folder must open on a bot's
 // own running computer, and otherwise the user is told what to do instead of a window going nowhere.
 describe('openWorkspace with per-bot computers', () => {
   const ep = { display: ':201', xauthority: '/data/computers/b1/home/.Xauthority', home: '/data/computers/b1/home' };

@@ -65,7 +65,7 @@ describe('slots', () => {
     expect(() => slotPorts(MAX_SLOT + 1)).toThrow();
   });
 
-  it('never collides with the legacy Crew screen, stock PocketRocket, X11 TCP or the spec-sketch ranges', () => {
+  it('never collides with the shared screen, the retired Crew fork, X11 TCP or the spec-sketch ranges', () => {
     const reserved = new Set([98, 99, 9222, 9223, 5900, 5901, 6080, 6081]);
     const seen = new Set<number>();
     for (let n = 1; n <= MAX_SLOT; n++) {
@@ -86,7 +86,7 @@ describe('slots', () => {
   });
 
   it('builds unit names only from safe ids', () => {
-    expect(unitName(3, 'Ab_c-1')).toBe('pocketrocket-crew-computer@3-Ab_c-1.service');
+    expect(unitName(3, 'Ab_c-1')).toBe('pocketrocket-computer@3-Ab_c-1.service');
     for (const bad of ['a b', 'a;rm', '../x', '', 'a.service']) expect(() => unitName(1, bad), bad).toThrow();
   });
 });

@@ -44,10 +44,10 @@ describe('browser OAuth (state + PKCE + loopback)', () => {
   it('builds an authorize URL with state, an S256 challenge and a loopback redirect', () => {
     const { svc } = setup();
     svc.setApp('github', { clientId: 'Iv1.client', clientSecret: 'shh-secret' });
-    const { url, redirectUri } = svc.startBrowser('github', '127.0.0.1:7790');
+    const { url, redirectUri } = svc.startBrowser('github', '127.0.0.1:7788');
     const u = new URL(url);
     expect(u.origin + u.pathname).toBe('https://github.com/login/oauth/authorize');
-    expect(redirectUri).toBe('http://127.0.0.1:7790/oauth/callback/github');
+    expect(redirectUri).toBe('http://127.0.0.1:7788/oauth/callback/github');
     expect(u.searchParams.get('redirect_uri')).toBe(redirectUri);
     expect(u.searchParams.get('code_challenge_method')).toBe('S256');
     expect(u.searchParams.get('state')!.length).toBeGreaterThanOrEqual(43);
@@ -59,15 +59,15 @@ describe('browser OAuth (state + PKCE + loopback)', () => {
   it('teams uses localhost (port ignored by Microsoft) and the tenant', () => {
     const { svc } = setup();
     svc.setApp('teams', { clientId: 'aad-client-id', tenant: 'contoso.onmicrosoft.com' });
-    const { url, redirectUri } = svc.startBrowser('teams', '127.0.0.1:7790');
-    expect(redirectUri).toBe('http://localhost:7790/oauth/callback/teams');
+    const { url, redirectUri } = svc.startBrowser('teams', '127.0.0.1:7788');
+    expect(redirectUri).toBe('http://localhost:7788/oauth/callback/teams');
     expect(url).toContain('https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/authorize');
   });
 
   it('completes: exchanges the code with the matching verifier and stores the connection', async () => {
     const { svc, f } = setup();
     svc.setApp('github', { clientId: 'Iv1.client', clientSecret: 'shh-secret' });
-    const { url } = svc.startBrowser('github', '127.0.0.1:7790');
+    const { url } = svc.startBrowser('github', '127.0.0.1:7788');
     const u = new URL(url);
     githubWithPkce(f, () => u.searchParams.get('code_challenge')!);
     const r = await svc.completeBrowser('github', new URLSearchParams({ code: 'good-code', state: u.searchParams.get('state')! }));
@@ -92,7 +92,7 @@ describe('browser OAuth (state + PKCE + loopback)', () => {
   it('rejects a state mismatch, and the real state is still single-use afterwards', async () => {
     const { svc, f } = setup();
     svc.setApp('github', { clientId: 'Iv1.client', clientSecret: 'shh-secret' });
-    const { url } = svc.startBrowser('github', '127.0.0.1:7790');
+    const { url } = svc.startBrowser('github', '127.0.0.1:7788');
     const state = new URL(url).searchParams.get('state')!;
     expect(await svc.completeBrowser('github', new URLSearchParams({ code: 'good-code', state: state + 'x' }))).toMatchObject({ ok: false, unsolicited: true });
     expect(f.calls).toHaveLength(0);
@@ -108,7 +108,7 @@ describe('browser OAuth (state + PKCE + loopback)', () => {
     const { svc, f } = setup();
     svc.setApp('github', { clientId: 'Iv1.client', clientSecret: 'shh-secret' });
     svc.setApp('google', { clientId: 'g.apps.googleusercontent.com', clientSecret: 'gsecret' });
-    const state = new URL(svc.startBrowser('github', '127.0.0.1:7790').url).searchParams.get('state')!;
+    const state = new URL(svc.startBrowser('github', '127.0.0.1:7788').url).searchParams.get('state')!;
     expect(await svc.completeBrowser('google', new URLSearchParams({ code: 'good-code', state }))).toMatchObject({ ok: false });
     expect(f.calls).toHaveLength(0);
   });
@@ -116,7 +116,7 @@ describe('browser OAuth (state + PKCE + loopback)', () => {
   it('rejects when the PKCE verifier does not match the challenge (no connection is made)', async () => {
     const { svc, f } = setup();
     svc.setApp('github', { clientId: 'Iv1.client', clientSecret: 'shh-secret' });
-    const state = new URL(svc.startBrowser('github', '127.0.0.1:7790').url).searchParams.get('state')!;
+    const state = new URL(svc.startBrowser('github', '127.0.0.1:7788').url).searchParams.get('state')!;
     githubWithPkce(f, () => pkceChallenge('a-verifier-some-other-flow-made'));
     const r = await svc.completeBrowser('github', new URLSearchParams({ code: 'good-code', state }));
     expect(r).toMatchObject({ ok: false });
@@ -127,7 +127,7 @@ describe('browser OAuth (state + PKCE + loopback)', () => {
   it('rejects an expired start', async () => {
     const { svc, f } = setup();
     svc.setApp('github', { clientId: 'Iv1.client', clientSecret: 'shh-secret' });
-    const state = new URL(svc.startBrowser('github', '127.0.0.1:7790').url).searchParams.get('state')!;
+    const state = new URL(svc.startBrowser('github', '127.0.0.1:7788').url).searchParams.get('state')!;
     now += PENDING_TTL_MS + 1;
     expect(await svc.completeBrowser('github', new URLSearchParams({ code: 'good-code', state }))).toMatchObject({ ok: false });
     expect(f.calls).toHaveLength(0);
@@ -135,10 +135,10 @@ describe('browser OAuth (state + PKCE + loopback)', () => {
 
   it('refuses to start without a saved app, and GitHub browser flow without a secret', () => {
     const { svc } = setup();
-    expect(() => svc.startBrowser('google', '127.0.0.1:7790')).toThrow(/OAuth app/);
+    expect(() => svc.startBrowser('google', '127.0.0.1:7788')).toThrow(/OAuth app/);
     svc.setApp('github', { clientId: 'Iv1.client' });
-    expect(() => svc.startBrowser('github', '127.0.0.1:7790')).toThrow(/client secret/);
-    expect(() => svc.startBrowser('slack', '127.0.0.1:7790')).toThrow(/paste a token/);
+    expect(() => svc.startBrowser('github', '127.0.0.1:7788')).toThrow(/client secret/);
+    expect(() => svc.startBrowser('slack', '127.0.0.1:7788')).toThrow(/paste a token/);
   });
 
   it('keeps the stored secret when the app is re-saved without one, and never reports it', () => {
@@ -180,7 +180,7 @@ describe('device flow', () => {
 describe('token refresh', () => {
   async function connectGoogle(s: ReturnType<typeof setup>) {
     s.svc.setApp('google', { clientId: 'g.apps.googleusercontent.com', clientSecret: 'gsecret' });
-    const u = new URL(s.svc.startBrowser('google', '127.0.0.1:7790').url);
+    const u = new URL(s.svc.startBrowser('google', '127.0.0.1:7788').url);
     expect(u.searchParams.get('access_type')).toBe('offline');
     s.f.on('POST', 'https://oauth2.googleapis.com/token', (c) => {
       const form = new URLSearchParams(c.body);

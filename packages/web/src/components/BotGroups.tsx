@@ -12,8 +12,8 @@ import { cn } from './ui';
  * that is the truth about the fleet, and hiding it would make a room look emptier than it is.
  */
 
-const ORDER_KEY = 'prcrew.botGroupOrder';
-const COLLAPSED_KEY = 'prcrew.botGroupCollapsed';
+const ORDER_KEY = 'pocketrocket.botGroupOrder';
+const COLLAPSED_KEY = 'pocketrocket.botGroupCollapsed';
 
 /** Browser storage is a convenience here, never a source of truth: a private window or a wiped profile
  *  must degrade to "everything expanded, natural order" rather than throwing. */

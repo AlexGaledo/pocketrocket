@@ -1,10 +1,10 @@
-//! PocketRocket Crew desktop.
+//! PocketRocket desktop.
 //! Modes:
 //!   local  – the app runs its own hub as a child process; every bit of state (SQLite, memories,
 //!            workspace, skills) lives in the app's data dir. No network hop, lowest latency.
 //!   remote – ssh -L tunnel to a hub on a VPS (screen/desktop features live there).
 //!   attach – connect to a hub something else already started on 127.0.0.1:<port>.
-//! Config: <app config dir>/config.json (Windows: %APPDATA%\com.pocketrocket.crew\config.json).
+//! Config: <app config dir>/config.json (Windows: %APPDATA%\com.pocketrocket.app\config.json).
 //!
 //! In local mode the hub runs from `resources/hub/hub.mjs` (built by `pnpm hub:bundle`), on the
 //! system Node when it is >= 22.13 and otherwise on the Node 24 sidecar installed as `node.exe`
@@ -47,7 +47,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { mode: "local".into(), ssh_host: "".into(), port: 7790, hub_dir: None, close_to_tray: None }
+        Self { mode: "local".into(), ssh_host: "".into(), port: 7788, hub_dir: None, close_to_tray: None }
     }
 }
 
@@ -231,7 +231,7 @@ fn spawn_tunnel(cfg: &Config, tail: &Tail) -> Result<Child, String> {
 /// Tries the paths a deploy can leave behind, newest layout first. Killed after 8 s: ConnectTimeout
 /// bounds only the TCP connect, not a login or remote command that hangs.
 fn fetch_remote_token(cfg: &Config, cancel: &dyn Fn() -> bool) -> Option<String> {
-    let script = "for d in /home/pocketrocket-crew/pocketrocket-crew; do if [ -r \"$d/data/hub-token\" ]; then cat \"$d/data/hub-token\"; exit 0; fi; done; exit 1";
+    let script = "for d in /home/pocketrocket/pocketrocket; do if [ -r \"$d/data/hub-token\" ]; then cat \"$d/data/hub-token\"; exit 0; fi; done; exit 1";
     ssh::validate_host(&cfg.ssh_host).ok()?;
     let mut cmd = Command::new(ssh::ssh_exe());
     cmd.args([
@@ -400,8 +400,8 @@ fn bundled_hub_command(app: &AppHandle, hub: &std::path::Path) -> Result<(Comman
         _ => {
             let side = sidecar_node(app).ok_or_else(|| {
                 format!(
-                    "no usable JavaScript runtime. PocketRocket Crew ships its own Node but {NODE_BIN} was not found next to the app; \
-                     reinstall PocketRocket Crew, or install Node {}.{}+ and put it on PATH.",
+                    "no usable JavaScript runtime. PocketRocket ships its own Node but {NODE_BIN} was not found next to the app; \
+                     reinstall PocketRocket, or install Node {}.{}+ and put it on PATH.",
                     MIN_NODE.0, MIN_NODE.1
                 )
             })?;
@@ -460,7 +460,7 @@ fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, Strin
         let (cmd, hub) = dev_hub_command(std::path::Path::new(REPO_ROOT))?;
         (cmd, "dev (tsx)".to_string(), Some(hub), None)
     } else {
-        return Err("the bundled hub is missing from this installation (resources/hub/hub.mjs). Reinstall PocketRocket Crew.".into());
+        return Err("the bundled hub is missing from this installation (resources/hub/hub.mjs). Reinstall PocketRocket.".into());
     };
 
     let dir = config_dir(app);
@@ -532,7 +532,7 @@ fn stays_in_webview(url: &Url) -> bool {
     splash || hub
 }
 
-const RELEASES_URL: &str = "https://github.com/AlexGaledo/pocketrocket-crew/releases";
+const RELEASES_URL: &str = "https://github.com/AlexGaledo/pocketrocket/releases";
 
 /// Windows canonicalize() yields \\?\C:\... which some tools dislike; strip the prefix.
 fn strip_verbatim(p: &std::path::Path) -> String {
@@ -569,10 +569,10 @@ fn show_splash(app: &AppHandle) {
 
 fn window_title(cfg: &Config) -> String {
     match cfg.mode.as_str() {
-        "local" => "PocketRocket Crew · this PC".to_string(),
-        "remote" if !cfg.ssh_host.trim().is_empty() => format!("PocketRocket Crew · {}", cfg.ssh_host.trim()),
-        "attach" => "PocketRocket Crew · attached".to_string(),
-        _ => "PocketRocket Crew".to_string(),
+        "local" => "PocketRocket · this PC".to_string(),
+        "remote" if !cfg.ssh_host.trim().is_empty() => format!("PocketRocket · {}", cfg.ssh_host.trim()),
+        "attach" => "PocketRocket · attached".to_string(),
+        _ => "PocketRocket".to_string(),
     }
 }
 
@@ -670,7 +670,7 @@ fn run_connection(app: AppHandle, state: AppState, cfg: Config, gen: u64, old: O
                 port_has_hub = hub_responding(cfg.port, Duration::from_millis(1500));
                 error = Some(if port_has_hub {
                     format!(
-                        "Port {} is already used by another PocketRocket Crew hub (one started with pnpm start, or a VPS tunnel). \
+                        "Port {} is already used by another PocketRocket hub (one started with pnpm start, or a VPS tunnel). \
                          Attach to it, or pick another port.",
                         cfg.port
                     )
@@ -760,7 +760,7 @@ fn run_connection(app: AppHandle, state: AppState, cfg: Config, gen: u64, old: O
                 return;
             }
             inner.status.error = Some(match cfg.mode.as_str() {
-                "remote" => format!("No answer from the hub through the tunnel after 60s. On the server: systemctl status pocketrocket-crew. From a terminal: ssh {}", cfg.ssh_host),
+                "remote" => format!("No answer from the hub through the tunnel after 60s. On the server: systemctl status pocketrocket. From a terminal: ssh {}", cfg.ssh_host),
                 "local" => "The hub did not come up within 60s. View → Open hub log shows why.".to_string(),
                 _ => format!("No hub on 127.0.0.1:{}. Start one with `pnpm start` and retry.", cfg.port),
             });
@@ -865,7 +865,7 @@ fn monitor(app: AppHandle, state: AppState, cfg: Config, gen: u64, mut tail: Tai
         if strikes >= HEALTH_STRIKES {
             let msg = match cfg.mode.as_str() {
                 "local" => "The hub on this PC stopped answering. View → Open hub log shows why; Restart hub starts it again.".to_string(),
-                "remote" => format!("Lost contact with the hub on {host}. If the server is up, check it with: ssh {host} systemctl status pocketrocket-crew"),
+                "remote" => format!("Lost contact with the hub on {host}. If the server is up, check it with: ssh {host} systemctl status pocketrocket"),
                 _ => format!("The hub on 127.0.0.1:{} stopped answering.", cfg.port),
             };
             return lose(&app, &state, gen, msg, None);
@@ -998,7 +998,7 @@ fn open_data_folder(app: &AppHandle) {
 #[tauri::command]
 async fn open_log(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     if state.0.lock().unwrap().config.mode == "remote" {
-        return Err("In server mode the hub log is on the server: ssh <host> journalctl -u pocketrocket-crew".into());
+        return Err("In server mode the hub log is on the server: ssh <host> journalctl -u pocketrocket".into());
     }
     open_log_file(&app);
     Ok(())
@@ -1065,7 +1065,7 @@ pub fn run() {
 
     tauri::Builder::default()
         // First, so a second launch hands over before building anything: it focuses this window instead
-        // of starting another hub that would fight over port 7790.
+        // of starting another hub that would fight over port 7788.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Also brings the window back when it is hidden in the tray.
             show_main_window(app);
@@ -1132,7 +1132,7 @@ pub fn run() {
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;
             let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
             let m_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
-            let m_about = MenuItem::with_id(app, "about", "About PocketRocket Crew", true, None::<&str>)?;
+            let m_about = MenuItem::with_id(app, "about", "About PocketRocket", true, None::<&str>)?;
             let conn = Submenu::with_items(app, "Connection", true, &[&m_settings])?;
             // Our own Quit rather than the predefined one: it must set `quitting` (see quit_app), and the
             // predefined item does nothing on Linux.
@@ -1147,14 +1147,14 @@ pub fn run() {
             // behaviour and Quit. Linux tray menus need libayatana-appindicator3 (a deb dependency), and
             // there a click always opens the menu, which is why Show is in it.
             let keep = close_to_tray(&state.0.lock().unwrap().config);
-            let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket Crew", true, None::<&str>)?;
+            let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket", true, None::<&str>)?;
             let t_keep = CheckMenuItem::with_id(app, "tray_keep", "Keep running when window closes", true, keep, None::<&str>)?;
             let t_quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&t_show, &PredefinedMenuItem::separator(app)?, &t_keep, &PredefinedMenuItem::separator(app)?, &t_quit])?;
             app.manage(TrayCheck(t_keep.clone()));
             let tray_state = state.clone();
             let mut tray = TrayIconBuilder::with_id("main")
-                .tooltip("PocketRocket Crew")
+                .tooltip("PocketRocket")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -1213,7 +1213,7 @@ pub fn run() {
                         (inner.status.runtime.clone(), inner.status.data_dir.clone(), inner.status.log_path.clone())
                     };
                     let body = format!(
-                        "PocketRocket Crew {}\\n\\nRuntime: {}\\nData folder: {}\\nHub log: {}\\n\\n{}",
+                        "PocketRocket {}\\n\\nRuntime: {}\\nData folder: {}\\nHub log: {}\\n\\n{}",
                         env!("CARGO_PKG_VERSION"),
                         if runtime.is_empty() { "not started".into() } else { runtime },
                         data.replace('\\', "\\\\"),
@@ -1247,7 +1247,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building PocketRocket Crew")
+        .expect("error while building PocketRocket")
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 if let Some(st) = app.try_state::<AppState>() {
@@ -1269,15 +1269,15 @@ mod tests {
 
     #[test]
     fn only_splash_and_hub_stay_in_the_webview() {
-        HUB_PORT.store(7790, Ordering::Relaxed);
+        HUB_PORT.store(7788, Ordering::Relaxed);
         assert!(stays_in_webview(&u("http://tauri.localhost/index.html")));
         assert!(stays_in_webview(&u("tauri://localhost/index.html")));
-        assert!(stays_in_webview(&u("http://127.0.0.1:7790/?desktop=1#token=abc")));
-        assert!(stays_in_webview(&u("http://localhost:7790/settings")));
+        assert!(stays_in_webview(&u("http://127.0.0.1:7788/?desktop=1#token=abc")));
+        assert!(stays_in_webview(&u("http://localhost:7788/settings")));
 
         assert!(!stays_in_webview(&u("http://127.0.0.1:3000/")));
-        assert!(!stays_in_webview(&u("https://127.0.0.1:7790/")));
-        assert!(!stays_in_webview(&u("http://127.0.0.1.evil.com:7790/")));
+        assert!(!stays_in_webview(&u("https://127.0.0.1:7788/")));
+        assert!(!stays_in_webview(&u("http://127.0.0.1.evil.com:7788/")));
         assert!(!stays_in_webview(&u("https://github.com/AlexGaledo/pocketrocket")));
         assert!(!stays_in_webview(&u("https://accounts.google.com/o/oauth2/auth?a=1&b=2")));
         assert!(!stays_in_webview(&u("file:///C:/Windows/win.ini")));
@@ -1286,18 +1286,18 @@ mod tests {
 
     #[test]
     fn hub_url_always_says_desktop() {
-        assert_eq!(hub_url(7790, ""), "http://127.0.0.1:7790/?desktop=1");
-        assert_eq!(hub_url(7790, "abc"), "http://127.0.0.1:7790/?desktop=1#token=abc");
+        assert_eq!(hub_url(7788, ""), "http://127.0.0.1:7788/?desktop=1");
+        assert_eq!(hub_url(7788, "abc"), "http://127.0.0.1:7788/?desktop=1#token=abc");
     }
 
     #[test]
     fn titles_never_end_in_a_dangling_separator() {
         let mut c = Config { mode: "remote".into(), ..Default::default() };
-        assert_eq!(window_title(&c), "PocketRocket Crew");
+        assert_eq!(window_title(&c), "PocketRocket");
         c.ssh_host = "vps".into();
-        assert_eq!(window_title(&c), "PocketRocket Crew · vps");
+        assert_eq!(window_title(&c), "PocketRocket · vps");
         c.mode = "local".into();
-        assert_eq!(window_title(&c), "PocketRocket Crew · this PC");
+        assert_eq!(window_title(&c), "PocketRocket · this PC");
     }
 
     #[test]
@@ -1342,7 +1342,7 @@ mod tests {
 
     #[test]
     fn only_web_and_mail_links_reach_the_os() {
-        assert!(may_open_externally(&u("https://github.com/AlexGaledo/pocketrocket-crew/releases")));
+        assert!(may_open_externally(&u("https://github.com/AlexGaledo/pocketrocket/releases")));
         assert!(may_open_externally(&u("http://example.com/")));
         assert!(may_open_externally(&u("mailto:someone@example.com")));
 
@@ -1361,7 +1361,7 @@ mod tests {
         assert!(!close_to_tray(&Config { close_to_tray: Some(false), ..Default::default() }));
         assert!(close_to_tray(&Config { mode: "remote".into(), close_to_tray: Some(true), ..Default::default() }));
         // An older config.json without the field still loads.
-        let old: Config = serde_json::from_str(r#"{"mode":"local","sshHost":"","port":7790}"#).unwrap();
+        let old: Config = serde_json::from_str(r#"{"mode":"local","sshHost":"","port":7788}"#).unwrap();
         assert_eq!(old.close_to_tray, None);
     }
 }

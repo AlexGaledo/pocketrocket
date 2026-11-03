@@ -20,7 +20,7 @@ export function resolveDark(mode: ThemeMode): boolean {
 export function applyTheme(mode: ThemeMode) {
   document.documentElement.classList.toggle('dark', resolveDark(mode));
   try {
-    localStorage.setItem('prcrew.theme', mode);
+    localStorage.setItem('pocketrocket.theme', mode);
   } catch {
     /* ignore */
   }
@@ -30,7 +30,7 @@ export function applyTheme(mode: ThemeMode) {
 export function applyFont(font: Settings['font']) {
   document.documentElement.dataset.font = font;
   try {
-    localStorage.setItem('prcrew.font', font);
+    localStorage.setItem('pocketrocket.font', font);
   } catch {
     /* ignore */
   }

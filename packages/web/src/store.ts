@@ -208,7 +208,7 @@ export const useStore = create<State>((set, get) => ({
   bots: [],
   rooms: [],
   botStates: {},
-  activeRoomId: localStorage.getItem('prcrew.activeRoom'),
+  activeRoomId: localStorage.getItem('pocketrocket.activeRoom'),
   messages: {},
   openApprovals: [],
   computers: {},
@@ -221,7 +221,7 @@ export const useStore = create<State>((set, get) => ({
   triggersRev: 0,
   memory: {},
   panelOpen: false,
-  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('prcrew.sidebar') !== '0',
+  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('pocketrocket.sidebar') !== '0',
   paneW: readPaneWidths(window.innerWidth),
   panelExpanded: false,
   panelBotId: null,
@@ -425,7 +425,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setActiveRoom: (id) => {
-    if (id) localStorage.setItem('prcrew.activeRoom', id);
+    if (id) localStorage.setItem('pocketrocket.activeRoom', id);
     const unread = { ...get().unread };
     if (id) delete unread[id];
     // Moving to another chat leaves a page. The same chat again (a reconnect's hello) must not.
@@ -496,7 +496,7 @@ export const useStore = create<State>((set, get) => ({
   closePage: () => set({ page: null }),
   toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
   setSidebarOpen: (open) => {
-    if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('prcrew.sidebar', open ? '1' : '0');
+    if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
     set({ sidebarOpen: open });
   },
   setPaneW: (pane, width) => {

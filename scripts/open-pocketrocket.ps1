@@ -4,8 +4,8 @@
 # -NoBrowser checks everything except opening the page, without printing the token.
 param(
   [string]$HostAlias = 'crm-agency',
-  [int]$Port = 7790,
-  [string]$InstallDir = '/home/pocketrocket-crew/pocketrocket-crew',
+  [int]$Port = 7788,
+  [string]$InstallDir = '/home/pocketrocket/pocketrocket',
   [switch]$NoBrowser
 )
 $ErrorActionPreference = 'Stop'

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**PocketRocket Crew** is a fork of PocketRocket 0.2.0 (upstream: `AlexGaledo/pocketrocket`). Entries
+**PocketRocket** is a fork of PocketRocket 0.2.0 (upstream: `AlexGaledo/pocketrocket`). Entries
 below are fork changes, grouped by feature area; the per-phase notes live in `docs/changes/pN.md`.
 Upstream changes after 0.2.0 that the fork already includes: the desktop app stops offering the other
 connection modes once one is set up.
@@ -76,11 +76,6 @@ connection modes once one is set up.
   unless there is a problem.
 - A server install starts with two bots, each created once: PocketRocket Support reads the app source without
   approval cards (not `data/`), and Data Engineer keeps the shared workspace organized and indexed.
-- The app is named PocketRocket Crew and installs side by side with PocketRocket: its own app id
-  (`com.pocketrocket.crew`, so its own `%APPDATA%` folder and single-instance lock), default hub port
-  **7790**, browser storage keys `prcrew.*`, and on a server its own `pocketrocket-crew` user,
-  `/home/pocketrocket-crew/pocketrocket-crew` install, `pocketrocket-crew*.service` units and screen
-  (display `:98`, CDP 9223, VNC 5901, noVNC 6081). Releases come from `AlexGaledo/pocketrocket-crew`.
 - Room members can be set up to 10 bots over REST (was 6), matching what bots can do.
 
 - Bots wear a line icon on a soft tint instead of an emoji. Each bot gets one from its ID, and you can pick another in
@@ -178,7 +173,7 @@ connection modes once one is set up.
 
 ### Server
 
-- Per-bot computers run as a systemd user unit (`pocketrocket-crew-computer@.service`); slot `n` uses
+- Per-bot computers run as a systemd user unit (`pocketrocket-computer@.service`); slot `n` uses
   display `:200+n`, CDP `9400+n`, VNC `5800+n` and noVNC `6200+n`, all on 127.0.0.1.
   `POCKETROCKET_COMPUTERS=0 bash deploy/setup-vps.sh` keeps the one shared screen.
 - Optional **restic** backups (`RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE`). Backups skip browser caches

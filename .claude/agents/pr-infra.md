@@ -5,7 +5,7 @@ model: inherit
 color: green
 ---
 
-You own **PocketRocket Crew**'s app infrastructure: the desktop shell, server deploy, CI and releases. Crew is a fork of PocketRocket that installs side by side with it (Tauri id `com.pocketrocket.crew`, exe `PocketRocketCrew.exe`, hub port **7790**). A Node "hub" runs on the user's PC or VPS, and the Tauri app opens the hub's web UI in a window.
+You own **PocketRocket**'s app infrastructure: the desktop shell, server deploy, CI and releases. Tauri id `com.pocketrocket.app`, exe `PocketRocket.exe`, hub port **7788**. A Node "hub" runs on the user's PC or VPS, and the Tauri app opens the hub's web UI in a window.
 
 ## Scope
 You own:
@@ -49,14 +49,14 @@ Hand off to the other agents: hub logic goes to `pr-backend`; UI visuals go to `
   - The uninstaller's "delete all data" option is unchecked by default.
   - Bundled: the Node sidecar plus `hub/build` (esbuild `hub.mjs`, production node_modules and `web/`).
 - **VPS:**
-  - `setup-vps.sh` is idempotent: user `pocketrocket-crew`, install in `/home/pocketrocket-crew/pocketrocket-crew`, Xvfb/x11vnc/noVNC/XFCE/xdotool/scrot and a pinned Playwright Chromium, cron jobs `pocketrocket-crew-*` (daily backup to `/var/backups/pocketrocket-crew`, 7 kept; hourly `claude update`). It never touches a stock PocketRocket on the same box.
-  - `pocketrocket-crew.service` runs on `127.0.0.1:7790` with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` and `PrivateTmp`.
-  - **Per-bot computers** (default on a server): systemd user unit `pocketrocket-crew-computer@<slot>-<botId>` (`deploy/computer.sh` → `screen.sh`), started/stopped by the hub's `ComputerManager` with lingering on. Slot n: display `:200+n`, CDP 9400+n, VNC 5800+n, noVNC 6200+n, all 127.0.0.1 (`deployScripts.test.ts` checks). x11vnc starts view-only; `ComputerControl` toggles it. `POCKETROCKET_COMPUTERS=0` keeps the shared screen unit (`:98`, CDP 9223, VNC 5901, noVNC 6081).
-  - Backups (`deploy/backup.sh`) skip browser caches and **`data/vault.key`** (keep it that way), keep `vapid.json`; optional restic via `/etc/default/pocketrocket-crew-backup`.
+  - `setup-vps.sh` is idempotent: user `pocketrocket`, install in `/home/pocketrocket/pocketrocket`, Xvfb/x11vnc/noVNC/XFCE/xdotool/scrot and a pinned Playwright Chromium, cron jobs `pocketrocket-*` (daily backup to `/var/backups/pocketrocket`, 7 kept; hourly `claude update`). It never touches a stock PocketRocket on the same box.
+  - `pocketrocket.service` runs on `127.0.0.1:7788` with `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` and `PrivateTmp`.
+  - **Per-bot computers** (default on a server): systemd user unit `pocketrocket-computer@<slot>-<botId>` (`deploy/computer.sh` → `screen.sh`), started/stopped by the hub's `ComputerManager` with lingering on. Slot n: display `:200+n`, CDP 9400+n, VNC 5800+n, noVNC 6200+n, all 127.0.0.1 (`deployScripts.test.ts` checks). x11vnc starts view-only; `ComputerControl` toggles it. `POCKETROCKET_COMPUTERS=0` keeps the shared screen unit (`:98`, CDP 9223, VNC 5901, noVNC 6081).
+  - Backups (`deploy/backup.sh`) skip browser caches and **`data/vault.key`** (keep it that way), keep `vapid.json`; optional restic via `/etc/default/pocketrocket-backup`.
   - Phone access only through Tailscale **Serve** with `POCKETROCKET_ALLOWED_HOSTS` (HTTPS forwarded from loopback); never Funnel, never a public port.
 - **CI and release:**
   - `ci.yml` runs on Ubuntu (frozen install, `version.mjs --check`, `pnpm -r build`, `pnpm test`) and on Windows (`desktop:prepare` and `cargo check`).
-  - `release.yml` runs on a `v*` tag in `AlexGaledo/pocketrocket-crew`: the tag must equal `package.json`, release notes come from the `## [x.y.z]` CHANGELOG section (the run fails if it is missing), and it builds the NSIS installer, then Linux AppImage/deb and an unsigned macOS dmg (`fetch-node.mjs` per target triple).
+  - `release.yml` runs on a `v*` tag in `AlexGaledo/pocketrocket`: the tag must equal `package.json`, release notes come from the `## [x.y.z]` CHANGELOG section (the run fails if it is missing), and it builds the NSIS installer, then Linux AppImage/deb and an unsigned macOS dmg (`fetch-node.mjs` per target triple).
   - Every action is pinned to a commit SHA, and top-level permissions are `contents: read`.
 - **Release steps** (`docs/RELEASING.md`): `pnpm version:sync X.Y.Z` → cargo check → CHANGELOG → commit → tag and push → test the installer on a clean machine → check the site's download button.
 

@@ -1,0 +1,34 @@
+[Unit]
+Description=PocketRocket screen (Xvfb + Chromium + noVNC)
+After=network.target
+
+[Service]
+Type=simple
+User=pocketrocket
+Group=pocketrocket
+Environment=HOME=/home/pocketrocket
+Environment=PATH=/home/pocketrocket/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=POCKETROCKET_DATA=/home/pocketrocket/pocketrocket/data
+Environment=XAUTHORITY=/home/pocketrocket/pocketrocket/data/desktop-home/.Xauthority
+Environment=SCREEN_DISPLAY=:99
+Environment=CDP_PORT=9222
+Environment=VNC_PORT=5900
+Environment=NOVNC_PORT=6080
+ExecStart=/bin/bash /home/pocketrocket/pocketrocket/deploy/screen.sh
+Restart=always
+RestartSec=3
+KillMode=control-group
+
+# Hardening. This unit needs the real (non-private) /tmp: Xvfb's socket at /tmp/.X11-unix/X99 is
+# also read by pocketrocket.service's xdotool/scrot (the Desktop tool), which runs as a separate
+# unit and would not see a PrivateTmp=yes namespace here. It also needs its own home for the
+# Chromium/XFCE profile under data/.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/tmp /home/pocketrocket
+PrivateTmp=no
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
