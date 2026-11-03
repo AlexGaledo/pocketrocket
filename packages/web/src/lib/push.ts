@@ -44,7 +44,7 @@ function keyBytes(b64url: string): Uint8Array<ArrayBuffer> {
 /** Asks for permission, subscribes with the hub's VAPID key and registers the subscription with the hub. */
 export async function enablePush(): Promise<void> {
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error(permission === 'denied' ? 'Notifications are blocked for this site in the browser settings.' : 'Notifications were not allowed.');
+  if (permission !== 'granted') throw new Error(permission === 'denied' ? 'Notifications blocked in browser settings.' : 'Notifications were not allowed.');
   const { publicKey } = await api.push.status();
   const reg = await swRegistration();
   let sub = await reg.pushManager.getSubscription();

@@ -82,13 +82,26 @@ describe('PermissionBroker.decide', () => {
 });
 
 describe('Claude SDK PreToolUse hook', () => {
-  async function runTurn(bypass: boolean, blocked: () => string | null) {
+  it('attaches the Browser tool only to a computer of its own, never to the default shared CDP port', async () => {
+    const opts = async (cdpUrl?: string) => {
+      await runTurn(false, () => null, cdpUrl);
+      return sdk.options[0] as { mcpServers: Record<string, { args?: string[] }>; allowedTools: string[] };
+    };
+    const off = await opts();
+    expect(off.mcpServers.browser).toBeUndefined();
+    expect(off.allowedTools).not.toContain('mcp__browser__*');
+    const on = await opts('http://127.0.0.1:9401');
+    expect(on.mcpServers.browser.args).toContain('http://127.0.0.1:9401');
+    expect(on.allowedTools).toContain('mcp__browser__*');
+  });
+
+  async function runTurn(bypass: boolean, blocked: () => string | null, cdpUrl?: string) {
     sdk.options.length = 0;
     const ctx = {
       turnId: 't', bot: { id: 'b', handle: 'b' }, room: {}, members: [], systemPrompt: '', input: 'hi', resumeToken: null,
       workspaceDir: WORKSPACE_DIR, botHome: path.join(os.tmpdir(), 'prc-home'), tools: [], allowedBuiltins: ['Read', 'Browser', 'Desktop'],
       bypassPermissions: bypass, permission: async () => 'allow', pluginDir: null, model: 'claude-sonnet-5',
-      maxBudgetUsd: 1, maxTurns: 1, signal: new AbortController().signal, mcp: { url: '', token: '' }, controlGuard: blocked,
+      maxBudgetUsd: 1, maxTurns: 1, signal: new AbortController().signal, mcp: { url: '', token: '' }, controlGuard: blocked, cdpUrl,
     } as unknown as TurnContext;
     const sink = { onSession() {}, onDelta() {}, onText() {}, onToolUse() {}, onToolResult() {}, onState() {} };
     await new ClaudeProvider().runTurn(ctx, sink);

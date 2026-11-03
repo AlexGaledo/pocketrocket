@@ -9,7 +9,7 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
   (origEmitWarning as (...a: unknown[]) => void)(warning, ...rest);
 }) as typeof process.emitWarning;
 
-const hub = createHub();
+const hub = createHub({ seedBots: true });
 await hub.listen();
 
 let closing = false;

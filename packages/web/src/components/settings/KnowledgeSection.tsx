@@ -46,12 +46,12 @@ export function KnowledgeSection() {
 
   return (
     <>
-      <SectionHeader title="Knowledge" description="A shared folder of docs every bot can read and cite. Bots can never change it." />
+      <SectionHeader title="Knowledge" description="Docs every bot can read but not change." />
 
       <Group title="Knowledge repo">
         <Card>
           <Field>
-            <Label hint="git URL or a folder on the hub's computer">Source</Label>
+            <Label hint="Git URL or server folder">Source</Label>
             <div className="flex gap-2">
               <Input
                 value={draft}
@@ -60,14 +60,13 @@ export function KnowledgeSection() {
                 placeholder="https://github.com/team/handbook.git"
                 spellCheck={false}
                 autoComplete="off"
-                className="font-mono text-[12.5px]"
+                className="font-mono text-ui"
               />
               <Button variant="primary" onClick={() => void save()} disabled={!dirty || saving}>Save</Button>
             </div>
           </Field>
-          <p className="mt-2 text-[12px] leading-snug text-muted">
-            A git URL is cloned and pulled every hour (<code className="font-mono text-[11.5px]">git pull --ff-only</code>). A private repo needs
-            git credentials already set up on the hub's computer. A local folder is linked, so your edits show up at once.
+          <p className="mt-2 text-hint leading-snug text-muted" title="A private repo needs git credentials set up on the server.">
+            Git pulls hourly. Folders update instantly.
           </p>
         </Card>
       </Group>
@@ -81,16 +80,16 @@ export function KnowledgeSection() {
         )}
       >
         <Card className="py-3">
-          <div role="status" aria-live="polite" className="flex flex-col gap-1.5 text-[12.5px]">
+          <div role="status" aria-live="polite" className="flex flex-col gap-1.5 text-ui">
             {!status || status.mode === 'off' && !status.lastError ? (
-              <p className="flex items-center gap-2 text-muted"><BookOpen size={14} aria-hidden /> No knowledge repo. Bots work from the workspace and their own memory.</p>
+              <p className="flex items-center gap-2 text-muted"><BookOpen size={14} aria-hidden /> No docs connected.</p>
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-2">
                   {syncing
                     ? <Badge tone="accent">Syncing…</Badge>
                     : status.lastError ? <Badge tone="bad">Sync failed</Badge> : <Badge tone="ok">{status.mode === 'link' ? 'Linked' : 'Cloned'}</Badge>}
-                  {status.head && <span className="font-mono text-[11.5px] text-muted">@{status.head}</span>}
+                  {status.head && <span className="font-mono text-hint text-muted">@{status.head}</span>}
                   {status.lastSyncedAt && <span className="text-muted">last synced {new Date(status.lastSyncedAt).toLocaleString()}</span>}
                 </div>
                 {status.dir && (

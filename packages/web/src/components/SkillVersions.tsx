@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import { Badge, Button, Select, Switch, Textarea, cn } from './ui';
 
 const ORIGIN: Record<SkillVersion['origin'], string> = {
-  demo: 'from a demo', correction: 'your correction', reflection: 'bot reflection', bot: 'bot edit',
+  demo: 'from a demo', correction: 'your correction', reflection: 'skill fix', bot: 'bot edit',
 };
 const fmtDate = (t: number) => (t ? new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
 
@@ -47,7 +47,7 @@ export function SkillVersionsPanel({ skill, onChanged }: { skill: Skill; onChang
     setBusy(true);
     try {
       const v = await api.skillVersions.correct(skill.id, fix.trim());
-      toast('Proposed version ' + v.version + '. Review the change below before it goes live.');
+      toast('Version ' + v.version + ' proposed. Review it below.');
       setFix('');
       await load();
       setOpen(await api.skillVersions.get(skill.id, v.id));
@@ -59,7 +59,7 @@ export function SkillVersionsPanel({ skill, onChanged }: { skill: Skill; onChang
   };
 
   return (
-    <div className="mt-2 flex flex-col gap-2 border-t border-line pt-2 text-xs">
+    <div className="mt-2 flex flex-col gap-2 border-t border-line pt-2 text-hint">
       <div className="flex items-center gap-2">
         <span className="font-medium">Versions</span>
         <Badge>live v{skill.version ?? 1}</Badge>
@@ -67,9 +67,9 @@ export function SkillVersionsPanel({ skill, onChanged }: { skill: Skill; onChang
       {versions.length > 0 && (
         <ul className="flex flex-col gap-1">
           {versions.map((v) => (
-            <li key={v.id} className="rounded-xl bg-card p-1.5">
+            <li key={v.id} className="rounded-md bg-card p-1.5">
               <div className="flex items-center gap-2">
-                <button type="button" className="min-w-0 flex-1 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                <button type="button" className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-expanded={open?.id === v.id} onClick={() => void toggle(v)}>
                   <span className="font-medium">v{v.version}</span>
                   <span className="text-muted"> · {ORIGIN[v.origin]} · {fmtDate(v.createdAt)}</span>
@@ -79,7 +79,7 @@ export function SkillVersionsPanel({ skill, onChanged }: { skill: Skill; onChang
               </div>
               {open?.id === v.id && (
                 <div className="mt-1.5 flex flex-col gap-1.5">
-                  {open.stale && <p className="text-warn">The live skill changed after this was proposed. Approving replaces it with exactly this text.</p>}
+                  {open.stale && <p className="text-warn">Live skill changed. Approving overwrites it.</p>}
                   <DiffView diff={open.diff} />
                   {v.status === 'pending' && (
                     <div className="flex justify-end gap-1">
@@ -96,7 +96,7 @@ export function SkillVersionsPanel({ skill, onChanged }: { skill: Skill; onChang
       <label htmlFor={fixId} className="text-muted">Correct this skill</label>
       <Textarea id={fixId} rows={2} value={fix} maxLength={2000} placeholder='e.g. "no, use the Export button"' onChange={(e) => setFix(e.target.value)} />
       <div className="flex items-center justify-between gap-2">
-        <span className="text-dim">Becomes a new version you review first (Sonnet, up to $0.25).</span>
+        <span className="text-dim">You review it first. Max $0.25.</span>
         <Button size="sm" onClick={() => void correct()} disabled={busy || fix.trim().length < 3}>{busy ? 'Working…' : 'Propose fix'}</Button>
       </div>
     </div>
@@ -107,7 +107,7 @@ export function SkillVersionsPanel({ skill, onChanged }: { skill: Skill; onChang
 function DiffView({ diff }: { diff: SkillVersionDetail['diff'] }) {
   if (!diff.some((l) => l.op !== ' ')) return <p className="text-dim">No changes.</p>;
   return (
-    <pre className="max-h-72 overflow-auto rounded-lg bg-card2/70 p-1.5 font-mono text-[11px] leading-snug" aria-label="Changes in this version">
+    <pre className="max-h-72 overflow-auto rounded-sm bg-card2/70 p-1.5 font-mono text-hint leading-snug" aria-label="Changes in this version">
       {diff.map((l, i) => (
         <div key={i} className={cn('whitespace-pre-wrap', l.op === '+' && 'bg-ok/12 text-ok', l.op === '-' && 'bg-bad/12 text-bad', l.op === ' ' && 'text-muted')}>
           <span aria-hidden className="select-none">{l.op === ' ' ? '  ' : l.op === '+' ? '+ ' : '− '}</span>
@@ -140,17 +140,17 @@ export function ReflectionSetting({ botId }: { botId: string }) {
   };
   const every = EVERY.includes(cfg.every) ? EVERY : [...EVERY, cfg.every].sort((a, b) => a - b);
   return (
-    <div className="flex flex-col gap-1.5 rounded-2xl bg-card2/60 p-2 text-xs">
+    <div className="flex flex-col gap-1.5 rounded-lg bg-card2/60 p-2 text-hint">
       <div className="flex items-center gap-2">
         <span id={labelId} className="flex-1 font-medium">Suggest skill fixes after runs</span>
         <Switch aria-labelledby={labelId} checked={cfg.enabled} onChange={(on) => void save({ enabled: on })} />
       </div>
       <div className="flex items-center gap-2 text-muted">
         <label htmlFor={everyId}>Every</label>
-        <Select id={everyId} className="h-7 w-20 text-[12px]" value={cfg.every} disabled={!cfg.enabled} onChange={(e) => void save({ every: Number(e.target.value) })}>
+        <Select id={everyId} className="h-7 w-20 text-hint" value={cfg.every} disabled={!cfg.enabled} onChange={(e) => void save({ every: Number(e.target.value) })}>
           {every.map((n) => <option key={n} value={n}>{n}</option>)}
         </Select>
-        <span>runs of a skill. Haiku, up to ${cfg.dailyCapUsd.toFixed(2)} a day. Suggestions wait for your review.</span>
+        <span>runs. Max ${cfg.dailyCapUsd.toFixed(2)} a day at API prices. You review each.</span>
       </div>
     </div>
   );

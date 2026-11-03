@@ -125,7 +125,7 @@ export function BotGroupHeader({
         if (key && key !== group.key) onMove(key, index);
       }}
       className={cn(
-        'group/hdr mt-2 flex items-center gap-1 rounded-lg px-2 py-1',
+        'group/hdr mt-2 flex items-center gap-1 rounded-sm px-2 py-1',
         over && 'bg-accent/10 ring-1 ring-accent/40',
       )}
     >
@@ -133,7 +133,7 @@ export function BotGroupHeader({
         type="button"
         onClick={onToggle}
         aria-expanded={!isCollapsed}
-        className="flex min-w-0 flex-1 items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 rounded"
+        className="flex min-w-0 flex-1 items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xs"
         // Dragging is mouse-only, so the same reorder is reachable from the keyboard here.
         onKeyDown={(e) => {
           if (!e.altKey) return;
@@ -143,10 +143,10 @@ export function BotGroupHeader({
         title="Toggle section · Alt+↑/↓ to reorder"
       >
         <ChevronRight size={12} className={cn('shrink-0 text-dim transition-transform', !isCollapsed && 'rotate-90')} />
-        <span className="truncate text-[11.5px] font-medium text-dim">{group.label}</span>
-        <span className="shrink-0 text-[11px] text-dim/70">{count}</span>
+        <span className="truncate text-label text-dim">{group.label}</span>
+        <span className="shrink-0 text-hint text-dim">{count}</span>
       </button>
-      <GripVertical size={12} aria-hidden className="shrink-0 cursor-grab text-dim/0 transition-colors group-hover/hdr:text-dim/60" />
+      <GripVertical size={12} aria-hidden className="shrink-0 cursor-grab text-faint/0 transition-colors group-hover/hdr:text-faint" />
     </div>
   );
 }

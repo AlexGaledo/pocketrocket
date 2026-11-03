@@ -186,11 +186,11 @@ export class IntegrationService {
   async completeBrowser(p: IntegrationProvider, params: URLSearchParams): Promise<CallbackResult> {
     const state = params.get('state') ?? '';
     const pend = state ? this.browser.get(state) : undefined;
-    if (!pend) return { ok: false, status: 400, message: 'No sign-in is waiting for this callback. Start again from Settings → Integrations.', unsolicited: true };
+    if (!pend) return { ok: false, status: 400, message: 'No sign-in is waiting for this callback. Start again from Settings → Connections.', unsolicited: true };
     this.browser.delete(state);
     this.changed();
     if (pend.provider !== p) return { ok: false, status: 400, message: 'This callback does not belong to the sign-in that was started.', unsolicited: true };
-    if (pend.expiresAt <= this.now()) return { ok: false, status: 400, message: 'The sign-in took too long. Start again from Settings → Integrations.', unsolicited: false };
+    if (pend.expiresAt <= this.now()) return { ok: false, status: 400, message: 'The sign-in took too long. Start again from Settings → Connections.', unsolicited: false };
     const providerError = params.get('error_description') || params.get('error');
     if (providerError) return { ok: false, status: 400, message: providerError, unsolicited: false };
     const code = params.get('code');
@@ -381,7 +381,7 @@ export class IntegrationService {
    */
   async token(id: string, refresh = false): Promise<string> {
     const entry = this.vault.get(this.connKey(id));
-    if (!entry?.accessToken) throw new IntegrationError('This connection has no stored credential; reconnect it in Settings → Integrations', 401, true);
+    if (!entry?.accessToken) throw new IntegrationError('This connection has no stored credential; reconnect it in Settings → Connections', 401, true);
     const exp = Number(entry.expiresAt) || 0;
     const due = refresh || (exp > 0 && exp - REFRESH_SKEW_MS <= this.now());
     if (!due || !entry.refreshToken) return entry.accessToken;

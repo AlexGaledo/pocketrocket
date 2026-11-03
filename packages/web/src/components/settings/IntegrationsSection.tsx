@@ -1,15 +1,15 @@
 /**
- * Settings › Integrations (P4): connect GitHub, Google, Slack, ClickUp and Microsoft Teams so bots can use
- * them. Per provider the user either connects with their OWN OAuth app (client id + secret/tenant, PKCE and
- * a loopback redirect, or a device code on a server) or pastes a key/token. Defaults follow
- * docs/research/oauth-loopback.md: Google and Teams OAuth, Slack and ClickUp paste, GitHub both.
+ * Settings › Connections (P4): connect GitHub, Google, Slack, ClickUp and Microsoft Teams so bots can use
+ * them. Connecting is one button. An OAuth provider needs the owner's own OAuth app saved once; until then the
+ * button's place is taken by that one-time setup, and saving it starts the sign-in. WhatsApp and social media
+ * are not here: those are used through a bot's browser. See docs/research/oauth-loopback.md.
  *
  * Every credential stays in the hub's encrypted vault; this page only ever sees whether one is stored.
  * Account names are masked with `Private` (people screen-share). A connection is shared, but each bot has
  * to be switched on here before it gets the provider's tools.
  */
 import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ChevronRight, ExternalLink } from 'lucide-react';
 import type { Bot, IntegrationInfo, IntegrationProvider, IntegrationsState, OAuthAppStatus, PendingConnect } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
@@ -43,22 +43,21 @@ interface ProviderMeta {
 }
 
 const A = ({ href, children }: { href: string; children: ReactNode }) => (
-  <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 rounded">
+  <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xs">
     {children}<ExternalLink size={11} aria-hidden />
   </a>
 );
-const C = ({ children }: { children: ReactNode }) => <code className="rounded bg-card2 [overflow-wrap:anywhere] px-1 py-px font-mono text-[11.5px] text-fg">{children}</code>;
+const C = ({ children }: { children: ReactNode }) => <code className="rounded-xs bg-card2 [overflow-wrap:anywhere] px-1 py-px font-mono text-hint text-fg">{children}</code>;
 
 const PROVIDERS: Record<IntegrationProvider, ProviderMeta> = {
   github: {
     name: 'GitHub',
-    blurb: 'Search and read issues and pull requests, read notifications, open issues and comment.',
+    blurb: 'Repos, issues, pull requests, notifications.',
     methods: ['oauth', 'token'], defaultMethod: 'oauth', device: true, secret: 'required',
     oauthSteps: (uri) => [
-      <>Create an OAuth app: <A href="https://github.com/settings/applications/new">GitHub → New OAuth App</A>. Homepage <C>http://127.0.0.1</C>.</>,
-      <>Authorization callback URL: <C>{uri}</C></>,
-      <>On a server, also tick <strong>Enable Device Flow</strong> and use “Sign in with a code”.</>,
-      <>Paste the Client ID, and a client secret you generate on the same page.</>,
+      <>Create an <A href="https://github.com/settings/applications/new">OAuth app</A>. Homepage <C>http://127.0.0.1</C>, callback <C>{uri}</C>.</>,
+      <>Tick <strong>Enable Device Flow</strong>.</>,
+      <>Paste the Client ID and a client secret from the same page.</>,
     ],
     tokenSteps: () => [
       <>Create a <A href="https://github.com/settings/tokens/new?scopes=repo,notifications&description=PocketRocket%20Crew">classic token</A> with the <C>repo</C> and <C>notifications</C> scopes.</>,
@@ -69,20 +68,19 @@ const PROVIDERS: Record<IntegrationProvider, ProviderMeta> = {
   },
   google: {
     name: 'Google',
-    blurb: 'Gmail search, read and send; Calendar list and create; Drive search and read.',
+    blurb: 'Gmail, Calendar and Drive, with one sign-in.',
     methods: ['oauth'], defaultMethod: 'oauth', secret: 'optional',
     oauthSteps: () => [
-      <>In <A href="https://console.cloud.google.com/apis/library">Google Cloud</A>, enable the Gmail, Calendar and Drive APIs in a project of yours.</>,
-      <>Set up the <A href="https://console.cloud.google.com/auth/overview">consent screen</A> (External), then <strong>publish it to production</strong>: in testing mode access ends after 7 days.</>,
-      <>Under <A href="https://console.cloud.google.com/apis/credentials">Credentials</A>, create an OAuth client ID of type <strong>Desktop app</strong>. It accepts this computer's address without registering it.</>,
-      <>Paste the client ID and secret. Google warns that the app is unverified once; it is your own app.</>,
+      <><A href="https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com">Turn on the Gmail, Calendar and Drive APIs</A> in a Google Cloud project.</>,
+      <>Set up the <A href="https://console.cloud.google.com/auth/overview">consent screen</A> as External and <strong>publish it</strong>. In testing mode, access ends after 7 days.</>,
+      <>Create a <A href="https://console.cloud.google.com/apis/credentials">credential</A>: OAuth client ID, type <strong>Desktop app</strong>.</>,
+      <>Paste its client ID and secret. Google shows an unverified-app warning at sign-in, because the app is your own.</>,
     ],
-    noOauth: 'Google has no key you can paste for Gmail, Calendar or Drive.',
     revokeUrl: 'https://myaccount.google.com/permissions',
   },
   slack: {
     name: 'Slack',
-    blurb: 'List channels, read history and post messages as your Slack app.',
+    blurb: 'Channels and messages, through your Slack app.',
     methods: ['token'], defaultMethod: 'token', secret: 'none',
     tokenSteps: () => [
       <>Create an app at <A href="https://api.slack.com/apps?new_app=1">api.slack.com/apps</A> (from scratch).</>,
@@ -91,12 +89,11 @@ const PROVIDERS: Record<IntegrationProvider, ProviderMeta> = {
       <>Invite the app to each channel it should read: <C>/invite @your-app</C>.</>,
     ],
     token: { label: 'Bot token', placeholder: 'xoxb-…' },
-    noOauth: 'Slack only signs in bots over an HTTPS address, so it connects with tokens instead.',
     revokeUrl: 'https://api.slack.com/apps',
   },
   clickup: {
     name: 'ClickUp',
-    blurb: 'List and search tasks, read them, create tasks and comment.',
+    blurb: 'Tasks and comments.',
     methods: ['token', 'oauth'], defaultMethod: 'token', secret: 'required',
     tokenSteps: () => [
       <>In ClickUp open <A href="https://app.clickup.com/settings/apps">Settings → Apps</A> and generate an API token.</>,
@@ -112,7 +109,7 @@ const PROVIDERS: Record<IntegrationProvider, ProviderMeta> = {
   },
   teams: {
     name: 'Microsoft Teams',
-    blurb: 'List your chats, read them and send chat messages as you.',
+    blurb: 'Your chats. Channels need admin consent.',
     methods: ['oauth'], defaultMethod: 'oauth', device: true, secret: 'none', tenant: true,
     oauthSteps: () => [
       <>Register an app in <A href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade">Microsoft Entra → App registrations</A>.</>,
@@ -120,12 +117,14 @@ const PROVIDERS: Record<IntegrationProvider, ProviderMeta> = {
       <>API permissions → Microsoft Graph, delegated: <C>Chat.ReadWrite</C> <C>ChatMessage.Send</C> <C>User.Read</C> <C>offline_access</C>.</>,
       <>Paste the Application (client) ID and the Directory (tenant) ID. No secret.</>,
     ],
-    oauthNote: 'Channel messages need an admin to consent and are not included; chats are.',
-    noOauth: 'Microsoft has no key you can paste for reading Teams.',
     revokeUrl: 'https://myapps.microsoft.com',
   },
 };
-const ORDER: IntegrationProvider[] = ['github', 'google', 'slack', 'clickup', 'teams'];
+const MAIN: IntegrationProvider[] = ['github', 'google'];
+const OTHER: IntegrationProvider[] = ['slack', 'clickup', 'teams'];
+
+/** The page's own address is on this computer, so a provider can send the browser back through the tunnel. */
+const onLoopback = () => ['127.0.0.1', 'localhost', '[::1]'].includes(window.location.hostname);
 
 /** `alex@example.com` → `a•••@example.com`; `Acme · crewbot` → `A•••`. */
 function maskAccount(label: string): string {
@@ -163,30 +162,49 @@ export function IntegrationsSection() {
     return () => window.removeEventListener('focus', onFocus);
   }, [refresh]);
 
+  const row = (p: IntegrationProvider) => state && (
+    <ProviderGroup
+      key={p}
+      provider={p}
+      conn={state.connections.find((c) => c.provider === p)}
+      app={state.apps[p]}
+      pending={state.pending.find((x) => x.provider === p)}
+      redirectUri={state.redirectUris[p]}
+      onChange={refresh}
+    />
+  );
+
   return (
     <>
       <SectionHeader
-        title="Integrations"
-        description="Connect accounts your bots can use. Tokens stay encrypted on this computer and never reach a bot; sending or posting always asks you first."
+        title="Connections"
+        description="Accounts your bots can use. Logins stay encrypted on your server and never reach a bot. Sending or posting asks you first."
       />
       {loadError && <InlineError>{loadError}</InlineError>}
-      {state && ORDER.map((p) => (
-        <ProviderGroup
-          key={p}
-          provider={p}
-          conn={state.connections.find((c) => c.provider === p)}
-          app={state.apps[p]}
-          pending={state.pending.find((x) => x.provider === p)}
-          redirectUri={state.redirectUris[p]}
-          onChange={refresh}
-        />
-      ))}
+      {state && MAIN.map(row)}
+      {state && (
+        <Group title="In the browser">
+          <Card>
+            <p className="text-ui font-medium text-fg">WhatsApp and social media</p>
+            <p className="mt-0.5 text-ui leading-relaxed text-muted">Open a bot's screen and sign in there. The bot uses the site the way you would.</p>
+          </Card>
+        </Group>
+      )}
+      {state && (
+        <details open={OTHER.some((p) => state.connections.some((c) => c.provider === p) || state.pending.some((x) => x.provider === p)) || undefined} className="group mt-6">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-xs text-label text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <ChevronRight size={14} aria-hidden className="transition-transform group-open:rotate-90" />
+            Other apps
+          </summary>
+          <div className="mt-3">{OTHER.map(row)}</div>
+        </details>
+      )}
     </>
   );
 }
 
 function StatusBadge({ conn }: { conn?: IntegrationInfo }) {
-  if (!conn) return <Badge>Not connected</Badge>;
+  if (!conn) return null;
   if (conn.status === 'connected') return <Badge tone="ok">Connected</Badge>;
   if (conn.status === 'expired') return <Badge tone="warn">Reconnect needed</Badge>;
   return <Badge tone="bad">Error</Badge>;
@@ -203,6 +221,9 @@ function ProviderGroup({ provider, conn, app, pending, redirectUri, onChange }: 
   const meta = PROVIDERS[provider];
   const [reconnecting, setReconnecting] = useState(false);
   const showConnect = !conn || reconnecting || conn.status === 'expired';
+  // Setup and token forms stay folded until asked for, so an unconnected provider reads as one button.
+  const [opened, setOpened] = useState(false);
+  const folded = !conn && !pending && !opened && !app.configured;
   // A finished sign-in closes the reconnect form.
   const connUpdated = conn?.updatedAt;
   useEffect(() => setReconnecting(false), [connUpdated]);
@@ -210,9 +231,12 @@ function ProviderGroup({ provider, conn, app, pending, redirectUri, onChange }: 
   return (
     <Group title={meta.name} aside={<StatusBadge conn={conn} />}>
       <Card>
-        <p className="mb-3 text-[12.5px] leading-relaxed text-muted">{meta.blurb}</p>
+        <div className={cn('flex items-center justify-between gap-3', !folded && 'mb-3')}>
+          <p className="text-ui leading-relaxed text-muted">{meta.blurb}</p>
+          {folded && <Button variant="primary" className="shrink-0" onClick={() => setOpened(true)}>Connect</Button>}
+        </div>
         {conn && <Connected provider={provider} conn={conn} onChange={onChange} onReconnect={() => setReconnecting((r) => !r)} reconnecting={reconnecting} />}
-        {showConnect && (
+        {showConnect && !folded && (
           <div className={cn(conn && 'mt-4 border-t border-line pt-4')}>
             <ConnectForms provider={provider} app={app} pending={pending} redirectUri={redirectUri} onChange={onChange} />
           </div>
@@ -227,15 +251,16 @@ function ConnectForms({ provider, app, pending, redirectUri, onChange }: {
 }) {
   const meta = PROVIDERS[provider];
   const [method, setMethod] = useState<Method>(meta.defaultMethod);
-  const both = meta.methods.length > 1;
+  // Once the app is saved, or a sign-in is running, there is one thing to do: no tabs.
+  const both = meta.methods.length > 1 && !pending && !(app.configured && meta.defaultMethod === 'oauth');
   const form = (m: Method) => m === 'oauth'
     ? <OAuthConnect provider={provider} app={app} pending={pending} redirectUri={redirectUri} onChange={onChange} />
     : <TokenConnect provider={provider} onChange={onChange} />;
   if (!both) {
     return (
       <div>
-        {form(meta.defaultMethod)}
-        {meta.noOauth && <p className="mt-3 text-[12px] text-muted">{meta.noOauth}</p>}
+        {form(pending ? 'oauth' : meta.defaultMethod)}
+        {meta.noOauth && <p className="mt-3 text-hint text-muted">{meta.noOauth}</p>}
       </div>
     );
   }
@@ -243,7 +268,7 @@ function ConnectForms({ provider, app, pending, redirectUri, onChange }: {
     <Tabs value={method} onValueChange={(v) => setMethod(v as Method)}>
       <div className="-mx-3 -mt-2 mb-1 max-w-sm">
         <TabsList>
-          {meta.methods.map((m) => <TabsTrigger key={m} value={m}>{m === 'oauth' ? 'Connect with OAuth' : 'Paste a token'}</TabsTrigger>)}
+          {meta.methods.map((m) => <TabsTrigger key={m} value={m}>{m === 'oauth' ? 'Sign in' : 'Paste a token'}</TabsTrigger>)}
         </TabsList>
       </div>
       {meta.methods.map((m) => <TabsContent key={m} value={m} className="focus:outline-none">{form(m)}</TabsContent>)}
@@ -253,7 +278,7 @@ function ConnectForms({ provider, app, pending, redirectUri, onChange }: {
 
 function SetupSteps({ steps }: { steps: ReactNode[] }) {
   return (
-    <ol className="mb-3 list-decimal space-y-1 pl-5 text-[12.5px] leading-relaxed text-fg marker:text-dim">
+    <ol className="mb-3 list-decimal space-y-1 pl-5 text-ui leading-relaxed text-fg marker:text-dim">
       {steps.map((s, i) => <li key={i}>{s}</li>)}
     </ol>
   );
@@ -269,6 +294,7 @@ function OAuthConnect({ provider, app, pending, redirectUri, onChange }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openUrl, setOpenUrl] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const errorId = useId();
   useEffect(() => setClientId(app.clientId ?? ''), [app.clientId]);
   useEffect(() => setTenant(app.tenant ?? ''), [app.tenant]);
@@ -285,18 +311,30 @@ function OAuthConnect({ provider, app, pending, redirectUri, onChange }: {
       setBusy(false);
     }
   };
+  /** Sign in by browser when the provider can send it back here; otherwise by code; otherwise say why not. */
+  const start = async (hasSecret: boolean) => {
+    if (onLoopback() && (meta.secret !== 'required' || hasSecret)) {
+      const { url } = await api.integrations.startOAuth(provider);
+      setOpenUrl(url);
+      window.open(url, '_blank', 'noopener');
+    } else if (meta.device) {
+      await api.integrations.startDevice(provider);
+    } else if (onLoopback()) {
+      throw new Error(meta.name + ' needs the client secret. Use Change app to add it.');
+    } else {
+      throw new Error('Open PocketRocket through your SSH tunnel to connect ' + meta.name + '. It sends you back to 127.0.0.1.');
+    }
+  };
   const saveApp = (e: FormEvent) => {
     e.preventDefault();
     void run(async () => {
-      await api.integrations.setApp(provider, { clientId: clientId.trim(), clientSecret: secret.trim() || undefined, tenant: meta.tenant ? tenant.trim() || undefined : undefined });
+      const saved = await api.integrations.setApp(provider, { clientId: clientId.trim(), clientSecret: secret.trim() || undefined, tenant: meta.tenant ? tenant.trim() || undefined : undefined });
       setSecret('');
-    }, "Couldn't save the app.");
+      setEditing(false);
+      await start(saved.hasSecret);
+    }, "Couldn't save and connect.");
   };
-  const connect = () => void run(async () => {
-    const { url } = await api.integrations.startOAuth(provider);
-    setOpenUrl(url);
-    window.open(url, '_blank', 'noopener');
-  }, "Couldn't start the sign-in.");
+  const connect = () => void run(() => start(app.hasSecret), "Couldn't start the sign-in.");
   const device = () => void run(() => api.integrations.startDevice(provider), "Couldn't get a sign-in code.");
   const cancel = () => void run(async () => { setOpenUrl(null); await api.integrations.cancel(provider); }, "Couldn't cancel.");
 
@@ -304,16 +342,16 @@ function OAuthConnect({ provider, app, pending, redirectUri, onChange }: {
     return (
       <div>
         {pending.kind === 'device' ? (
-          <p role="status" className="text-[13px] leading-relaxed text-fg">
+          <p role="status" className="text-ui leading-relaxed text-fg">
             Open <A href={pending.verificationUri ?? '#'}>{pending.verificationUri?.replace(/^https?:\/\//, '')}</A> on any device and enter{' '}
-            <span className="select-all rounded-lg bg-card2 px-2 py-0.5 font-mono text-[14px] font-semibold tracking-wider">{pending.userCode}</span>.
+            <span className="select-all rounded-sm bg-card2 px-2 py-0.5 font-mono text-ui font-semibold tracking-wider">{pending.userCode}</span>.
             This page updates by itself.
           </p>
         ) : (
-          <p role="status" className="text-[13px] leading-relaxed text-fg">Finish signing in to {meta.name} in your browser. This page updates by itself.</p>
+          <p role="status" className="text-ui leading-relaxed text-fg">Finish signing in to {meta.name} in your browser. This page updates by itself.</p>
         )}
         <div className="-ml-3 mt-2 flex flex-wrap">
-          {pending.kind === 'browser' && openUrl && <a href={openUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-7 items-center rounded-full px-3 text-[12.5px] font-medium text-accent hover:bg-card2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">Open the sign-in page again</a>}
+          {pending.kind === 'browser' && openUrl && <a href={openUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-7 items-center rounded-md px-3 text-label text-accent hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">Open the sign-in page again</a>}
           <Button size="sm" variant="ghost" disabled={busy} onClick={cancel}>Cancel</Button>
         </div>
         {error && <InlineError>{error}</InlineError>}
@@ -321,11 +359,25 @@ function OAuthConnect({ provider, app, pending, redirectUri, onChange }: {
     );
   }
 
-  const canBrowser = app.configured && (meta.secret !== 'required' || app.hasSecret);
+  if (app.configured && !editing) {
+    return (
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" disabled={busy} onClick={connect}>Connect {meta.name}</Button>
+          {meta.device && onLoopback() && <Button variant="ghost" disabled={busy} onClick={device}>Use a code instead</Button>}
+          <Button variant="ghost" disabled={busy} onClick={() => setEditing(true)}>Change app</Button>
+        </div>
+        {pending?.error && <InlineError>{pending.error}</InlineError>}
+        {error && <InlineError id={errorId}>{error}</InlineError>}
+      </div>
+    );
+  }
+
   return (
     <div>
+      {!app.configured && <p className="mb-2 text-ui font-medium text-fg">One-time setup</p>}
       {meta.oauthSteps && <SetupSteps steps={meta.oauthSteps(redirectUri)} />}
-      {meta.oauthNote && <p className="mb-3 text-[12px] text-muted">{meta.oauthNote}</p>}
+      {meta.oauthNote && <p className="mb-3 text-hint text-muted">{meta.oauthNote}</p>}
       <form onSubmit={saveApp} className="grid gap-3 sm:grid-cols-2">
         <Field>
           <Label>{meta.tenant ? 'Application (client) ID' : 'Client ID'}</Label>
@@ -333,7 +385,7 @@ function OAuthConnect({ provider, app, pending, redirectUri, onChange }: {
         </Field>
         {meta.secret !== 'none' && (
           <Field>
-            <Label hint={meta.secret === 'optional' ? 'Optional for Desktop apps' : undefined}>Client secret</Label>
+            <Label hint={meta.secret === 'optional' ? 'Optional for Desktop apps' : meta.device ? 'Without it, you sign in with a code' : undefined}>Client secret</Label>
             <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="off" spellCheck={false}
               placeholder={app.hasSecret ? 'Saved. Paste a new one to replace it' : ''} />
           </Field>
@@ -345,17 +397,11 @@ function OAuthConnect({ provider, app, pending, redirectUri, onChange }: {
           </Field>
         )}
         <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
-          <Button type="submit" disabled={busy || clientId.trim().length < 4} aria-describedby={error ? errorId : undefined}>{app.configured ? 'Update app' : 'Save app'}</Button>
+          <Button type="submit" variant="primary" disabled={busy || clientId.trim().length < 4} aria-describedby={error ? errorId : undefined}>Save and connect</Button>
+          {app.configured && <Button type="button" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>Cancel</Button>}
           {app.configured && <Button type="button" variant="ghost" disabled={busy} onClick={() => void run(() => api.integrations.removeApp(provider), "Couldn't remove the app.")}>Remove app</Button>}
         </div>
       </form>
-      {app.configured && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button variant="primary" disabled={busy || !canBrowser} onClick={connect}>Connect with OAuth</Button>
-          {meta.device && <Button disabled={busy} onClick={device}>Sign in with a code</Button>}
-          {meta.device && <span className="text-[12px] text-muted">Use a code when PocketRocket runs on a server.</span>}
-        </div>
-      )}
       {pending?.error && <InlineError>{pending.error}</InlineError>}
       {error && <InlineError id={errorId}>{error}</InlineError>}
     </div>
@@ -412,13 +458,13 @@ function Connected({ provider, conn, onChange, onReconnect, reconnecting }: {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui">
         <span className="text-muted">Account</span>
         {conn.accountLabel ? <Private value={conn.accountLabel} display={maskAccount(conn.accountLabel)} label={meta.name + ' account name'} /> : <span className="text-muted">unknown</span>}
         <Badge>{conn.method === 'oauth' ? 'OAuth' : 'Token'}</Badge>
       </div>
-      {conn.warnings.map((w) => <p key={w} className="mt-2 text-[12px] leading-snug text-warn">{w}</p>)}
-      {conn.status !== 'connected' && conn.lastError && <p className="mt-2 text-[12px] leading-snug text-bad">{conn.lastError}</p>}
+      {conn.warnings.map((w) => <p key={w} className="mt-2 text-hint leading-snug text-warn">{w}</p>)}
+      {conn.status !== 'connected' && conn.lastError && <p className="mt-2 text-hint leading-snug text-bad">{conn.lastError}</p>}
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button size="sm" disabled={busy} onClick={() => void run(() => api.integrations.test(conn.id), "Couldn't test the connection.")}>{busy ? 'Checking…' : 'Test connection'}</Button>
@@ -426,9 +472,9 @@ function Connected({ provider, conn, onChange, onReconnect, reconnecting }: {
         {!confirming && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(true)}>Disconnect</Button>}
       </div>
       {confirming && (
-        <div role="group" aria-label={'Disconnect ' + meta.name} className="mt-3 rounded-2xl bg-bad/5 p-3 ring-1 ring-bad/20">
-          <p className="text-[12.5px] leading-relaxed text-fg">
-            Bots lose access and the token is deleted from this computer. To revoke it at {meta.name} too, use <A href={meta.revokeUrl}>{meta.name}'s settings</A>.
+        <div role="group" aria-label={'Disconnect ' + meta.name} className="mt-3 rounded-lg bg-bad/5 p-3 ring-1 ring-bad/20">
+          <p className="text-ui leading-relaxed text-fg">
+            Bots lose access and the login is deleted from your server. To revoke it at {meta.name} too, use <A href={meta.revokeUrl}>{meta.name}'s settings</A>.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" variant="danger" disabled={busy} onClick={() => void run(() => api.integrations.disconnect(conn.id), "Couldn't disconnect.")}>Disconnect</Button>
@@ -456,19 +502,19 @@ function Connected({ provider, conn, onChange, onReconnect, reconnecting }: {
       )}
 
       <div className="mt-4">
-        <p id={grantsId} className="mb-1 text-[12.5px] font-medium text-fg">Bots that may use it</p>
-        <p className="mb-2 text-[12px] text-muted">A bot that is off here does not get any {meta.name} tools.</p>
+        <p id={grantsId} className="mb-1 text-label text-fg">Bots that may use it</p>
+        <p className={cn('mb-2 text-hint', conn.botIds.length ? 'text-muted' : 'text-warn')}>{conn.botIds.length ? 'Other bots get no ' + meta.name + ' tools.' : 'No bot can use it until you turn one on.'}</p>
         {bots.length ? (
           <ul aria-labelledby={grantsId} className="divide-y divide-line">
             {bots.map((b) => (
               <li key={b.id} className="flex items-center gap-3 py-2">
                 <Avatar bot={b} size={24} />
-                <span className="min-w-0 flex-1 truncate text-[13px]">{b.name}</span>
+                <span className="min-w-0 flex-1 truncate text-ui">{b.name}</span>
                 <Switch checked={conn.botIds.includes(b.id)} aria-label={b.name + ' may use ' + meta.name} onChange={(on) => toggle(b, on)} />
               </li>
             ))}
           </ul>
-        ) : <p className="text-[12.5px] text-muted">No bots yet.</p>}
+        ) : <p className="text-ui text-muted">No bots yet.</p>}
       </div>
       {error && <InlineError>{error}</InlineError>}
     </div>

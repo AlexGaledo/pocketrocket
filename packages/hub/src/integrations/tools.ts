@@ -29,7 +29,7 @@ export function createIntegrationTools(svc: IntegrationService, botId: string, c
 
   const fail = (p: IntegrationProvider, e: unknown) => {
     const msg = e instanceof IntegrationError ? e.message : String((e as Error)?.message ?? e);
-    const hint = e instanceof IntegrationError && e.auth ? ' The ' + label(p) + ' connection needs to be reconnected in Settings → Integrations; tell the user.' : '';
+    const hint = e instanceof IntegrationError && e.auth ? ' The ' + label(p) + ' connection needs to be reconnected in Settings → Connections; tell the user.' : '';
     return err(redact(label(p) + ': ' + msg + hint));
   };
 

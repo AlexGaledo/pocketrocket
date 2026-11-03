@@ -130,14 +130,25 @@ describe('turns on per-bot computers', () => {
     expect(cb.tools.some((t) => t.name.startsWith('desktop_'))).toBe(false);
   });
 
-  it('keeps the shared screen exactly as before when per-bot computers are off', async () => {
+  it('refuses Browser and Desktop when per-bot computers are off, with no shared-screen fallback', async () => {
     const s = setup({ enabled: false });
-    await s.run(s.mk('alpha', ['Browser']));
+    await s.run(s.mk('alpha', ['Read', 'Browser', 'Desktop']));
     const c = s.provider.seen[0];
+    expect(c.allowedBuiltins).toEqual(['Read']);
     expect(c.cdpUrl).toBeUndefined();
     expect(c.computerFilesDir).toBeUndefined();
-    expect(c.systemPrompt).toContain('## Shared computer');
-    expect(c.systemPrompt).not.toContain('## Your computer');
+    expect(c.tools.some((t) => t.name.startsWith('desktop_'))).toBe(false);
+    expect(c.systemPrompt).toContain('Your computer is unavailable this turn');
+    expect(c.systemPrompt).toContain('no per-bot computers');
+    expect(c.systemPrompt).not.toContain('browser_navigate');
     expect(s.sys.active.size).toBe(0);
+  });
+
+  it('leaves a bot without those tools alone when per-bot computers are off', async () => {
+    const s = setup({ enabled: false });
+    await s.run(s.mk('plain', ['Read', 'Bash']));
+    const c = s.provider.seen[0];
+    expect(c.allowedBuiltins).toEqual(['Read', 'Bash']);
+    expect(c.systemPrompt).not.toContain('Your computer is unavailable');
   });
 });

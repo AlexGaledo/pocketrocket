@@ -41,11 +41,11 @@ export function TokenPrompt() {
     }
     const probe = await probeHub(t);
     setChecking(false);
-    if (probe.result === 'auth') return setError("That token didn't work. Check you copied all of it.");
+    if (probe.result === 'auth') return setError("Token rejected. Check you copied it all.");
     if (probe.result === 'rateLimited') {
-      return setError('The hub is refusing sign-in attempts for now after too many tries. Wait ' + Math.ceil(probe.retryInMs / 1000) + ' seconds and try again.');
+      return setError('Too many tries. Wait ' + Math.ceil(probe.retryInMs / 1000) + ' seconds.');
     }
-    if (probe.result === 'unreachable') return setError("Couldn't reach the hub to check the token. " + probe.detail);
+    if (probe.result === 'unreachable') return setError("Couldn't reach the server. " + probe.detail);
     setToken(t);
     setNeedsToken(false);
     setValue('');
@@ -55,31 +55,28 @@ export function TokenPrompt() {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-labelledby="token-prompt-title" className="w-[380px] max-w-full rounded-2xl bg-card p-5 text-[13px] shadow-[var(--shadow-lg)]">
+      <div role="dialog" aria-modal="true" aria-labelledby="token-prompt-title" className="w-[380px] max-w-full rounded-lg bg-card p-5 text-ui shadow-[var(--shadow-lg)]">
         {pairing ? (
           <>
-            <div id="token-prompt-title" className="mb-1 text-[15px] font-semibold">{wasUnpaired() ? 'This device was unpaired' : "Couldn't pair this device"}</div>
+            <div id="token-prompt-title" className="mb-1 text-title-sm">{wasUnpaired() ? 'This device was unpaired' : "Couldn't pair this device"}</div>
             <p className="mb-3 text-muted">
-              {getPairError() ?? 'It was removed in Settings › Devices on the desktop.'} On the desktop app, open Settings › Devices,
-              choose Pair a phone and scan the new code, or type the code here.
+              {getPairError() ?? ''} Re-pair from desktop: Settings › Devices.
             </p>
           </>
         ) : (
           <>
-            <div id="token-prompt-title" className="mb-1 text-[15px] font-semibold">Paste the hub token</div>
-            <p className="mb-3 text-muted">
-              The hub stores this in <span className="font-mono">&lt;data&gt;/hub-token</span> (its startup output says
-              where), unless you set <span className="font-mono">POCKETROCKET_TOKEN</span> yourself. A pairing code from
-              Settings › Devices works too.
+            <div id="token-prompt-title" className="mb-1 text-title-sm">Paste the server token</div>
+            <p className="mb-3 text-muted" title="Saved in <data>/hub-token unless POCKETROCKET_TOKEN is set. Pairing codes come from Settings › Devices.">
+              Shown in server startup output. Pairing codes work.
             </p>
           </>
         )}
         <Input
           autoFocus
-          aria-label={pairing ? 'Pairing code' : 'Hub token'}
+          aria-label={pairing ? 'Pairing code' : 'Server token'}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? 'token-prompt-error' : undefined}
-          placeholder={pairing ? 'ABCD-EFGH' : 'hub token or pairing code'}
+          placeholder={pairing ? 'ABCD-EFGH' : 'server token or pairing code'}
           autoCapitalize={pairing ? 'characters' : 'off'}
           autoComplete="off"
           value={value}
@@ -89,7 +86,7 @@ export function TokenPrompt() {
           }}
         />
         {error && (
-          <p id="token-prompt-error" role="alert" className="mt-2 text-[12.5px] text-bad">
+          <p id="token-prompt-error" role="alert" className="mt-2 text-ui text-bad">
             {error}
           </p>
         )}

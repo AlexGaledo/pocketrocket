@@ -38,15 +38,14 @@ export function ApprovalRules() {
 
   return (
     <Group title="Approval rules">
-      <p className="mb-2 text-[12px] leading-snug text-muted">
-        Calls a bot may make without asking, also in routines nobody is watching. Add one from an approval card
-        after "Allow for this session". Sending or posting through an integration always asks.
+      <p className="mb-2 text-hint leading-snug text-muted">
+        Bots skip asking for these, even unattended.
       </p>
       <Card className="py-1">
         {rules === null ? (
-          <p className="py-2 text-[12.5px] text-muted" role="status">Loading…</p>
+          <p className="py-2 text-ui text-muted" role="status">Loading…</p>
         ) : rules.length === 0 ? (
-          <p className="py-2 text-[12.5px] text-muted">No rules. Every risky call asks.</p>
+          <p className="py-2 text-ui text-muted">No rules. Every risky call asks.</p>
         ) : (
           <ul className="divide-y divide-line">
             {rules.map((p) => {
@@ -55,12 +54,12 @@ export function ApprovalRules() {
                 <li key={p.id} className="flex items-center gap-3 py-2.5">
                   {bot && <Avatar bot={bot} size={24} />}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 text-[12.5px]">
+                    <div className="flex items-center gap-1.5 text-ui">
                       <span className="font-medium">{bot?.name ?? 'Deleted bot'}</span>
-                      <span className="font-mono text-[11.5px] text-muted">{p.tool}</span>
+                      <span className="font-mono text-hint text-muted">{p.tool}</span>
                       {p.decision === 'deny' ? <Badge tone="bad">deny</Badge> : <Badge tone="ok">allow</Badge>}
                     </div>
-                    <div className="truncate font-mono text-[11.5px] text-muted" title={p.pattern}>{p.pattern === '*' ? 'any call' : p.pattern}</div>
+                    <div className="truncate font-mono text-hint text-muted" title={p.pattern}>{p.pattern === '*' ? 'any call' : p.pattern}</div>
                   </div>
                   <Button size="sm" variant="ghost" disabled={busy === p.id} onClick={() => void revoke(p)}
                     aria-label={'Revoke rule: ' + (bot?.name ?? 'bot') + ' ' + p.tool + ' ' + p.pattern}>

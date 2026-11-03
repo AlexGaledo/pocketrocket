@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { deleteGate } from './deleteGate.js';
 import { isInside } from './pathRules.js';
 
 export type BashVerdict = { verdict: 'allow' | 'ask'; danger: boolean; reason: string };
@@ -154,6 +155,10 @@ export function classifyBash(cmd: string, allowedRoots: string[] = [], opts: { r
 
   const segs = segments(cmd);
   if (!segs.length) return { verdict: 'ask', danger: false, reason: 'Empty command' };
+  // The hook's `ask` lands here, so `echo "$(rm x)"` must not pass as an allowlisted echo. Danger also keeps
+  // "allow for this session" and approval rules from covering a real delete.
+  const del = deleteGate(cmd, allowedRoots[0] ?? process.cwd());
+  if (del) return { verdict: 'ask', ...del };
   if (!allowedRoots.length) return { verdict: 'ask', danger: false, reason: 'No workspace roots configured' };
 
   let cwd = allowedRoots[0];

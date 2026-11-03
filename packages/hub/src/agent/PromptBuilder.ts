@@ -38,6 +38,9 @@ export interface PromptCtx {
   computerUnavailable?: string;
 }
 
+/** Points at the Data Engineer's index without putting it in every prompt. */
+const INDEX_POINTER = 'Before searching the shared folder, read INDEX.md at its top if it exists. Name files YYYY-MM-DD-topic.ext when the date matters. Leave the index itself to @data-engineer.';
+
 const gb = (b: number) => (b / 1024 ** 3).toFixed(1) + ' GB';
 
 /** "Your computer" block for a bot with its own computer. Never claims isolation: it is the same OS user. */
@@ -48,6 +51,7 @@ function computerLines(ctx: PromptCtx, userName: string): string[] {
     'You have your own computer on this server (display ' + c.display + '): its own desktop, its own Chromium profile (the accounts logged in there are the ones you use) and its own disk at ' + c.filesDir + ' (Desktop, Downloads). ' + userName + ' can watch it and take over on the Screen tab.',
     "It is separate from the other bots' computers but not private: every bot runs as the same user on this server, so never treat anything on it as hidden from them.",
     '~/Shared on your computer is the team folder ' + WORKSPACE_DIR + ', which is also your working directory. Put anything other bots or ' + userName + ' need there; keep scratch downloads on your own disk.',
+    INDEX_POINTER,
     ...(full >= 0.8
       ? ['Disk warning: your computer uses ' + gb(c.diskBytes) + ' of its ' + gb(c.quotaBytes) + ' quota. At 100% it will not start. Delete what you no longer need from ' + c.filesDir + ' before downloading more.']
       : []),
@@ -128,7 +132,7 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
     '',
     ...(ctx.computer
       ? ['## Your computer', ...computerLines(ctx, USER_NAME)]
-      : ['## Shared computer', 'Working directory (shared with all bots): ' + WORKSPACE_DIR]),
+      : ['## Shared computer', 'Working directory (shared with all bots): ' + WORKSPACE_DIR, INDEX_POINTER]),
     ...(ctx.computerUnavailable
       ? ['Your computer is unavailable this turn, so the Browser and Desktop tools are off: ' + ctx.computerUnavailable + ' If the task needs them, say so to ' + USER_NAME + ' in one line.']
       : []),

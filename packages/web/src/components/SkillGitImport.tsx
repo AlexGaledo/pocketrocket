@@ -32,7 +32,7 @@ export function SkillGitImport({ onDone, onClose }: { onDone: () => void | Promi
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-2xl bg-card2/60 p-2">
+    <div className="flex flex-col gap-2 rounded-lg bg-card2/60 p-2">
       <Input
         placeholder="https://github.com/team/skills.git"
         aria-label="Git URL or folder to import skills from"
@@ -40,11 +40,11 @@ export function SkillGitImport({ onDone, onClose }: { onDone: () => void | Promi
         onChange={(e) => setUrl(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && url.trim() && !busy) void run(); }}
         spellCheck={false}
-        className="font-mono text-[12px]"
+        className="font-mono text-hint"
       />
-      <p className="text-[11.5px] text-dim">Every folder with a SKILL.md is copied in as pending. Review each one before assigning it.</p>
+      <p className="text-hint text-dim">Imported skills wait for your review.</p>
       {skipped.length > 0 && (
-        <ul className="max-h-28 overflow-y-auto text-[11.5px] text-muted" aria-label="Skipped skills">
+        <ul className="max-h-28 overflow-y-auto text-hint text-muted" aria-label="Skipped skills">
           {skipped.map((s) => <li key={s.name}><span className="font-medium">{s.name}</span>: {s.reason}</li>)}
         </ul>
       )}

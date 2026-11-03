@@ -45,6 +45,7 @@ import { createTriggersApi } from './api/triggers.js';
 import type { SocketFactory } from './services/SlackSocketMode.js';
 // P9: devices, pairing, push
 import { ALLOWED_HOSTS, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { seedDefaultBots } from './services/SeedBots.js';
 import { DEVICE_PAIR_PATH, deviceMayAccess, setPrincipal } from './api/guard.js';
 import { DevicesRepo } from './db/devices.js';
 import { DeviceService } from './services/DeviceService.js';
@@ -82,6 +83,8 @@ export interface HubOptions {
   allowedHosts?: readonly string[];
   /** Web Push; tests hand in one with a fixed VAPID key and a fake fetch. */
   push?: (devices: DevicesRepo, repos: Repos) => PushService;
+  /** Create the default bots on start. Only the real entry point sets it, so tests start empty. */
+  seedBots?: boolean;
   /** P2: x11vnc view-only toggle; tests pass a fake. Defaults to `x11vnc -R viewonly|noviewonly`. */
   vnc?: VncControl;
   // ---- P6 ----
@@ -142,6 +145,10 @@ export function createHub(opts: HubOptions = {}): Hub {
     modelsAsync: (p) => providers.modelsAwaited(p),
   });
   installSettings(settings);
+  if (opts.seedBots) {
+    const seeded = seedDefaultBots(repos, memory);
+    if (seeded.length) console.log('created default bots: ' + seeded.map((b) => '@' + b.handle).join(', '));
+  }
   const providers = createProviders({ settings, enabled: ENABLED_PROVIDERS });
   settings.ensureEnabledProvider();
   // Live, not a constant: toggling approvals in Settings reaches the very next tool call and turn.
@@ -161,7 +168,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   if (expired.length) console.log('expired ' + expired.length + ' approval card(s) left open by the previous run');
   const router = new RoomRouter(repos, usage);
   const turns = new TurnRegistry();
-  // Per-bot computers (P1). Off unless POCKETROCKET_COMPUTERS=1 on Linux; then every call is the shared screen.
+  // Per-bot computers (P1). Off unless POCKETROCKET_COMPUTERS=1 on Linux; then bots get no Browser or Desktop.
   const computers = opts.computers
     ? opts.computers(db)
     : new ComputerManager(new ComputersRepo(db), {

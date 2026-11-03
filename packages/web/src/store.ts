@@ -7,10 +7,14 @@ import type { RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
-import { applyTheme, watchSystemTheme } from './lib/theme';
+import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
+import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
+import type { SectionId } from './components/dialogs/SettingsDialog';
 
-export type PanelTab = 'screen' | 'memory' | 'skills' | 'routines' | 'usage';
+export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
+/** What the main pane shows over the chat. Null is the chat. */
+export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
@@ -21,7 +25,7 @@ const FALLBACK_PROVIDERS: ProvidersResponse = {
     {
       id: 'claude',
       label: 'Claude',
-      blurb: 'Anthropic Claude via the Agent SDK. Subscription or API key.',
+      blurb: 'Claude. Subscription or API key.',
       authModes: ['subscription', 'apiKey'],
       secretKeys: [],
       permissions: 'full',
@@ -43,13 +47,11 @@ function isAccountState(v: unknown): v is AccountState {
 }
 
 /**
- * Below these widths the side panels start closed, and opening or closing them is not remembered. The
- * saved choice is a desktop preference: closing a drawer on a phone-sized window must not hide the panel
- * the next time the app opens full screen. The panel query is wider than App's drawer breakpoint (lg)
- * because between the two the chat is left too narrow to read with the 340px panel beside it.
+ * Below this width the sidebar starts closed, and opening or closing it is not remembered. The saved choice
+ * is a desktop preference: closing a drawer on a phone-sized window must not hide the sidebar the next time
+ * the app opens full screen. Same width as App's drawer rule, from lib/panes.ts.
  */
-export const NARROW_PANEL_QUERY = '(max-width: 1099px)';
-export const NARROW_SIDEBAR_QUERY = '(max-width: 767px)';
+export const NARROW_SIDEBAR_QUERY = '(max-width: ' + (SIDEBAR_INLINE_MIN - 1) + 'px)';
 function matches(query: string): boolean {
   try {
     return window.matchMedia(query).matches;
@@ -64,12 +66,14 @@ export interface Toast {
   bad?: boolean;
   /** Makes the text a button that runs this (and dismisses the toast). */
   action?: { label: string; run: () => void };
-  /** Stays until dismissed or removed by `key`, instead of fading after a few seconds. */
+  /** Stays until dismissed or removed by `key`, instead of fading after a few seconds. Errors always stay. */
   sticky?: boolean;
+  /** The user has to act, nothing failed: warning color rather than the error red of `bad`. */
+  warn?: boolean;
   /** Lets code remove the toast later (e.g. once an approval is answered). */
   key?: string;
 }
-export type ToastOptions = Pick<Toast, 'action' | 'sticky' | 'key'>;
+export type ToastOptions = Pick<Toast, 'action' | 'sticky' | 'warn' | 'key'>;
 
 /** Why the live connection is down, as far as lib/ws.ts could tell. */
 export type HubIssue =
@@ -85,6 +89,7 @@ const approvalToastKey = (roomId: string, approvalId: string) => 'approval:' + r
 function applyLocalSettings(s: Settings) {
   setSoundsEnabled(s.sounds);
   applyTheme(s.theme);
+  applyFont(s.font);
 }
 
 interface State {
@@ -109,12 +114,18 @@ interface State {
   /** P5: bumped on WS `triggers.changed` / `trigger.fired` / `integrations.changed`; the Triggers section refetches. */
   triggersRev: number;
   memory: Record<string, string>;
+  /** The user asked to watch the screen (lib/screenView.ts). Not remembered: a fresh start is always the chat. */
   panelOpen: boolean;
-  /** Left sidebar. Same treatment as panelOpen: remembered per browser so a narrow screen stays narrow. */
+  /** Left sidebar. Remembered per browser so a narrow screen stays narrow. */
   sidebarOpen: boolean;
-  panelTab: PanelTab;
+  /** The widths asked for, per browser. lib/panes.ts works out what fits. */
+  paneW: PaneWidths;
+  /** The panel takes all the width the chat can spare; `paneW.panel` is what it goes back to. */
+  panelExpanded: boolean;
+  /** Whose screen the user chose in a group chat. lib/screenView.ts says whose actually shows. */
   panelBotId: string | null;
-  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'settings' } | null;
+  page: Page | null;
+  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'settings'; section?: SectionId } | null;
   toasts: Toast[];
   settings: Settings;
   providers: ProvidersResponse | null;
@@ -167,9 +178,14 @@ interface State {
   sendMessage: (text: string) => void;
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
-  openPanel: (tab: PanelTab, botId?: string | null) => void;
+  openScreen: (botId?: string | null) => void;
+  openPage: (page: Page) => void;
+  closePage: () => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  setPaneW: (pane: PaneId, width: number) => void;
+  setPaneOpen: (pane: PaneId, open: boolean) => void;
+  togglePanelExpanded: () => void;
   closePanel: () => void;
   openDialog: (d: State['dialog']) => void;
   toast: (text: string, bad?: boolean, opts?: ToastOptions) => void;
@@ -197,10 +213,12 @@ export const useStore = create<State>((set, get) => ({
   routinesRev: 0,
   triggersRev: 0,
   memory: {},
-  panelOpen: !matches(NARROW_PANEL_QUERY) && localStorage.getItem('prcrew.panel') !== '0',
+  panelOpen: false,
   sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('prcrew.sidebar') !== '0',
-  panelTab: 'memory',
+  paneW: readPaneWidths(window.innerWidth),
+  panelExpanded: false,
   panelBotId: null,
+  page: null,
   dialog: null,
   toasts: [],
   settings: DEFAULT_SETTINGS,
@@ -281,8 +299,8 @@ export const useStore = create<State>((set, get) => ({
           play('approvalRequest');
           if (m.roomId !== s.activeRoomId) {
             const bot = botById(s.bots, m.authorId);
-            get().toast((bot?.name ?? 'A bot') + ' needs you on its computer', true, {
-              sticky: true, key: 'takeover:' + m.id, action: { label: 'Open', run: () => get().setActiveRoom(m.roomId) },
+            get().toast((bot?.name ?? 'A bot') + ' needs you on its screen', false, {
+              sticky: true, warn: true, key: 'takeover:' + m.id, action: { label: 'Open', run: () => get().setActiveRoom(m.roomId) },
             });
           }
         }
@@ -329,8 +347,9 @@ export const useStore = create<State>((set, get) => ({
         const room = s.rooms.find((r) => r.id === ev.roomId);
         const who = bot?.name ?? 'A bot';
         const where = room && room.kind === 'group' ? ' in ' + room.name : '';
-        get().toast(who + ' needs your approval' + where, true, {
+        get().toast(who + ' needs your approval' + where, false, {
           sticky: true,
+          warn: true,
           key: approvalToastKey(ev.roomId, ev.approval.approvalId),
           action: { label: 'Open', run: () => get().setActiveRoom(ev.roomId) },
         });
@@ -393,7 +412,8 @@ export const useStore = create<State>((set, get) => ({
     if (id) localStorage.setItem('prcrew.activeRoom', id);
     const unread = { ...get().unread };
     if (id) delete unread[id];
-    set({ activeRoomId: id, unread });
+    // Moving to another chat leaves a page. The same chat again (a reconnect's hello) must not.
+    set({ activeRoomId: id, unread, page: id === get().activeRoomId ? get().page : null });
     // The room is on screen now, approval card included, so its reminders are done.
     if (id) get().dismissToast({ keyPrefix: 'approval:' + id + ':' });
     if (id && !get().loaded[id]) void get().loadMessages(id);
@@ -454,26 +474,35 @@ export const useStore = create<State>((set, get) => ({
   interrupt: (turnId) => {
     wsSend({ type: 'turn.interrupt', turnId });
   },
-  openPanel: (tab, botId) => {
-    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('prcrew.panel', '1');
-    set({ panelOpen: true, panelTab: tab, panelBotId: botId === undefined ? get().panelBotId : botId });
-  },
-  closePanel: () => {
-    if (!matches(NARROW_PANEL_QUERY)) localStorage.setItem('prcrew.panel', '0');
-    set({ panelOpen: false });
-  },
+  openScreen: (botId) => set({ panelOpen: true, panelBotId: botId === undefined ? get().panelBotId : botId }),
+  closePanel: () => set({ panelOpen: false }),
+  openPage: (page) => set({ page }),
+  closePage: () => set({ page: null }),
   toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
   setSidebarOpen: (open) => {
     if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('prcrew.sidebar', open ? '1' : '0');
     set({ sidebarOpen: open });
   },
+  setPaneW: (pane, width) => {
+    writePaneWidth(pane, width);
+    set((s) => ({ paneW: { ...s.paneW, [pane]: width }, panelExpanded: pane === 'panel' ? false : s.panelExpanded }));
+  },
+  setPaneOpen: (pane, open) => {
+    if (pane === 'sidebar') get().setSidebarOpen(open);
+    else if (open) get().openScreen();
+    else get().closePanel();
+  },
+  togglePanelExpanded: () => set((s) => ({ panelExpanded: !s.panelExpanded })),
   openDialog: (dialog) => set({ dialog }),
   toast: (text, bad, opts) => {
+    // Errors now stay until dismissed, so the same one repeating (a retry loop, every send while offline) must not stack.
+    if (bad && !opts?.key && get().toasts.some((t) => t.bad && t.text === text)) return;
     // A keyed toast replaces its earlier copy rather than stacking a duplicate.
     const id = ++toastSeq;
     const rest = opts?.key ? get().toasts.filter((t) => t.key !== opts.key) : get().toasts;
     set({ toasts: [...rest, { id, text, bad, ...opts }] });
-    if (!opts?.sticky) setTimeout(() => get().dismissToast({ id }), 4000);
+    // An error has to survive being read, and may hold a reason the user needs: only the user clears it.
+    if (!opts?.sticky && !bad) setTimeout(() => get().dismissToast({ id }), 4000);
   },
   dismissToast: (which) => {
     const keep = 'id' in which

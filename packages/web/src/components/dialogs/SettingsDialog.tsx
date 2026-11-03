@@ -1,6 +1,6 @@
 /**
  * Settings: a wide dialog with a section list on the left (a tab strip across the top in a narrow
- * window) — Account · Claude · Bots · Integrations · Knowledge · Devices · Appearance · About. Each section lives in
+ * window) — Account · Claude · Bots · Connections · Knowledge · Devices · Appearance · About. Each section lives in
  * components/settings/.
  * The list is Radix Tabs, which brings arrow-key navigation, aria-selected and the tab/tabpanel wiring.
  * The last section opened is remembered until the page reloads.
@@ -23,7 +23,7 @@ import { AboutSection } from '../settings/AboutSection';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
 
-type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
+export type SectionId = 'account' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
   // P4
   | 'integrations'
   // P9
@@ -34,7 +34,7 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'claude', label: 'Claude', icon: Sparkles },
   { id: 'bots', label: 'Bots', icon: ShieldCheck },
   // P4
-  { id: 'integrations', label: 'Integrations', icon: Plug },
+  { id: 'integrations', label: 'Connections', icon: Plug },
   // P7
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   // P9
@@ -68,11 +68,11 @@ function useHealth() {
   return { health, refresh };
 }
 
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+export function SettingsDialog({ section: opening, onClose }: { section?: SectionId; onClose: () => void }) {
   // P9
   const device = useStore((s) => s.device);
   const sections = device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS;
-  const [section, setSection] = useState<SectionId>(device && !DEVICE_SECTIONS.includes(lastSection) ? 'devices' : lastSection);
+  const [section, setSection] = useState<SectionId>(opening ?? (device && !DEVICE_SECTIONS.includes(lastSection) ? 'devices' : lastSection));
   const sideNav = useMediaQuery(SIDE_NAV_QUERY);
   const { health, refresh: refreshHealth } = useHealth();
 
@@ -106,7 +106,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <TabsPrimitive.Trigger
                 key={id}
                 value={id}
-                className="flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] font-medium text-muted hover:bg-card2/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 data-[state=active]:bg-card2 data-[state=active]:text-fg sm:gap-2.5 sm:px-3 sm:py-2 sm:data-[state=active]:bg-panel sm:data-[state=active]:shadow-[var(--shadow)]"
+                className="flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-ui text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:bg-active data-[state=active]:text-fg sm:gap-2.5 sm:px-3 sm:py-2"
               >
                 {/* Icons only in the side list; the top strip needs the room to fit every name (it scrolls when it cannot). */}
                 <Icon size={15} aria-hidden className="hidden shrink-0 sm:block" />

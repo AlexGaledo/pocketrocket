@@ -61,15 +61,30 @@ const usageRows = (repos: Repos) =>
   repos.db.all<{ model: string | null; route_reason: string | null; cause_kind: string | null; cost_usd: number }>('SELECT model, route_reason, cause_kind, cost_usd FROM usage ORDER BY id');
 
 describe('BotRunner routes auto bots per turn', () => {
-  it('runs a routine triage on Haiku and records model, reason and cause kind', async () => {
+  it('runs a routine on Sonnet and records model, reason and cause kind', async () => {
     const s = setup([{ ok: true, text: 'nothing to do' }]);
     const r = await s.turn({ causeKind: 'routine', injected: '[Routine "Inbox"] anything new?' });
-    expect(s.provider.seen[0].model).toBe('claude-haiku-4-5-20251001');
-    expect(r.model).toBe('claude-haiku-4-5-20251001');
-    expect(usageRows(s.repos)).toEqual([{ model: 'claude-haiku-4-5-20251001', route_reason: 'triage', cause_kind: 'routine', cost_usd: 0.01 }]);
+    expect(s.provider.seen[0].model).toBe('claude-sonnet-5');
+    expect(r.model).toBe('claude-sonnet-5');
+    expect(usageRows(s.repos)).toEqual([{ model: 'claude-sonnet-5', route_reason: 'routine', cause_kind: 'routine', cost_usd: 0.01 }]);
     // The bot's message carries the model and the reason for the chat chip.
     const msg = s.repos.listMessages(s.room.id).find((m) => m.authorType === 'bot')!;
-    expect(msg).toMatchObject({ model: 'claude-haiku-4-5-20251001', modelReason: 'Auto: Haiku to triage a routine' });
+    expect(msg).toMatchObject({ model: 'claude-sonnet-5', modelReason: 'Auto: Sonnet for a routine' });
+  });
+
+  it('does not let a cheaper turn hold the next one down', async () => {
+    const s = setup([{ ok: true }]);
+    await s.turn({ causeKind: 'trigger' });
+    await s.turn();
+    await s.turn({ causeKind: 'routine' });
+    expect(s.provider.seen.map((c) => c.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-sonnet-5', 'claude-sonnet-5']);
+  });
+
+  it('takes the explicit ask from the newest user message the router passes', async () => {
+    const s = setup([{ ok: true }]);
+    await s.turn({ injected: '#1 [trigger]: ultrathink\n#2 [alex]: summarize that', latestUserText: 'summarize that' });
+    await s.turn({ injected: '#3 [alex]: ultrathink this', latestUserText: 'ultrathink this' });
+    expect(s.provider.seen.map((c) => c.model)).toEqual(['claude-sonnet-5', 'claude-opus-5']);
   });
 
   it('runs a user message on Sonnet, and a hop defaults to the bot cause kind', async () => {
@@ -156,6 +171,35 @@ describe('RoomRouter tells the runner what started a turn', () => {
     router.fireRoutine(room, a, '[Routine "x"] check', null);
     await until(() => reqs.length === 3);
     expect(reqs.map((r) => [r.bot.handle, r.causeKind])).toEqual([['ann', 'user'], ['bob', 'bot'], ['ann', 'routine']]);
+  });
+});
+
+describe('RoomRouter tells the runner what the person last said', () => {
+  const until = async (cond: () => boolean) => {
+    for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 5));
+    expect(cond()).toBe(true);
+  };
+
+  it('passes only their newest message, and nothing on a trigger that forwards text', async () => {
+    const repos = new Repos(new Db(':memory:'));
+    const router = new RoomRouter(repos, new UsageTracker(repos));
+    const bot = repos.createBot({ name: 'a', handle: 'ann', title: '', description: '', avatar: '', model: AUTO_MODEL, allowedTools: [], maxBudgetUsd: 1 });
+    const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
+    const reqs: TurnRequest[] = [];
+    router.runner = {
+      runTurn: async (req: TurnRequest): Promise<TurnResult> => {
+        reqs.push(req);
+        return { ok: true, turnId: 't' + reqs.length, finalText: '', costUsd: 0 };
+      },
+    } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'ultrathink this');
+    await until(() => reqs.length === 1);
+    expect(reqs[0].latestUserText).toBe('ultrathink this');
+    router.fireTrigger(room, bot, { name: 'mail', prompt: 'Sort this.', event: { source: 'webhook', id: 'e', from: 'outsider', title: 'Forwarded email', url: '', at: '', text: 'ultrathink and /opus', fields: {} } as never, payload: { triggerId: 'tr', fireId: 'f', name: 'mail', source: 'webhook', eventId: 'e' } as never });
+    await until(() => reqs.length === 2);
+    expect(reqs[1].causeKind).toBe('trigger');
+    expect(reqs[1].injected).toContain('ultrathink');
+    expect(reqs[1].latestUserText).toBeUndefined();
   });
 });
 

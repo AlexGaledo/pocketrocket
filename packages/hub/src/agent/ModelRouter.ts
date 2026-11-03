@@ -5,16 +5,18 @@ import type { TurnUsage } from '../services/UsageTracker.js';
  * Model router (P8, grok-bot-parity.md §2.7). A bot whose model is `auto` gets one picked per turn:
  *
  *   1. auto-memory and skill reflection          → Haiku   (`background`)
- *   2. an explicit ask: "think hard", `/opus`     → Opus    (`explicit`)
+ *   2. the person's newest message on a turn they started says "think hard" or `/opus` → Opus (`explicit`)
  *      or a skill the message invokes that declares `model: opus`  (`skill`)
- *   3. routine or trigger triage                  → Haiku   (`triage`)
+ *   3. a routine                                  → Sonnet  (`routine`)
+ *      a trigger's triage                         → Haiku   (`triage`)
  *   4. optional Haiku classifier, when switched on in Settings     (`classifier`)
  *   5. everything else                            → Sonnet  (`default`)
  *   and, mid-turn, a retry after `error_max_turns` or an error     → Opus (`retry`, see `escalate`)
  *
- * The spec lists the explicit ask last because it is an escalation; it is checked before triage so a routine
- * prompt that says "think hard" is not quietly run on Haiku. Memory and reflection passes are one-shot and
- * never escalate.
+ * The explicit ask never reads the injected transcript: that holds forwarded emails and other bots' text, and an
+ * outsider must not be able to pick Opus. Memory and reflection passes are one-shot and never escalate.
+ *
+ * Each turn is routed on its own and nothing is stored, so a cheaper turn never holds later turns down.
  *
  * Hard limits:
  * - It only ever returns a model the active provider lists (Q12: the router stays within the provider). A tier
@@ -25,7 +27,7 @@ import type { TurnUsage } from '../services/UsageTracker.js';
  */
 
 export type ModelTier = 'haiku' | 'sonnet' | 'opus';
-export type RouteReason = 'pinned' | 'background' | 'explicit' | 'skill' | 'triage' | 'classifier' | 'default' | 'retry';
+export type RouteReason = 'pinned' | 'background' | 'explicit' | 'skill' | 'routine' | 'triage' | 'classifier' | 'default' | 'retry';
 
 export interface RouteRequest {
   bot: Pick<Bot, 'model'>;
@@ -33,6 +35,8 @@ export interface RouteRequest {
   causeKind: CauseKind;
   /** The text the bot is about to read (BotRunner's injected transcript). */
   input: string;
+  /** The newest message a person wrote in `input`. Only this, on a turn a person started, can be an explicit ask. */
+  latestUserText?: string;
   /** The active provider's models (`provider.modelsSync()`). Only these are ever chosen. */
   models: readonly ModelInfo[];
   /** Approved skills of this bot whose SKILL.md declares `model: opus` (SkillService.opusSkillNames). */
@@ -138,11 +142,11 @@ export function route(req: RouteRequest): RouteChoice {
   if (!isAuto(req.bot)) return pinned(req);
   if (req.causeKind === 'memory') return choose(req, 'haiku', 'background', 'for the auto-memory pass');
   if (req.causeKind === 'reflection') return choose(req, 'haiku', 'background', 'for the skill reflection pass');
-  const asked = explicitRequest(req.input);
+  const asked = req.causeKind === 'user' ? explicitRequest(req.latestUserText ?? '') : null;
   if (asked) return choose(req, 'opus', 'explicit', 'because the message asked ("' + asked + '")');
   const skill = invokedSkill(req.input, req.opusSkills ?? []);
   if (skill) return choose(req, 'opus', 'skill', 'because skill "' + skill + '" declares model: opus');
-  if (req.causeKind === 'routine') return choose(req, 'haiku', 'triage', 'to triage a routine');
+  if (req.causeKind === 'routine') return choose(req, 'sonnet', 'routine', 'for a routine');
   if (req.causeKind === 'trigger') return choose(req, 'haiku', 'triage', 'to triage a trigger');
   return choose(req, 'sonnet', 'default', '(default)');
 }

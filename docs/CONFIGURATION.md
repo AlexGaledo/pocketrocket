@@ -86,7 +86,7 @@ Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the
 
 Systemd units `pocketrocket-crew` and `pocketrocket-crew-screen` run as the unprivileged `pocketrocket-crew` user under `/home/pocketrocket-crew/pocketrocket-crew` (hub on 7790, screen on display `:98`, CDP 9223, VNC 5901, noVNC 6081, so a stock PocketRocket can run on the same VPS); env for the hub lives in the unit file (`PORT`, `POCKETROCKET_DATA`, `SCREEN_*`, `CDP_URL`). `SCREEN_W`/`SCREEN_H` in the screen unit. The hub token applies in server mode too: it is written to `<data>/hub-token` on the VPS; reach the hub only through an SSH tunnel, then paste that value or open `http://127.0.0.1:7790/#token=<token>`. The Screen tab has no separate VNC password: `x11vnc` runs `-nopw` on loopback and the hub's `/screen/` cookie auth is the gate.
 
-## 7. Integrations (Settings → Integrations; `<data>/integrations.json` + `<data>/vault.key`)
+## 7. Integrations (Settings → Connections; `<data>/integrations.json` + `<data>/vault.key`)
 
 Connections to GitHub, Google (Gmail, Calendar, Drive), Slack, ClickUp and Microsoft Teams. One connection per provider, shared by all bots; a bot gets a provider's tools only after it is switched on under that connection ("Bots that may use it"). Read tools run silently; every write tool (`gmail_send`, `calendar_create_event`, `slack_post_message`, `github_create_issue`, `github_comment`, `clickup_create_task`, `clickup_comment`, `teams_send_chat`) shows an approval card on **every** call, also when approvals are bypassed.
 

@@ -42,14 +42,14 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
           const room = await api.rooms.create({ kind: 'dm', name: created.name, memberIds: [created.id], coordinatorBotId: null });
           useStore.getState().setActiveRoom(room.id);
         } catch (e) {
-          toast(created.name + ' was created, but its chat could not be opened: ' + (e as Error).message, true);
+          toast(created.name + " created. Couldn't open its chat: " + (e as Error).message, true);
         }
       }
       onClose();
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   };
   const remove = async () => {
-    if (!bot || !confirm('Delete ' + bot.name + '? Rooms keep their history; the bot is removed from them.')) return;
+    if (!bot || !confirm('Delete ' + bot.name + '? Chat history stays.')) return;
     setBusy(true);
     try {
       await api.bots.remove(bot.id);
@@ -67,32 +67,34 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
           {presets(settings.userName).map((p) => <Button key={p.label} size="sm" onClick={() => set({ ...p.v, allowedTools: p.v.allowedTools ?? DEFAULT_TOOLS })}>{p.v.avatar} {p.label}</Button>)}
         </div>
       )}
-      <div className="grid grid-cols-[64px_1fr_1fr] gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[64px_1fr_1fr]">
         <Field><Label>Avatar</Label><Input value={f.avatar} onChange={(e) => set({ avatar: e.target.value })} className="text-center text-lg" maxLength={4} /></Field>
         <Field><Label>Name</Label><Input value={f.name} onChange={(e) => set({ name: e.target.value, handle: bot ? f.handle : autoHandle(e.target.value) })} placeholder="Researcher" autoFocus /></Field>
         <Field><Label hint="mention as @handle">Handle</Label><Input value={f.handle} onChange={(e) => set({ handle: e.target.value.toLowerCase() })} placeholder="researcher" className="font-mono" /></Field>
       </div>
       <Field className="mt-3"><Label>Title</Label><Input value={f.title} onChange={(e) => set({ title: e.target.value })} placeholder="Web research & summaries" /></Field>
       <Field className="mt-3">
-        <Label hint="becomes the bot's identity (CLAUDE.md)">Role description</Label>
-        <Textarea rows={5} value={f.description} onChange={(e) => set({ description: e.target.value })} placeholder="What this bot is responsible for, how it should work, what it should avoid." />
+        <Label hint="The bot's instructions">Role description</Label>
+        <Textarea rows={5} value={f.description} onChange={(e) => set({ description: e.target.value })} placeholder="What it does, and what to avoid." />
       </Field>
-      <div className="mt-3 grid grid-cols-2 gap-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field><Label>Model</Label><Select value={f.model} onChange={(e) => set({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>)}</Select></Field>
-        <Field><Label hint="stops a runaway turn">Budget per turn (USD)</Label><Input type="number" step="0.5" min="0.05" value={f.maxBudgetUsd} onChange={(e) => set({ maxBudgetUsd: Number(e.target.value) })} /></Field>
+        <Field><Label hint="stops a runaway reply">Usage limit per reply (API-price USD)</Label><Input type="number" step="0.5" min="0.05" value={f.maxBudgetUsd} onChange={(e) => set({ maxBudgetUsd: Number(e.target.value) })} /></Field>
       </div>
       <div className="mt-3">
         {/* Toggle buttons, not a form control: the caption names the group and each button reports its own state. */}
-        <Label id="bot-tools-label" hint="Browser = shared logged-in Chrome · Desktop = see/click the whole screen">Tools</Label>
+        <Label id="bot-tools-label">Tools</Label>
         <div role="group" aria-labelledby="bot-tools-label" className="flex flex-wrap gap-1.5">
           {BUILTIN_TOOLS.filter((t) => t !== 'Skill' && t !== 'MultiEdit' && t !== 'NotebookEdit').map((t) => {
             const on = f.allowedTools.includes(t);
             return (
               <button key={t} type="button" aria-pressed={on} onClick={() => set({ allowedTools: on ? f.allowedTools.filter((x) => x !== t) : [...f.allowedTools, t] })}
-                className={cn('rounded-md border px-2 py-1 text-xs font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60', on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-line bg-card text-muted')}>{t}</button>
+                className={cn('rounded-xs border px-2 py-1 text-hint font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', on ? 'border-accent/50 bg-accent/15 text-accent' : 'border-line bg-card text-muted')}>{t}</button>
             );
           })}
         </div>
+        {/* Below the toggles, not a Label hint: hints truncate on a narrow window, and this line is the warning. */}
+        <p className="mt-1.5 text-hint text-dim">Browser: web. Desktop: whole screen. Bash: sees other bots' logins.</p>
       </div>
       <div className="mt-5 flex items-center justify-between">
         <div>{bot && <Button variant="danger" size="sm" onClick={remove} disabled={busy}>Delete bot</Button>}</div>

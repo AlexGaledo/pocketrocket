@@ -102,6 +102,7 @@ export const SettingsSchema = z.object({
   sounds: z.boolean().default(true),
   onboarded: z.boolean().default(false),
   theme: z.enum(['system', 'light', 'dark']).default('system'),
+  font: z.enum(['google-sans', 'figtree']).default('google-sans'),
   /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
   approvals: z.enum(APPROVALS).default('ask'),
   /**

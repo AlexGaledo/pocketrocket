@@ -1,55 +1,88 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ---- tokens: airy light canvas by default; .dark swaps the same names ---- */
+/* ---- tokens: warm, flat canvas by default; .dark swaps the same names ---- */
 :root {
-  --bg: #f7f7f8;          /* canvas */
+  --bg: #f8f8f6;          /* app, chat, sidebar: one surface */
   --side: transparent;    /* sidebar sits directly on the canvas */
-  --panel: #ffffff;       /* floating panels */
-  --card: #ffffff;
-  --card2: #f0f1f3;       /* soft fills: user bubble, chips hover, inputs */
-  --line: #e6e7ea;        /* hairlines, used sparingly */
-  --fg: #111214;
-  --muted: #5c636d;      /* AA on --card2, the lowest-contrast surface text sits on */
-  --dim: #676d75;         /* AA too: quieter than --muted, but still readable */
-  --accent: #3f66c9;      /* one soft signal color: links, focus, thinking ring */
-  --accent2: #2f52ab;
-  --ok: #177a52;
-  --warn: #9c5a20;
-  --bad: #c23c3c;
-  --user: #eef0f3;
-  --ink: #111214;         /* primary actions are black, like a native app */
+  --panel: #fdfdfb;       /* floating things only: composer, popovers, dialogs, toasts */
+  --card: #fdfdfb;
+  --card2: #f0efec;       /* soft fills: inputs, code, chips */
+  --user: #efeeea;        /* the user's bubble */
+  --line: #e8e7e3;        /* decorative hairline */
+  --line2: #d6d5d0;       /* decorative, stronger */
+  --fg: #2b2b29;
+  --muted: #62615d;       /* AA on every surface text sits on */
+  --dim: #6c6b67;         /* AA too: quieter than --muted, for captions and placeholders */
+  --faint: #878681;       /* 3:1 only: icons and control boundaries, never text */
+  --accent: #1f5ac6;      /* one signal color: links, focus */
+  --accent2: #194ba6;     /* accent hover */
+  --ok: #10693f;
+  --warn: #845008;
+  --bad: #ae2a35;
+  --ink: #2b2b29;         /* primary actions */
   --ink-fg: #ffffff;
-  --shadow: 0 1px 2px rgba(17, 18, 20, 0.04), 0 8px 24px rgba(17, 18, 20, 0.06);
-  --shadow-lg: 0 2px 4px rgba(17, 18, 20, 0.06), 0 24px 48px rgba(17, 18, 20, 0.12);
-  --wash-a: rgba(79, 125, 243, 0.10);
-  --wash-b: rgba(31, 157, 106, 0.08);
+  --on-fill: #ffffff;     /* text on a solid accent, ok or bad fill; dark ink in dark mode */
+  --hover: rgba(50, 35, 10, 0.05);
+  --active: rgba(50, 35, 10, 0.08);
+  --shadow-sm: 0 1px 2px rgba(20, 16, 10, 0.05);
+  --shadow: 0 2px 6px rgba(60, 35, 0, 0.03), 0 8px 12px rgba(60, 35, 0, 0.03);   /* composer, menus */
+  --shadow-overlay: 0 4px 16px rgba(20, 16, 10, 0.10), 0 1px 3px rgba(20, 16, 10, 0.06);   /* toasts, drawers */
+  --shadow-lg: 0 12px 40px rgba(20, 16, 10, 0.18), 0 2px 8px rgba(20, 16, 10, 0.08);   /* dialogs only */
   color-scheme: light;
 }
 .dark {
-  --bg: #0b0c0f;
+  --bg: #1c1c1b;
   --side: transparent;
-  --panel: #15171b;
-  --card: #15171b;
-  --card2: #1f2228;
-  --line: #262a31;
-  --fg: #f2f3f5;
-  --muted: #9aa3ae;
-  --dim: #868d98;         /* AA on --card2 */
-  --accent: #7ea1ff;
-  --accent2: #5f88f2;
-  --ok: #38c48a;
-  --warn: #f0954a;
-  --bad: #f06060;
-  --user: #22262d;
-  --ink: #f2f3f5;
-  --ink-fg: #0b0c0f;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.55);
-  --wash-a: rgba(126, 161, 255, 0.10);
-  --wash-b: rgba(56, 196, 138, 0.07);
+  --panel: #262524;
+  --card: #262524;
+  --card2: #302f2d;
+  --user: #33322f;
+  --line: #373634;
+  --line2: #57564f;
+  --fg: #e8e7e4;
+  --muted: #b0afa9;
+  --dim: #a3a29c;
+  --faint: #7d7c77;
+  --accent: #86b2ff;
+  --accent2: #a3c5ff;
+  --ok: #4fd19b;
+  --warn: #f0a95c;
+  --bad: #ff8a8a;
+  --ink: #e8e7e4;
+  --ink-fg: #1c1c1b;
+  --on-fill: #1c1c1b;
+  --hover: rgba(255, 255, 255, 0.06);
+  --active: rgba(255, 255, 255, 0.10);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.18);
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 8px 12px rgba(0, 0, 0, 0.10);
+  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.40), 0 1px 3px rgba(0, 0, 0, 0.30);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
+
+/* Shape and rhythm; the same in both themes. Pills (rounded-full) are for avatars, status badges and toggles only. */
+:root {
+  --r-xs: 6px;            /* chips, inline code */
+  --r-sm: 8px;            /* sidebar rows, menu items */
+  --r-md: 10px;           /* buttons, inputs */
+  --r-lg: 14px;           /* cards, code blocks */
+  --r-xl: 18px;           /* dialogs, popovers */
+  --r-composer: 24px;
+  --page-max: 800px;      /* the chat column */
+  /* In em so a note in small text keeps its proportions; at the 15px body these are 16, 32 and 8px. */
+  --para-gap: 1.0667em;
+  --heading-before: 2.1333em;
+  --heading-after: 0.5333em;
+}
+
+/*
+ * Weights, per font, so a title looks equally heavy in either. Picked by measuring the capital-I stem from
+ * the bundled files, aiming at about .089 / .108 / .125 em. Figtree needs more of its axis to get there.
+ * Google Sans's axis is 400-700 and Figtree's is 300-900, so stay inside 400-700.
+ */
+:root { --w-normal: 415; --w-medium: 500; --w-semibold: 620; }
+:root[data-font="figtree"] { --w-normal: 425; --w-medium: 540; --w-semibold: 640; }
 
 @theme inline {
   --color-bg: var(--bg);
@@ -58,9 +91,11 @@
   --color-card: var(--card);
   --color-card2: var(--card2);
   --color-line: var(--line);
+  --color-line2: var(--line2);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
   --color-dim: var(--dim);
+  --color-faint: var(--faint);
   --color-accent: var(--accent);
   --color-accent2: var(--accent2);
   --color-ok: var(--ok);
@@ -69,19 +104,40 @@
   --color-user: var(--user);
   --color-ink: var(--ink);
   --color-ink-fg: var(--ink-fg);
-  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --color-on-fill: var(--on-fill);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-composer: var(--r-composer);
+  --font-sans: var(--app-font);
+  --font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-weight-normal: var(--w-normal);
+  --font-weight-medium: var(--w-medium);
+  --font-weight-semibold: var(--w-semibold);
 }
+
+/* ---- type scale: these seven and nothing else; nothing below 12px ---- */
+@theme {
+  --text-hint: 12px;       --text-hint--line-height: 16px;     --text-hint--letter-spacing: 0.01em;      --text-hint--font-weight: var(--w-normal);     /* timestamps, captions, badges */
+  --text-label: 13px;      --text-label--line-height: 16px;    --text-label--letter-spacing: 0.008em;    --text-label--font-weight: var(--w-medium);    /* section headers, field labels */
+  --text-ui: 14px;         --text-ui--line-height: 20px;       --text-ui--letter-spacing: 0.007em;       --text-ui--font-weight: var(--w-normal);       /* sidebar, buttons, inputs, menus */
+  --text-body: 15px;       --text-body--line-height: 24px;     --text-body--letter-spacing: 0.003em;     --text-body--font-weight: var(--w-normal);     /* messages, markdown */
+  --text-title-sm: 17px;   --text-title-sm--line-height: 22px; --text-title-sm--letter-spacing: 0;       --text-title-sm--font-weight: var(--w-semibold); /* dialog titles */
+  --text-title: 20px;      --text-title--line-height: 26px;    --text-title--letter-spacing: 0;          --text-title--font-weight: var(--w-medium);    /* page titles */
+  --text-display: 28px;    --text-display--line-height: 34px;  --text-display--letter-spacing: -0.01em;  --text-display--font-weight: var(--w-medium);  /* empty states */
+}
+
+:root { --app-font: "Google Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+:root[data-font="figtree"] { --app-font: "Figtree Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 
 html, body, #root { height: 100%; }
 body {
-  color: var(--fg); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased;
-  /* the "wallpaper": a quiet canvas with two faint washes, so floating panels have something to float on */
-  background:
-    radial-gradient(900px 500px at 8% -10%, var(--wash-a), transparent 60%),
-    radial-gradient(800px 500px at 100% 110%, var(--wash-b), transparent 60%),
-    var(--bg);
-  background-attachment: fixed;
+  color: var(--fg); background: var(--bg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased;
+  font-size: var(--text-body); line-height: var(--text-body--line-height); letter-spacing: var(--text-body--letter-spacing); font-weight: var(--w-normal);
 }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 /* In the base layer so a component's own focus style (`focus-visible:outline-none` + a ring, a Tailwind
@@ -89,13 +145,32 @@ body {
    without its own focus style still gets this outline. */
 @layer base {
   textarea, input, select { outline: none; }
+  /* Here, not as utilities on the primitives, so a `text-*` passed to an Input still wins: two text utilities
+     resolve by name rather than by order, and "text-ui" would beat "text-hint". */
+  textarea, input, select { font-size: var(--text-ui); line-height: var(--text-ui--line-height); letter-spacing: var(--text-ui--letter-spacing); }
+  strong, b { font-weight: var(--w-semibold); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
 }
 button { font-family: inherit; }
-.panel { background: var(--panel); border-radius: 20px; box-shadow: var(--shadow); }
+.panel { background: var(--bg); }
+
+/* ---- pane separators (components/PaneSeparator.tsx) ---- */
+.pane-sep { position: relative; z-index: 1; width: 10px; flex: none; cursor: col-resize; touch-action: none; }
+.pane-sep::before { content: ""; position: absolute; inset: 0 -5px; } /* a 20px target for a 1px line */
+.pane-sep::after { content: ""; position: absolute; inset: 0 4.5px; background: var(--line); }
+.pane-sep:hover::after, .pane-sep:focus-visible::after, .pane-sep[data-dragging]::after { inset: 0 3.5px; background: var(--accent); }
+/* Collapsed there is nothing to drag, and the wide target would cover the button that reopens the sidebar. */
+.pane-sep[data-collapsed] { cursor: default; }
+.pane-sep[data-collapsed]::before { inset: 0; }
+@media (pointer: coarse) { .pane-sep:not([data-collapsed])::before { inset: 0 -9px; } }
+/* An iframe takes pointer events the page never sees, and noVNC must not get stray input during a drag. */
+body[data-pane-drag] { user-select: none; }
+body[data-pane-drag] * { cursor: col-resize !important; }
+body[data-pane-drag] iframe { pointer-events: none; }
 
 /* ---- motion: three deliberate effects only ---- */
 @keyframes ring-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent); } 50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent) 28%, transparent); } }
+@keyframes ring-pulse-warn { 0%, 100% { box-shadow: 0 0 0 2px var(--warn); } 50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--warn) 28%, transparent); } }
 @keyframes ring-spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes caret { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
@@ -106,12 +181,12 @@ button { font-family: inherit; }
   border: 2px solid transparent; border-top-color: var(--ok); animation: ring-spin 0.9s linear infinite;
 }
 .state-waiting { box-shadow: 0 0 0 2px var(--warn); }
-.state-blocked { box-shadow: 0 0 0 2px var(--warn); animation: ring-pulse 1s ease-in-out infinite; }
+.state-blocked { box-shadow: 0 0 0 2px var(--warn); animation: ring-pulse-warn 1s ease-in-out infinite; }
 .state-done { box-shadow: 0 0 0 2px var(--ok); }
 .state-error { box-shadow: 0 0 0 2px var(--bad); }
 
 .chip-running {
-  background: linear-gradient(90deg, var(--card2) 0%, color-mix(in oklab, var(--accent) 18%, var(--card2)) 50%, var(--card2) 100%);
+  background: linear-gradient(90deg, var(--card2) 0%, color-mix(in oklab, var(--accent) 12%, var(--card2)) 50%, var(--card2) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
 }
@@ -123,16 +198,17 @@ button { font-family: inherit; }
 
 /* ---- markdown in messages ---- */
 .md { max-width: 68ch; }
-.md p { margin: 0 0 0.55em; } .md p:last-child { margin-bottom: 0; }
-.md pre { background: var(--card2); border-radius: 12px; padding: 10px 12px; overflow-x: auto; font-size: 12.5px; margin: 0.5em 0; }
-.md code { font-family: var(--font-mono); font-size: 12.5px; background: var(--card2); padding: 1px 5px; border-radius: 6px; }
-.md pre code { background: transparent; padding: 0; }
-.md ul, .md ol { padding-left: 1.4em; margin: 0.3em 0; } .md ul { list-style: disc; } .md ol { list-style: decimal; }
-.md h1, .md h2, .md h3 { font-weight: 600; margin: 0.6em 0 0.3em; } .md h1 { font-size: 1.15em; } .md h2 { font-size: 1.05em; }
+.md p { margin: 0 0 var(--para-gap); }
+.md pre { background: var(--card2); border-radius: var(--r-lg); padding: 10px 12px; overflow-x: auto; font-size: 0.9em; line-height: 1.5; font-weight: 400; margin: 0 0 var(--para-gap); }
+.md code { font-family: var(--font-mono); font-size: 0.9em; line-height: 1.5; font-weight: 400; background: var(--card2); padding: 1px 5px; border-radius: var(--r-xs); }
+.md pre code { font-size: 1em; background: transparent; padding: 0; }
+.md ul, .md ol { padding-left: 1.4em; margin: 0 0 var(--para-gap); } .md ul { list-style: disc; } .md ol { list-style: decimal; }
+.md h1, .md h2, .md h3 { font-weight: var(--w-semibold); margin: var(--heading-before) 0 var(--heading-after); } .md h1 { font-size: 1.15em; } .md h2 { font-size: 1.05em; }
 .md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.md table { border-collapse: collapse; margin: 0.5em 0; font-size: 13px; } .md th, .md td { border: 1px solid var(--line); padding: 4px 9px; }
-.md blockquote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
-.md strong { font-weight: 600; }
+.md table { border-collapse: collapse; margin: 0 0 var(--para-gap); font-size: 0.9333em; } .md th, .md td { border: 1px solid var(--line); padding: 4px 9px; }
+.md blockquote { border-left: 3px solid var(--line2); padding-left: 10px; color: var(--muted); margin: 0 0 var(--para-gap); }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
 
 /* ---- P9: phone ---- */
 /* Touch screens get 44px targets where a wrong tap is costly (approval cards). */

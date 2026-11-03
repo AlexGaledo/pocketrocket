@@ -40,7 +40,7 @@ export function ClaudeSection() {
     <>
       <SectionHeader
         title={multiple ? 'Connection' : 'Claude'}
-        description={multiple ? 'Which service your bots run on, and how it signs in.' : 'How PocketRocket Crew reaches Claude.'}
+        description={multiple ? 'Which service your bots use.' : undefined}
       />
 
       <Group>
@@ -49,7 +49,7 @@ export function ClaudeSection() {
         ) : active ? (
           <ConnectionStatus info={active} onChecked={(check) => patchCheck(active.id, check)} hasKeyField={active.secretKeys.length > 0} />
         ) : (
-          <Card><p className="text-[12.5px] text-muted">Checking Claude…</p></Card>
+          <Card><p className="text-ui text-muted">Checking Claude…</p></Card>
         )}
       </Group>
 
@@ -65,7 +65,7 @@ export function ClaudeSection() {
               {!models.some((m) => m.id === settings.defaultModel) && <option value={settings.defaultModel}>{settings.defaultModel}</option>}
             </Select>
           </Field>
-          <p className="mt-2 text-[12px] text-muted">Each bot can use a different model; change it in the bot's settings.</p>
+          <p className="mt-2 text-hint text-muted">Each bot can override this.</p>
         </Card>
       </Group>
 
@@ -74,9 +74,9 @@ export function ClaudeSection() {
           <Card>
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
-                <div id="router-classifier-label" className="text-[13px] font-medium">Smarter Auto routing</div>
-                <p id="router-classifier-hint" className="mt-0.5 text-[12px] text-muted">
-                  For bots on Auto, a quick Haiku check (at most $0.002) picks the model when no rule applies. Off by default because it runs on every such turn.
+                <div id="router-classifier-label" className="text-ui font-medium">Smarter Auto routing</div>
+                <p id="router-classifier-hint" className="mt-0.5 text-hint text-muted">
+                  Haiku picks models on Auto. Max $0.002 per reply.
                 </p>
               </div>
               <Switch
@@ -116,9 +116,9 @@ function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; cur
         ))}
       </div>
       {pending && (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-warn/10 px-3 py-2 text-[12.5px]">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-warn/10 px-3 py-2 text-ui">
           <span>
-            Bots will switch to <strong>{list.find((p) => p.id === pending)?.label}</strong>; models not available there reset to the default.
+            Switch to <strong>{list.find((p) => p.id === pending)?.label}</strong>? Unavailable models reset to default.
           </span>
           <div className="flex shrink-0 gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setPending(null)}>Cancel</Button>

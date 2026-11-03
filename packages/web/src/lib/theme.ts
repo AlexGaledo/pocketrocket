@@ -26,6 +26,16 @@ export function applyTheme(mode: ThemeMode) {
   }
 }
 
+/** Sets the app font, and mirrors it to localStorage so first paint uses it too. */
+export function applyFont(font: Settings['font']) {
+  document.documentElement.dataset.font = font;
+  try {
+    localStorage.setItem('prcrew.font', font);
+  } catch {
+    /* ignore */
+  }
+}
+
 let mediaListenerAttached = false;
 /** Keeps the DOM in sync when the OS theme flips while settings.theme === 'system'. */
 export function watchSystemTheme(getMode: () => ThemeMode) {

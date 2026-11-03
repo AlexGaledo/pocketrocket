@@ -33,7 +33,7 @@ export function DevicesSection() {
     <>
       <SectionHeader
         title="Devices"
-        description={device ? 'This browser is paired with the hub as a device.' : 'Pair your phone to chat, answer approvals and watch the Screen from anywhere on your tailnet.'}
+        description={device ? 'This browser is paired as a device.' : 'Use your phone over your Tailscale network.'}
       />
       {device ? <ThisDevice /> : <PairAndList />}
       <PushGroup />
@@ -58,7 +58,7 @@ function PairAndList() {
       <Group title="Paired devices" aside={<Button size="sm" variant="ghost" onClick={load}><RefreshCw size={13} aria-hidden /> Refresh</Button>}>
         <Card className="py-2">
           {error && <InlineError>{error}</InlineError>}
-          {devices && devices.length === 0 && <p className="py-2 text-[12.5px] text-muted">No devices yet.</p>}
+          {devices && devices.length === 0 && <p className="py-2 text-ui text-muted">No devices yet.</p>}
           <ul className="divide-y divide-line">
             {devices?.map((d) => (
               <DeviceRow
@@ -94,17 +94,17 @@ function DeviceRow({ d, onRevoked, onError }: { d: DeviceInfo; onRevoked: () => 
     <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
       <Smartphone size={16} aria-hidden className="shrink-0 text-muted" />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[13px] font-medium">
+        <div className="flex items-center gap-2 text-ui font-medium">
           <span className="truncate">{d.name}</span>
           {d.revoked && <Badge tone="bad">Revoked</Badge>}
         </div>
-        <div className="text-[12px] text-muted">
+        <div className="text-hint text-muted">
           Paired {new Date(d.createdAt).toLocaleDateString()} · last seen {ago(d.lastSeenAt)}
         </div>
       </div>
       {!d.revoked && (confirming ? (
         <div className="flex items-center gap-1.5" role="group" aria-label={'Unpair ' + d.name + '?'}>
-          <span className="text-[12px] text-muted">Unpair now?</span>
+          <span className="text-hint text-muted">Unpair now?</span>
           <Button size="sm" variant="danger" onClick={() => void revoke()} disabled={busy} autoFocus>Unpair</Button>
           <Button size="sm" variant="ghost" onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
         </div>
@@ -159,8 +159,8 @@ function PairPhone({ onPaired }: { onPaired: () => void }) {
       <Card>
         {!pairing ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="max-w-[46ch] text-[12.5px] leading-snug text-muted">
-              Shows a QR code with this hub's address and a one-time code that works for five minutes. Scan it with the phone's camera.
+            <p className="max-w-[46ch] text-ui leading-snug text-muted">
+              Scan a QR code. Valid five minutes.
             </p>
             <Button variant="primary" onClick={() => void mint()} disabled={busy}><Smartphone size={14} aria-hidden /> Pair a phone</Button>
           </div>
@@ -168,12 +168,12 @@ function PairPhone({ onPaired }: { onPaired: () => void }) {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
             <div className="shrink-0 self-center sm:self-start">
               {url ? <QrCode value={url} label="Pairing QR code" /> : (
-                <div className="flex size-[208px] items-center justify-center rounded-xl bg-card2 p-4 text-center text-[12px] text-muted">Enter the address the phone uses to reach the hub</div>
+                <div className="flex size-[208px] items-center justify-center rounded-md bg-card2 p-4 text-center text-hint text-muted">Enter the address your phone can reach</div>
               )}
             </div>
-            <div className="min-w-0 flex-1 text-[12.5px]">
+            <div className="min-w-0 flex-1 text-ui">
               <div className="text-muted">Or type this code on the phone</div>
-              <div className="mt-0.5 font-mono text-[22px] font-medium tracking-[0.12em]" aria-label={'Pairing code ' + pairing.code.split('').join(' ')}>{fmtCode(pairing.code)}</div>
+              <div className="mt-0.5 font-mono text-title font-medium tracking-[0.12em]" aria-label={'Pairing code ' + pairing.code.split('').join(' ')}>{fmtCode(pairing.code)}</div>
               <div className="mt-1 text-muted" role="timer" aria-live="off">Expires in {mmss}</div>
 
               {pairing.hosts.length > 1 && (
@@ -186,11 +186,10 @@ function PairPhone({ onPaired }: { onPaired: () => void }) {
               )}
               {pairing.hosts.length === 0 && (
                 <Field className="mt-3">
-                  <Label hint="where the phone reaches this hub">Hub address</Label>
-                  <Input value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="https://myhub.tail1234.ts.net" spellCheck={false} autoComplete="off" className="font-mono text-[12.5px]" />
-                  <p className="mt-1.5 leading-snug text-muted">
-                    No tailnet name is set on this hub. Put it behind Tailscale Serve and set <code className="font-mono text-[11.5px]">POCKETROCKET_ALLOWED_HOSTS</code> to
-                    its name (see docs/SERVER.md). The phone can only reach a hub on 127.0.0.1 through that.
+                  <Label hint="where the phone reaches this server">Server address</Label>
+                  <Input value={manualUrl} onChange={(e) => setManualUrl(e.target.value)} placeholder="https://myserver.tail1234.ts.net" spellCheck={false} autoComplete="off" className="font-mono text-ui" />
+                  <p className="mt-1.5 leading-snug text-muted" title="Put the server behind Tailscale Serve and set POCKETROCKET_ALLOWED_HOSTS to its name.">
+                    Needs Tailscale Serve first. See docs/SERVER.md.
                   </p>
                 </Field>
               )}
@@ -227,8 +226,8 @@ function ThisDevice() {
       <Card className="flex flex-wrap items-center gap-3">
         <Smartphone size={16} aria-hidden className="text-muted" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium">{me?.name ?? 'Paired device'}</div>
-          {me && <div className="text-[12px] text-muted">Paired {new Date(me.createdAt).toLocaleDateString()}</div>}
+          <div className="text-ui font-medium">{me?.name ?? 'Paired device'}</div>
+          {me && <div className="text-hint text-muted">Paired {new Date(me.createdAt).toLocaleDateString()}</div>}
         </div>
         {confirming ? (
           <div className="flex items-center gap-1.5">
@@ -239,9 +238,8 @@ function ThisDevice() {
           <Button size="sm" variant="danger" onClick={() => setConfirming(true)} disabled={!me}>Unpair this device</Button>
         )}
       </Card>
-      <p className="mt-2 text-[12px] leading-snug text-muted">
-        From a paired device you can chat, answer approval cards (once at a time), watch a Screen and run routines. Settings, keys,
-        integrations and "always allow" stay on the desktop app.
+      <p className="mt-2 text-hint leading-snug text-muted">
+        Settings and standing approvals stay on desktop.
       </p>
     </Group>
   );
@@ -282,8 +280,8 @@ function PushGroup() {
     }
   };
 
-  const why = support === 'insecure' ? 'Notifications need HTTPS (Tailscale Serve) or localhost.'
-    : support === 'ios-not-installed' ? 'On iPhone, add PocketRocket Crew to the Home Screen first (Share › Add to Home Screen), then open it from there.'
+  const why = support === 'insecure' ? 'Notifications need HTTPS.'
+    : support === 'ios-not-installed' ? 'iPhone: add to Home Screen first.'
     : support === 'unsupported' ? "This browser doesn't support push notifications." : null;
 
   return (
@@ -292,15 +290,14 @@ function PushGroup() {
         <div className="flex items-start gap-3">
           <BellRing size={16} aria-hidden className="mt-0.5 shrink-0 text-muted" />
           <div className="min-w-0 flex-1">
-            <div id="push-label" className="text-[13px] font-medium">Notifications on this device</div>
-            <p id="push-desc" className="mt-0.5 text-[12.5px] leading-snug text-muted">
-              Off unless you turn it on. Pushes say only "A bot needs your approval" or "Routine finished" — never what the bot said
-              or did. They pass through your browser maker's push service.
+            <div id="push-label" className="text-ui font-medium">Notifications on this device</div>
+            <p id="push-desc" className="mt-0.5 text-ui leading-snug text-muted">
+              Never includes bot content. Sent via your browser's service.
             </p>
           </div>
           <Switch checked={on} onChange={(v) => void toggle(v)} aria-labelledby="push-label" aria-describedby="push-desc" className={support !== 'ok' || busy ? 'pointer-events-none opacity-40' : undefined} />
         </div>
-        {why && <p className="mt-2 text-[12px] text-muted">{why}</p>}
+        {why && <p className="mt-2 text-hint text-muted">{why}</p>}
         {on && (
           <div className="mt-3">
             <Button size="sm" onClick={() => void test()}>Send a test</Button>

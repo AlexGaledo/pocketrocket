@@ -14,6 +14,20 @@ connection modes once one is set up.
 
 ### Name and install
 
+- Settings has a Connections screen: one Connect button for GitHub and Google after a one-time app setup. WhatsApp
+  and social media stay in a bot's browser.
+- Drag the sidebar's and side panel's edges to resize them, or use the arrow keys. Enter collapses, double-click
+  resets, sizes are remembered per browser, and the chat always keeps 440px. Group chats and the screen's controls
+  fold away, and the side panel can expand.
+- A menu at the bottom left shows your name and the server's state, and holds Usage, Settings, Open workspace, the
+  theme and Sign out. Text no longer wraps or clips in narrow panes.
+- The app font is Google Sans, with Figtree as a choice in Appearance. Fonts are bundled, not fetched from Google.
+- A lighter look: warm off-white and charcoal colors, softer text, a 15/24 message size on a seven-step type scale,
+  flat surfaces without the background wash or stacked shadows, and 10px corners on controls instead of pills.
+- The app shows its name as PocketRocket everywhere, and the sidebar no longer shows the provider and model
+  unless there is a problem.
+- A server install starts with two bots, each created once: PocketRocket Support reads the app source without
+  approval cards (not `data/`), and Data Engineer keeps the shared workspace organized and indexed.
 - The app is named PocketRocket Crew and installs side by side with PocketRocket: its own app id
   (`com.pocketrocket.crew`, so its own `%APPDATA%` folder and single-instance lock), default hub port
   **7790**, browser storage keys `prcrew.*`, and on a server its own `pocketrocket-crew` user,

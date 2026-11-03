@@ -22,7 +22,7 @@ export function AccountSection() {
 
   return (
     <>
-      <SectionHeader title="Account" description="Your name, your time zone, and an optional sign-in." />
+      <SectionHeader title="Account" />
 
       <Group>
         <Card>
@@ -34,14 +34,14 @@ export function AccountSection() {
       <Group title="PocketRocket account">
         <Card>
           {!account.enabled ? (
-            <p className="text-[12.5px] text-muted">Sign-in isn't set up here. Everything works without it.</p>
+            <p className="text-ui text-muted">Sign-in unavailable. Everything still works.</p>
           ) : account.signedIn && account.user ? (
             <SignedIn user={account.user} />
           ) : (
             <>
               {!account.pendingEmail && (
-                <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
-                  Optional. PocketRocket works fully without an account; an account will hold your plan when paid features arrive.
+                <p className="mb-3 text-ui leading-relaxed text-muted">
+                  Optional. Everything works without an account.
                 </p>
               )}
               <AccountSignIn />
@@ -104,12 +104,12 @@ function SignedIn({ user }: { user: AccountUser }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3">
-        <div aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink text-[16px] font-semibold text-ink-fg">
+        <div aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink text-title-sm text-ink-fg">
           {initial}
         </div>
         <div className="min-w-0 flex-1">
-          {user.displayName && <div className="truncate text-[13.5px] font-medium">{user.displayName}</div>}
-          <div className={user.displayName ? 'truncate text-[12.5px] text-muted' : 'truncate text-[13.5px] font-medium'}>{user.email}</div>
+          {user.displayName && <div className="truncate text-ui font-medium">{user.displayName}</div>}
+          <div className={user.displayName ? 'truncate text-ui text-muted' : 'truncate text-ui font-medium'}>{user.email}</div>
         </div>
         <Badge tone={user.plan === 'free' ? 'muted' : 'accent'}>{PLAN_LABEL[user.plan] ?? user.plan}</Badge>
         <Button size="sm" disabled={busy} onClick={() => void signOut()}>{busy ? 'Signing out…' : 'Sign out'}</Button>
@@ -140,7 +140,7 @@ function TimezoneField() {
 
   return (
     <Field>
-      <Label hint="Routines run on this clock">Time zone</Label>
+      <Label hint="Schedules use this time zone">Time zone</Label>
       <Select value={timezone} onChange={(e) => void updateSettings({ timezone: e.target.value })}>
         {zones.map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
       </Select>

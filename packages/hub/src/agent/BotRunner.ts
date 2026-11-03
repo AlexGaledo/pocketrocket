@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
 import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome } from '../config.js';
+import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { MemoryService } from '../services/MemoryService.js';
@@ -16,7 +17,7 @@ import { buildSystemPrompt } from './PromptBuilder.js';
 import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, type RouteChoice, type RouteRequest } from './ModelRouter.js';
-import { desktopTools, sharedDesktop } from './desktopTools.js';
+import { desktopTools } from './desktopTools.js';
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
@@ -31,6 +32,8 @@ export interface TurnRequest {
   hop: number;
   causeId: string;
   injected: string;
+  /** The newest message a person wrote in `injected`. The only text that can ask the router for a stronger model. */
+  latestUserText?: string;
   /** What is left of the cause's cost cap; the turn spends at most min(bot budget, this). */
   causeBudgetUsd?: number;
   /**
@@ -103,7 +106,7 @@ export class BotRunner {
     private hooks: RunnerHooks,
     private providers: ProviderRegistry,
     private turns: TurnRegistry,
-    /** Per-bot computers (P1). Left out (tests, or none wired) = the legacy shared screen, as before. */
+    /** Per-bot computers (P1). Left out or switched off, Browser and Desktop are refused: no shared screen. */
     private computers?: ComputerManager,
     /** P7: the read-only knowledge repo folder, when one is synced (read per turn). */
     private p7: { knowledgeDir?: () => string | null } = {},
@@ -138,11 +141,14 @@ export class BotRunner {
     const wantsDesktop = bot.allowedTools.includes('Desktop') && DESKTOP_AVAILABLE;
     const wantsBrowser = bot.allowedTools.includes('Browser');
     // P1: a bot with Browser or Desktop drives its own computer, started here on first use and held busy (never
-    // idled out) until the turn ends. When it cannot start, the turn still runs, without those two tools.
+    // idled out) until the turn ends. When it cannot start, or this hub has none, the turn still runs without
+    // those two tools. They never fall back to one screen shared by every bot.
     let computer: ComputerEndpoint | null = null;
     let computerDown: string | undefined;
     let releaseComputer = () => undefined as void;
-    if (this.computers?.enabled && (wantsDesktop || wantsBrowser)) {
+    if ((wantsDesktop || wantsBrowser) && !this.computers?.enabled) {
+      computerDown = 'This hub has no per-bot computers (POCKETROCKET_COMPUTERS is off).';
+    } else if (this.computers && (wantsDesktop || wantsBrowser)) {
       if (this.computers.status(bot.id).state !== 'live') setState('working', 'starting its computer');
       const got = await this.computers.acquire(bot.id);
       releaseComputer = got.release;
@@ -162,7 +168,7 @@ export class BotRunner {
     const providerModels = provider.modelsSync();
     const causeKind: CauseKind = req.causeKind ?? (req.hop > 0 ? 'bot' : 'user');
     const routeReq: RouteRequest = {
-      bot, causeKind, input: req.injected, models: providerModels,
+      bot, causeKind, input: req.injected, latestUserText: req.latestUserText, models: providerModels,
       opusSkills: bot.model === AUTO_MODEL ? this.skills.opusSkillNames(bot.id) : [],
       fallbackModel: settings.get().defaultModel,
     };
@@ -205,10 +211,8 @@ export class BotRunner {
       routinesChanged: this.hooks.routinesChanged,
     });
 
-    if (desktopOn) {
-      tools.push(...desktopTools(computer?.perBot
-        ? { display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [], guard: controlBlocked }
-        : { ...sharedDesktop(), guard: controlBlocked }));
+    if (desktopOn && computer) {
+      tools.push(...desktopTools({ display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [], guard: controlBlocked }));
     }
     // P2: a bot with a computer can hand it to the user (log in, captcha) and wait for it back.
     if ((desktopOn || browserOn) && this.control) {
@@ -270,6 +274,7 @@ export class BotRunner {
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
+      readOnlyDirs: bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : undefined,
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       computerFilesDir: computer?.filesDir ?? undefined,
       controlGuard: controlBlocked,

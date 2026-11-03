@@ -6,9 +6,10 @@ import {
   type Options, type PermissionResult, type Query, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
-import { CDP_URL, CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
+import { deleteGate } from '../permissions/deleteGate.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision } from '../permissions/readOnlyRoots.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
@@ -207,8 +208,8 @@ export class ClaudeProvider implements AgentProvider {
     const allowed = ctx.allowedBuiltins.filter((t) => AUTO_OK.has(t));
     const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t));
     // "Browser" = Playwright MCP attached over CDP to the Chromium on the bot's own computer (its logged-in
-    // profile), or on the one shared screen when this hub has no per-bot computers.
-    const browserOn = ctx.allowedBuiltins.includes('Browser') && fs.existsSync(PLAYWRIGHT_MCP_CLI);
+    // profile). With no computer there is no endpoint, and it never falls back to a shared screen.
+    const browserOn = ctx.allowedBuiltins.includes('Browser') && !!ctx.cdpUrl && fs.existsSync(PLAYWRIGHT_MCP_CLI);
     const mcpServers: NonNullable<Options['mcpServers']> = { pocketrocket: toolServer(ctx.tools) };
     if (browserOn) {
       mcpServers.browser = {
@@ -216,7 +217,7 @@ export class ClaudeProvider implements AgentProvider {
         // Snapshots hold what fields on the page contain, so they stay in the bot's own home (removed with the
         // bot, left out of backups) instead of the workspace every bot shares.
         args: [
-          PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', ctx.cdpUrl ?? CDP_URL, '--caps', 'vision',
+          PLAYWRIGHT_MCP_CLI, '--cdp-endpoint', ctx.cdpUrl!, '--caps', 'vision',
           '--output-dir', path.join(ctx.botHome, 'playwright-output'), '--output-max-size', String(64 * 1024 * 1024),
         ],
       };
@@ -242,13 +243,14 @@ export class ClaudeProvider implements AgentProvider {
 
     // P7: writes into the read-only knowledge repo ask (or, under bypass, are denied) before acceptEdits sees them.
     const knowledgeDir = ctx.knowledgeDir ?? null;
-    const knowledgeGuard = knowledgeDir
+    const readOnlyDirs = [...(knowledgeDir ? [knowledgeDir] : []), ...(ctx.readOnlyDirs ?? [])];
+    const knowledgeGuard = readOnlyDirs.length
       ? [{
           matcher: READ_ONLY_GUARD_TOOLS.join('|'),
           hooks: [
             async (hookInput: unknown) => {
               const i = hookInput as PreToolUseHookInput;
-              const d = readOnlyWriteDecision(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, [knowledgeDir], ctx.workspaceDir, !!ctx.bypassPermissions);
+              const d = readOnlyWriteDecision(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, readOnlyDirs, ctx.workspaceDir, !!ctx.bypassPermissions);
               if (!d) return {};
               return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: d.decision, permissionDecisionReason: d.reason } };
             },
@@ -281,7 +283,7 @@ export class ClaudeProvider implements AgentProvider {
       additionalDirectories: [
         ctx.botHome,
         ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
-        ...(knowledgeDir ? [knowledgeDir] : []),
+        ...readOnlyDirs,
       ],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
@@ -308,6 +310,18 @@ export class ClaudeProvider implements AgentProvider {
         PreToolUse: [
           ...controlGuard,
           ...knowledgeGuard,
+          // acceptEdits approves rm and mv inside the roots before canUseTool, so this is what raises their card.
+          {
+            matcher: 'Bash',
+            hooks: [
+              async (hookInput) => {
+                const i = hookInput as PreToolUseHookInput;
+                const hit = deleteGate(String((i.tool_input as { command?: unknown } | undefined)?.command ?? ''), i.cwd || ctx.workspaceDir);
+                if (!hit) return {};
+                return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: hit.reason } };
+              },
+            ],
+          },
           {
             matcher: 'Read|Glob|Grep|NotebookEdit',
             hooks: [
@@ -319,7 +333,7 @@ export class ClaudeProvider implements AgentProvider {
                   ctx.workspaceDir,
                   ctx.botHome,
                   ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
-                  ...(knowledgeDir && i.tool_name !== 'NotebookEdit' ? [knowledgeDir] : []),
+                  ...(i.tool_name !== 'NotebookEdit' ? readOnlyDirs : []),
                 ];
                 const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);
                 const outside = paths.filter((p) => !isInside(p, roots, ctx.workspaceDir));

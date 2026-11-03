@@ -25,43 +25,43 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   };
   const remove = async () => {
-    if (!room || !confirm('Delete room "' + room.name + '" and its history?')) return;
+    if (!room || !confirm('Delete ' + room.name + ' and its history?')) return;
     setBusy(true);
     try {
       await api.rooms.remove(room.id);
       onClose();
     } catch (e) {
       // The dialog stays open so the failure is visible next to the button that caused it.
-      toast("Couldn't delete the room: " + (e as Error).message, true);
+      toast("Couldn't delete the group chat: " + (e as Error).message, true);
     } finally { setBusy(false); }
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title={room ? 'Edit room' : 'New group chat'}>
-      <Field><Label>Room name</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="launch-plan" autoFocus /></Field>
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={room ? 'Edit group chat' : 'New group chat'}>
+      <Field><Label>Group chat name</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="launch-plan" autoFocus /></Field>
       <div className="mt-3">
         <Label id="room-members-label" hint={members.length + '/' + MAX_ROOM_BOTS}>Members</Label>
-        <div role="group" aria-labelledby="room-members-label" className="grid grid-cols-2 gap-1.5">
+        <div role="group" aria-labelledby="room-members-label" className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {bots.map((b) => {
             const on = members.includes(b.id);
             return (
-              <button key={b.id} type="button" aria-pressed={on} onClick={() => toggle(b.id)} className={cn('flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60', on ? 'border-accent/50 bg-accent/10' : 'border-line bg-card')}>
-                <span aria-hidden>{b.avatar}</span><span className="min-w-0 flex-1 truncate">{b.name}</span><span className="text-xs text-muted">@{b.handle}</span>
+              <button key={b.id} type="button" aria-pressed={on} onClick={() => toggle(b.id)} className={cn('flex items-center gap-2 rounded-sm border px-2 py-1.5 text-left text-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', on ? 'border-accent/50 bg-accent/10' : 'border-line bg-card')}>
+                <span aria-hidden>{b.avatar}</span><span className="min-w-0 flex-1 truncate">{b.name}</span><span className="min-w-0 truncate text-hint text-muted">@{b.handle}</span>
               </button>
             );
           })}
-          {!bots.length && <div className="col-span-2 text-xs text-dim">Create some bots first.</div>}
+          {!bots.length && <div className="text-hint text-dim sm:col-span-2">Create some bots first.</div>}
         </div>
       </div>
       <Field className="mt-3">
-        <Label hint="handles messages with no @mention">Coordinator</Label>
+        <Label hint="Answers messages with no @mention">Coordinator</Label>
         <Select value={coord} onChange={(e) => setCoord(e.target.value)}>
-          <option value="">None (unaddressed messages are ignored)</option>
+          <option value="">None (@mention required)</option>
           {bots.filter((b) => members.includes(b.id)).map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}
         </Select>
       </Field>
       <div className="mt-5 flex items-center justify-between">
-        <div>{room && <Button variant="danger" size="sm" onClick={remove} disabled={busy}>Delete room</Button>}</div>
+        <div>{room && <Button variant="danger" size="sm" onClick={remove} disabled={busy}>Delete group chat</Button>}</div>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save} disabled={busy || !name.trim() || members.length < 1}>{room ? 'Save' : 'Create'}</Button>

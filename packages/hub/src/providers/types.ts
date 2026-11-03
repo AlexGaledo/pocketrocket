@@ -68,7 +68,9 @@ export interface TurnContext {
   mcp: { url: string; token: string };
   /** P7: the knowledge repo folder, readable but never writable by the bot; null/absent when none is set up. */
   knowledgeDir?: string | null;
-  // P1: per-bot computers. Unset = the legacy shared screen (CDP_URL), exactly as before.
+  /** Folders this bot reads without a card and cannot write without one (the Support bot's view of the app source). */
+  readOnlyDirs?: string[];
+  // P1: per-bot computers. Unset = no computer this turn, so no Browser tool.
   /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
   cdpUrl?: string;
   /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */

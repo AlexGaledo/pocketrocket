@@ -90,7 +90,7 @@ export function Onboarding() {
     const saved = await updateSettings({ onboarded: true, userName: name.trim() || settings.userName });
     setBusy(false);
     if (saved) play('connected');
-    else setError("Couldn't save your setup. Check that the hub is still running, then try again.");
+    else setError("Couldn't save. Check PocketRocket is running.");
   };
 
   const createBot = async (tpl: (typeof TEMPLATES)[number]) => {
@@ -123,16 +123,16 @@ export function Onboarding() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket Crew">
+    <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
       {/* m-auto rather than centring from the overlay: a card taller than a small window can still scroll to its top. */}
       <div className="panel m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8">
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
             <RocketMark />
-            <div className="text-[22px] font-semibold tracking-tight">PocketRocket Crew</div>
-            <div className="text-[13.5px] font-medium text-muted">Your pocket fleet of AI agents</div>
-            <p className="max-w-[42ch] text-[13.5px] leading-relaxed text-muted">
-              PocketRocket Crew runs a small team of AI bots on your machine. Message them directly, put a few in a group chat to hand off work, and approve anything risky before it happens.
+            <div className="text-title">PocketRocket</div>
+            <div className="text-ui font-medium text-muted">Your pocket fleet of AI agents</div>
+            <p className="max-w-[42ch] text-ui leading-relaxed text-muted">
+              AI bots that work for you. You approve risky steps.
             </p>
             <Button variant="primary" className="mt-2" autoFocus onClick={goNext}>Get started</Button>
           </div>
@@ -140,16 +140,16 @@ export function Onboarding() {
 
         {step === 'provider' && (
           <div className="flex flex-col gap-3">
-            <div className="text-[17px] font-semibold tracking-tight">Choose a provider</div>
-            <div className="text-[12.5px] text-muted">Bots run through this provider. You can change it later in Settings.</div>
-            <div className="mt-1 flex flex-col gap-2" role="radiogroup" aria-label="Provider">
+            <div className="text-title-sm">Choose a service</div>
+            <div className="text-ui text-muted">You can change this later.</div>
+            <div className="mt-1 flex flex-col gap-2" role="radiogroup" aria-label="Service">
               {(providers?.providers ?? []).map((p) => (
                 <ProviderCard key={p.id} info={p} selected={p.id === providerId} onSelect={() => setProviderId(p.id)} onChecked={() => void useStore.getState().fetchProviders()} />
               ))}
-              {!providers?.providers.length && <div className="text-[12.5px] text-muted">Loading providers…</div>}
+              {!providers?.providers.length && <div className="text-ui text-muted">Loading…</div>}
             </div>
             <div className="mt-3 flex items-center justify-between">
-              <button className="text-[12.5px] text-muted underline underline-offset-2 hover:text-fg" onClick={() => void updateSettings({ provider: providerId }).then(goNext)}>
+              <button className="text-ui text-muted underline underline-offset-2 hover:text-fg" onClick={() => void updateSettings({ provider: providerId }).then(goNext)}>
                 Skip for now
               </button>
               <div className="flex gap-2">
@@ -164,7 +164,7 @@ export function Onboarding() {
 
         {step === 'name' && (
           <div className="flex flex-col gap-3">
-            <div className="text-[17px] font-semibold tracking-tight">What should bots call you?</div>
+            <div className="text-title-sm">What should bots call you?</div>
             <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
             <div className="mt-3 flex justify-end gap-2">
               <Button onClick={goBack}>Back</Button>
@@ -175,17 +175,17 @@ export function Onboarding() {
 
         {step === 'account' && (
           <div className="flex flex-col gap-3">
-            <div className="text-[17px] font-semibold tracking-tight">Create an account</div>
+            <div className="text-title-sm">Create an account</div>
             {account.signedIn && account.user ? (
-              <div role="status" className="flex items-center gap-2.5 rounded-2xl bg-ok/10 px-3.5 py-3 text-[13px]">
+              <div role="status" className="flex items-center gap-2.5 rounded-lg bg-ok/10 px-3.5 py-3 text-ui">
                 <CircleCheck size={18} aria-hidden className="shrink-0 text-ok" />
                 <span>You're signed in as <strong className="font-semibold">{account.user.email}</strong>.</span>
               </div>
             ) : (
               <>
                 {!account.pendingEmail && (
-                  <div className="text-[12.5px] leading-relaxed text-muted">
-                    Optional. PocketRocket works fully without an account; an account will hold your plan when paid features arrive.
+                  <div className="text-ui leading-relaxed text-muted">
+                    Optional. Everything works without an account.
                   </div>
                 )}
                 <div className="mt-1"><AccountSignIn autoFocus /></div>
@@ -203,28 +203,28 @@ export function Onboarding() {
 
         {step === 'bot' && (
           <div className="flex flex-col gap-3">
-            <div className="text-[17px] font-semibold tracking-tight">Create your first bot</div>
-            <div className="text-[12.5px] text-muted">Pick a template — you can customize it any time.</div>
-            <div className="mt-1 grid grid-cols-3 gap-2">
+            <div className="text-title-sm">Create your first bot</div>
+            <div className="text-ui text-muted">You can change it any time.</div>
+            <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
               {TEMPLATES.map((t) => (
                 <button
                   key={t.key}
                   disabled={busy}
                   onClick={() => void createBot(t)}
-                  className={cn('flex flex-col items-center gap-1.5 rounded-2xl bg-card2/50 p-3 text-center hover:bg-card2 disabled:opacity-50')}
+                  className={cn('flex flex-col items-center gap-1.5 rounded-lg bg-card2/50 p-3 text-center hover:bg-hover disabled:opacity-50')}
                 >
                   <span aria-hidden className="text-2xl">{t.v.avatar}</span>
-                  <span className="text-[12.5px] font-medium">{t.label}</span>
-                  <span className="text-[11px] text-muted">@{t.v.handle}</span>
-                  <span className="text-[11px] leading-snug text-dim">{t.v.title}</span>
+                  <span className="text-label">{t.label}</span>
+                  <span className="text-hint text-muted">@{t.v.handle}</span>
+                  <span className="text-hint leading-snug text-dim">{t.v.title}</span>
                   <span className="mt-1 flex flex-wrap justify-center gap-1">
-                    {t.v.tools.slice(0, 4).map((tool) => <span key={tool} className="rounded-full bg-card px-1.5 py-0.5 font-mono text-[9.5px] text-muted">{tool}</span>)}
+                    {t.v.tools.slice(0, 4).map((tool) => <span key={tool} className="rounded-xs bg-card px-1.5 py-0.5 font-mono text-hint text-muted">{tool}</span>)}
                   </span>
                 </button>
               ))}
             </div>
             <div className="mt-3 flex items-center justify-between">
-              <button className="text-[12.5px] text-muted underline underline-offset-2 hover:text-fg" onClick={goNext}>I'll do it later</button>
+              <button className="text-ui text-muted underline underline-offset-2 hover:text-fg" onClick={goNext}>I'll do it later</button>
               <Button onClick={goBack}>Back</Button>
             </div>
           </div>
@@ -233,18 +233,18 @@ export function Onboarding() {
         {step === 'done' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-ok/15 text-2xl">🚀</div>
-            <div className="text-[17px] font-semibold tracking-tight">You're all set</div>
-            <p className="max-w-[38ch] text-[13.5px] text-muted">
+            <div className="text-title-sm">You're all set</div>
+            <p className="max-w-[38ch] text-ui text-muted">
               {botCreated ? "Your first bot is ready — say hi." : 'Create a bot whenever you like from the sidebar.'}
             </p>
             <Button variant="primary" autoFocus disabled={busy} onClick={() => void finish()}>
-              {busy ? 'Saving…' : error ? 'Try again' : 'Start using PocketRocket Crew'}
+              {busy ? 'Saving…' : error ? 'Try again' : 'Start using PocketRocket'}
             </Button>
           </div>
         )}
 
         {error && (
-          <div role="alert" className="mt-4 rounded-xl bg-bad/10 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-bad">
+          <div role="alert" className="mt-4 rounded-md bg-bad/10 px-3.5 py-2.5 text-ui leading-relaxed text-bad">
             {error}
           </div>
         )}
@@ -284,16 +284,16 @@ function ConnectStep({ info, onBack, onNext }: { info: ProviderInfo | undefined;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-[17px] font-semibold tracking-tight">Connect {label}</div>
-      <div className="text-[12.5px] text-muted">
+      <div className="text-title-sm">Connect {label}</div>
+      <div className="text-ui text-muted">
         {!info || info.id === 'claude'
-          ? 'Your bots run on Claude Code, on the computer the hub runs on. This checks that it is installed and signed in.'
-          : 'Your bots run on ' + label + '. This checks that it is installed and signed in.'}
+          ? 'Checking Claude Code is installed and signed in.'
+          : 'Checking ' + label + ' is installed and signed in.'}
       </div>
       {!info ? (
-        <div role="status" className="text-[12.5px] text-muted">Checking {label}…</div>
+        <div role="status" className="text-ui text-muted">Checking {label}…</div>
       ) : ready ? (
-        <div role="status" className="flex items-center gap-2.5 rounded-2xl bg-ok/10 px-3.5 py-3 text-[13px]">
+        <div role="status" className="flex items-center gap-2.5 rounded-lg bg-ok/10 px-3.5 py-3 text-ui">
           <CircleCheck size={18} aria-hidden className="shrink-0 text-ok" />
           <span className="min-w-0 break-words">{connectedLine(label, info.check)}</span>
         </div>
@@ -302,7 +302,7 @@ function ConnectStep({ info, onBack, onNext }: { info: ProviderInfo | undefined;
       )}
       <div className="mt-3 flex items-center justify-between gap-2">
         {/* An API key instead of a subscription, or sorting it out later: nothing else in setup depends on this. */}
-        <button className="text-[12.5px] text-muted underline underline-offset-2 hover:text-fg" onClick={onNext}>
+        <button className="text-ui text-muted underline underline-offset-2 hover:text-fg" onClick={onNext}>
           Skip for now
         </button>
         <div className="flex gap-2">

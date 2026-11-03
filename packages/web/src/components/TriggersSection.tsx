@@ -9,7 +9,7 @@ import { api } from '../lib/api';
 import { Button, Input, Label, Select, Textarea, cn, fmtUsd } from './ui';
 
 /**
- * P5: the Triggers half of the Automations tab. A trigger wakes a bot in a room when an outside event arrives
+ * P5: the Triggers half of Automations (the fleet page, and the Bot page filtered to one bot). A trigger wakes a bot in a room when an outside event arrives
  * (GitHub, Gmail, Calendar, Drive, Slack, ClickUp, Teams). The hub polls (Slack pushes over Socket Mode), so
  * only connected providers are offered. Trigger turns always ask before acting, even with approvals bypassed.
  */
@@ -106,7 +106,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
   const test = async (t: Trigger) => {
     try {
       const f = await api.triggers.test(t.id);
-      toast(f.status === 'skipped' ? 'Not fired: ' + (f.note ?? 'skipped') : 'Sample event sent to @' + (botById(bots, t.botId)?.handle ?? 'bot'), f.status === 'skipped');
+      toast(f.status === 'skipped' ? 'Not run: ' + (f.note ?? 'skipped') : 'Sample event sent to @' + (botById(bots, t.botId)?.handle ?? 'bot'), f.status === 'skipped');
       setFires((x) => (x[t.id] ? x : { ...x, [t.id]: [] }));
     } catch (e) { toast((e as Error).message, true); }
   };
@@ -119,7 +119,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
   };
   const insert = (key: string) => set({ prompt: form.prompt + (form.prompt.endsWith(' ') || !form.prompt ? '' : ' ') + '{{event.' + key + '}}' });
 
-  const list = state?.triggers ?? [];
+  const list = (state?.triggers ?? []).filter((t) => !botId || t.botId === botId);
   const pollFor = (t: Trigger) => {
     const key = t.source === 'github.repo' ? 'github.repo:' + (t.filter.repo ?? '').trim()
       : t.source === 'calendar' ? 'calendar:' + (t.filter.calendar?.trim() || 'primary')
@@ -134,12 +134,12 @@ export function TriggersSection({ botId }: { botId: string | null }) {
         <Button size="sm" variant="ghost" onClick={openNew} disabled={!available.length && !form.open}><Plus size={13} /> New</Button>
       </div>
       {!available.length && !list.length && (
-        <p className="rounded-2xl bg-card2/60 px-3 py-3 text-center text-xs text-dim">
-          Connect GitHub, Google, Slack, ClickUp or Teams in Settings › Integrations, then wake a bot when something happens there.
+        <p className="rounded-lg bg-card2/60 px-3 py-3 text-center text-hint text-dim">
+          Connect an app in Connections first.
         </p>
       )}
       {form.open && (
-        <div className="flex flex-col gap-2 rounded-2xl bg-card2/60 p-2">
+        <div className="flex flex-col gap-2 rounded-lg bg-card2/60 p-2">
           <Input placeholder="Name" aria-label="Trigger name" value={form.name} onChange={(e) => set({ name: e.target.value })} />
           <Select
             aria-label="Source"
@@ -151,7 +151,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
           </Select>
           {fields.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <span className="px-1 text-[11px] text-muted">Only when… (leave empty for any; separate choices with commas)</span>
+              <span className="px-1 text-hint text-muted">Only when… (empty = any; commas = or)</span>
               {fields.map((f) => (
                 <Input
                   key={f.key}
@@ -165,40 +165,40 @@ export function TriggersSection({ botId }: { botId: string | null }) {
           )}
           <div className="grid grid-cols-2 gap-2">
             <Select aria-label="Bot" value={form.botId} onChange={(e) => set({ botId: e.target.value })}>{bots.map((b) => <option key={b.id} value={b.id}>{b.avatar} {b.name}</option>)}</Select>
-            <Select aria-label="Room" value={form.roomId} onChange={(e) => set({ roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
+            <Select aria-label="Chat" value={form.roomId} onChange={(e) => set({ roomId: e.target.value })}>{rooms.map((r) => <option key={r.id} value={r.id}>{r.kind === 'group' ? '# ' : ''}{r.name}</option>)}</Select>
           </div>
           {noAccess && (
-            <p className="px-1 text-[11px] text-warn">
-              @{formBot!.handle} has no access to this connection, so it will not hear these events. Switch it on in Settings › Integrations.
+            <p className="px-1 text-hint text-warn">
+              @{formBot!.handle} can't use this. Allow in Connections.
             </p>
           )}
-          <Textarea placeholder="What the bot should do when this fires" aria-label="Prompt" rows={4} value={form.prompt} onChange={(e) => set({ prompt: e.target.value })} />
+          <Textarea placeholder="What should the bot do?" aria-label="Prompt" rows={4} value={form.prompt} onChange={(e) => set({ prompt: e.target.value })} />
           <div className="flex flex-wrap items-center gap-1 px-1" role="group" aria-label="Insert an event field">
             {[...BASE_PLACEHOLDERS, ...fields.map((f) => f.key).filter((k) => !BASE_PLACEHOLDERS.includes(k))].map((k) => (
               <button
                 key={k}
                 type="button"
                 onClick={() => insert(k)}
-                className="rounded-full bg-card px-2 py-0.5 font-mono text-[10.5px] text-muted ring-1 ring-line hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                className="rounded-xs bg-card px-2 py-0.5 font-mono text-hint text-muted ring-1 ring-line hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {'{{event.' + k + '}}'}
               </button>
             ))}
           </div>
-          <p className="px-1 text-[11px] text-dim">
-            Event text is passed to the bot as untrusted data, and anything it does that changes something asks you first, even with approvals off.
+          <p className="px-1 text-hint text-dim">
+            Event text is untrusted. Changes always ask first.
           </p>
           <div className="grid grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1 text-[11px] text-muted">
+            <label className="flex flex-col gap-1 text-hint text-muted">
               Most per hour
               <Input type="number" min={1} max={60} value={form.maxPerHour} onChange={(e) => set({ maxPerHour: Math.max(1, Math.min(60, Number(e.target.value) || 1)) })} />
             </label>
-            <label className="flex flex-col gap-1 text-[11px] text-muted">
-              Budget per day (USD)
+            <label className="flex flex-col gap-1 text-hint text-muted">
+              Usage limit per day (API-price USD)
               <Input type="number" min={0.05} max={100} step={0.05} value={form.budgetUsd} onChange={(e) => set({ budgetUsd: Math.max(0.05, Math.min(100, Number(e.target.value) || 0.05)) })} />
             </label>
           </div>
-          <label className="flex items-center gap-2 px-1 text-xs">
+          <label className="flex items-center gap-2 px-1 text-hint">
             <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Enabled
           </label>
           <div className="flex justify-end gap-1">
@@ -216,7 +216,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
           const history = fires[t.id];
           const connected = available.includes(t.source);
           return (
-            <li key={t.id} className={cn('rounded-2xl bg-card2/60 p-2 text-xs', !t.enabled && 'opacity-60')}>
+            <li key={t.id} className={cn('rounded-lg bg-card2/60 p-2 text-hint', !t.enabled && 'opacity-60')}>
               <div className="flex items-center gap-2">
                 <input type="checkbox" checked={t.enabled} onChange={() => toggle(t)} aria-label={'Trigger ' + t.name + ' enabled'} title="Enabled" />
                 <button className="min-w-0 flex-1 text-left" onClick={() => openEdit(t)}>
@@ -228,18 +228,18 @@ export function TriggersSection({ botId }: { botId: string | null }) {
                       {st.firesLastHour}/{t.maxPerHour} this hour · {fmtUsd(st.spentLastDayUsd)} of {fmtUsd(t.budgetUsd)} today
                     </div>
                   )}
-                  {!connected && <div className="truncate text-warn">Not connected: reconnect in Settings › Integrations.</div>}
+                  {!connected && <div className="truncate text-warn">Not connected. Reconnect in Connections.</div>}
                   {connected && poll?.lastError && <div className="line-clamp-2 text-bad">{poll.lastError}</div>}
                   {connected && poll && !poll.lastError && poll.lastPolledAt && (
                     <div className="truncate text-dim">{t.source === 'slack' ? 'Listening' : 'Checked ' + ago(poll.lastPolledAt)}</div>
                   )}
                 </button>
                 <Button size="icon" variant="ghost" title="Send a sample event" aria-label={'Send a sample event to ' + t.name} onClick={() => test(t)}><Play size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Recent fires" aria-label={'Recent fires of ' + t.name} aria-pressed={!!history} onClick={() => toggleFires(t)}><History size={13} /></Button>
+                <Button size="icon" variant="ghost" title="Recent runs" aria-label={'Recent runs of ' + t.name} aria-pressed={!!history} onClick={() => toggleFires(t)}><History size={13} /></Button>
                 <Button size="icon" variant="ghost" title="Delete" aria-label={'Delete ' + t.name} onClick={() => remove(t)}><Trash2 size={13} /></Button>
               </div>
               {history && (
-                <ul className="mt-2 flex flex-col gap-0.5 pt-1 text-[11px] text-muted">
+                <ul className="mt-2 flex flex-col gap-0.5 pt-1 text-hint text-muted">
                   {history.map((x) => (
                     <li key={x.id} className="truncate" title={x.note ?? x.title}>
                       {when(x.startedAt, tz)} · <span className={STATUS_TONE[x.status]}>{x.status}</span>
@@ -249,7 +249,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
                       {x.note ? ' · ' + x.note : ''}
                     </li>
                   ))}
-                  {!history.length && <li>No fires yet.</li>}
+                  {!history.length && <li>No runs yet.</li>}
                 </ul>
               )}
             </li>

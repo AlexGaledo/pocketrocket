@@ -230,7 +230,9 @@ export class RoomRouter {
           // Decision Q6: a turn any of whose causes the human did not start (a routine, later a trigger)
           // goes through approvals even when the hub runs in bypass mode.
           const strictApprovals = items.some((i) => this.requiresApprovals(i.causeId));
-          req = { bot, room, members: this.members(room), hop, causeId, injected, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
+          // Only a person's own newest words can ask for a stronger model, never a forwarded trigger payload.
+          const latestUserText = this.repos.messagesAfter(room.id, session.lastSeenSeq).filter((m) => m.authorType === 'user').at(-1)?.text;
+          req = { bot, room, members: this.members(room), hop, causeId, injected, latestUserText, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
           result = await this.runner.runTurn(req);
         } finally {
           this.release();

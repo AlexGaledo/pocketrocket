@@ -1,5 +1,5 @@
 /**
- * Memory tab, below memory.md (P7): the bot's voice.md (short style notes that ride every prompt, 1 KB),
+ * Bot page, Memory tab, below memory.md (P7): the bot's voice.md (short style notes that ride every prompt, 1 KB),
  * the style notes AutoMemory proposed for it (each waits for Approve / Dismiss), and how many notes the bot
  * keeps in its notes/ folder (searched on demand, never in the prompt).
  */
@@ -38,9 +38,9 @@ export function VoicePanel({ botId }: { botId: string }) {
     try {
       const r = await api.voice.set(botId, text);
       setDirty(false);
-      toast(r.trimmed ? 'Voice saved; the oldest lines were dropped to fit 1 KB' : 'Voice saved');
+      toast(r.trimmed ? 'Saved. Oldest lines dropped to fit 1 KB.' : 'Writing style saved');
     } catch (e) {
-      toast("Couldn't save voice: " + (e as Error).message, true);
+      toast("Couldn't save writing style: " + (e as Error).message, true);
     }
   };
   const decide = async (p: VoiceProposal, decision: 'approve' | 'dismiss') => {
@@ -56,28 +56,28 @@ export function VoicePanel({ botId }: { botId: string }) {
   const bytes = new TextEncoder().encode(text).length;
   return (
     <div className="flex flex-col gap-2 px-3 pb-3">
-      <Label hint={bytes + ' / ' + VOICE_LIMIT + ' bytes, in every prompt'}>Voice</Label>
+      <Label hint={bytes + ' / ' + VOICE_LIMIT + ' bytes'}>Writing style</Label>
       <Textarea
         value={text}
         onChange={(e) => { setText(e.target.value); setDirty(true); }}
         rows={5}
-        aria-label="Voice: how this bot should write"
-        className="font-mono text-[12px]"
+        aria-label="Writing style: how this bot should write"
+        className="font-mono text-hint"
         placeholder={'Style notes, one per line. e.g.\n- Lead with the answer\n- No emoji'}
       />
       <div className="flex items-center justify-between">
-        <span className="text-[11.5px] text-dim">{notes === null ? '' : notes + (notes === 1 ? ' note' : ' notes') + ' in notes/, searched on demand'}</span>
+        <span className="text-hint text-dim">{notes === null ? '' : notes + (notes === 1 ? ' saved note' : ' saved notes')}</span>
         <Button size="sm" variant="primary" onClick={save} disabled={!dirty}><Save size={13} /> Save</Button>
       </div>
 
       {proposals.length > 0 && (
-        <section aria-label="Proposed voice notes" className="flex flex-col gap-1">
-          <div className="text-[12px] font-medium text-muted">Proposed from your edits</div>
+        <section aria-label="Proposed writing style notes" className="flex flex-col gap-1">
+          <div className="text-label text-muted">Proposed from your edits</div>
           <ul className="flex flex-col gap-1">
             {proposals.map((p) => (
-              <li key={p.id} className="flex items-center gap-1 rounded-2xl border border-warn/40 bg-card2/60 px-2 py-1 text-xs">
+              <li key={p.id} className="flex items-center gap-1 rounded-lg border border-warn/40 bg-card2/60 px-2 py-1 text-hint">
                 <span className="min-w-0 flex-1">{p.text}</span>
-                <Button size="icon" variant="ghost" aria-label={'Add to voice: ' + p.text} title="Add to voice" onClick={() => decide(p, 'approve')}><Check size={13} className="text-ok" /></Button>
+                <Button size="icon" variant="ghost" aria-label={'Add to writing style: ' + p.text} title="Add to writing style" onClick={() => decide(p, 'approve')}><Check size={13} className="text-ok" /></Button>
                 <Button size="icon" variant="ghost" aria-label={'Dismiss: ' + p.text} title="Dismiss" onClick={() => decide(p, 'dismiss')}><X size={13} className="text-bad" /></Button>
               </li>
             ))}

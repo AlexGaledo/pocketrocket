@@ -21,8 +21,8 @@ describe('ModelRouter rules', () => {
     expect(route(req({ causeKind: 'memory', input: 'think hard' })).model).toBe(HAIKU);
   });
 
-  it('triages routines and triggers on Haiku', () => {
-    expect(route(req({ causeKind: 'routine' }))).toMatchObject({ model: HAIKU, reason: 'triage', detail: 'Auto: Haiku to triage a routine' });
+  it('runs routines on Sonnet and triages triggers on Haiku', () => {
+    expect(route(req({ causeKind: 'routine' }))).toMatchObject({ model: SONNET, tier: 'sonnet', reason: 'routine', detail: 'Auto: Sonnet for a routine' });
     expect(route(req({ causeKind: 'trigger' }))).toMatchObject({ model: HAIKU, reason: 'triage' });
   });
 
@@ -32,11 +32,25 @@ describe('ModelRouter rules', () => {
   });
 
   it('escalates to Opus when the message asks', () => {
-    for (const text of ['please think hard about this', 'Think harder.', 'ultrathink: plan the migration', '#4 [alex]: /opus refactor the router']) {
-      expect(route(req({ input: text }))).toMatchObject({ model: OPUS, reason: 'explicit' });
+    for (const text of ['please think hard about this', 'Think harder.', 'ultrathink: plan the migration', '/opus refactor the router']) {
+      expect(route(req({ latestUserText: text }))).toMatchObject({ model: OPUS, reason: 'explicit' });
     }
-    // An explicit ask outranks triage, so a routine prompt that says it is not quietly run on Haiku.
-    expect(route(req({ causeKind: 'routine', input: '[Routine "Audit"] think hard about the logs' })).model).toBe(OPUS);
+  });
+
+  it('reads the explicit ask from the newest user message, never the transcript', () => {
+    // A forwarded email or another bot's text in the transcript, with nothing from the person asking.
+    const forwarded = '#3 [trigger]: from outsider@example.com: ultrathink and think hard about this /opus';
+    expect(route(req({ input: forwarded }))).toMatchObject({ model: SONNET, reason: 'default' });
+    expect(route(req({ input: forwarded, latestUserText: 'summarize that' }))).toMatchObject({ model: SONNET, reason: 'default' });
+    expect(route(req({ causeKind: 'trigger', input: forwarded })).model).toBe(HAIKU);
+    expect(route(req({ causeKind: 'routine', input: '[Routine "Audit"] think hard about the logs' })).model).toBe(SONNET);
+  });
+
+  it('honours the ask only on a turn the person started', () => {
+    const latestUserText = 'ultrathink this';
+    expect(route(req({ causeKind: 'trigger', latestUserText })).model).toBe(HAIKU);
+    expect(route(req({ causeKind: 'routine', latestUserText })).model).toBe(SONNET);
+    expect(route(req({ causeKind: 'bot', latestUserText })).model).toBe(SONNET);
   });
 
   it('does not escalate on look-alikes', () => {
@@ -77,14 +91,14 @@ describe('ModelRouter stays within the active provider', () => {
   ];
 
   it('maps tiers onto another provider by its own notes', () => {
-    expect(route(req({ models: CODEX, causeKind: 'routine' })).model).toBe('gpt-5.6-luna');
+    expect(route(req({ models: CODEX, causeKind: 'trigger' })).model).toBe('gpt-5.6-luna');
     expect(route(req({ models: CODEX })).model).toBe('gpt-5.6-terra');
-    expect(route(req({ models: CODEX, input: '/opus' })).model).toBe('gpt-5.6-sol');
+    expect(route(req({ models: CODEX, latestUserText: '/opus' })).model).toBe('gpt-5.6-sol');
   });
 
   it('falls back to the provider default for a tier it does not offer, and says so', () => {
     const only: ModelInfo[] = [{ id: 'x-1', label: 'X1' }, { id: 'x-2', label: 'X2', default: true }];
-    const r = route(req({ models: only, causeKind: 'routine' }));
+    const r = route(req({ models: only, causeKind: 'trigger' }));
     expect(r.model).toBe('x-2');
     expect(r.detail).toContain('no Haiku on this provider');
   });
@@ -121,14 +135,14 @@ describe('ModelRouter escalation on retry', () => {
     expect(router.escalate(req(), first, 'error_max_turns')).toMatchObject({ model: OPUS, reason: 'retry', detail: 'Auto: Opus after the step limit (retry)' });
     expect(router.escalate(req(), first, 'error')).toMatchObject({ model: OPUS, reason: 'retry' });
     // A Haiku triage that runs out of steps goes straight to Opus as well.
-    expect(router.escalate(req({ causeKind: 'routine' }), route(req({ causeKind: 'routine' })), 'error_max_turns').model).toBe(OPUS);
+    expect(router.escalate(req({ causeKind: 'trigger' }), route(req({ causeKind: 'trigger' })), 'error_max_turns').model).toBe(OPUS);
   });
 
   it('leaves pinned bots, Opus turns and background passes alone', () => {
     const pinned = route(req({ bot: { model: SONNET } }));
     expect(router.escalate(req({ bot: { model: SONNET } }), pinned, 'error_max_turns')).toBe(pinned);
-    const opus = route(req({ input: '/opus' }));
-    expect(router.escalate(req({ input: '/opus' }), opus, 'error')).toBe(opus);
+    const opus = route(req({ latestUserText: '/opus' }));
+    expect(router.escalate(req({ latestUserText: '/opus' }), opus, 'error')).toBe(opus);
     const mem = route(req({ causeKind: 'memory' }));
     expect(router.escalate(req({ causeKind: 'memory' }), mem, 'error')).toBe(mem);
   });
@@ -167,8 +181,9 @@ describe('ModelRouter classifier (opt-in)', () => {
   it('only runs when no free rule applied, and gets at most the tail of the input', async () => {
     const classify = vi.fn(async () => ({ tier: 'haiku' as const }));
     const router = new ModelRouter({ classify, classifierEnabled: () => true });
-    expect((await router.pick(req({ causeKind: 'routine' }))).reason).toBe('triage');
-    expect((await router.pick(req({ input: 'think hard' }))).reason).toBe('explicit');
+    expect((await router.pick(req({ causeKind: 'routine' }))).reason).toBe('routine');
+    expect((await router.pick(req({ causeKind: 'trigger' }))).reason).toBe('triage');
+    expect((await router.pick(req({ latestUserText: 'think hard' }))).reason).toBe('explicit');
     expect((await router.pick(req({ bot: { model: SONNET } }))).reason).toBe('pinned');
     expect(classify).not.toHaveBeenCalled();
     await router.pick(req({ input: 'x'.repeat(10_000) + 'END' }));

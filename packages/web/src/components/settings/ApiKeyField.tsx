@@ -14,7 +14,7 @@ import { InlineError } from './parts';
 const KNOWN_KEYS: Record<string, { label: string; description: string; placeholder: string }> = {
   ANTHROPIC_API_KEY: {
     label: 'Claude API key',
-    description: "Only needed if you don't use a Claude subscription.",
+    description: 'Only needed without a Claude subscription.',
     placeholder: 'sk-ant-…',
   },
 };
@@ -69,7 +69,7 @@ export function ApiKeyField({ keyName, isSet, onSaved, onSave, label, descriptio
   return (
     <Field>
       <Label>{label ?? known?.label ?? keyName}</Label>
-      <p id={descriptionId} className="-mt-1 mb-2 text-[12px] text-muted">
+      <p id={descriptionId} className="-mt-1 mb-2 text-hint text-muted">
         {description ?? known?.description ?? 'Optional.'}{' '}
         {isSet && <Badge tone="ok">Saved</Badge>}
       </p>
@@ -79,7 +79,7 @@ export function ApiKeyField({ keyName, isSet, onSaved, onSave, label, descriptio
           autoComplete="off"
           spellCheck={false}
           className="min-w-0 flex-1 basis-56"
-          placeholder={isSet ? 'Paste a new key to replace the saved one' : (placeholder ?? known?.placeholder ?? 'Not set')}
+          placeholder={isSet ? 'Paste to replace saved key' : (placeholder ?? known?.placeholder ?? 'Not set')}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           aria-describedby={error ? `${descriptionId} ${errorId}` : descriptionId}

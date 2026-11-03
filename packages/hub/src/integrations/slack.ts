@@ -77,7 +77,7 @@ export class SlackClient extends ApiClient {
    */
   async openSocketModeUrl(): Promise<string> {
     const app = await this.deps.appToken?.();
-    if (!app) throw new IntegrationError('Socket Mode needs the Slack app-level token (xapp-…); add it in Settings → Integrations', 400);
+    if (!app) throw new IntegrationError('Socket Mode needs the Slack app-level token (xapp-…); add it in Settings → Connections', 400);
     const r = await apiRequest<SlackOk & { url: string }>(this.deps.fetch, API + 'apps.connections.open', { method: 'POST', headers: { authorization: 'Bearer ' + app } });
     return check('apps.connections.open', r).url;
   }

@@ -163,8 +163,8 @@ export async function redeemPairingCode(code: string): Promise<boolean> {
     const j = (await r.json().catch(() => ({}))) as { token?: string; error?: string };
     if (!r.ok || !j.token) {
       pairError = r.status === 429
-        ? 'Too many tries. Wait a minute, then make a new code on the desktop.'
-        : j.error ?? "That pairing code didn't work. Make a new one on the desktop.";
+        ? 'Too many tries. Make a new code.'
+        : j.error ?? "Code didn't work. Make a new one.";
       return false;
     }
     localStorage.setItem(DEVICE_KEY, j.token);
@@ -172,7 +172,7 @@ export async function redeemPairingCode(code: string): Promise<boolean> {
     clearAuthFailure();
     return true;
   } catch {
-    pairError = "Couldn't reach the hub to pair this device.";
+    pairError = "Couldn't reach the server to pair.";
     return false;
   }
 }
