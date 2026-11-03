@@ -3,7 +3,7 @@
 # to a server, and the page strips it on load (packages/web/src/lib/auth.ts). The token is never written to disk.
 # -NoBrowser checks everything except opening the page, without printing the token.
 param(
-  [string]$HostAlias = 'crm-agency',
+  [Parameter(Mandatory)][string]$HostAlias,
   [int]$Port = 7788,
   [string]$InstallDir = '/home/pocketrocket/pocketrocket',
   [switch]$NoBrowser

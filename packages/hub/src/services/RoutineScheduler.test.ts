@@ -73,6 +73,8 @@ describe('routine time zones', () => {
 describe('one-shot routines', () => {
   it('resolves a local once_at in the zone and refuses the past, an empty schedule and a bad cron', () => {
     const now = Date.parse('2026-11-01T00:00:00Z');
+    // croner reads the real clock for a dated pattern, so hold it still or this test expires with its date.
+    vi.useFakeTimers({ now, toFake: ['Date'] });
     expect(RoutineScheduler.resolveSchedule({ onceAt: '2026-11-02T09:00' }, 'Asia/Manila', now)).toEqual({ cron: '', onceAt: Date.parse('2026-11-02T01:00:00Z') });
     expect(RoutineScheduler.resolveSchedule({ onceAt: now + 1000, cron: '0 9 * * *' }, 'UTC', now)).toEqual({ cron: '', onceAt: now + 1000 });
     expect(RoutineScheduler.resolveSchedule({ onceAt: '2026-10-31T09:00' }, 'UTC', now)).toHaveProperty('error');
