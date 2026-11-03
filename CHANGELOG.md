@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Bot browsers keep their logins
+
+- Logins in a bot's browser now survive its computer restarting. Sites that sign in with a session-only cookie used to log out on every restart, and Chrome now closes cleanly so a recent login is not lost. Tabs open in the browser window can reopen after a restart.
+
 ### Sign-in and activity log
 
 - Sign in with a password from the browser instead of pasting the server token. Sessions last 30 days in an httpOnly cookie. Set it in Settings, Security. The server token still works for the desktop app and scripts, and resets a forgotten password.

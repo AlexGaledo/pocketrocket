@@ -40,6 +40,14 @@ describe('per-bot computers stay on loopback (P1)', () => {
     expect(read('deploy/pocketrocket-computer@.service')).toMatch(/ExecStart=.*deploy\/computer\.sh %i/);
   });
 
+  it('keeps a bot\'s logins across restarts', () => {
+    // Session-only cookies survive only when Chrome is set to continue where it left off.
+    expect(screen).toMatch(/\["restore_on_startup"\] = 1/);
+    // Chrome closes before systemd takes the display away, and the port it looks for is the one computer.sh sets.
+    expect(read('deploy/pocketrocket-computer@.service')).toMatch(/ExecStop=.*deploy\/computer-stop\.sh %i/);
+    expect(code('deploy/computer-stop.sh')).toMatch(/--remote-debugging-port=\$\(\(9400 \+ SLOT\)\)/);
+  });
+
   it('screen.sh binds X, CDP, VNC and noVNC to 127.0.0.1 only', () => {
     expect(screen).not.toMatch(/0\.0\.0\.0|::\b|\[::\]/);
     // X: no TCP listener at all.

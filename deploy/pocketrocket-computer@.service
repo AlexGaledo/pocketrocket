@@ -13,6 +13,8 @@ Type=simple
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=POCKETROCKET_DATA=%h/pocketrocket/data
 ExecStart=/bin/bash %h/pocketrocket/deploy/computer.sh %i
+# Chrome first, while its display is still up, so it saves cookies and exits cleanly.
+ExecStop=/bin/bash %h/pocketrocket/deploy/computer-stop.sh %i
 # on-failure, not always: the hub's `systemctl --user stop` (idle, cap, delete) must stay stopped.
 Restart=on-failure
 RestartSec=3
