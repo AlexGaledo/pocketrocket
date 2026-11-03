@@ -49,7 +49,7 @@
     <nav aria-label="Primary">
       <ul class="nav-links" id="nav-links">
         <li><a href="#features">Features</a></li>
-        <li><a href="#claude">Claude</a></li>
+        <li><a href="#models">Models</a></li>
         <li><a href="#server">Run on a server</a></li>
         <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
       </ul>
@@ -96,19 +96,18 @@
       </div>
     </section>
 
-    <section id="claude" aria-labelledby="claude-h">
+    <section id="models" aria-labelledby="models-h">
       <div class="section-head" data-reveal>
-        <h2 id="claude-h">Built on Claude</h2>
-        <p>PocketRocket drives your own Claude Code login and subscription — no separate API key required, though one works too.</p>
+        <h2 id="models-h">Your model, your subscription</h2>
+        <p>Bots run on the CLI you already pay for. v1 ships Claude; Codex, OpenCode and Grok adapters are next.</p>
       </div>
       <div class="server-panel" data-reveal>
         <div>
-          <p><strong>Your subscription.</strong> Drives your own Claude Code CLI login, or an <code>ANTHROPIC_API_KEY</code>. Pick Sonnet 5 (default), Opus 5, Fable 5.1, or Haiku 4.5 per bot.</p>
-          <p><strong>Approvals by default.</strong> Bots ask before shell commands, edits outside the workspace, or fleet changes. Switch to bypass mode in Settings if you want them to run unattended.</p>
-          <p><strong>Optional account.</strong> Sign in with GitHub to unlock paid plans later — everything works signed out, and your bots' conversations, files and keys stay on your machine.</p>
+          <p><strong>No second bill.</strong> Your own Claude Code login, or an API key. Sonnet 5, Opus 5, Fable 5.1 or Haiku 4.5, per bot.</p>
+          <p><strong>Approvals by default.</strong> Bots ask before shell commands, edits outside the workspace, or fleet changes.</p>
+          <p><strong>Optional account.</strong> Everything works signed out; conversations, files and keys stay on your machine.</p>
         </div>
       </div>
-      <p class="footnote">More providers are planned.</p>
     </section>
 
     <section id="features" aria-labelledby="features-h">
@@ -156,7 +155,7 @@
         </div>
         <div class="step">
           <div class="num">2</div>
-          <h3>Sign in to Claude Code</h3>
+          <h3>Sign in to your CLI</h3>
           <p>Run <code>claude</code> once to log in with your subscription, or set an API key.</p>
         </div>
         <div class="step">
@@ -184,7 +183,7 @@
       <div class="faq" data-reveal-group>
         <details>
           <summary>Is it free?</summary>
-          <div class="answer">Yes. PocketRocket itself is free and open source; you pay for Claude usage through your existing subscription or an API key.</div>
+          <div class="answer">Yes. PocketRocket itself is free and open source; model usage runs on your own subscription or API key.</div>
         </details>
         <details>
           <summary>Do I need to create an account?</summary>
@@ -192,7 +191,7 @@
         </details>
         <details>
           <summary>Does it phone home?</summary>
-          <div class="answer">The hub runs on your machine and only talks to Claude and the GitHub releases page. If you choose to sign in, your email goes to Supabase (our auth provider) to complete the sign-in — nothing else, and bot conversations, files and keys never leave your machine. No telemetry.</div>
+          <div class="answer">The hub runs on your machine and only talks to your model provider and the GitHub releases page. Signing in sends your email to Supabase to complete it — nothing else. Conversations, files and keys never leave your machine. No telemetry.</div>
         </details>
         <details>
           <summary>Windows SmartScreen warning?</summary>
