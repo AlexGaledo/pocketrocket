@@ -117,7 +117,7 @@ export function SecuritySection() {
             </Field>
           )}
           <Field>
-            <Label htmlFor="security-new">{passwordSet ? 'New password' : 'Password'}</Label>
+            <Label htmlFor="security-new">New password</Label>
             <Input id="security-new" type="password" autoComplete="new-password" aria-describedby="security-hint" value={password} onChange={(e) => setPassword(e.target.value)} />
             <p id="security-hint" className="mt-1 text-hint text-muted">At least 10 characters. Forgot it? The server token can set a new one.</p>
           </Field>
