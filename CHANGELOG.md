@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Bots keep going after the step limit
+
+- A turn that runs out of steps now resumes up to twice, as intended. The check never matched the error the Claude provider really reports, so these turns stopped dead instead.
+
 ### Run with no spending caps
 
 - `POCKETROCKET_NO_SPEND_CAPS=1` turns off the per-reply, per-request, trigger and training budgets, for a server on a flat subscription. Off by default.
