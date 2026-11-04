@@ -380,6 +380,25 @@ describe('limits', () => {
     expect(h.svc.testFire(t.id)!.status).toBe('running');
   });
 
+  it('applies no daily budget when spend caps are off', async () => {
+    const h = setup();
+    h.connect('github');
+    const t = h.trigger({ source: 'github.repo', filter: { repo: 'acme/app' }, budgetUsd: 1, maxPerHour: 60 });
+    h.setCost(5);
+    process.env.POCKETROCKET_NO_SPEND_CAPS = '1';
+    try {
+      h.svc.testFire(t.id);
+      await until(() => h.reqs.length === 1);
+      await until(() => h.svc.repo.listFires(t.id)[0].status === 'success');
+      expect(h.svc.testFire(t.id)!.status).not.toBe('skipped');
+      await until(() => h.reqs.length === 2);
+      expect(h.svc.remainingBudget(t.id)).toBe(Infinity);
+      expect(h.svc.remainingBudget('nope')).toBeUndefined();
+    } finally {
+      delete process.env.POCKETROCKET_NO_SPEND_CAPS;
+    }
+  });
+
   it('caps a turn at the trigger\'s remaining daily budget and skips once it is spent (hops included)', async () => {
     const h = setup();
     h.connect('github');
