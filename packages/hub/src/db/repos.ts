@@ -219,6 +219,20 @@ export class Repos {
       : this.db.all('SELECT * FROM messages WHERE room_id=? ORDER BY seq DESC LIMIT ?', roomId, limit);
     return rows.reverse().map((r) => this.rowToMessage(r));
   }
+  /** What the owner wrote, newest first, across every room or just one. */
+  listOwnerMessages(o: { since?: number; before?: number; roomId?: string; query?: string; limit: number }): Array<{ createdAt: number; roomName: string; text: string }> {
+    const where = ["m.author_type='user'", "m.kind='text'"];
+    const args: Array<string | number> = [];
+    if (o.since !== undefined) { where.push('m.created_at>=?'); args.push(o.since); }
+    if (o.before !== undefined) { where.push('m.created_at<?'); args.push(o.before); }
+    if (o.roomId) { where.push('m.room_id=?'); args.push(o.roomId); }
+    if (o.query) { where.push("m.text LIKE ? ESCAPE '\\'"); args.push('%' + o.query.replace(/[\\%_]/g, '\\$&') + '%'); }
+    const rows = this.db.all<{ created_at: number; room_name: string; text: string }>(
+      'SELECT m.created_at, m.text, r.name AS room_name FROM messages m JOIN rooms r ON r.id=m.room_id WHERE ' + where.join(' AND ') + ' ORDER BY m.created_at DESC LIMIT ?',
+      ...args, o.limit,
+    );
+    return rows.map((r) => ({ createdAt: r.created_at, roomName: r.room_name, text: r.text }));
+  }
   messagesAfter(roomId: string, seq: number): Message[] {
     return this.db
       .all('SELECT * FROM messages WHERE room_id=? AND seq>? ORDER BY seq', roomId, seq)

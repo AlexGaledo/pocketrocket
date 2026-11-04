@@ -126,6 +126,13 @@ export const SettingsSchema = z.object({
    * folder linked there. Every bot reads it; none can write it. Empty = off. Validated by the hub.
    */
   knowledgeRepo: z.string().max(500).default(''),
+  /** The bots shown large above the sidebar's bot list, in order. Ids of deleted bots are ignored when read. */
+  podiumBotIds: z.array(z.string().max(64)).max(3).default([]),
+  /**
+   * The one bot that gets `read_owner_messages`, or '' for none. Only the REST API writes it, so no bot can grant
+   * itself the owner's messages from every chat.
+   */
+  personaBotId: z.string().max(64).default(''),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

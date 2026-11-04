@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Podium and Persona
+
+- Up to three main bots sit large above the bot list, chosen with the pencil on the podium.
+- Ten new character icons for bots, drawn as little creatures.
+- A bot you name as Persona can read what you wrote across every chat, with known secrets redacted. It sees only your messages, and no bot can grant this to itself.
+
 ### Bots keep going after the step limit
 
 - A turn that runs out of steps now resumes up to twice, as intended. The check never matched the error the Claude provider really reports, so these turns stopped dead instead.
