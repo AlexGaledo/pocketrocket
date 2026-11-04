@@ -357,6 +357,11 @@ export function createRest(deps: RestDeps) {
     const limit = query.get('limit') ? Number(query.get('limit')) : 200;
     return repos.listMessages(params.id, { before, limit });
   });
+  add('GET', '/api/previews', () => repos.botPreviews());
+  add('GET', '/api/search', ({ query }) => {
+    const q = (query.get('q') ?? '').trim();
+    return q.length < 2 ? [] : repos.searchMessages(q.slice(0, 200), 50);
+  });
   add('POST', '/api/rooms/:id/messages', ({ params, body }) => {
     const { text } = parse(z.object({ text: z.string().min(1) }), body);
     return router.onUserMessage(params.id, text);

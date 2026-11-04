@@ -3,7 +3,7 @@ import type * as React from 'react';
 import { type LucideIcon } from 'lucide-react';
 import { BOT_ICON_KEYS, isBotCharacterKey, isMediaRef } from '@pocketrocket/shared';
 import { botIcon, iconGlyph } from '../../lib/botIcon';
-import { BotCharacter, characterLabel } from '../../lib/botCharacter';
+import { AutoCharacter, BotCharacter, characterLabel } from '../../lib/botCharacter';
 import { useMediaUrl } from '../../lib/media';
 import { Label, cn, radioKeyDown } from '../ui';
 import { PictureUpload } from './PictureUpload';
@@ -50,7 +50,7 @@ export function BotIconPicker({ botId, value, onChange, label = 'Icon', hint = "
           </button>
         )}
         <button {...radio('', 'Automatic')} className={cn(CELL, 'px-2.5 text-hint', value === '' && ON)}>
-          {AutoGlyph && <AutoGlyph aria-hidden size={16} strokeWidth={1.75} />}Automatic
+          {botId && !automatic ? <AutoCharacter id={botId} size={20} /> : AutoGlyph && <AutoGlyph aria-hidden size={16} strokeWidth={1.75} />}Automatic
         </button>
         {BOT_ICON_KEYS.map((key) => {
           if (isBotCharacterKey(key)) {

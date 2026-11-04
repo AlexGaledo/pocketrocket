@@ -4,8 +4,8 @@ import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { clsx } from 'clsx';
 import { Hash, X } from 'lucide-react';
-import { isBotCharacterKey, isBotIconKey } from '@pocketrocket/shared';
-import { BotCharacter } from '../lib/botCharacter';
+import { isBotCharacterKey, isBotIconKey, isMediaRef } from '@pocketrocket/shared';
+import { AutoCharacter, BotCharacter } from '../lib/botCharacter';
 import type { Bot, BotState, Room } from '@pocketrocket/shared';
 import { botIcon } from '../lib/botIcon';
 import { useMediaUrl } from '../lib/media';
@@ -281,12 +281,14 @@ export function Avatar({ bot, state, label, size = 36 }: { bot: Pick<Bot, 'id' |
       role="img"
       aria-label={said}
       className={cn('relative flex shrink-0 select-none items-center justify-center rounded-full text-fg', cls)}
-      style={{ width: size, height: size, background: isBotCharacterKey(bot.avatar) ? undefined : tint }}
+      style={{ width: size, height: size, background: isMediaRef(bot.avatar) || (isBotIconKey(bot.avatar) && !isBotCharacterKey(bot.avatar)) ? tint : undefined }}
       title={said}
     >
       {isBotCharacterKey(bot.avatar)
         ? <BotCharacter character={bot.avatar} size={size} />
-        : <Face src={src}><Glyph aria-hidden size={Math.round(size * 0.5)} strokeWidth={1.75} /></Face>}
+        : !isMediaRef(bot.avatar) && !isBotIconKey(bot.avatar)
+          ? <AutoCharacter id={bot.id} size={size} />
+          : <Face src={src}><Glyph aria-hidden size={Math.round(size * 0.5)} strokeWidth={1.75} /></Face>}
     </div>
   );
 }

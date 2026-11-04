@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### A new sidebar
+
+- Each group is now a section listing its bots, with `Name · Role` and the bot's latest message. Click a group's name for its chat, or a bot for a chat with it.
+- Search finds a message in any chat and opens it with the words highlighted.
+- A bot with no icon picked wears its own creature, and bot messages sit in bubbles.
+- A room holds up to 20 bots.
+
 ### Podium and Persona
 
 - Up to three main bots sit large above the bot list, chosen with the pencil on the podium.

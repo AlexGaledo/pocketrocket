@@ -309,6 +309,8 @@ export function deviceIdOf(req: IncomingMessage): string | null {
  * 403, never 401: the web client reads 401 as "this token is wrong" and would drop a perfectly good pairing.
  */
 const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
+  ['GET', /^\/api\/previews$/],
+  ['GET', /^\/api\/search$/],
   ['GET', /^\/api\/health$/],
   ['GET', /^\/api\/settings$/],
   ['GET', /^\/api\/providers$/],

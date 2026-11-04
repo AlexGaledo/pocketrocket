@@ -34,7 +34,7 @@ desktop or my phone."
 - A hosted team marketplace. Replaced by importing skills and plugins from a git URL, kept local.
 - A native iOS app in this roadmap. The PWA (P9) covers chat, approvals and Screen. A native app is an
   open question.
-- Copying Grok Bot's UI. We match what it does, never how it looks.
+- Copying Grok Bot's UI. We match what it does, never how it looks. Exception: on 2026-11-05 the owner asked for the sidebar and chat layout to follow Grok Bot's. The artwork stays our own.
 
 ---
 

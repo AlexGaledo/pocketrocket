@@ -1,4 +1,5 @@
 import type { BotCharacterKey } from '@pocketrocket/shared';
+import { fnv1a } from './botIcon';
 
 /** A soft outline with `lobes` bumps, drawn from a circle whose radius wobbles. `depth` is how far each bump reaches. */
 function lobed(lobes: number, depth: number, spin = 0): string {
@@ -29,9 +30,13 @@ const CHARACTERS: Record<BotCharacterKey, { label: string; path: string; fill: s
 
 export const characterLabel = (key: BotCharacterKey) => CHARACTERS[key].label;
 
-/** A little creature for a bot: a coloured shape with two eyes. Decorative: the caller names the bot. */
-export function BotCharacter({ character, size }: { character: BotCharacterKey; size: number }) {
-  const { path, fill, eyeY = 46, tilt = 8 } = CHARACTERS[character];
+const AUTO_SHAPES: readonly { path: string; eyeY?: number }[] = [
+  { path: lobed(6, 2.5) }, { path: lobed(6, 7) }, { path: lobed(4, 7) }, { path: lobed(5, 10, Math.PI / 10), eyeY: 48 }, { path: lobed(2, 6, Math.PI / 4) },
+  { path: lobed(3, 5, Math.PI / 2) }, { path: lobed(8, 5) }, { path: DROP, eyeY: 58 }, { path: CLOUD, eyeY: 54 },
+];
+const AUTO_FILLS = ['#a78bfa', '#34d399', '#fbbf24', '#fdba8c', '#38bdf8', '#f472b6', '#f97316', '#cdd3da', '#f5f2ea', '#a3e635', '#2dd4bf'];
+
+function Face({ path, fill, eyeY = 46, tilt = 8, size }: { path: string; fill: string; eyeY?: number; tilt?: number; size: number }) {
   return (
     <svg aria-hidden width={size} height={size} viewBox="0 0 100 100" className="block">
       <path d={path} fill={fill} stroke="rgb(0 0 0 / 0.08)" strokeWidth="1" />
@@ -39,4 +44,16 @@ export function BotCharacter({ character, size }: { character: BotCharacterKey; 
       <ellipse cx="60" cy={eyeY} rx="3.8" ry="7" fill="#17171c" transform={'rotate(' + tilt + ' 60 ' + eyeY + ')'} />
     </svg>
   );
+}
+
+/** The creature a bot wears when no icon was picked. The same bot always gets the same one, whatever it is renamed to. */
+export function AutoCharacter({ id, size }: { id: string; size: number }) {
+  const h = fnv1a(id);
+  return <Face {...AUTO_SHAPES[h % AUTO_SHAPES.length]} fill={AUTO_FILLS[(h >>> 12) % AUTO_FILLS.length]} size={size} />;
+}
+
+/** A little creature for a bot: a coloured shape with two eyes. Decorative: the caller names the bot. */
+export function BotCharacter({ character, size }: { character: BotCharacterKey; size: number }) {
+  const { path, fill, eyeY, tilt } = CHARACTERS[character];
+  return <Face path={path} fill={fill} eyeY={eyeY} tilt={tilt} size={size} />;
 }

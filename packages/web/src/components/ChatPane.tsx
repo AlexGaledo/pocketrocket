@@ -150,6 +150,7 @@ function Transcript({ roomId }: { roomId: string }) {
   // What arrived below while the user was reading further up; drives the jump button.
   const [unseen, setUnseen] = useState<'messages' | 'approval' | 'takeover' | null>(null);
 
+  const isDm = useStore((s) => s.rooms.find((r) => r.id === roomId)?.kind === 'dm');
   const streams = useMemo(() => Object.entries(streaming).filter(([, v]) => v.roomId === roomId && v.text), [streaming, roomId]);
 
   useEffect(() => {
@@ -203,6 +204,39 @@ function Transcript({ roomId }: { roomId: string }) {
 
   const groups = useMemo(() => groupMessages(messages ?? []), [messages]);
 
+  // A search result: bring its message in if it is older than what is loaded, scroll to it once, and mark the
+  // words with the CSS Highlight API, which paints over the text without touching what React rendered.
+  const target = useStore((s) => (s.searchTarget?.roomId === roomId ? s.searchTarget : null));
+  const scrolledTo = useRef<typeof target>(null);
+  useEffect(() => {
+    if (!target || !messages?.length) return;
+    if (messages[0].seq > target.seq && !history?.done) { void loadOlder(roomId); return; }
+    if (scrolledTo.current === target) return;
+    const hit = ref.current?.querySelector('[data-seq="' + target.seq + '"]');
+    if (!hit) return;
+    scrolledTo.current = target;
+    setStick(false);
+    hit.scrollIntoView({ block: 'center' });
+  }, [target, messages, history?.done, loadOlder, roomId]);
+  useEffect(() => {
+    if (!('highlights' in CSS)) return;
+    if (!target || !ref.current) { CSS.highlights.delete('search'); return; }
+    const needle = target.query.toLowerCase();
+    const ranges: Range[] = [];
+    const walker = document.createTreeWalker(ref.current, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const hay = (node.nodeValue ?? '').toLowerCase();
+      for (let at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + needle.length)) {
+        const range = new Range();
+        range.setStart(node, at);
+        range.setEnd(node, at + needle.length);
+        ranges.push(range);
+      }
+    }
+    CSS.highlights.set('search', new Highlight(...ranges));
+    return () => { CSS.highlights.delete('search'); };
+  }, [target, messages]);
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {history?.loading && (
@@ -223,10 +257,10 @@ function Transcript({ roomId }: { roomId: string }) {
             const bot = botById(bots, s.botId);
             return bot ? (
               <div key={turnId} className="flex gap-3 pr-10 @max-[560px]:pr-2">
-                <Avatar bot={bot} size={30} state="thinking" />
+                {!isDm && <Avatar bot={bot} size={30} state="thinking" />}
                 <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex items-baseline gap-2"><span className="text-ui font-medium">{bot.name}</span><span className="text-hint text-dim">typing</span></div>
-                  <div className="md text-body text-fg/80"><RichText text={s.text} bots={bots} /><span className="caret" /></div>
+                  {!isDm && <div className="mb-1 flex items-baseline gap-2"><span className="text-ui font-medium">{bot.name}</span><span className="text-hint text-dim">typing</span></div>}
+                  <div className="md w-fit max-w-full rounded-xl rounded-bl-xs bg-card2 px-4 py-2.5 text-body text-fg/80"><RichText text={s.text} bots={bots} /><span className="caret" /></div>
                 </div>
               </div>
             ) : null;
@@ -292,6 +326,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
   const first = group.items[0];
   const userName = useStore((s) => s.settings.userName);
   const userAvatar = useStore((s) => s.settings.userAvatar);
+  const isDm = useStore((s) => s.rooms.find((r) => r.id === first.roomId)?.kind === 'dm');
   if (first.kind === 'trigger') return <TriggerLine m={first} bots={bots} />;
   if (first.kind === 'system' || first.kind === 'routine') return <SystemLine m={first} bots={bots} />;
   const bot = group.authorType === 'bot' || group.authorType === 'system' ? botById(bots, group.authorId) : undefined;
@@ -300,7 +335,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
       <div className="flex justify-end gap-3 pl-16 @max-[560px]:pl-6">
         <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
           {group.items.map((m) => (
-            <div key={m.id} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body">
+            <div key={m.id} data-seq={m.seq} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body">
               <RichText text={m.text} bots={bots} />
               {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
             </div>
@@ -313,12 +348,15 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
   }
   return (
     <div className="flex gap-3 pr-10 @max-[560px]:pr-2">
-      {bot ? <Avatar bot={bot} size={30} /> : <div className="h-[30px] w-[30px] rounded-full bg-card2" />}
+      {/* A chat with one bot needs no name on every message: the header says who it is. */}
+      {!isDm && (bot ? <Avatar bot={bot} size={30} /> : <div className="h-[30px] w-[30px] rounded-full bg-card2" />)}
       <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-baseline gap-2">
-          <span className="text-ui font-medium">{bot?.name ?? 'Bot'}</span>
-          <span className="text-hint text-dim">{fmtTime(first.createdAt)}</span>
-        </div>
+        {!isDm && (
+          <div className="mb-1 flex items-baseline gap-2">
+            <span className="text-ui font-medium">{bot?.name ?? 'Bot'}</span>
+            <span className="text-hint text-dim">{fmtTime(first.createdAt)}</span>
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           {segments(group.items).map((seg) =>
             seg.kind === 'work' ? <WorkLine key={seg.key} items={seg.items} startedAt={seg.startedAt} endedAt={seg.endedAt} /> : (
@@ -329,6 +367,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
             ),
           )}
         </div>
+        {isDm && <span className="mt-1 block pl-1 text-hint text-dim">{fmtTime(first.createdAt)}</span>}
       </div>
     </div>
   );
@@ -343,7 +382,7 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
       // A bot outside this chat reporting back: its work is in its own chat.
       const work = m.kind === 'text' ? (m.payload as HandoffResultPayload | null)?.workRoomId : undefined;
       return (
-        <div className="md text-body">
+        <div data-seq={m.seq} className="md w-fit max-w-full rounded-xl rounded-bl-xs bg-card2 px-4 py-2.5 text-body">
           <RichText text={m.text} bots={bots} />
           {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
           {work && <OpenChat roomId={work} />}
@@ -596,7 +635,7 @@ function Composer({ members }: { members: Bot[] }) {
   const hint = secretsHint ?? (room?.kind === 'group'
     ? (room.coordinatorBotId ? 'Ask here, or @mention a bot' : '@mention a bot')
     : activeTurns.length ? (members[0]?.name ?? 'The bot') + ' reads this when it finishes'
-    : 'Message ' + (members[0]?.name ?? ''));
+    : 'Message ' + (members[0]?.title ? members[0].name + ' · ' + members[0].title : members[0]?.name ?? ''));
 
   return (
     <div className="relative shrink-0 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 sm:px-6">

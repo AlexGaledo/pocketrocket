@@ -1,4 +1,4 @@
-import { Pencil, Plus } from 'lucide-react';
+import { Pencil, Plus, Star } from 'lucide-react';
 import { MAX_PODIUM_BOTS, type Bot } from '@pocketrocket/shared';
 import { useStore } from '../store';
 import { avatarStatus, type BotStatus } from '../lib/botStatus';
@@ -16,6 +16,7 @@ export function Podium({ bots, statusOf, activeBotId, unreadOf, onOpen, canEdit 
   canEdit: boolean;
 }) {
   const openDialog = useStore((s) => s.openDialog);
+  const personaBotId = useStore((s) => s.settings.personaBotId);
   const edit = () => openDialog({ kind: 'podium' });
   const empty = canEdit ? MAX_PODIUM_BOTS - bots.length : 0;
   if (!bots.length && !empty) return null;
@@ -35,9 +36,10 @@ export function Podium({ bots, statusOf, activeBotId, unreadOf, onOpen, canEdit 
               >
                 <span className="relative">
                   <Avatar bot={b} {...avatarStatus(statusOf(b.id))} size={46} />
-                  {unread > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-ink px-1.5 text-hint font-medium text-ink-fg">{unread}<span className="sr-only"> unread</span></span>}
+                  {b.id === personaBotId && <span title="Your assistant" className="absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#f59e0b] text-white ring-2 ring-bg"><Star aria-hidden size={10} fill="currentColor" /></span>}
+                  {unread > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[#4aa3ff] ring-2 ring-bg"><span className="sr-only">{unread} unread</span></span>}
                 </span>
-                <span className="line-clamp-2 w-full text-center text-hint font-medium leading-tight">{b.name}</span>
+                <span className="w-full truncate text-center text-hint font-medium">{b.title ? b.name + ' · ' + b.title : b.name}</span>
               </button>
             </li>
           );
