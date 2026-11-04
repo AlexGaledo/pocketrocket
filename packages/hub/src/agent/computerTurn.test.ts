@@ -168,13 +168,16 @@ describe('turns on per-bot computers', () => {
     s.provider.runTurn = async (ctx, sink) => {
       if (++n === 2) {
         answers.push(await ctx.computerGate!('mcp__browser__browser_navigate'));
-        answers.push(await ctx.computerGate!('mcp__browser__browser_tabs'));
+        // Listing tabs is not owning one: the next navigate is still refused.
+        answers.push(await ctx.computerGate!('mcp__browser__browser_tabs', { action: 'list' }));
+        answers.push(await ctx.computerGate!('mcp__browser__browser_navigate'));
+        answers.push(await ctx.computerGate!('mcp__browser__browser_tabs', { action: 'new' }));
         answers.push(await ctx.computerGate!('mcp__browser__browser_navigate'));
       }
       return original(ctx, sink);
     };
     await s.run(a);
-    expect(answers).toEqual([SHARED_BROWSER_NOTE, null, null]);
+    expect(answers).toEqual([SHARED_BROWSER_NOTE, null, SHARED_BROWSER_NOTE, null, null]);
   });
 
   it('refuses the browser call, and says why, when the computer cannot start', async () => {

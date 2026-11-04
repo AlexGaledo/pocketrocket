@@ -48,14 +48,18 @@ describe.skipIf(!CHROME)('Recorder against a real Chromium', () => {
       ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
       'about:blank',
     ], { stdio: 'ignore' });
+    let exited: string | null = null;
+    proc.once('exit', (code, signal) => { exited = 'Chrome exited early: code ' + code + ', signal ' + signal; });
     const portFile = path.join(profile, 'DevToolsActivePort');
-    for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(100);
-    for (let i = 0; i < 20 && !cdpUrl; i++) {
+    // CI runs every test file in parallel on a small machine, where Chrome can take well over 10 seconds to come up.
+    const deadline = Date.now() + 45_000;
+    while (!cdpUrl && !exited && Date.now() < deadline) {
       const port = fs.existsSync(portFile) ? fs.readFileSync(portFile, 'utf8').split('\n')[0].trim() : '';
       if (port) cdpUrl = 'http://127.0.0.1:' + port;
       else await sleep(100);
     }
-  }, 30_000);
+    if (!cdpUrl) throw new Error(exited ?? 'Chrome wrote no DevToolsActivePort in 45 seconds');
+  }, 60_000);
 
   afterAll(async () => {
     proc?.kill();
