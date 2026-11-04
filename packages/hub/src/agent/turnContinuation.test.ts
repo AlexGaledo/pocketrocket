@@ -70,6 +70,15 @@ describe('a turn that runs out of steps is continued, not abandoned', () => {
     expect(systemTexts(s.repos, s.room.id).some((t) => t.includes('continuing (1/'))).toBe(true);
   });
 
+  it('recognises the error as the Claude provider really reports it, with the detail appended', async () => {
+    const s = setup([{ error: 'error_max_turns: Reached maximum number of turns (80)' }, { ok: true }]);
+    const r = await s.runner.runTurn({ bot: s.bot, room: s.room, members: [s.bot], injected: 'go', hop: 0, causeId: 'c1' } as never);
+
+    expect(s.provider.seen).toHaveLength(2);
+    expect(r.ok).toBe(true);
+    expect(systemTexts(s.repos, s.room.id).some((t) => t.includes('continuing (1/'))).toBe(true);
+  });
+
   it('stops at the continuation limit instead of retrying forever', async () => {
     const s = setup([{ error: 'error_max_turns' }]);
     const r = await s.runner.runTurn({ bot: s.bot, room: s.room, members: [s.bot], injected: 'go', hop: 0, causeId: 'c1' } as never);

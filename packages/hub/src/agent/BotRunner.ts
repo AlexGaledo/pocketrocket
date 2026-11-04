@@ -494,7 +494,7 @@ export class BotRunner {
       // Running out of steps is not a failure, it is an unfinished job. Resume the same session and let it
       // keep going rather than handing the user a dead turn -- but bounded, budget-checked and visible, so
       // a bot stuck in a loop still stops instead of quietly costing three times as much.
-      for (let attempt = 1; outcome.error === 'error_max_turns' && attempt <= MAX_TURN_CONTINUATIONS; attempt++) {
+      for (let attempt = 1; outcome.error?.startsWith('error_max_turns') && attempt <= MAX_TURN_CONTINUATIONS; attempt++) {
         if (ac.signal.aborted) break;
         if (costUsd >= budgetUsd) break;
         // P8: an auto bot retries on Opus. Same remaining budget either way: the router never raises it.
