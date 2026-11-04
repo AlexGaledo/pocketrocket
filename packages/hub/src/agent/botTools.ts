@@ -8,6 +8,7 @@ import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
 import { recordAudit } from '../services/AuditLog.js';
 import type { SkillService } from '../services/SkillService.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
+import { quoteTags } from '../rooms/transcript.js';
 import { events } from '../events.js';
 import { parseMentions } from '../rooms/mentions.js';
 import { desktopTools } from './desktopTools.js';
@@ -350,7 +351,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
           : m.authorType === 'system'
             ? 'system'
             : '@' + (r.members.find((b) => b.id === m.authorId)?.handle ?? ctx.repos.getBot(m.authorId ?? '')?.handle ?? 'bot');
-      return text(msgs.map((m) => '#' + m.seq + ' [' + who(m) + ']: ' + m.text).join('\n') || '(no messages)');
+      return text(msgs.map((m) => '#' + m.seq + ' [' + who(m) + ']: ' + quoteTags(m.text)).join('\n') || '(no messages)');
     },
     { readOnly: true },
   );

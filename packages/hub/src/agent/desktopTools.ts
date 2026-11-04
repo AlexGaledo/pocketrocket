@@ -192,6 +192,10 @@ export function desktopTools(target: DesktopTarget = sharedDesktop()): HubTool[]
 export const SHARED_BROWSER_NOTE =
   'Another of your chats is using this browser right now. Call browser_tabs with action "new" first and work only in the tab it opens, or you will both drive the same page.';
 
+/** Told to a turn that tries to reach a tab by number while another turn is on the same computer. */
+export const SHARED_TAB_NOTE =
+  'Another of your chats is using this browser, and tab numbers shift as chats close tabs. Close your own tab with browser_tabs action "close" and no index, once you have opened one with action "new". Selecting a tab by number is refused while the browser is shared.';
+
 /**
  * Look at the screen of a bot in this room, without driving it and without starting anything, so one bot can do the
  * browser work while others follow along with no computer of their own.

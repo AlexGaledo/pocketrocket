@@ -18,7 +18,7 @@ import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, canUpgrade, type RouteChoice, type RouteRequest } from './ModelRouter.js';
 import type { RoutingRules } from '../services/RoutingRules.js';
-import { desktopTools, SHARED_BROWSER_NOTE, viewScreenTool } from './desktopTools.js';
+import { desktopTools, SHARED_BROWSER_NOTE, SHARED_TAB_NOTE, viewScreenTool } from './desktopTools.js';
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
@@ -287,16 +287,24 @@ export class BotRunner {
     }
 
     // Chats on one computer share its browser, and each browser tool starts on the first tab, so they would drive the
-    // same page. Decided on this turn's first browser call: a turn already at work is never made to move.
+    // same page. A turn needs a tab of its own before it acts, unless it got there first: a turn already at work is
+    // never made to move. Closing a tab moves the browser tool on to a neighbour, possibly another chat's, so a close
+    // ends the claim. Numbers shift as tabs close, so while shared a tab is only reached as the current one.
     let tabSettled = false;
     const browserTabRule = (name: string, input?: Record<string, unknown>): string | null => {
-      if (tabSettled || !name.startsWith('mcp__browser__')) return null;
+      if (!name.startsWith('mcp__browser__')) return null;
+      const shared = this.computers!.turnsOn(bot.id) > 1;
       if (name.endsWith('browser_tabs')) {
-        // Looking at the tabs is not having one of your own: only opening one settles it.
         if (input?.action === 'new') tabSettled = true;
+        if (input?.action === 'select' && shared) return SHARED_TAB_NOTE;
+        if (input?.action === 'close') {
+          if (shared && (input.index !== undefined || !tabSettled)) return SHARED_TAB_NOTE;
+          tabSettled = false;
+        }
         return null;
       }
-      if (this.computers!.turnsOn(bot.id) > 1) return SHARED_BROWSER_NOTE;
+      if (tabSettled) return null;
+      if (shared) return SHARED_BROWSER_NOTE;
       tabSettled = true;
       return null;
     };

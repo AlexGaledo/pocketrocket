@@ -54,7 +54,8 @@ describe.skipIf(!CHROME)('Recorder against a real Chromium', () => {
     // CI runs every test file in parallel on a small machine, where Chrome can take well over 10 seconds to come up.
     const deadline = Date.now() + 45_000;
     while (!cdpUrl && !exited && Date.now() < deadline) {
-      const port = fs.existsSync(portFile) ? fs.readFileSync(portFile, 'utf8').split('\n')[0].trim() : '';
+      let port = '';
+      try { port = fs.readFileSync(portFile, 'utf8').split('\n')[0].trim(); } catch { /* not there yet, or Chrome holds it on Windows */ }
       if (port) cdpUrl = 'http://127.0.0.1:' + port;
       else await sleep(100);
     }

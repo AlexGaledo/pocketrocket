@@ -15,7 +15,7 @@ import { TurnRegistry } from '../mcp/httpServer.js';
 import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { BotRunner } from './BotRunner.js';
-import { SHARED_BROWSER_NOTE } from './desktopTools.js';
+import { SHARED_BROWSER_NOTE, SHARED_TAB_NOTE } from './desktopTools.js';
 
 /** P1 task 1.3: each bot's turn is wired to its own computer (CDP endpoint, prompt, roots). */
 
@@ -178,6 +178,53 @@ describe('turns on per-bot computers', () => {
     };
     await s.run(a);
     expect(answers).toEqual([SHARED_BROWSER_NOTE, null, SHARED_BROWSER_NOTE, null, null]);
+  });
+
+  it('keeps a shared chat to its own tab: no numbered close, no select, and a close ends its claim', async () => {
+    const s = setup();
+    const a = s.mk('alpha', ['Browser']);
+    const room2 = s.repos.createRoom({ kind: 'group', name: 'Other', memberIds: [a.bot.id], coordinatorBotId: null });
+    const tabs = 'mcp__browser__browser_tabs';
+    const nav = 'mcp__browser__browser_navigate';
+    const answers: (string | null)[] = [];
+    let done = () => undefined as void;
+    s.provider.hold = new Promise((r) => { done = r; });
+    s.provider.onRun = () => {
+      s.provider.onRun = () => undefined;
+      void s.runner.runTurn({ bot: a.bot, room: room2, members: [a.bot], injected: 'hi', hop: 0, causeId: 'c2' }).finally(done);
+    };
+    const original = s.provider.runTurn.bind(s.provider);
+    let n = 0;
+    s.provider.runTurn = async (ctx, sink) => {
+      if (++n === 2) {
+        const g = ctx.computerGate!;
+        answers.push(await g(tabs, { action: 'close' })); // no tab of its own yet: this would close the first chat's
+        answers.push(await g(tabs, { action: 'new' }));
+        answers.push(await g(tabs, { action: 'close', index: 1 }));
+        answers.push(await g(tabs, { action: 'select', index: 0 }));
+        answers.push(await g(nav));
+        answers.push(await g(tabs, { action: 'close' }));
+        answers.push(await g(nav)); // the browser tool now sits on a neighbour's tab
+      }
+      return original(ctx, sink);
+    };
+    await s.run(a);
+    expect(answers).toEqual([SHARED_TAB_NOTE, null, SHARED_TAB_NOTE, SHARED_TAB_NOTE, null, null, SHARED_BROWSER_NOTE]);
+  });
+
+  it('lets a chat alone on the computer close and select by number', async () => {
+    const s = setup();
+    const a = s.mk('alpha', ['Browser']);
+    const answers: (string | null)[] = [];
+    const original = s.provider.runTurn.bind(s.provider);
+    s.provider.runTurn = async (ctx, sink) => {
+      await ctx.computerGate!('mcp__browser__browser_navigate');
+      answers.push(await ctx.computerGate!('mcp__browser__browser_tabs', { action: 'select', index: 1 }));
+      answers.push(await ctx.computerGate!('mcp__browser__browser_tabs', { action: 'close', index: 1 }));
+      return original(ctx, sink);
+    };
+    await s.run(a);
+    expect(answers).toEqual([null, null]);
   });
 
   it('refuses the browser call, and says why, when the computer cannot start', async () => {

@@ -1,6 +1,7 @@
 import type { Bot, BotState, CauseKind, Message, Room, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
+import { quoteTags } from './transcript.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { BotRunner, TurnRequest, TurnResult } from '../agent/BotRunner.js';
@@ -52,7 +53,7 @@ export function formatMessage(repos: Repos, m: Message, text: string = m.text): 
     const b = repos.getBot(m.authorId ?? '');
     who = b ? '@' + b.handle : 'bot';
   }
-  return '#' + m.seq + ' [' + who + ']: ' + text;
+  return '#' + m.seq + ' [' + who + ']: ' + quoteTags(text);
 }
 
 export class RoomRouter {
