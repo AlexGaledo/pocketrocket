@@ -6,12 +6,13 @@ import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Messag
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Badge, Button, Menu, MenuContent, RoomAvatar, UserAvatar, cn, fmtTime } from './ui';
+import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, UserAvatar, cn, fmtTime } from './ui';
 import { Markdown } from './Markdown';
 import { RuleOffer, TakeoverCard } from './ComputerControl';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
 import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
 import { selectScreenSize } from '../lib/screenView';
+import { useMediaUrl } from '../lib/media';
 
 export function ChatPane() {
   const room = useStore(selectActiveRoom);
@@ -299,7 +300,10 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
       <div className="flex justify-end gap-3 pl-16 @max-[560px]:pl-6">
         <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
           {group.items.map((m) => (
-            <div key={m.id} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body"><RichText text={m.text} bots={bots} /></div>
+            <div key={m.id} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body">
+              <RichText text={m.text} bots={bots} />
+              {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
+            </div>
           ))}
           <span className="pr-1 text-hint text-dim">{fmtTime(first.createdAt)}</span>
         </div>
@@ -341,6 +345,7 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
       return (
         <div className="md text-body">
           <RichText text={m.text} bots={bots} />
+          {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
           {work && <OpenChat roomId={work} />}
         </div>
       );
@@ -479,6 +484,42 @@ function RichText({ text, bots }: { text: string; bots: Bot[] }) {
   const handles = useMemo(() => new Set(bots.map((b) => b.handle.toLowerCase())), [bots]);
   const t = useMemo(() => text.replace(/(^|[^\w@])@([a-z0-9_-]{2,24})\b/gi, (all, pre, h) => (handles.has(h.toLowerCase()) ? pre + '**@' + h + '**' : all)), [text, handles]);
   return <Markdown>{t}</Markdown>;
+}
+
+// ---------- image attachments ----------
+
+/** Thumbnails for a message's attached pictures, each opening full-size on click. */
+function Attachments({ refs }: { refs: string[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+  return (
+    <>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {refs.map((ref) => <AttachmentImage key={ref} mediaRef={ref} onOpen={() => setOpen(ref)} />)}
+      </div>
+      {open && <ImageLightbox mediaRef={open} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+
+function AttachmentImage({ mediaRef, onOpen }: { mediaRef: string; onOpen: () => void }) {
+  const url = useMediaUrl(mediaRef);
+  if (!url) return <div className="h-32 w-32 animate-pulse rounded-md bg-card2" aria-hidden />;
+  return (
+    <button type="button" onClick={onOpen} className="block overflow-hidden rounded-md ring-1 ring-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+      <img src={url} alt="Attached picture" className="max-h-64 max-w-full object-contain" />
+    </button>
+  );
+}
+
+function ImageLightbox({ mediaRef, onClose }: { mediaRef: string; onClose: () => void }) {
+  const url = useMediaUrl(mediaRef);
+  return (
+    <DialogShell open onOpenChange={(o) => !o && onClose()} className="max-h-[92vh] max-w-[92vw] overflow-hidden bg-transparent p-0 shadow-none">
+      <DialogTitle className="sr-only">Attached picture</DialogTitle>
+      {url && <img src={url} alt="Attached picture" className="block max-h-[92vh] max-w-[92vw] rounded-lg object-contain" />}
+      <div className="absolute right-2 top-2"><DialogCloseButton /></div>
+    </DialogShell>
+  );
 }
 
 // ---------- composer: the floating pill ----------
