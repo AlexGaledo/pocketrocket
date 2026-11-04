@@ -355,6 +355,39 @@ describe('warm start', () => {
     expect(await cm.warm('b')).toEqual(['b']);
   });
 
+  it('with no cap, low memory stops the least recently used idle computer to make room', async () => {
+    let mem = 4 * GB;
+    const { cm, advance } = setup({ maxRunning: 99, memAvailable: () => mem });
+    await cm.ensureRunning('a');
+    advance(1000);
+    await cm.ensureRunning('b');
+    advance(1000);
+    mem = 1 * GB;
+    expect((await cm.ensureRunning('c')).ok).toBe(true);
+    expect(cm.status('a').state).toBe('asleep');
+    expect(cm.status('b').state).toBe('live');
+  });
+
+  it('with no cap, low memory refuses a start when every running computer is in use', async () => {
+    let mem = 4 * GB;
+    const { cm } = setup({ maxRunning: 99, memAvailable: () => mem });
+    const a = await cm.acquire('a');
+    mem = 1 * GB;
+    const r = await cm.acquire('b');
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toContain('low on memory');
+    expect(cm.status('a').state).toBe('live');
+    a.release();
+    r.release();
+  });
+
+  it('runs well past the old limit of 3 while memory allows', async () => {
+    const { cm, sys } = setup({ maxRunning: 99, memAvailable: () => 8 * GB });
+    const held = await Promise.all(['a', 'b', 'c', 'd', 'e', 'f'].map((id) => cm.acquire(id)));
+    expect(held.every((r) => r.ok)).toBe(true);
+    expect(sys.active.size).toBe(6);
+  });
+
   it('an unreadable meminfo does not block a start', async () => {
     const { cm } = setup({ memAvailable: () => null });
     expect(await cm.warm('a')).toEqual(['a']);

@@ -147,6 +147,9 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
       ? ['Your computer is unavailable this turn, so the Browser and Desktop tools are off: ' + ctx.computerUnavailable + ' If the task needs them, say so to ' + USER_NAME + ' in one line.']
       : []),
     'Your private home: ' + botHome(ctx.bot.id) + ' (memory.md lives here). Files are shared; memory is not.',
+    ...(ctx.computer
+      ? ['Your computer starts the first time you use Browser or Desktop in a turn, so use them only when the task needs a real browser. When a bot in this room is already doing the browser work, do not repeat it: ask them in the room, or follow along with ' + prefix + 'view_screen. When you finish browser work others depend on, put what they need in your message (URLs, what you found, what is left), since they do not see your screen. Several of your chats can share your computer; if you opened a tab with browser_tabs, close it when done, and never navigate or close a tab you did not open.']
+      : []),
     'Custom tools: ' + POCKETROCKET_TOOLS.map((t) => prefix + t).join(', ') + '.',
     'Use update_memory when you learn something durable about the user, the project, or how you should work. Keep memory short and factual.',
     ...(ctx.browser

@@ -6,7 +6,6 @@ import type { ControlStatus } from '@pocketrocket/shared';
 import type { ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
-import { selectScreenBotId } from './lib/screenView';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
@@ -268,8 +267,6 @@ export const useStore = create<State>((set, get) => ({
         void api.control.list().then((l) => set({ control: Object.fromEntries(l.map((c) => [c.botId, c])) })).catch(() => undefined);
         const active = s.activeRoomId && ev.rooms.some((r) => r.id === s.activeRoomId) ? s.activeRoomId : (ev.rooms[0]?.id ?? null);
         get().setActiveRoom(active);
-        // The app is open, so the computers about to be used come up. The hub refuses a phone this route anyway.
-        if (ev.principal !== 'device') void api.computers.warm(selectScreenBotId(get())).catch(() => undefined);
         return;
       }
       case 'computer.state':

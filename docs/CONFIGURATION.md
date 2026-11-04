@@ -40,7 +40,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `SCREEN_DISPLAY` | `:99` | X display for the Desktop tool (Linux server mode). |
 | `KNOWLEDGE_SYNC_MINUTES` | `60` | Minutes between `git pull --ff-only` runs of the knowledge repo clone (P7). `0` turns the timer off; Settings › Knowledge › Sync now still works. |
 | `POCKETROCKET_COMPUTERS` | unset (off) | `1` gives every bot with Browser/Desktop its own computer (Linux server mode; `setup-vps.sh` sets it). Off, the hub refuses Browser and Desktop: a turn runs without them and says why. |
-| `MAX_RUNNING_COMPUTERS` | `3` | Per-bot computers running at once; the least recently used idle one is stopped to make room. One place stays out of Always on, so at most this minus 1 can be Always on. |
+| `MAX_RUNNING_COMPUTERS` | `99` | Optional fixed cap on per-bot computers running at once. By default memory is the limit, not a count: the least recently used idle one is stopped when a new one needs room. |
 | `COMPUTER_IDLE_MIN` | `30` | Minutes without tool use, viewer, routine due or Always on before a computer is stopped (disk kept). |
 | `COMPUTER_QUOTA_GB` | `10` | Soft disk quota per computer: warned at 80%, not started at 100%. |
 | `POCKETROCKET_ALLOWED_HOSTS` | unset (loopback only) | P9. Comma/space separated hostnames (e.g. `myhub.tail1234.ts.net`) the hub also answers to, only on HTTPS requests forwarded from loopback (Tailscale Serve). Never use Funnel. See [SERVER.md](SERVER.md#phone-access-over-tailscale-serve). |

@@ -197,7 +197,7 @@ describe('per-bot screens', () => {
     hub2 = createHub({
       port: 0, dbFile: ':memory:', skipBootstrap: true, token: T2,
       computers: (db) => new ComputerManager(new ComputersRepo(db), {
-        enabled: true, dir, dataDir: dir, systemctl: fakeSystemctl, probe: async () => true, startTimeoutMs: 20, pollMs: 1,
+        maxRunning: 3, enabled: true, dir, dataDir: dir, systemctl: fakeSystemctl, probe: async () => true, startTimeoutMs: 20, pollMs: 1,
       }),
     });
     port2 = await hub2.listen();
