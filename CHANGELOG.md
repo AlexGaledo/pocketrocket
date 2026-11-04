@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Bots know the owner by role
+
+- Your messages reach bots tagged with your role, like `[Shiroo (owner)]`, so renaming yourself no longer makes bots treat you as a stranger, even in a chat that started under the old name.
+
 ### Fewer computers, and no fixed limit
 
 - A bot's computer now starts when it first uses Browser or Desktop in a turn, not on every turn. Bots that only talk no longer hold one.
 - Selecting a bot or opening the app no longer starts computers. Opening a bot's screen still does.
 - No fixed limit on running computers. Memory decides: idle computers stop to make room, and a start is refused only when memory is short and all of them are busy. `MAX_RUNNING_COMPUTERS` still sets a cap if you want one.
-- Several chats can share one computer. A chat that reaches a busy browser opens its own tab first, so they do not drive the same page.
+- Several chats can share one computer. A chat that reaches a busy browser opens its own tab first, so they do not drive the same page. Bots find their tab by URL before closing it, since tab numbers shift.
 - New `view_screen` tool: a bot can see the screen of another bot in its room, read only, without starting anything.
 
 ### Bot browsers keep their logins

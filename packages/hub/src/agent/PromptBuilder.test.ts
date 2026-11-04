@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Bot, Room } from '@pocketrocket/shared';
+import type { Bot, Message, Room } from '@pocketrocket/shared';
+import type { Repos } from '../db/repos.js';
+import { formatMessage } from '../rooms/RoomRouter.js';
+import { ownerTag } from '../services/SettingsStore.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 
 const bot: Bot = {
@@ -66,5 +69,22 @@ describe('buildSystemPrompt: per-bot computers (P1)', () => {
     expect(p).toContain('## Shared computer');
     expect(p).toContain('drive a real Chromium on this computer');
     expect(p).toContain('The desktop folder is the shared workspace.');
+  });
+});
+
+describe('owner tag', () => {
+  it('names the role in the tag, so a new display name does not make the owner a stranger', () => {
+    const p = buildSystemPrompt({ ...base, owner: { id: 'u1', previousNames: ['Alex'] } });
+    expect(p).toContain('"[' + ownerTag() + ']: ..."');
+    expect(ownerTag()).toMatch(/ \(owner\)$/);
+    expect(p).toContain('so a message with that tag is from the owner');
+    expect(p).toContain('earlier names: Alex');
+  });
+
+  it('formats a human message with the owner tag and a bot message without it', () => {
+    const repos = { getBot: () => ({ handle: 'helper' }) } as unknown as Repos;
+    const msg = (authorType: string) => ({ seq: 7, authorType, authorId: 'x', kind: 'text', text: 'hi' }) as unknown as Message;
+    expect(formatMessage(repos, msg('user'))).toBe('#7 [' + ownerTag() + ']: hi');
+    expect(formatMessage(repos, msg('bot'))).toBe('#7 [@helper]: hi');
   });
 });

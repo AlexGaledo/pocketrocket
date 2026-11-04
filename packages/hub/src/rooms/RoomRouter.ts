@@ -1,6 +1,6 @@
 import type { Bot, BotState, CauseKind, Message, Room, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
-import { settings } from '../services/SettingsStore.js';
+import { ownerTag, settings } from '../services/SettingsStore.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import type { BotRunner, TurnRequest, TurnResult } from '../agent/BotRunner.js';
@@ -46,7 +46,7 @@ export function isConversation(m: Message): boolean {
 /** One transcript line as bots see it: `#seq [author]: text`. */
 export function formatMessage(repos: Repos, m: Message, text: string = m.text): string {
   let who: string;
-  if (m.authorType === 'user') who = settings.get().userName;
+  if (m.authorType === 'user') who = ownerTag();
   else if (m.authorType === 'system') who = m.kind === 'routine' ? 'routine' : m.kind === 'trigger' ? 'trigger' : 'system';
   else {
     const b = repos.getBot(m.authorId ?? '');
