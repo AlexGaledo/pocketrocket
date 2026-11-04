@@ -74,7 +74,6 @@ export const api = {
   computers: {
     get: (botId: string) => req<ComputerStatus>('GET', '/api/computers/' + encodeURIComponent(botId)),
     wake: (botId: string, o: { auto?: boolean } = {}) => req<ComputerStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/wake', o),
-    warm: (botId: string | null) => req<{ ok: boolean }>('POST', '/api/computers/warm', botId ? { botId } : {}),
     keepAwake: (botId: string, on: boolean) => req<ComputerStatus>('PUT', '/api/computers/' + encodeURIComponent(botId) + '/keep-awake', { on }),
   },
   config: () => req<{ workspaceDir: string; version: string }>('GET', '/api/config'),

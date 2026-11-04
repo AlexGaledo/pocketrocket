@@ -81,6 +81,8 @@ export interface TurnContext {
    * the bot is paused), or null. Adapters must enforce it in bypass mode too; it is not an approval.
    */
   controlGuard?: () => string | null;
+  /** Runs before each Browser or desktop call, after `controlGuard`: starts the computer if needed. A string refuses the call. */
+  computerGate?: (toolName: string) => Promise<string | null>;
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */

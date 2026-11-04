@@ -18,7 +18,7 @@ import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, canUpgrade, type RouteChoice, type RouteRequest } from './ModelRouter.js';
 import type { RoutingRules } from '../services/RoutingRules.js';
-import { desktopTools } from './desktopTools.js';
+import { desktopTools, SHARED_BROWSER_NOTE, viewScreenTool } from './desktopTools.js';
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
@@ -153,20 +153,31 @@ export class BotRunner {
 
     const wantsDesktop = bot.allowedTools.includes('Desktop') && DESKTOP_AVAILABLE;
     const wantsBrowser = bot.allowedTools.includes('Browser');
-    // P1: a bot with Browser or Desktop drives its own computer, started here on first use and held busy (never
-    // idled out) until the turn ends. When it cannot start, or this hub has none, the turn still runs without
-    // those two tools. They never fall back to one screen shared by every bot.
+    // A bot with Browser or Desktop has its own computer, but it only starts when the turn first calls one of those
+    // tools (`useComputer`), and is then held busy until the turn ends: a turn that only talks costs no computer.
+    // With none on this hub the turn runs without those two tools. They never fall back to one shared screen.
     let computer: ComputerEndpoint | null = null;
     let computerDown: string | undefined;
     let releaseComputer = () => undefined as void;
+    let computerStart: Promise<string | null> | null = null;
+    /** Starts the computer on the first call of the turn. Returns why it cannot, or null. A failure is retried on the next call. */
+    const useComputer = (): Promise<string | null> => (computerStart ??= (async () => {
+      if (this.computers!.status(bot.id).state !== 'live') setState('working', 'starting its computer');
+      const got = await this.computers!.acquire(bot.id);
+      if (got.ok) {
+        releaseComputer = got.release;
+        return null;
+      }
+      got.release();
+      computerStart = null;
+      return 'Your computer could not start: ' + got.reason;
+    })());
     if ((wantsDesktop || wantsBrowser) && !this.computers?.enabled) {
       computerDown = 'This hub has no per-bot computers (POCKETROCKET_COMPUTERS is off).';
     } else if (this.computers && (wantsDesktop || wantsBrowser)) {
-      if (this.computers.status(bot.id).state !== 'live') setState('working', 'starting its computer');
-      const got = await this.computers.acquire(bot.id);
-      releaseComputer = got.release;
-      if (got.ok) computer = got.endpoint;
-      else computerDown = got.reason;
+      const ep = this.computers.endpoint(bot.id);
+      if (ep.perBot) computer = ep;
+      else computerDown = 'Every computer slot on this server is taken.';
     }
     const desktopOn = wantsDesktop && !computerDown;
     const browserOn = wantsBrowser && !computerDown;
@@ -259,13 +270,14 @@ export class BotRunner {
     });
 
     if (desktopOn && computer) {
-      tools.push(...desktopTools({ display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [], guard: controlBlocked }));
+      tools.push(...desktopTools({ display: computer.display, xauthority: computer.xauthority, home: computer.home, fileRoots: computer.filesDir ? [computer.filesDir] : [], guard: async () => controlBlocked() ?? (await useComputer()) }));
     }
+    if (computer && this.computers) tools.push(viewScreenTool(this.computers, req.members, bot.id));
     // P2: a bot with a computer can hand it to the user (log in, captcha) and wait for it back.
     if ((desktopOn || browserOn) && this.control) {
       tools.push(takeoverTool({
         bot, room, turnId, hop: req.hop, causeId: req.causeId, runId: req.runId, repos: this.repos, control: this.control,
-        signal: ac.signal, setState: (s) => setState(s), park,
+        signal: ac.signal, setState: (s) => setState(s), park, useComputer,
       }));
     }
 
@@ -273,6 +285,16 @@ export class BotRunner {
     if (this.integrations) {
       tools.push(...createIntegrationTools(this.integrations, bot.id, (a) => this.broker.askIntegrationWrite(permCtx, a.tool, a.input, a.reason, ac.signal)));
     }
+
+    // Chats on one computer share its browser, and each browser tool starts on the first tab, so they would drive the
+    // same page. Decided on this turn's first browser call: a turn already at work is never made to move.
+    let tabSettled = false;
+    const browserTabRule = (name: string): string | null => {
+      if (tabSettled || !name.startsWith('mcp__browser__')) return null;
+      if (!name.endsWith('browser_tabs') && this.computers!.turnsOn(bot.id) > 1) return SHARED_BROWSER_NOTE;
+      tabSettled = true;
+      return null;
+    };
 
     const knowledgeDir = this.p7.knowledgeDir?.() ?? null;
     const mcpToken = this.turns.registerTurn(tools, computerToolGuard(controlBlocked));
@@ -329,6 +351,7 @@ export class BotRunner {
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       computerFilesDir: computer?.filesDir ?? undefined,
       controlGuard: controlBlocked,
+      computerGate: computer ? async (name) => (await useComputer()) ?? browserTabRule(name) : undefined,
     };
 
     events.emitEvent({ type: 'turn.start', turnId, botId: bot.id, roomId: room.id, causeId: req.causeId, hop: req.hop });

@@ -15,6 +15,7 @@ import { TurnRegistry } from '../mcp/httpServer.js';
 import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { BotRunner } from './BotRunner.js';
+import { SHARED_BROWSER_NOTE } from './desktopTools.js';
 
 /** P1 task 1.3: each bot's turn is wired to its own computer (CDP endpoint, prompt, roots). */
 
@@ -24,13 +25,22 @@ class RecordingProvider implements AgentProvider {
   readonly info = { id: 'claude' as ProviderId, label: 'Recording', blurb: '', authModes: [], secretKeys: [], permissions: 'full' as const, maturity: 'verified' as const };
   seen: TurnContext[] = [];
   onRun: () => void = () => undefined;
+  /** The turn calls a browser tool, which is what starts a computer. What the gate answered is kept per turn. */
+  usesBrowser = true;
+  gate: (string | null | undefined)[] = [];
+  /** Keeps the next turn open until this settles, so another can overlap it. */
+  hold: Promise<void> | null = null;
   async models(): Promise<ModelInfo[]> { return []; }
   modelsSync(): ModelInfo[] { return []; }
   async check(): Promise<ProviderCheck> { return { ok: true, auth: 'unknown' }; }
   interrupt(): boolean { return false; }
   async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
     this.seen.push({ ...ctx });
+    if (this.usesBrowser) this.gate.push(await ctx.computerGate?.('mcp__browser__browser_navigate'));
+    const hold = this.hold;
+    this.hold = null;
     this.onRun();
+    await hold;
     sink.onToolUse('t1', 'mcp__browser__browser_navigate', { url: 'https://example.com' });
     sink.onText('done');
     return { ok: true, costUsd: 0, usage: { ...EMPTY_USAGE }, durationMs: 1 };
@@ -70,7 +80,7 @@ function setup(opts: { enabled?: boolean; maxRunning?: number } = {}) {
     return { bot, room };
   };
   const run = (b: ReturnType<typeof mk>) => runner.runTurn({ bot: b.bot, room: b.room, members: [b.bot], injected: 'hi', hop: 0, causeId: 'c-' + b.bot.id });
-  return { computers, sys, provider, mk, run, advance: (ms: number) => (now += ms) };
+  return { computers, sys, provider, mk, run, runner, repos, advance: (ms: number) => (now += ms) };
 }
 
 describe('turns on per-bot computers', () => {
@@ -113,7 +123,61 @@ describe('turns on per-bot computers', () => {
     expect(await s.computers.sweep()).toEqual([a.bot.id]);
   });
 
-  it('runs the turn without Browser/Desktop, and says why, when the computer cannot start', async () => {
+  it('starts no computer for a turn that never calls Browser or Desktop', async () => {
+    const s = setup();
+    s.provider.usesBrowser = false;
+    const a = s.mk('alpha', ['Read', 'Browser', 'Desktop']);
+    await s.run(a);
+    expect(s.sys.active.size).toBe(0);
+    expect(s.computers.status(a.bot.id).state).toBe('asleep');
+    // The tools are still offered, pointed at the computer it would start.
+    expect(s.provider.seen[0].cdpUrl).toBe('http://127.0.0.1:9401');
+    expect(s.provider.seen[0].allowedBuiltins).toContain('Browser');
+    expect(s.computers.turnsOn(a.bot.id)).toBe(0);
+  });
+
+  it('sends a second chat on one computer to its own tab, and leaves the first where it is', async () => {
+    const s = setup();
+    const a = s.mk('alpha', ['Browser']);
+    const room2 = s.repos.createRoom({ kind: 'group', name: 'Other', memberIds: [a.bot.id], coordinatorBotId: null });
+    let done = () => undefined as void;
+    s.provider.hold = new Promise((r) => { done = r; });
+    s.provider.onRun = () => {
+      s.provider.onRun = () => undefined;
+      void s.runner.runTurn({ bot: a.bot, room: room2, members: [a.bot], injected: 'hi', hop: 0, causeId: 'c2' }).finally(done);
+    };
+    await s.run(a);
+    expect(s.provider.gate[0]).toBeNull();
+    expect(s.provider.gate[1]).toBe(SHARED_BROWSER_NOTE);
+    expect(s.sys.active.size).toBe(1);
+  });
+
+  it('lets the second chat through once it opens its tab, and only asks once', async () => {
+    const s = setup();
+    const a = s.mk('alpha', ['Browser']);
+    const room2 = s.repos.createRoom({ kind: 'group', name: 'Other', memberIds: [a.bot.id], coordinatorBotId: null });
+    const answers: (string | null)[] = [];
+    let done = () => undefined as void;
+    s.provider.hold = new Promise((r) => { done = r; });
+    s.provider.onRun = () => {
+      s.provider.onRun = () => undefined;
+      void s.runner.runTurn({ bot: a.bot, room: room2, members: [a.bot], injected: 'hi', hop: 0, causeId: 'c2' }).finally(done);
+    };
+    const original = s.provider.runTurn.bind(s.provider);
+    let n = 0;
+    s.provider.runTurn = async (ctx, sink) => {
+      if (++n === 2) {
+        answers.push(await ctx.computerGate!('mcp__browser__browser_navigate'));
+        answers.push(await ctx.computerGate!('mcp__browser__browser_tabs'));
+        answers.push(await ctx.computerGate!('mcp__browser__browser_navigate'));
+      }
+      return original(ctx, sink);
+    };
+    await s.run(a);
+    expect(answers).toEqual([SHARED_BROWSER_NOTE, null, null]);
+  });
+
+  it('refuses the browser call, and says why, when the computer cannot start', async () => {
     const s = setup({ maxRunning: 1 });
     const a = s.mk('alpha', ['Browser']);
     const b = s.mk('beta', ['Read', 'Browser', 'Desktop']);
@@ -123,11 +187,10 @@ describe('turns on per-bot computers', () => {
     await s.run(a);
     await inner;
     const cb = s.provider.seen[1];
-    expect(cb.allowedBuiltins).toEqual(['Read']);
-    expect(cb.cdpUrl).toBeUndefined();
-    expect(cb.systemPrompt).toContain('Your computer is unavailable this turn');
-    expect(cb.systemPrompt).toContain('MAX_RUNNING_COMPUTERS=1');
-    expect(cb.tools.some((t) => t.name.startsWith('desktop_'))).toBe(false);
+    expect(cb.allowedBuiltins).toContain('Browser');
+    expect(s.provider.gate[1]).toContain('Your computer could not start');
+    expect(s.provider.gate[1]).toContain('MAX_RUNNING_COMPUTERS=1');
+    expect(s.computers.turnsOn(b.bot.id)).toBe(0);
   });
 
   it('refuses Browser and Desktop when per-bot computers are off, with no shared-screen fallback', async () => {

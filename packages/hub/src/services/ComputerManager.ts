@@ -327,6 +327,11 @@ export class ComputerManager {
     return { ...r, release };
   }
 
+  /** Turns holding this bot's computer right now. More than one means they share its browser. */
+  turnsOn(botId: string): number {
+    return this.busy.get(botId) ?? 0;
+  }
+
   /** Lazy start. Concurrent calls for one bot share a single start. */
   ensureRunning(botId: string, evict: Eviction = 'any'): Promise<EnsureResult> {
     if (!this.enabled) return Promise.resolve({ ok: true, endpoint: this.legacyEndpoint() });
@@ -416,12 +421,17 @@ export class ComputerManager {
     }
     const running = this.running().filter((r) => r.botId !== botId);
     let victim: ComputerRow | undefined;
-    if (running.length >= this.maxRunning) {
+    const overCap = running.length >= this.maxRunning;
+    // A typical server has no swap, so memory is the real limit: running out would take the hub down with it. With
+    // nothing else running, a computer cannot be what is using the memory, so it still gets its chance.
+    const lowRam = evict !== 'none' && running.length > 0 && !this.ramForOneMore();
+    if (overCap || lowRam) {
       const t = this.now();
       victim = evict === 'none' ? undefined : running
         .filter((r) => this.stoppable(r) && !this.personHolds(r.botId) && (evict === 'any' || t - (r.lastUsedAt ?? r.createdAt) >= COLD_MS))
         .sort((a, b) => (a.lastUsedAt ?? a.createdAt) - (b.lastUsedAt ?? b.createdAt))[0];
       if (!victim) {
+        if (!overCap) return this.fail(botId, 'The server is low on memory and every running computer is in use. Try again when one is idle.');
         const shown = 'All ' + this.maxRunning + ' computers are in use or were used moments ago. Try again in a minute.';
         return evict === 'any'
           ? this.fail(botId, shown, this.maxRunning + ' computers are already running and all are in use (MAX_RUNNING_COMPUTERS=' + this.maxRunning + '). Try again when one is idle.')

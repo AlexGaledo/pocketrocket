@@ -103,23 +103,21 @@ How it runs:
   (`:99`, 9222, 5900, 6080).
 - The hub proxies `/screen/<botId>/*` to that bot's noVNC. A Screen tab ticket opens one bot's screen and
   nothing else.
-- A computer starts when its bot uses Browser or Desktop in a turn, and without being asked in three cases:
-  - **The app opens:** the bot you have open and the most recently used other bot, in empty places only. One
-    place stays free, nothing is ever stopped for this, and it stops short if the server is low on memory
-    (under 1.6 GB available: 600 MB assumed per computer, 1 GB left for everything else).
-  - **You settle on a bot:** after 1.5 seconds, or at once when you open its screen. This may take the last
-    place, and may stop a computer nobody used for 2 minutes. The same memory limit applies, and it says so.
+- A computer starts when its bot first calls Browser, Desktop or `request_takeover` in a turn. A turn that only
+  talks starts nothing. It also starts when:
+  - **You open that bot's screen.** Selecting a bot or opening the app wakes nothing.
   - **Always on:** at hub start, after a server reboot, and whenever one is found down.
-- A paired phone wakes a computer only when you open that bot's screen there. Opening the app wakes nothing.
-- A turn is never held back by the memory limit.
+- Several chats can use one computer at once. A chat that reaches a busy browser is told to open its own tab first,
+  because Playwright would otherwise put both on the same page.
+- Bots in a room can follow each other's browser work with `view_screen`, which is read only and starts nothing.
 - A computer stops after `COMPUTER_IDLE_MIN` minutes (default 30) with no tool use, nobody watching, no routine
   due within 10 minutes and Always on off. Its disk is kept. A window hidden for 5 minutes lets go of its viewer.
-- **Always on** keeps a computer running and brings it back after a reboot. At most `MAX_RUNNING_COMPUTERS` minus
-  1 can be on (2 by default); past that the switch refuses and says why, so a working bot always has a place. If
-  the cap is lowered later, the ones that no longer fit stay marked but do not start, and say so.
-- At most `MAX_RUNNING_COMPUTERS` (default 3) run at once. When another one is needed, the least recently
-  used idle one is stopped; if all of them are busy, the bot runs that turn without Browser and Desktop and
-  says why.
+- **Always on** keeps a computer running and brings it back after a reboot. If you set `MAX_RUNNING_COMPUTERS`, at
+  most that minus 1 can be on; past that the switch refuses and says why.
+- There is no fixed number of running computers. Memory is the limit: a new computer needs 1.6 GB available (600 MB
+  assumed for it, 1 GB left for everything else). Short of that, the least recently used idle computer is stopped;
+  if all of them are busy, the Browser or Desktop call is refused with the reason and the rest of the turn goes on.
+  Set `MAX_RUNNING_COMPUTERS` to add a fixed cap.
 - Soft disk quota: `COMPUTER_QUOTA_GB` (default 10) per computer, measured hourly. At 80% the bot is warned
   in its prompt and the badge on its page turns amber; at 100% the computer does not start until space is
   freed. There is no hard quota (that needs root; see containers in the spec).

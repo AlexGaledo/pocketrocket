@@ -22,6 +22,8 @@ export interface TakeoverToolCtx {
   setState: (s: 'waiting' | 'working') => void;
   /** Ends this turn; the bot is resumed (with the hand-back note) by a new turn later. */
   park: (why: string) => void;
+  /** Starts the computer if this turn has not used it yet. Returns why it cannot, or null. */
+  useComputer?: () => Promise<string | null>;
 }
 
 export const TAKEOVER_PARKED =
@@ -40,6 +42,8 @@ export function takeoverTool(ctx: TakeoverToolCtx): HubTool {
     async (a) => {
       const cur = ctx.control.get(ctx.bot.id);
       if (cur.control === 'paused') return err('You are paused by ' + userName + '; wait until you are resumed.');
+      const down = await ctx.useComputer?.();
+      if (down) return err(down);
       const payload: TakeoverPayload = { botId: ctx.bot.id, reason: a.reason, status: 'waiting' };
       const msg = ctx.repos.insertMessage({
         roomId: ctx.room.id, authorType: 'bot', authorId: ctx.bot.id, kind: 'takeover',

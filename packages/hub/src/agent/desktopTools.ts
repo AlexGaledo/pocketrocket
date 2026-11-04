@@ -11,6 +11,8 @@ import { DESKTOP_HOME, SCREEN_DISPLAY, WORKSPACE_DIR } from '../config.js';
 import { hubTool } from './botTools.js';
 import { isInside } from '../permissions/pathRules.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
+import type { Bot } from '@pocketrocket/shared';
+import type { ComputerManager } from '../services/ComputerManager.js';
 
 const run = promisify(execFile);
 
@@ -28,7 +30,7 @@ export interface DesktopTarget {
    * P2 control interlock: returns why the tools must not act right now (the user has control, or the bot is
    * paused), or null. Every desktop tool, screenshot included, refuses without touching the display.
    */
-  guard?: () => string | null;
+  guard?: () => string | null | Promise<string | null>;
 }
 
 /** The shared screen every bot used before per-bot computers, and still uses with them off. */
@@ -180,10 +182,34 @@ export function desktopTools(target: DesktopTarget = sharedDesktop()): HubTool[]
   return all.map((t) => ({
     ...t,
     handler: async (input: Record<string, unknown>) => {
-      const why = guard();
+      const why = await guard();
       return why ? err(why) : t.handler(input);
     },
   }));
+}
+
+/** Told to a turn that tries the browser while another turn is on the same computer. */
+export const SHARED_BROWSER_NOTE =
+  'Another of your chats is using this browser right now. Call browser_tabs with action "new" first and work only in the tab it opens, or you will both drive the same page.';
+
+/**
+ * Look at the screen of a bot in this room, without driving it and without starting anything, so one bot can do the
+ * browser work while others follow along with no computer of their own.
+ */
+export function viewScreenTool(computers: ComputerManager, members: Bot[], selfId: string): HubTool {
+  return hubTool(
+    'view_screen',
+    'See the current screen of another bot in this room. Read only, and it never starts their computer. Use it to follow browser work a teammate is already doing instead of repeating it on your own computer.',
+    { handle: z.string().describe('The bot, e.g. "researcher"') },
+    async (a) => {
+      const handle = a.handle.replace(/^@/, '');
+      const b = members.find((m) => m.handle === handle && m.id !== selfId);
+      if (!b) return err('@' + handle + ' is not another bot in this room.');
+      const ep = computers.existingEndpoint(b.id);
+      if (!ep || computers.status(b.id).state !== 'live') return err('@' + handle + "'s computer is not running. Ask them for what you need.");
+      return takeScreenshot({ ...process.env, DISPLAY: ep.display, XAUTHORITY: ep.xauthority });
+    },
+  );
 }
 
 export const DESKTOP_TOOL_NAMES = ['desktop_screenshot', 'desktop_click', 'desktop_type', 'desktop_key', 'desktop_scroll', 'desktop_launch'];

@@ -279,7 +279,8 @@ const posInt = (v: string | undefined, d: number) => {
  * hub unit) and Linux-only. Off, every bot shares the one legacy screen exactly as before.
  */
 export const COMPUTERS_ENABLED = process.platform === 'linux' && truthy(process.env.POCKETROCKET_COMPUTERS);
-export const MAX_RUNNING_COMPUTERS = posInt(process.env.MAX_RUNNING_COMPUTERS, 3);
+/** No fixed limit by default (one per slot): memory decides, see ComputerManager.start. Set it to cap them anyway. */
+export const MAX_RUNNING_COMPUTERS = posInt(process.env.MAX_RUNNING_COMPUTERS, 99);
 export const COMPUTER_IDLE_MIN = posInt(process.env.COMPUTER_IDLE_MIN, 30);
 /** Soft disk quota per bot computer. Warned at 80%, refused to start at 100%. */
 export const COMPUTER_QUOTA_BYTES = posInt(process.env.COMPUTER_QUOTA_GB, 10) * 1024 ** 3;
