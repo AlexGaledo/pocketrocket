@@ -10,8 +10,9 @@ import { Repos } from './repos.js';
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
-// Repos below writes today's columns, so the later rooms.avatar column is there; it does not touch what 100 rewrites.
-const BEFORE = MIGRATIONS.filter((m) => m.version < 100 || m.version === 102);
+// Repos below writes today's columns, so the later rooms.avatar and messages.attachments columns are there;
+// neither is touched by what 100 rewrites.
+const BEFORE = MIGRATIONS.filter((m) => m.version < 100 || m.version === 102 || m.version === 120);
 const AVATARS: Record<string, string> = {
   plain: '🤖', compass: '🧭', search: '🔎', wrench: '🛠️', pen: '✍️', smile: '🙂', custom: '🛰️', text: 'QA', blank: '', kept: 'radar', proto: 'toString',
   'pocketrocket-support': '', 'data-engineer': '',

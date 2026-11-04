@@ -1,10 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApprovalPayload, Bot, Room } from '@pocketrocket/shared';
+import { isMediaRef } from '@pocketrocket/shared';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
 import { MemoryService } from '../services/MemoryService.js';
 import { SkillService } from '../services/SkillService.js';
 import { PermissionBroker } from '../permissions/PermissionBroker.js';
+import { MediaStore } from '../services/MediaStore.js';
+import { WORKSPACE_DIR } from '../config.js';
 import { events } from '../events.js';
 import { createHubTools, type ToolCtx } from './botTools.js';
 
@@ -119,5 +125,71 @@ describe('createHubTools', () => {
     const parsed = JSON.parse((out.content[0] as { text: string }).text) as { allowed: boolean; message: string };
     expect(parsed.allowed).toBe(false);
     expect(parsed.message).toContain('declined');
+  });
+
+  describe('send_message image_path', () => {
+    const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 1)]);
+    const cleanup: (() => void)[] = [];
+    afterEach(() => { for (const c of cleanup.splice(0)) c(); });
+
+    it('attaches an image saved in the shared workspace', async () => {
+      const mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-media-'));
+      cleanup.push(() => fs.rmSync(mediaDir, { recursive: true, force: true }));
+      const { tools, repos, room } = setup({ media: new MediaStore(mediaDir) });
+      fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+      const f = path.join(WORKSPACE_DIR, 'send-message-attach-probe.png');
+      fs.writeFileSync(f, PNG);
+      cleanup.push(() => fs.rmSync(f, { force: true }));
+
+      const out = await byName(tools, 'send_message').handler({ text: 'here is the sheet', image_path: f });
+      expect(out.isError).toBeFalsy();
+      const msgs = repos.listMessages(room.id);
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].attachments).toHaveLength(1);
+      expect(isMediaRef(msgs[0].attachments![0])).toBe(true);
+    });
+
+    it('refuses a path outside the bot\'s own folders', async () => {
+      const mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-media-'));
+      cleanup.push(() => fs.rmSync(mediaDir, { recursive: true, force: true }));
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-outside-'));
+      cleanup.push(() => fs.rmSync(outside, { recursive: true, force: true }));
+      const f = path.join(outside, 'secret.png');
+      fs.writeFileSync(f, PNG);
+      const { tools, repos, room } = setup({ media: new MediaStore(mediaDir) });
+
+      const out = await byName(tools, 'send_message').handler({ text: 'sneaky', image_path: f });
+      expect(out.isError).toBe(true);
+      expect(out.content[0]).toMatchObject({ text: expect.stringContaining('outside') });
+      expect(repos.listMessages(room.id)).toHaveLength(0);
+    });
+
+    it('refuses a non-image file', async () => {
+      const mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-media-'));
+      cleanup.push(() => fs.rmSync(mediaDir, { recursive: true, force: true }));
+      fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+      const f = path.join(WORKSPACE_DIR, 'send-message-attach-probe.txt');
+      fs.writeFileSync(f, 'not a picture');
+      cleanup.push(() => fs.rmSync(f, { force: true }));
+      const { tools, repos, room } = setup({ media: new MediaStore(mediaDir) });
+
+      const out = await byName(tools, 'send_message').handler({ text: 'oops', image_path: f });
+      expect(out.isError).toBe(true);
+      expect(repos.listMessages(room.id)).toHaveLength(0);
+    });
+
+    it('without a MediaStore wired (most unit tests), refuses rather than posting a broken attachment', async () => {
+      const { tools, repos, room } = setup();
+      const out = await byName(tools, 'send_message').handler({ text: 'x', image_path: path.join(WORKSPACE_DIR, 'whatever.png') });
+      expect(out.isError).toBe(true);
+      expect(repos.listMessages(room.id)).toHaveLength(0);
+    });
+
+    it('still posts a plain message with no image_path', async () => {
+      const { tools, repos, room } = setup();
+      const out = await byName(tools, 'send_message').handler({ text: 'no picture here' });
+      expect(out.isError).toBeFalsy();
+      expect(repos.listMessages(room.id)[0].attachments).toBeUndefined();
+    });
   });
 });

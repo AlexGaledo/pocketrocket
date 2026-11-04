@@ -26,6 +26,7 @@ import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
 import { turnFailureNote } from './turnFailure.js';
 import { computerToolGuard } from '../permissions/controlInterlock.js';
+import type { MediaStore } from '../services/MediaStore.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -118,6 +119,8 @@ export class BotRunner {
     private computers?: ComputerManager,
     /** P7: the read-only knowledge repo folder, when one is synced (read per turn). */
     private p7: { knowledgeDir?: () => string | null; routing?: RoutingRules } = {},
+    /** Uploaded pictures; `send_message`'s `image_path` is refused when absent (most unit tests). */
+    private media?: MediaStore,
   ) {}
 
   interrupt(turnId: string) {
@@ -230,7 +233,7 @@ export class BotRunner {
 
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
-      repos: this.repos, memory: this.memory, skills: this.skills,
+      repos: this.repos, memory: this.memory, skills: this.skills, media: this.media,
       dispatchFromBot: (targets, room, onDone) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets, onDone),
       setState: (s) => setState(s),
       // Added below with this bot's own display rather than the shared one (P1).
