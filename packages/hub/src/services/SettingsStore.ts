@@ -184,3 +184,6 @@ export const settings = {
     return installed ? installed.get() : defaultSettings();
   },
 };
+
+/** How the owner appears in the transcript bots read. It carries the role because a display name can change. */
+export const ownerTag = (): string => settings.get().userName + ' (owner)';

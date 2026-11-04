@@ -7,7 +7,7 @@ import type { MemoryService } from '../services/MemoryService.js';
 import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
 import { recordAudit } from '../services/AuditLog.js';
 import type { SkillService } from '../services/SkillService.js';
-import { settings } from '../services/SettingsStore.js';
+import { ownerTag, settings } from '../services/SettingsStore.js';
 import { events } from '../events.js';
 import { parseMentions } from '../rooms/mentions.js';
 import { desktopTools } from './desktopTools.js';
@@ -346,7 +346,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
         .filter((m) => m.kind === 'text' || m.kind === 'handoff' || m.kind === 'routine' || m.kind === 'trigger');
       const who = (m: { authorType: string; authorId: string | null }) =>
         m.authorType === 'user'
-          ? userName
+          ? ownerTag()
           : m.authorType === 'system'
             ? 'system'
             : '@' + (r.members.find((b) => b.id === m.authorId)?.handle ?? ctx.repos.getBot(m.authorId ?? '')?.handle ?? 'bot');
