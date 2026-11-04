@@ -129,7 +129,7 @@ interface State {
   /** Whose screen the user chose in a group chat. lib/screenView.ts says whose actually shows. */
   panelBotId: string | null;
   page: Page | null;
-  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'profile' } | { kind: 'settings'; section?: SectionId } | null;
+  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'podium' } | { kind: 'profile' } | { kind: 'settings'; section?: SectionId } | null;
   toasts: Toast[];
   settings: Settings;
   providers: ProvidersResponse | null;

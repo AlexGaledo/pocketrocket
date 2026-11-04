@@ -59,9 +59,15 @@ export const DEFAULT_MODEL = 'claude-sonnet-5';
 export const BOT_ICON_KEYS = [
   'bot', 'cpu', 'compass', 'wrench', 'pen', 'smile', 'brain', 'shield', 'radar', 'anchor', 'atom', 'feather', 'hammer', 'map', 'orbit', 'hexagon',
   'search', 'terminal', 'globe', 'sparkles', 'palette', 'rocket', 'database',
+  'blob-ember', 'blob-bloom', 'blob-cloud', 'blob-pebble', 'blob-clover', 'blob-star', 'blob-bean', 'blob-drop', 'blob-gem', 'blob-spike',
 ] as const;
 export type BotIconKey = (typeof BOT_ICON_KEYS)[number];
 export const isBotIconKey = (v: unknown): v is BotIconKey => (BOT_ICON_KEYS as readonly unknown[]).includes(v);
+/** The icons drawn as a whole character rather than a line glyph on a tinted circle. */
+export type BotCharacterKey = Extract<BotIconKey, `blob-${string}`>;
+export const isBotCharacterKey = (v: unknown): v is BotCharacterKey => isBotIconKey(v) && v.startsWith('blob-');
+/** How many bots fit on the sidebar's podium. */
+export const MAX_PODIUM_BOTS = 3;
 
 /** Longest stored avatar: `img:` plus a SHA-256 in hex. */
 export const MAX_AVATAR_LENGTH = 68;

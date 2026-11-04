@@ -4,7 +4,8 @@ import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { clsx } from 'clsx';
 import { Hash, X } from 'lucide-react';
-import { isBotIconKey } from '@pocketrocket/shared';
+import { isBotCharacterKey, isBotIconKey } from '@pocketrocket/shared';
+import { BotCharacter } from '../lib/botCharacter';
 import type { Bot, BotState, Room } from '@pocketrocket/shared';
 import { botIcon } from '../lib/botIcon';
 import { useMediaUrl } from '../lib/media';
@@ -280,10 +281,12 @@ export function Avatar({ bot, state, label, size = 36 }: { bot: Pick<Bot, 'id' |
       role="img"
       aria-label={said}
       className={cn('relative flex shrink-0 select-none items-center justify-center rounded-full text-fg', cls)}
-      style={{ width: size, height: size, background: tint }}
+      style={{ width: size, height: size, background: isBotCharacterKey(bot.avatar) ? undefined : tint }}
       title={said}
     >
-      <Face src={src}><Glyph aria-hidden size={Math.round(size * 0.5)} strokeWidth={1.75} /></Face>
+      {isBotCharacterKey(bot.avatar)
+        ? <BotCharacter character={bot.avatar} size={size} />
+        : <Face src={src}><Glyph aria-hidden size={Math.round(size * 0.5)} strokeWidth={1.75} /></Face>}
     </div>
   );
 }
@@ -313,7 +316,9 @@ export function RoomAvatar({ room, size = 34, className }: { room: Pick<Room, 'i
   const { Glyph, tint } = botIcon({ id: room.id, avatar: key ?? '' });
   return (
     <span aria-hidden className={cn('flex shrink-0 select-none items-center justify-center rounded-full', !key && 'bg-card2', key ? 'text-fg' : className ?? 'text-muted')} style={{ width: size, height: size, background: key ? tint : undefined }}>
-      <Face src={src}>{key ? <Glyph size={Math.round(size * 0.5)} strokeWidth={1.75} /> : <Hash size={Math.round(size * 0.45)} />}</Face>
+      {isBotCharacterKey(key)
+        ? <BotCharacter character={key} size={size} />
+        : <Face src={src}>{key ? <Glyph size={Math.round(size * 0.5)} strokeWidth={1.75} /> : <Hash size={Math.round(size * 0.45)} />}</Face>}
     </span>
   );
 }

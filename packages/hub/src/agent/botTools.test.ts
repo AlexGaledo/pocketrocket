@@ -12,6 +12,7 @@ import { PermissionBroker } from '../permissions/PermissionBroker.js';
 import { MediaStore } from '../services/MediaStore.js';
 import { WORKSPACE_DIR } from '../config.js';
 import { events } from '../events.js';
+import { settings } from '../services/SettingsStore.js';
 import { createHubTools, type ToolCtx } from './botTools.js';
 
 function setup(extra: Partial<ToolCtx> = {}) {
@@ -29,6 +30,60 @@ function setup(extra: Partial<ToolCtx> = {}) {
 }
 
 const byName = (tools: ReturnType<typeof createHubTools>, name: string) => tools.find((t) => t.name === name)!;
+
+describe('read_owner_messages', () => {
+  const asPersona = (extra: Partial<ToolCtx> = {}) => {
+    const s = setup(extra);
+    vi.spyOn(settings, 'get').mockReturnValue({ ...settings.get(), personaBotId: s.bot.id });
+    return { ...s, tools: createHubTools(s.ctx) };
+  };
+  afterEach(() => vi.restoreAllMocks());
+  const say = (repos: Repos, roomId: string, authorType: 'user' | 'bot', text: string) =>
+    repos.insertMessage({ roomId, authorType, authorId: null, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null });
+  const read = async (tools: ReturnType<typeof createHubTools>, input: Record<string, unknown> = {}) =>
+    ((await byName(tools, 'read_owner_messages').handler(input)).content[0] as { text: string }).text;
+
+  it('goes only to the bot the owner named', () => {
+    expect(setup().tools.some((t) => t.name === 'read_owner_messages')).toBe(false);
+    expect(asPersona().tools.some((t) => t.name === 'read_owner_messages')).toBe(true);
+  });
+
+  it('returns the owner\'s messages from every room and leaves out bot replies', async () => {
+    const { tools, repos, room, bot } = asPersona();
+    const other = repos.createRoom({ kind: 'group', name: 'Elsewhere', memberIds: [bot.id], coordinatorBotId: null });
+    say(repos, room.id, 'user', 'from the dm');
+    say(repos, other.id, 'user', 'from the group');
+    say(repos, other.id, 'bot', 'a bot reply');
+    const out = await read(tools);
+    expect(out).toContain('from the dm');
+    expect(out).toContain('in Elsewhere] from the group');
+    expect(out).not.toContain('a bot reply');
+  });
+
+  it('filters by room and text, treating wildcards as plain text', async () => {
+    const { tools, repos, room, bot } = asPersona();
+    const other = repos.createRoom({ kind: 'group', name: 'Elsewhere', memberIds: [bot.id], coordinatorBotId: null });
+    say(repos, room.id, 'user', 'dentist at noon');
+    say(repos, other.id, 'user', 'dentist again');
+    say(repos, room.id, 'user', '100% done');
+    expect(await read(tools, { room: 'Elsewhere' })).not.toContain('noon');
+    const hits = await read(tools, { query: '%' });
+    expect(hits).toContain('100% done');
+    expect(hits).not.toContain('dentist');
+  });
+
+  it('redacts secrets the owner pasted', async () => {
+    const { tools, repos, room } = asPersona();
+    say(repos, room.id, 'user', 'my key is Bearer abcdefghijklmnopqrstuvwxyz123456');
+    expect(await read(tools)).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
+  });
+
+  it('refuses a since that is not a date', async () => {
+    const { tools } = asPersona();
+    const out = await byName(tools, 'read_owner_messages').handler({ since: 'lately' });
+    expect(out.isError).toBe(true);
+  });
+});
 
 describe('createHubTools', () => {
   it('returns the 21 hub tools and no request_approval for a full-permission provider', () => {

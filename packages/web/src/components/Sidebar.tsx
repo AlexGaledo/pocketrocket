@@ -1,6 +1,7 @@
 import { Plus, Hand, Settings2, PanelLeftClose } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
 import { Avatar, RoomAvatar, cn } from './ui';
+import { Podium } from './Podium';
 import { ProfileMenu } from './ProfileMenu';
 import { RocketMark } from './RocketMark';
 import { api } from '../lib/api';
@@ -78,7 +79,8 @@ export function Sidebar() {
   // A bot already reachable from its group chat row stays out of this list — otherwise every fleet bot
   // shows up twice, once here and once inside each room it is in.
   const inAnyGroup = new Set(groups.flatMap((r) => r.memberIds));
-  const soloBots = bots.filter((b) => !inAnyGroup.has(b.id));
+  const podiumBots = settings.podiumBotIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is Bot => !!b);
+  const soloBots = bots.filter((b) => !inAnyGroup.has(b.id) && !podiumBots.includes(b));
 
   const openRoom = (roomId: string) => {
     useStore.getState().closePage();
@@ -149,6 +151,16 @@ export function Sidebar() {
               })}
             </ul>
           </section>
+        )}
+        {bots.length > 0 && (
+          <Podium
+            bots={podiumBots}
+            statusOf={statusOf}
+            activeBotId={rooms.find((r) => r.id === activeRoomId && r.kind === 'dm')?.memberIds[0] ?? null}
+            unreadOf={(id) => { const dm = dmFor(id); return dm ? unread[dm.id] ?? 0 : 0; }}
+            onOpen={(id) => void openDm(id)}
+            canEdit={!device}
+          />
         )}
         <SectionHeader label="Bots" onAdd={device ? undefined : () => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
         <div className="mb-3">

@@ -8,6 +8,8 @@ const ICONS: Record<BotIconKey, LucideIcon> = {
   bot: Bot, cpu: Cpu, compass: Compass, wrench: Wrench, pen: Pen, smile: Smile, brain: Brain, shield: Shield, radar: Radar, anchor: Anchor,
   atom: Atom, feather: Feather, hammer: Hammer, map: MapIcon, orbit: Orbit, hexagon: Hexagon,
   search: Search, terminal: Terminal, globe: Globe, sparkles: Sparkles, palette: Palette, rocket: Rocket, database: Database,
+  // Characters draw themselves (botCharacter.tsx). These only stand in where a bare glyph is all that fits.
+  'blob-ember': Smile, 'blob-bloom': Smile, 'blob-cloud': Smile, 'blob-pebble': Smile, 'blob-clover': Smile, 'blob-star': Smile, 'blob-bean': Smile, 'blob-drop': Smile, 'blob-gem': Smile, 'blob-spike': Smile,
 };
 
 /** Picked from for a bot with no icon. Leaves out glyphs that already mean something else here: tool chips, Settings, the brand. */
