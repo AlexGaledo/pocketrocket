@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
-import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome } from '../config.js';
+import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
 import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -142,7 +142,7 @@ export class BotRunner {
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const { bot, room } = req;
     const turnId = nanoid(10);
-    const budgetUsd = Math.min(bot.maxBudgetUsd, req.causeBudgetUsd ?? Infinity);
+    const budgetUsd = spendCapsOff() ? Infinity : Math.min(bot.maxBudgetUsd, req.causeBudgetUsd ?? Infinity);
     const provider = this.providers.active();
     const session = this.repos.getSession(bot.id, room.id, provider.id);
     this.memory.ensureHome(bot.id);

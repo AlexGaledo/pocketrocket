@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Run with no spending caps
+
+- `POCKETROCKET_NO_SPEND_CAPS=1` turns off the per-reply, per-request, trigger and training budgets, for a server on a flat subscription. Off by default.
+
 ### Bots know the owner by role
 
 - Your messages reach bots tagged with your role, like `[Shiroo (owner)]`, so renaming yourself no longer makes bots treat you as a stranger, even in a chat that started under the old name.

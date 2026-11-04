@@ -370,7 +370,8 @@ export class ClaudeProvider implements AgentProvider {
       },
       includePartialMessages: true,
       maxTurns: ctx.maxTurns,
-      maxBudgetUsd: ctx.maxBudgetUsd,
+      // No budget (POCKETROCKET_NO_SPEND_CAPS) is Infinity here, which the CLI flag cannot carry: leave it out.
+      maxBudgetUsd: Number.isFinite(ctx.maxBudgetUsd) ? ctx.maxBudgetUsd : undefined,
       // Allowlisted env only (audit 2026-09-09, B7): the child never sees POCKETROCKET_TOKEN or another
       // provider's API key, so `env`/`node -e "process.env"` inside a prompt injection yields nothing useful.
       env: childEnv('claude', { CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/' + VERSION }),
