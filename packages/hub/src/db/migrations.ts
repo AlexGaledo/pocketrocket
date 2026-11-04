@@ -412,3 +412,8 @@ registerMigrations([110, 119], [
       ),
   },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+registerMigrations([120, 129], [
+  { version: 120, name: 'messages.attachments', up: (db) => addColumnIfMissing(db, 'messages', 'attachments', 'TEXT') },
+]);

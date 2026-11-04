@@ -161,6 +161,8 @@ export interface Message {
   /** Bot messages only (P8): the model that wrote it, and why the router chose that model. */
   model?: string;
   modelReason?: string;
+  /** Pictures attached to this message, each an uploaded reference (see {@link isMediaRef}). */
+  attachments?: string[];
 }
 
 export interface Routine {

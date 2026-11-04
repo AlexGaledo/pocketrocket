@@ -198,11 +198,12 @@ export function createHub(opts: HubOptions = {}): Hub {
   const offComputers = events.onEvent((ev) => {
     if (ev.type === 'bots.changed') void computers.prune(ev.bots.map((b) => b.id)).catch((e) => console.warn('[computers] ' + (e as Error).message));
   });
+  const media = new MediaStore(opts.mediaDir ?? MEDIA_DIR);
   const runner = new BotRunner(repos, memory, skills, broker, usage, {
     dispatchFromBot: (req, targets, onDone) => router.dispatchFromBot(req, targets, onDone),
     setState: (botId, roomId, state, note) => router.setState(botId, roomId, state, note),
     routinesChanged: () => scheduler.reload(),
-  }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing });
+  }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing }, media);
   router.runner = runner;
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
@@ -300,7 +301,6 @@ export function createHub(opts: HubOptions = {}): Hub {
     for (const s of deviceSockets.get(id) ?? []) s.close();
     deviceSockets.delete(id);
   });
-  const media = new MediaStore(opts.mediaDir ?? MEDIA_DIR);
   const mediaApi = createMediaApi({ media });
   // A hub on a test database must never sweep the real folder: every picture in it would look unreferenced.
   const sweepMedia = () => {

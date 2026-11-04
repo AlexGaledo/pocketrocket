@@ -184,6 +184,7 @@ export class Repos {
       turnId: (r.turn_id as string) ?? null,
       createdAt: r.created_at as number,
       ...(r.model ? { model: r.model as string, modelReason: (r.model_reason as string) ?? undefined } : {}),
+      ...(r.attachments ? { attachments: JSON.parse(r.attachments as string) as string[] } : {}),
     };
   }
   insertMessage(m: Omit<Message, 'id' | 'seq' | 'createdAt'> & { id?: string }): Message {
@@ -192,10 +193,10 @@ export class Repos {
         this.db.get<{ s: number }>('SELECT COALESCE(MAX(seq),0)+1 AS s FROM messages WHERE room_id=?', m.roomId)?.s ?? 1;
       const msg: Message = { ...m, id: m.id ?? nanoid(12), seq, createdAt: now() };
       this.db.run(
-        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         msg.id, msg.roomId, msg.seq, msg.authorType, msg.authorId, msg.kind, msg.text,
         msg.payload ? JSON.stringify(msg.payload) : null, msg.causeId, msg.hop, msg.turnId, msg.createdAt,
-        msg.model ?? null, msg.modelReason ?? null,
+        msg.model ?? null, msg.modelReason ?? null, msg.attachments?.length ? JSON.stringify(msg.attachments) : null,
       );
       return msg;
     });

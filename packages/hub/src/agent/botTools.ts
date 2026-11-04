@@ -1,7 +1,8 @@
+import fs from 'node:fs';
 import { z } from 'zod';
 import { BOT_ICON_KEYS, MAX_ROOM_BOTS, isMediaRef } from '@pocketrocket/shared';
 import type { Bot, Room, HandoffPayload, HandoffResultPayload } from '@pocketrocket/shared';
-import { MAX_HOPS } from '../config.js';
+import { MAX_HOPS, WORKSPACE_DIR, botRoots } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
@@ -15,6 +16,8 @@ import { desktopTools } from './desktopTools.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { Routine } from '@pocketrocket/shared';
+import { isInside } from '../permissions/pathRules.js';
+import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
 
 export interface ToolCtx {
   bot: Bot;
@@ -26,6 +29,8 @@ export interface ToolCtx {
   repos: Repos;
   memory: MemoryService;
   skills: SkillService;
+  /** Uploaded pictures, shared with the avatar upload endpoint. Absent in a few unit tests; send_message then refuses an image. */
+  media?: MediaStore;
   /**
    * Route a bot-authored message to target bots (hop+1). Returns handles actually dispatched.
    * `room` defaults to the room the turn is running in; pass another to wake bots in that room instead.
@@ -98,13 +103,34 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     const r = ref.replace(/^@/, '').toLowerCase();
     return others().find((b) => b.handle.toLowerCase() === r || b.name.toLowerCase() === r);
   };
-  const post = (kind: 'text' | 'handoff', body: string, payload: HandoffPayload | null, room: Room = ctx.room) => {
+  const post = (kind: 'text' | 'handoff', body: string, payload: HandoffPayload | null, room: Room = ctx.room, attachments?: string[]) => {
     const msg = ctx.repos.insertMessage({
       roomId: room.id, authorType: 'bot', authorId: ctx.bot.id, kind, text: body, payload,
-      causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId,
+      causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId, attachments,
     });
     events.emitEvent({ type: 'message.new', message: msg });
     return msg;
+  };
+  /**
+   * Reads a local image for `send_message`'s `image_path` and stores it, or the reason it could not: outside
+   * this bot's roots (never the hub's own files), missing, or refused by `MediaStore` (too big / not an image).
+   */
+  const attachImage = (imagePath: string): { ref: string } | { error: string } => {
+    if (!ctx.media) return { error: 'This hub cannot store images yet.' };
+    if (!isInside(imagePath, botRoots(ctx.bot.id), WORKSPACE_DIR)) {
+      return { error: '"' + imagePath + '" is outside the shared workspace and your own folder.' };
+    }
+    let bytes: Buffer;
+    try {
+      bytes = fs.readFileSync(imagePath);
+    } catch {
+      return { error: 'Could not read "' + imagePath + '".' };
+    }
+    try {
+      return { ref: ctx.media.put(bytes) };
+    } catch (e) {
+      return { error: e instanceof MediaRejected ? e.message : 'Could not store the image.' };
+    }
   };
   const roomMembers = (room: Room) =>
     room.memberIds.map((id) => ctx.repos.getBot(id)).filter((b): b is Bot => !!b);
@@ -157,14 +183,20 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   const sendMessage = hubTool(
     'send_message',
-    'Post a message immediately, before your turn ends. Use @handle inside the text to mention bots; mentioned bots will respond. Defaults to the room you are in; pass `room` to post into another room (you do not have to be a member of it).',
-    { text: z.string().min(1).describe('Message text. May contain @handle mentions.'), room: ROOM_ARG },
+    'Post a message immediately, before your turn ends. Use @handle inside the text to mention bots; mentioned bots will respond. Defaults to the room you are in; pass `room` to post into another room (you do not have to be a member of it). Pass `image_path` to attach a PNG/JPEG/WebP (up to 512KB) already saved in the shared workspace or your own folder.',
+    { text: z.string().min(1).describe('Message text. May contain @handle mentions.'), room: ROOM_ARG, image_path: z.string().optional().describe('Absolute path to a PNG/JPEG/WebP file to attach, already saved in the shared workspace or your own folder.') },
     async (a) => {
       const r = resolveRoom(a.room);
       if (!r.ok) return r.out;
       const denied = await gateOutsideRoom('send_message', 'post in', r.room, a as unknown as Record<string, unknown>);
       if (denied) return denied;
-      const msg = post('text', a.text, null, r.room);
+      let attachments: string[] | undefined;
+      if (a.image_path) {
+        const attached = attachImage(a.image_path);
+        if ('error' in attached) return err(attached.error);
+        attachments = [attached.ref];
+      }
+      const msg = post('text', a.text, null, r.room, attachments);
       const dispatched = ctx.dispatchFromBot(parseMentions(a.text, r.members, ctx.bot.id), r.room);
       return text(JSON.stringify({ posted: true, room: r.room.name, seq: msg.seq, dispatched }));
     },
