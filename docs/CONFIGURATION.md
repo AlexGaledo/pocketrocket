@@ -35,6 +35,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `MAX_TURN_CONTINUATIONS` | `2` | Times a run that hit the step limit is resumed to finish the job. Each one is re-checked against the remaining budget and the abort signal. `0` disables. |
 | `MAX_CONCURRENT_TURNS` | `4` | Turns the hub runs in parallel. |
 | `CAUSE_COST_CAP_USD` | `5` | Dollar cap per thread (cause) across bots. |
+| `POCKETROCKET_NO_SPEND_CAPS` | unset (off) | `1` turns off the per-reply, per-request, trigger and training budgets, for a server on a flat subscription. The step, hop and trigger rate limits stay. Do not set it with an API key, where the dollars are real. |
 | `SCREEN_URL` | `http://127.0.0.1:6080` | noVNC endpoint proxied at `/screen/` (server mode). |
 | `CDP_URL` | `http://127.0.0.1:9222` | Chromium DevTools endpoint for the Browser tool (server mode). |
 | `SCREEN_DISPLAY` | `:99` | X display for the Desktop tool (Linux server mode). |

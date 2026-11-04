@@ -7,7 +7,7 @@ import {
   type Bot, type ModelInfo, type ProviderId, type TrainingDecision, type TrainingPassResult, type TrainingProposal, type TrainingState,
 } from '@pocketrocket/shared';
 import { route } from '../agent/ModelRouter.js';
-import { CLAUDE_EXE } from '../config.js';
+import { CLAUDE_EXE, spendCapsOff } from '../config.js';
 import { TrainingRepo, type StoredTrainingProposal } from '../db/trainingRepo.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -337,7 +337,7 @@ export class Training {
     const evidence = gatherEvidence(this.repo, repos, botId, Math.max(cfg.lastRunAt ?? 0, cfg.windowStart ?? 0), until);
     if (!evidence.items) return { outcome: 'no_evidence', message: 'Nothing new to learn from.' };
     const spent = this.spentThisWeek(botId);
-    if (spent + TRAINING_PASS_BUDGET_USD > TRAINING_WEEKLY_CAP_USD) {
+    if (!spendCapsOff() && spent + TRAINING_PASS_BUDGET_USD > TRAINING_WEEKLY_CAP_USD) {
       return { outcome: 'budget', message: 'This bot reached its training budget for the week.' };
     }
 

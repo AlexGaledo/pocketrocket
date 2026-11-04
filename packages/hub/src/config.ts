@@ -179,7 +179,16 @@ export function parseEnabledProviders(raw: string | undefined): ProviderId[] {
 export const ENABLED_PROVIDERS: readonly ProviderId[] = parseEnabledProviders(process.env.POCKETROCKET_PROVIDERS);
 export const MAX_CONCURRENT_TURNS = Number(process.env.MAX_CONCURRENT_TURNS ?? 4);
 export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
-export const CAUSE_COST_CAP_USD = Number(process.env.CAUSE_COST_CAP_USD ?? 5);
+/**
+ * POCKETROCKET_NO_SPEND_CAPS=1: for a server on a flat subscription, where these dollar figures are notional and only
+ * stop work. Turns off the per-reply, per-request, trigger and training budgets. Not the step, hop or rate limits: those
+ * stop loops, not spending. Never set it with an API key, where the dollars are real.
+ */
+export const spendCapsOff = (env: NodeJS.ProcessEnv = process.env): boolean =>
+  ['1', 'true', 'yes', 'on'].includes(String(env.POCKETROCKET_NO_SPEND_CAPS ?? '').trim().toLowerCase());
+export const causeCostCap = (env: NodeJS.ProcessEnv = process.env): number =>
+  spendCapsOff(env) ? Infinity : Number(env.CAUSE_COST_CAP_USD ?? 5);
+export const CAUSE_COST_CAP_USD = causeCostCap();
 /**
  * Steps (model round trips) one run may take before the provider stops it.
  *

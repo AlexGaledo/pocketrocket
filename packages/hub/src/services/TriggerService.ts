@@ -1,3 +1,4 @@
+import { spendCapsOff } from '../config.js';
 import {
   TRIGGER_SOURCE_PROVIDER, TRIGGER_SOURCES,
   type IntegrationProvider, type Trigger, type TriggerEvent, type TriggerFire, type TriggerInput, type TriggerPayload,
@@ -442,13 +443,13 @@ export class TriggerService {
     const fired = this.repo.firesLastHour(t.id, now);
     if (fired >= t.maxPerHour) return skip('Rate limit: ' + t.maxPerHour + ' per hour.');
     const spent = this.repo.spentLastDay(t.id, now);
-    if (spent >= t.budgetUsd) return skip('Daily budget reached ($' + spent.toFixed(2) + ' of $' + t.budgetUsd.toFixed(2) + ').');
+    if (!spendCapsOff() && spent >= t.budgetUsd) return skip('Daily budget reached ($' + spent.toFixed(2) + ' of $' + t.budgetUsd.toFixed(2) + ').');
 
     const fire = this.repo.addFire({ triggerId: t.id, eventId: o.eventId, title: event.title, status: 'running', test: o.test }, now);
     const payload: TriggerPayload = { triggerId: t.id, fireId: fire.id, name: t.name, source: t.source, eventId: o.eventId };
     let messageId = '';
     const msg = this.o.router.fireTrigger(room, bot, {
-      name: t.name, prompt: t.prompt, event, payload, budgetUsd: t.budgetUsd - spent,
+      name: t.name, prompt: t.prompt, event, payload, budgetUsd: spendCapsOff() ? Infinity : t.budgetUsd - spent,
       onDone: (res) => {
         const cost = messageId ? this.o.repos.usageTotals({ causeId: messageId }).costUsd : res.costUsd;
         this.repo.finishFire(fire.id, res.ok ? 'success' : 'error', cost, res.ok ? null : res.error ?? null, this.now());
@@ -465,7 +466,8 @@ export class TriggerService {
   /** What is left of a trigger's rolling 24-hour budget (RoomRouter caps resumed turns and hops with it). */
   remainingBudget(id: string): number | undefined {
     const t = this.repo.get(id);
-    return t ? t.budgetUsd - this.repo.spentLastDay(t.id, this.now()) : undefined;
+    if (!t) return undefined;
+    return spendCapsOff() ? Infinity : t.budgetUsd - this.repo.spentLastDay(t.id, this.now());
   }
 
   /** "Test fire" from the builder: a sample event straight to this trigger, skipping the filter and the poll. */

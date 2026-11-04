@@ -14,6 +14,7 @@ import { PermissionBroker } from '../permissions/PermissionBroker.js';
 import { TurnRegistry } from '../mcp/httpServer.js';
 import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { causeCostCap, spendCapsOff } from '../config.js';
 import { BotRunner } from './BotRunner.js';
 import { SHARED_BROWSER_NOTE, SHARED_TAB_NOTE } from './desktopTools.js';
 
@@ -121,6 +122,28 @@ describe('turns on per-bot computers', () => {
     expect(s.computers.status(a.bot.id).state).toBe('live');
     s.advance(31 * 60_000);
     expect(await s.computers.sweep()).toEqual([a.bot.id]);
+  });
+
+  it('gives a turn no budget when spend caps are off, and the bot and request budgets otherwise', async () => {
+    const s = setup();
+    s.provider.usesBrowser = false;
+    const a = s.mk('alpha', ['Read']);
+    await s.runner.runTurn({ bot: a.bot, room: a.room, members: [a.bot], injected: 'hi', hop: 0, causeId: 'c1', causeBudgetUsd: 0.5 });
+    expect(s.provider.seen[0].maxBudgetUsd).toBe(0.5);
+    process.env.POCKETROCKET_NO_SPEND_CAPS = '1';
+    try {
+      await s.runner.runTurn({ bot: a.bot, room: a.room, members: [a.bot], injected: 'hi', hop: 0, causeId: 'c2', causeBudgetUsd: 0.5 });
+      expect(s.provider.seen[1].maxBudgetUsd).toBe(Infinity);
+    } finally {
+      delete process.env.POCKETROCKET_NO_SPEND_CAPS;
+    }
+  });
+
+  it('reads the request cap from the environment, and has none when spend caps are off', () => {
+    expect(causeCostCap({})).toBe(5);
+    expect(causeCostCap({ CAUSE_COST_CAP_USD: '9' })).toBe(9);
+    expect(causeCostCap({ POCKETROCKET_NO_SPEND_CAPS: '1', CAUSE_COST_CAP_USD: '9' })).toBe(Infinity);
+    expect(spendCapsOff({ POCKETROCKET_NO_SPEND_CAPS: '0' })).toBe(false);
   });
 
   it('starts no computer for a turn that never calls Browser or Desktop', async () => {
