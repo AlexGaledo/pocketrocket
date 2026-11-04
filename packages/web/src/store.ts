@@ -1,3 +1,4 @@
+import type { BotPreview } from '@pocketrocket/shared';
 import { create } from 'zustand';
 import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState } from '@pocketrocket/shared';
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
@@ -112,6 +113,10 @@ interface State {
   history: Record<string, { loading: boolean; done: boolean }>;
   streaming: Record<string, Streaming>;
   unread: Record<string, number>;
+  /** Each bot's latest message, for the sidebar. */
+  previews: Record<string, BotPreview>;
+  /** A search result being shown: the words to highlight in its chat, and the message to scroll to. */
+  searchTarget: { roomId: string; seq: number; query: string } | null;
   usage: Record<string, UsageTotals>;
   /** P3: bumped on WS `routines.changed`; the Routines tab refetches when it moves. */
   routinesRev: number;
@@ -129,7 +134,7 @@ interface State {
   /** Whose screen the user chose in a group chat. lib/screenView.ts says whose actually shows. */
   panelBotId: string | null;
   page: Page | null;
-  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'podium' } | { kind: 'profile' } | { kind: 'settings'; section?: SectionId } | null;
+  dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'podium' } | { kind: 'search' } | { kind: 'profile' } | { kind: 'settings'; section?: SectionId } | null;
   toasts: Toast[];
   settings: Settings;
   providers: ProvidersResponse | null;
@@ -178,6 +183,7 @@ interface State {
   applyAccountResponse: (res: AccountActionResponse) => void;
   applyEvent: (ev: ServerEvent) => void;
   setActiveRoom: (id: string | null) => void;
+  openSearchHit: (roomId: string, seq: number, query: string) => void;
   loadMessages: (roomId: string) => Promise<void>;
   /** Prepends the page just before the oldest loaded message. No-op while one is loading or none are left. */
   loadOlder: (roomId: string) => Promise<void>;
@@ -211,6 +217,8 @@ export const useStore = create<State>((set, get) => ({
   botStates: {},
   activeRoomId: localStorage.getItem('pocketrocket.activeRoom'),
   messages: {},
+  previews: {},
+  searchTarget: null,
   openApprovals: [],
   computers: {},
   loaded: {},
@@ -263,6 +271,8 @@ export const useStore = create<State>((set, get) => ({
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
         void get().fetchAccount();
+        // Only decoration: a hub or a paired phone that refuses it just shows each bot's title instead.
+        void api.previews().then((previews) => set({ previews })).catch(() => undefined);
         // P2: control states that are not the default (agent); older hubs answer 404, which leaves it empty.
         void api.control.list().then((l) => set({ control: Object.fromEntries(l.map((c) => [c.botId, c])) })).catch(() => undefined);
         const active = s.activeRoomId && ev.rooms.some((r) => r.id === s.activeRoomId) ? s.activeRoomId : (ev.rooms[0]?.id ?? null);
@@ -303,6 +313,7 @@ export const useStore = create<State>((set, get) => ({
         if (m.turnId && m.kind === 'text' && streaming[m.turnId]) streaming[m.turnId] = { ...streaming[m.turnId], text: '' };
         set({ messages: { ...s.messages, [m.roomId]: [...list, m] }, unread, streaming });
         if (m.authorType === 'bot' && m.kind === 'text') {
+          if (m.authorId && m.text) set({ previews: { ...get().previews, [m.authorId]: { text: m.text.slice(0, 200), at: m.createdAt } } });
           if (m.turnId) recentReceive.set(m.turnId, Date.now());
           play('receive', { roomActive: m.roomId === s.activeRoomId });
         }
@@ -427,12 +438,16 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  openSearchHit: (roomId, seq, query) => {
+    set({ searchTarget: { roomId, seq, query } });
+    get().setActiveRoom(roomId);
+  },
   setActiveRoom: (id) => {
     if (id) localStorage.setItem('pocketrocket.activeRoom', id);
     const unread = { ...get().unread };
     if (id) delete unread[id];
     // Moving to another chat leaves a page. The same chat again (a reconnect's hello) must not.
-    set({ activeRoomId: id, unread, page: id === get().activeRoomId ? get().page : null });
+    set({ activeRoomId: id, unread, page: id === get().activeRoomId ? get().page : null, searchTarget: get().searchTarget?.roomId === id ? get().searchTarget : null });
     // The room is on screen now, approval card included, so its reminders are done.
     if (id) get().dismissToast({ keyPrefix: 'approval:' + id + ':' });
     if (id && !get().loaded[id]) void get().loadMessages(id);

@@ -1,9 +1,8 @@
-import { Plus, Hand, Settings2, PanelLeftClose } from 'lucide-react';
+import { Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
-import { Avatar, RoomAvatar, cn } from './ui';
+import { Avatar, Menu, MenuContent, MenuItem, cn } from './ui';
 import { Podium } from './Podium';
 import { ProfileMenu } from './ProfileMenu';
-import { RocketMark } from './RocketMark';
 import { api } from '../lib/api';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { STATUS_LABEL, avatarStatus, isWorking, useBotStatus, type BotStatus } from '../lib/botStatus';
@@ -11,6 +10,9 @@ import { toolPhrase } from '../lib/toolPhrases';
 import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
 
 /** Shared by bot and room rows: a whole-row button, so Tab reaches every chat and Enter/Space opens it. */
+/** The round buttons at the top and bottom of the sidebar. */
+const ROUND = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted ring-1 ring-line hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
+
 const ROW = 'flex w-full min-w-0 items-center gap-2.5 rounded-sm px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent';
 
 /**
@@ -50,6 +52,7 @@ export function Sidebar() {
   const bots = useStore((s) => s.bots);
   const rooms = useStore((s) => s.rooms);
   const messages = useStore((s) => s.messages);
+  const previews = useStore((s) => s.previews);
   const activeRoomId = useStore((s) => s.activeRoomId);
   const unread = useStore((s) => s.unread);
   const setActiveRoom = useStore((s) => s.setActiveRoom);
@@ -82,6 +85,23 @@ export function Sidebar() {
   const podiumBots = settings.podiumBotIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is Bot => !!b);
   const soloBots = bots.filter((b) => !inAnyGroup.has(b.id) && !podiumBots.includes(b));
 
+  const row = (b: Bot) => {
+    const dm = dmFor(b.id);
+    return (
+      <BotRow
+        key={b.id}
+        bot={b}
+        status={statusOf(b.id)}
+        activity={activityFor(b, messages)}
+        preview={previews[b.id]?.text ?? null}
+        active={!!dm && dm.id === activeRoomId}
+        unread={dm ? unread[dm.id] ?? 0 : 0}
+        onOpen={() => void openDm(b.id)}
+        onSettings={device ? undefined : () => openDialog({ kind: 'bot', bot: b })}
+      />
+    );
+  };
+
   const openRoom = (roomId: string) => {
     useStore.getState().closePage();
     setActiveRoom(roomId);
@@ -102,11 +122,7 @@ export function Sidebar() {
 
   return (
     <aside className="flex w-full min-w-0 flex-col">
-      <div className="flex h-14 items-center justify-between gap-1.5 pl-3 pr-1.5">
-        <div className="flex min-w-0 items-center gap-2 text-ui font-semibold">
-          <RocketMark size={24} />
-          <span className="truncate">PocketRocket</span>
-        </div>
+      <div className="flex h-14 items-center justify-between gap-1.5 pl-2.5 pr-1.5">
         <button
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-dim hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           title="Hide bots (Ctrl+B)"
@@ -115,6 +131,20 @@ export function Sidebar() {
         >
           <PanelLeftClose size={15} />
         </button>
+        <div className="flex shrink-0 items-center gap-2 pr-1.5">
+          <button className={ROUND} title="Search every chat" aria-label="Search every chat" onClick={() => openDialog({ kind: 'search' })}><Search size={16} /></button>
+          {!device && (
+            <Menu.Root>
+              <Menu.Trigger className={ROUND} title="New" aria-label="New"><Plus size={17} /></Menu.Trigger>
+              <Menu.Portal>
+                <MenuContent align="end">
+                  <MenuItem onSelect={() => openDialog({ kind: 'bot', bot: null })}><UserPlus size={15} aria-hidden /> New bot</MenuItem>
+                  <MenuItem onSelect={() => openDialog({ kind: 'room', room: null })}><MessagesSquare size={15} aria-hidden /> New group chat</MenuItem>
+                </MenuContent>
+              </Menu.Portal>
+            </Menu.Root>
+          )}
+        </div>
       </div>
       {status.label && (
         <button
@@ -142,6 +172,7 @@ export function Sidebar() {
                     bot={b}
                     status="needs_you"
                     activity={null}
+                    preview={null}
                     active={!!roomId && roomId === activeRoomId}
                     unread={roomId ? unread[roomId] ?? 0 : 0}
                     onOpen={() => (roomId ? openRoom(roomId) : void openDm(b.id))}
@@ -162,43 +193,20 @@ export function Sidebar() {
             canEdit={!device}
           />
         )}
-        <SectionHeader label="Bots" onAdd={device ? undefined : () => openDialog({ kind: 'bot', bot: null })} addTitle="New bot" />
+        {soloBots.length > 0 && <SectionHeader label="Bots" />}
         <div className="mb-3">
-          {/* Only bots outside every group chat: one is in a room already, reach it from "Group chats" below
-              instead of listing it twice. */}
-          <ul className="space-y-0.5">
-            {soloBots.map((b) => {
-              const dm = dmFor(b.id);
-              return (
-                <BotRow
-                  key={b.id}
-                  bot={b}
-                  status={statusOf(b.id)}
-                  activity={activityFor(b, messages)}
-                  active={!!dm && dm.id === activeRoomId}
-                  unread={dm ? unread[dm.id] ?? 0 : 0}
-                  onOpen={() => void openDm(b.id)}
-                  onSettings={device ? undefined : () => openDialog({ kind: 'bot', bot: b })}
-                />
-              );
-            })}
-          </ul>
+          {/* Only bots outside every group: one in a group is listed under that group below. */}
+          <ul className="space-y-0.5">{soloBots.map(row)}</ul>
           {/* Before the hub's hello there is nothing to show yet, which is not the same as having no bots. */}
           {!helloReceived ? <SkeletonRows count={3} /> : !bots.length && <div className="px-3 py-2 text-ui text-muted">No bots yet.</div>}
         </div>
 
-        <SectionHeader
-          label="Group chats"
-          onAdd={device ? undefined : () => openDialog({ kind: 'room', room: null })}
-          addTitle="New group chat"
-        />
         {!helloReceived ? (
           <SkeletonRows count={1} />
         ) : (
-          <ul className="space-y-0.5">
-            {groups.map((r) => (
-              <RoomItem
-                key={r.id}
+          groups.map((r) => (
+            <section key={r.id} aria-label={r.name} className="mb-3">
+              <GroupHeader
                 room={r}
                 statusOf={statusOf}
                 active={r.id === activeRoomId}
@@ -206,53 +214,60 @@ export function Sidebar() {
                 onClick={() => openRoom(r.id)}
                 onSettings={device ? undefined : () => openDialog({ kind: 'room', room: r })}
               />
-            ))}
-            {!groups.length && <li className="px-3 py-2 text-ui text-muted">Bots here pass work to each other.</li>}
-          </ul>
+              <ul className="space-y-0.5">
+                {r.memberIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is Bot => !!b && !podiumBots.includes(b)).map(row)}
+              </ul>
+            </section>
+          ))
         )}
       </div>
 
-      <ProfileMenu onNavigate={leaveDrawer} />
+      <div className="flex items-center gap-1 pr-2.5">
+        <div className="min-w-0 flex-1"><ProfileMenu onNavigate={leaveDrawer} /></div>
+        <button className={ROUND} title="Pair a phone" aria-label="Pair a phone" onClick={() => openDialog({ kind: 'settings', section: 'devices' })}><QrCode size={16} /></button>
+      </div>
     </aside>
   );
 }
 
 /** One bot in the sidebar. The second line says who must act, in words and color, and never names a tool. */
-function BotRow({ bot, status, activity, active, unread, onOpen, onSettings }: {
+function BotRow({ bot, status, activity, preview, active, unread, onOpen, onSettings }: {
   bot: Bot;
   status: BotStatus;
   activity: { text: string; toBot: string | null } | null;
+  /** Its latest message, as plain words. */
+  preview: string | null;
   active: boolean;
   unread: number;
   onOpen: () => void;
   onSettings?: () => void;
 }) {
-  const sub = status === 'idle' ? bot.title || '@' + bot.handle
+  const idle = preview ? preview.replace(/[*_`#>~]/g, '').replace(/\s+/g, ' ').trim() : '@' + bot.handle;
+  const sub = status === 'idle' ? idle
     : status === 'waiting_on_bot' ? (activity?.toBot ? 'Waiting on @' + activity.toBot : STATUS_LABEL[status])
     : status === 'needs_you' || status === 'paused' ? STATUS_LABEL[status]
     : activity?.text ?? STATUS_LABEL[status];
   const tone = status === 'needs_you' || status === 'paused' ? 'text-warn'
     : status === 'idle' || status === 'waiting_on_bot' ? 'text-muted'
     : status === 'error' ? 'text-bad' : 'text-ok';
+  const label = bot.title ? bot.name + ' · ' + bot.title : bot.name;
   return (
-    <li className={cn('group flex items-center rounded-sm hover:bg-hover', active && 'bg-active')}>
+    <li className={cn('group flex items-center rounded-lg hover:bg-hover', active && 'bg-active')}>
       <button className={ROW} aria-current={active ? 'page' : undefined} onClick={onOpen}>
         <Avatar bot={bot} {...avatarStatus(status)} size={34} />
         <span className="block min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate text-ui font-medium" title={bot.name}>{bot.name}</span>
-            {unread > 0 && <span className="rounded-full bg-ink px-1.5 text-hint font-medium text-ink-fg">{unread}<span className="sr-only"> unread</span></span>}
-          </span>
+          <span className="block truncate text-ui font-medium" title={label}>{label}</span>
           <span className={cn('block truncate text-hint', tone)} title={sub}>
             {status === 'needs_you' && <Hand size={11} aria-hidden className="mr-1 inline align-[-1px]" />}
             {sub}
           </span>
         </span>
+        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-[#4aa3ff]"><span className="sr-only">{unread} unread</span></span>}
       </button>
       {/* A sibling of the row button, not inside it. Shown on hover, whenever focus is anywhere in the
           row (so Tab finds it), and always on touch screens, which have no hover to reveal it. */}
       {onSettings && <button
-        className="mr-1.5 shrink-0 rounded-sm p-1.5 text-muted opacity-0 hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+        className="mr-1.5 hidden shrink-0 rounded-sm p-1.5 text-muted hover:bg-hover hover:text-fg focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:block group-focus-within:block [@media(hover:none)]:block"
         title="Bot settings"
         aria-label={bot.name + ' settings'}
         onClick={onSettings}
@@ -263,22 +278,12 @@ function BotRow({ bot, status, activity, active, unread, onOpen, onSettings }: {
   );
 }
 
-function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd?: () => void; addTitle: string }) {
-  return (
-    <div className="mb-0.5 flex items-center justify-between px-3 pt-2">
-      <span className="text-label text-dim">{label}</span>
-      {onAdd && (
-        <button className="rounded-sm p-1 text-dim hover:bg-hover hover:text-fg" onClick={onAdd} title={addTitle}>
-          <Plus size={14} />
-        </button>
-      )}
-    </div>
-  );
+function SectionHeader({ label }: { label: string }) {
+  return <div className="mb-0.5 px-3 pt-2 text-label text-dim">{label}</div>;
 }
 
-/** One group chat, always shown in full — never folded behind a dropdown, so its bots and the edit
- *  button that reaches them (its avatar, its members) are one click away, not two. */
-function RoomItem({ room, statusOf, active, unread, onClick, onSettings }: {
+/** A group's name, which opens its chat. Its bots are listed below it, each opening a chat of its own. */
+function GroupHeader({ room, statusOf, active, unread, onClick, onSettings }: {
   room: Room;
   statusOf: (botId: string) => BotStatus;
   active: boolean;
@@ -286,28 +291,29 @@ function RoomItem({ room, statusOf, active, unread, onClick, onSettings }: {
   onClick: () => void;
   onSettings?: () => void;
 }) {
-  const bots = useStore((s) => s.bots);
   const busy = room.memberIds.filter((id) => isWorking(statusOf(id))).length;
   const needs = room.memberIds.filter((id) => statusOf(id) === 'needs_you').length;
   return (
-    <li className="group flex items-center rounded-sm hover:bg-hover">
-      <button className={cn(ROW, active && 'bg-active')} aria-current={active ? 'page' : undefined} onClick={onClick}>
-        <RoomAvatar room={room} size={34} className={busy ? 'text-ok' : 'text-muted'} />
-        <span className="block min-w-0 flex-1">
-          <span className="block truncate text-ui font-medium">{room.name}</span>
-          <span className={cn('block truncate text-hint', needs ? 'text-warn' : 'text-muted')}>{needs ? needs + (needs === 1 ? ' needs you' : ' need you') : busy ? busy + ' of ' + room.memberIds.length + ' working' : room.memberIds.map((id) => botById(bots, id)?.name).filter(Boolean).join(', ')}</span>
-        </span>
-        {unread > 0 && <span className="rounded-full bg-ink px-1.5 text-hint font-medium text-ink-fg">{unread}<span className="sr-only"> unread</span></span>}
+    <div className={cn('group mb-0.5 flex items-center rounded-sm hover:bg-hover', active && 'bg-active')}>
+      <button
+        className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-1 text-left text-label text-dim hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+        title={'Open the ' + room.name + ' group chat'}
+        aria-current={active ? 'page' : undefined}
+        onClick={onClick}
+      >
+        <span className={cn('truncate', active && 'text-fg')}>{room.name}</span>
+        {needs > 0 ? <span className="shrink-0 text-hint text-warn">{needs} {needs === 1 ? 'needs' : 'need'} you</span> : busy > 0 && <span className="shrink-0 text-hint text-ok">{busy} working</span>}
+        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-[#4aa3ff]"><span className="sr-only">{unread} unread</span></span>}
       </button>
       {onSettings && <button
-        className="mr-1.5 shrink-0 rounded-sm p-1.5 text-muted opacity-0 hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+        className="mr-1.5 hidden shrink-0 rounded-sm p-1 text-muted hover:bg-hover hover:text-fg focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:block group-focus-within:block [@media(hover:none)]:block"
         title="Group chat settings"
         aria-label={room.name + ' settings'}
         onClick={onSettings}
       >
-        <Settings2 size={14} />
+        <Settings2 size={13} />
       </button>}
-    </li>
+    </div>
   );
 }
 

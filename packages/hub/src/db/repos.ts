@@ -1,3 +1,4 @@
+import type { BotPreview, SearchHit } from '@pocketrocket/shared';
 import { nanoid } from 'nanoid';
 import {
   AUTO_MEMORY_EVERY,
@@ -218,6 +219,29 @@ export class Repos {
       ? this.db.all('SELECT * FROM messages WHERE room_id=? AND seq<? ORDER BY seq DESC LIMIT ?', roomId, opts.before, limit)
       : this.db.all('SELECT * FROM messages WHERE room_id=? ORDER BY seq DESC LIMIT ?', roomId, limit);
     return rows.reverse().map((r) => this.rowToMessage(r));
+  }
+  /** Each bot's latest message, from any room, cut short. A bot that has said nothing has no entry. */
+  botPreviews(): Record<string, BotPreview> {
+    const rows = this.db.all<{ author_id: string; text: string; at: number }>(
+      "SELECT author_id, substr(text,1,200) AS text, created_at AS at, MAX(rowid) FROM messages WHERE author_type='bot' AND kind='text' AND author_id IS NOT NULL AND text<>'' GROUP BY author_id",
+    );
+    return Object.fromEntries(rows.map((r) => [r.author_id, { text: r.text, at: r.at }]));
+  }
+  /** Messages people read, in every room, containing `query` in any case. Newest first. */
+  searchMessages(query: string, limit: number): SearchHit[] {
+    const rows = this.db.all<{ id: string; room_id: string; room_name: string; seq: number; text: string; created_at: number }>(
+      "SELECT m.id, m.room_id, r.name AS room_name, m.seq, m.text, m.created_at FROM messages m JOIN rooms r ON r.id=m.room_id " +
+        "WHERE m.kind='text' AND m.text LIKE ? ESCAPE '\\' ORDER BY m.created_at DESC, m.rowid DESC LIMIT ?",
+      '%' + query.replace(/[\\%_]/g, '\\$&') + '%', limit,
+    );
+    const lower = query.toLowerCase();
+    return rows.map((r) => {
+      const at = Math.max(0, r.text.toLowerCase().indexOf(lower));
+      const start = Math.max(0, at - 50);
+      const end = Math.min(r.text.length, at + query.length + 90);
+      const snippet = (start ? '…' : '') + r.text.slice(start, end).replace(/\s+/g, ' ') + (end < r.text.length ? '…' : '');
+      return { id: r.id, roomId: r.room_id, roomName: r.room_name, seq: r.seq, snippet, createdAt: r.created_at };
+    });
   }
   /** What the owner wrote, newest first, across every room or just one. */
   listOwnerMessages(o: { since?: number; before?: number; roomId?: string; query?: string; limit: number }): Array<{ createdAt: number; roomName: string; text: string }> {

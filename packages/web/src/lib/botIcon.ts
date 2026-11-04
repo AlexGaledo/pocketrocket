@@ -16,7 +16,7 @@ const ICONS: Record<BotIconKey, LucideIcon> = {
 const DERIVED: readonly BotIconKey[] = ['bot', 'cpu', 'compass', 'wrench', 'pen', 'smile', 'brain', 'shield', 'radar', 'anchor', 'atom', 'feather', 'hammer', 'map', 'orbit', 'hexagon'];
 const TINTS = 8; // --tint-1 to --tint-8 in index.css
 
-function fnv1a(s: string) {
+export function fnv1a(s: string) {
   let h = 0x811c9dc5;
   for (const c of s) { h ^= c.codePointAt(0)!; h = Math.imul(h, 16777619); }
   return h >>> 0;

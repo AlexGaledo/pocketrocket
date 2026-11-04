@@ -1,5 +1,5 @@
 /** How many bots one room can hold. Rooms bigger than this get noisy and slow, and every mention fans out to all of them. */
-export const MAX_ROOM_BOTS = 10;
+export const MAX_ROOM_BOTS = 20;
 
 import type { Approvals } from './providers.js';
 import type { TriggerPayload } from './triggers.js';
@@ -66,6 +66,10 @@ export const isBotIconKey = (v: unknown): v is BotIconKey => (BOT_ICON_KEYS as r
 /** The icons drawn as a whole character rather than a line glyph on a tinted circle. */
 export type BotCharacterKey = Extract<BotIconKey, `blob-${string}`>;
 export const isBotCharacterKey = (v: unknown): v is BotCharacterKey => isBotIconKey(v) && v.startsWith('blob-');
+/** A bot's latest message, shown under its name in the sidebar. */
+export interface BotPreview { text: string; at: number }
+/** One result of GET /api/search. `seq` places it in its room; `snippet` is the text around the match. */
+export interface SearchHit { id: string; roomId: string; roomName: string; seq: number; snippet: string; createdAt: number }
 /** How many bots fit on the sidebar's podium. */
 export const MAX_PODIUM_BOTS = 3;
 

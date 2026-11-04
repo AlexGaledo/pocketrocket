@@ -13,6 +13,7 @@ import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
 import { BotDialog } from './dialogs/BotDialog';
 import { RoomDialog } from './dialogs/RoomDialog';
+import { SearchDialog } from './dialogs/SearchDialog';
 import { PodiumDialog } from './dialogs/PodiumDialog';
 import { ProfileDialog } from './dialogs/ProfileDialog';
 import { SettingsDialog } from './dialogs/SettingsDialog';
@@ -176,6 +177,7 @@ export function App() {
       {dialog?.kind === 'bot' && <BotDialog bot={dialog.bot} onClose={() => openDialog(null)} />}
       {dialog?.kind === 'room' && <RoomDialog room={dialog.room} onClose={() => openDialog(null)} />}
       {dialog?.kind === 'podium' && <PodiumDialog onClose={() => openDialog(null)} />}
+      {dialog?.kind === 'search' && <SearchDialog onClose={() => openDialog(null)} />}
       {dialog?.kind === 'profile' && <ProfileDialog onClose={() => openDialog(null)} />}
       {dialog?.kind === 'settings' && <SettingsDialog section={dialog.section} onClose={() => openDialog(null)} />}
 

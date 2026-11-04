@@ -1,3 +1,4 @@
+import type { BotPreview, SearchHit } from '@pocketrocket/shared';
 import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
@@ -134,6 +135,8 @@ export const api = {
     // byModel / byCause arrive from P8 hubs; an older hub leaves them out.
     return req<{ totals: UsageTotals; rows: UsageRow[]; byModel?: UsageGroup[]; byCause?: UsageGroup[] }>('GET', '/api/usage?' + p.toString());
   },
+  previews: () => req<Record<string, BotPreview>>('GET', '/api/previews'),
+  search: (q: string) => req<SearchHit[]>('GET', '/api/search?q=' + encodeURIComponent(q)),
   settings: {
     get: () => req<Settings>('GET', '/api/settings'),
     update: (patch: SettingsPatch) => req<Settings>('PUT', '/api/settings', patch),
