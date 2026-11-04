@@ -289,9 +289,14 @@ export class BotRunner {
     // Chats on one computer share its browser, and each browser tool starts on the first tab, so they would drive the
     // same page. Decided on this turn's first browser call: a turn already at work is never made to move.
     let tabSettled = false;
-    const browserTabRule = (name: string): string | null => {
+    const browserTabRule = (name: string, input?: Record<string, unknown>): string | null => {
       if (tabSettled || !name.startsWith('mcp__browser__')) return null;
-      if (!name.endsWith('browser_tabs') && this.computers!.turnsOn(bot.id) > 1) return SHARED_BROWSER_NOTE;
+      if (name.endsWith('browser_tabs')) {
+        // Looking at the tabs is not having one of your own: only opening one settles it.
+        if (input?.action === 'new') tabSettled = true;
+        return null;
+      }
+      if (this.computers!.turnsOn(bot.id) > 1) return SHARED_BROWSER_NOTE;
       tabSettled = true;
       return null;
     };
@@ -351,7 +356,7 @@ export class BotRunner {
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       computerFilesDir: computer?.filesDir ?? undefined,
       controlGuard: controlBlocked,
-      computerGate: computer ? async (name) => (await useComputer()) ?? browserTabRule(name) : undefined,
+      computerGate: computer ? async (name, input) => (await useComputer()) ?? browserTabRule(name, input) : undefined,
     };
 
     events.emitEvent({ type: 'turn.start', turnId, botId: bot.id, roomId: room.id, causeId: req.causeId, hop: req.hop });

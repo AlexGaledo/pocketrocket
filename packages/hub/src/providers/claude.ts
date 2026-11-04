@@ -266,7 +266,8 @@ export class ClaudeProvider implements AgentProvider {
           matcher: 'mcp__browser__.*|mcp__pocketrocket__desktop_.*',
           hooks: [
             async (hookInput: unknown) => {
-              const why = ctx.controlGuard!() ?? (await ctx.computerGate?.((hookInput as PreToolUseHookInput).tool_name)) ?? null;
+              const i = hookInput as PreToolUseHookInput;
+              const why = ctx.controlGuard!() ?? (await ctx.computerGate?.(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>)) ?? null;
               if (!why) return {};
               return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
             },

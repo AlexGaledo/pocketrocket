@@ -82,7 +82,7 @@ export interface TurnContext {
    */
   controlGuard?: () => string | null;
   /** Runs before each Browser or desktop call, after `controlGuard`: starts the computer if needed. A string refuses the call. */
-  computerGate?: (toolName: string) => Promise<string | null>;
+  computerGate?: (toolName: string, input?: Record<string, unknown>) => Promise<string | null>;
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */
