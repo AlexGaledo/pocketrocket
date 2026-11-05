@@ -4,7 +4,7 @@ import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS, MEDIA_DIR,
-  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH,
+  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH, PROJECTS_DIR, setProjectRootsResolver,
 } from './config.js';
 import { Db } from './db/db.js';
 import { Repos } from './db/repos.js';
@@ -24,7 +24,11 @@ import { FollowUp } from './services/FollowUp.js';
 import { KnowledgeRepo } from './services/KnowledgeRepo.js';
 import { VoiceProposals } from './services/VoiceProposals.js';
 import { createProviders } from './providers/registry.js';
-import { TurnRegistry, createMcpHandler } from './mcp/httpServer.js';
+import { TurnRegistry, createMcpHandler, serveTools } from './mcp/httpServer.js';
+import { CONTEXT_CONNECTOR_PREFIX, contextConnectorTools, createContextApi } from './api/context.js';
+import { ContextRepo } from './db/contextRepo.js';
+import { ProjectService } from './services/ProjectService.js';
+import { createProjectsApi } from './api/projects.js';
 import { createRest } from './api/rest.js';
 import { attachWs } from './api/ws.js';
 import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, dropCookie, presentsHubToken, tokenMatches } from './api/guard.js';
@@ -75,6 +79,8 @@ export interface HubOptions {
   dbFile?: string;
   /** Skip directory creation + legacy db copy (tests). */
   skipBootstrap?: boolean;
+  /** Where project folders live; tests hand in a temp directory. Defaults to data/projects. */
+  projectsDir?: string;
   /** The owner's routing rules; tests hand in a temp file. Defaults to data/routing.md. */
   routingFile?: string;
   /** Account service; tests hand in one over a fake Supabase client. */
@@ -314,6 +320,15 @@ export function createHub(opts: HubOptions = {}): Hub {
     viewOnly: (scope) => control.viewOnly(scope),
   });
   const handleMcp = createMcpHandler(turns);
+  const contextRepo = new ContextRepo(db);
+  const projects = new ProjectService({ db, repos, memory, root: opts.projectsDir ?? PROJECTS_DIR });
+  runner.projects = projects;
+  setProjectRootsResolver((botId) => projects.dirsFor(botId));
+  projects.pruneMembers(repos.listBots().map((b) => b.id));
+  const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
+  const projectsApi = createProjectsApi({ projects, repos });
+  const contextApi = createContextApi({ context: contextRepo, projects });
+  const connectorTools = contextConnectorTools(contextRepo);
 
   const MIME: Record<string, string> = {
     '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -451,7 +466,8 @@ export function createHub(opts: HubOptions = {}): Hub {
         }
       }
       const auditMethod = req.method ?? 'GET';
-      const auditPath = url.pathname;
+      // The connector's secret is its path, so the path itself must not reach the log.
+      const auditPath = url.pathname.startsWith(CONTEXT_CONNECTOR_PREFIX) ? CONTEXT_CONNECTOR_PREFIX + '*' : url.pathname;
       // On the answer rather than on 'finish', which never fires if the client hangs up after the change is made.
       if (auditMethod !== 'GET') {
         const end = res.end.bind(res) as (...a: unknown[]) => http.ServerResponse;
@@ -487,6 +503,28 @@ export function createHub(opts: HubOptions = {}): Hub {
         await handleDevicePair(req, res, { devices, limiter });
         return;
       }
+      // The public connector. A wrong secret must not feed the limiter: behind the proxy every caller is
+      // 127.0.0.1, so anyone on the internet could lock the owner out of their own hub.
+      if (url.pathname.startsWith(CONTEXT_CONNECTOR_PREFIX)) {
+        const secret = decodeURIComponent(url.pathname.slice(CONTEXT_CONNECTOR_PREFIX.length));
+        if (!secret || !contextRepo.connectorTokenMatches(secret)) {
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Not found' }));
+          return;
+        }
+        let body: unknown;
+        if ((req.method ?? 'GET') === 'POST') {
+          const buf = await readBody(req);
+          if (buf === null) {
+            res.writeHead(413, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Request body too large' }));
+            return;
+          }
+          try { body = buf.length ? JSON.parse(buf.toString('utf8')) : undefined; } catch { body = undefined; }
+        }
+        await serveTools(connectorTools, req, res, body);
+        return;
+      }
       if (url.pathname === '/mcp') {
         let body: unknown;
         if ((req.method ?? 'GET') === 'POST') {
@@ -512,6 +550,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
       if (await triggersApi(req, res)) return;
+      if (await contextApi(req, res)) return;
+      if (await projectsApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
       if (await teachApi(req, res)) return;
       if (await rest(req, res)) return;
@@ -666,6 +706,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       computers.stopBackground();
       // P4: stop listening for bot changes and drop any OAuth/device sign-in still waiting.
       offBots();
+      offProjectBots();
       for (const p of integrations.pending()) integrations.cancel(p.provider);
       account.stop();
       push.stop();

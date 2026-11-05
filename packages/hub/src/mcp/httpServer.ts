@@ -71,6 +71,18 @@ function buildServer(tools: HubTool[], guard?: ToolGuard): McpServer {
   return server;
 }
 
+/** Serves a fixed set of tools to an already authenticated caller, one stateless request at a time. */
+export async function serveTools(tools: HubTool[], req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> {
+  const server = buildServer(tools);
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  res.on('close', () => {
+    void transport.close();
+    void server.close();
+  });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, body);
+}
+
 /**
  * Handles POST/GET/DELETE /mcp. Returns true when the request was handled (so index.ts can fall through
  * to the static file server otherwise). Auth is the per-turn bearer token; no token, no tools.

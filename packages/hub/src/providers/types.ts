@@ -70,6 +70,10 @@ export interface TurnContext {
   knowledgeDir?: string | null;
   /** Folders this bot reads without a card and cannot write without one (the Support bot's view of the app source). */
   readOnlyDirs?: string[];
+  /** Project folders this bot is a member of, a working root like its home. */
+  projectDirs?: string[];
+  /** Why this tool call may not touch a project folder, or null. Holds with approvals bypassed. */
+  projectGuard?: (toolName: string, input: Record<string, unknown>, cwd: string) => string | null;
   // P1: per-bot computers. Unset = no computer this turn, so no Browser tool.
   /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
   cdpUrl?: string;

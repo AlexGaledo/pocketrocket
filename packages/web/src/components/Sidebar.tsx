@@ -333,13 +333,13 @@ function CollapseToggle({ name, collapsed, count, onToggle }: { name: string; co
   if (count === 0) return <span aria-hidden className="ml-1 h-6 w-6 shrink-0" />;
   return (
     <button
-      className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-dim hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+      className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
       title={(collapsed ? 'Show ' : 'Hide ') + 'the bots in ' + name}
       aria-label={name + ' bots'}
       aria-expanded={!collapsed}
       onClick={onToggle}
     >
-      <ChevronRight size={13} aria-hidden className={cn('motion-safe:transition-transform', !collapsed && 'rotate-90')} />
+      <ChevronRight size={16} aria-hidden className={cn('motion-safe:transition-transform', !collapsed && 'rotate-90')} />
     </button>
   );
 }

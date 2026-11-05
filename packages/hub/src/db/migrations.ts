@@ -417,3 +417,22 @@ registerMigrations([110, 119], [
 registerMigrations([120, 129], [
   { version: 120, name: 'messages.attachments', up: (db) => addColumnIfMissing(db, 'messages', 'attachments', 'TEXT') },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+registerMigrations([130, 139], [
+  {
+    version: 130,
+    name: 'project folders, their search index, connector queue and secret',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS projects (slug TEXT PRIMARY KEY, name TEXT NOT NULL, room_id TEXT, template_version INTEGER, created_at INTEGER NOT NULL);' +
+          'CREATE TABLE IF NOT EXISTS project_members (slug TEXT NOT NULL, bot_id TEXT NOT NULL, PRIMARY KEY (slug, bot_id));' +
+          'CREATE INDEX IF NOT EXISTS idx_project_members_bot ON project_members(bot_id);' +
+          'CREATE TABLE IF NOT EXISTS project_files (slug TEXT NOT NULL, path TEXT NOT NULL, mtime REAL NOT NULL, size INTEGER NOT NULL, status TEXT, updated TEXT, review_by TEXT, PRIMARY KEY (slug, path));' +
+          "CREATE VIRTUAL TABLE IF NOT EXISTS project_fts USING fts5(slug UNINDEXED, path UNINDEXED, text, tokenize='porter unicode61');" +
+          'CREATE TABLE IF NOT EXISTS project_search_misses (at INTEGER NOT NULL, projects TEXT NOT NULL, query TEXT NOT NULL);' +
+          'CREATE TABLE IF NOT EXISTS context_queue (id TEXT PRIMARY KEY, project TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL);' +
+          'CREATE TABLE IF NOT EXISTS context_connector (token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL)',
+      ),
+  },
+]);

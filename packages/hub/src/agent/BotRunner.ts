@@ -22,6 +22,8 @@ import { desktopTools, SHARED_BROWSER_NOTE, SHARED_TAB_NOTE, viewScreenTool } fr
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
+import type { ProjectService } from '../services/ProjectService.js';
+import { projectAccessDenied } from '../permissions/projectGuard.js';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
 import { turnFailureNote } from './turnFailure.js';
@@ -103,6 +105,8 @@ export class BotRunner {
   router = new ModelRouter();
   /** P4: set by createHub. Adds the tools of the integrations this bot was granted to every turn. */
   integrations?: IntegrationService;
+  /** Set by createHub. Which project folders this bot works in. */
+  projects?: ProjectService;
   /** P2: computer control (take over / hand back / pause). Set by createHub; absent in most unit tests. */
   control?: ComputerControlService;
 
@@ -233,7 +237,7 @@ export class BotRunner {
 
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
-      repos: this.repos, memory: this.memory, skills: this.skills, media: this.media,
+      repos: this.repos, memory: this.memory, skills: this.skills, media: this.media, projects: this.projects,
       dispatchFromBot: (targets, room, onDone) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets, onDone),
       setState: (s) => setState(s),
       // Added below with this bot's own display rather than the shared one (P1).
@@ -322,6 +326,7 @@ export class BotRunner {
       systemPrompt: buildSystemPrompt({
         owner: this.repos.owner(),
         bot, room, members: req.members, hop: req.hop, memory: memoryText, identity,
+        projects: this.projects?.forBot(bot.id).map((p) => ({ name: p.name, dir: p.dir })),
         browser: browserOn, desktop: desktopOn,
         toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',
         requestApproval: bestEffort,
@@ -364,6 +369,10 @@ export class BotRunner {
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
       readOnlyDirs: bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : undefined,
+      projectDirs: this.projects?.dirsFor(bot.id),
+      projectGuard: this.projects
+        ? (name, input, cwd) => projectAccessDenied(name, input, cwd, this.projects!.root, this.projects!.slugsFor(bot.id), this.projects!.knownSlugs())
+        : undefined,
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       computerFilesDir: computer?.filesDir ?? undefined,
       controlGuard: controlBlocked,

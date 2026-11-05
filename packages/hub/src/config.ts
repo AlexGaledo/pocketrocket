@@ -299,7 +299,15 @@ export const COMPUTER_QUOTA_BYTES = posInt(process.env.COMPUTER_QUOTA_GB, 10) * 
  * when per-bot computers are on, its own computer disk (where its Chromium downloads land).
  */
 export function botRoots(botId: string): string[] {
-  return [WORKSPACE_DIR, botHome(botId), ...(COMPUTERS_ENABLED ? [computerFilesDir(botId)] : [])];
+  return [WORKSPACE_DIR, botHome(botId), ...(COMPUTERS_ENABLED ? [computerFilesDir(botId)] : []), ...projectRoots(botId)];
+}
+
+/** Shared project folders, outside the workspace so that being a member is what opens one. */
+export const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
+let projectRoots: (botId: string) => string[] = () => [];
+/** Set by createHub, which owns the database that says who belongs where. */
+export function setProjectRootsResolver(fn: (botId: string) => string[]) {
+  projectRoots = fn;
 }
 
 // P4: integrations. Tokens live AES-256-GCM encrypted in integrations.json; the key in vault.key (0600),
