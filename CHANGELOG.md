@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Leave full screen in the desktop app
+
+- Press Alt+Enter to switch between full screen and a normal window you can minimize and drag between screens. The tray menu has it too.
+
 ### A new sidebar
 
 - Each group is now a section listing its bots, with `Name · Role` and the bot's latest message. Click a group's name for its chat, or a bot for a chat with it.
