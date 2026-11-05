@@ -39,6 +39,10 @@ See `docs/context-import.md`. Imports become files under `imports/`, with their 
 
 Creating a project with a team clones `DEV_TEAM_TEMPLATE` from `services/devTeamTemplate.ts`: five bots with the project's folder and the template's rules, and a group chat. Project knowledge then builds up in that folder and chat, not in the template. Each project records the template version it came from, so a regression can be traced.
 
+### Blocking pushes to the default branch
+
+Attach the `safe-shipping` skill to a bot and its Claude turns cannot push to the default branch or merge a pull request (`permissions/shipGuard.ts`). Written rules alone failed this in testing. It reads the command text, so it stops ordinary use, not a bot set on getting around it.
+
 ### Testing a template or skill
 
 A skill or template change only counts when it changes behaviour on a task that could fail:
