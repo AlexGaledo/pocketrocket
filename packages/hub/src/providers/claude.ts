@@ -290,6 +290,19 @@ export class ClaudeProvider implements AgentProvider {
       },
       ...controlGuard,
       ...knowledgeGuard,
+      ...(ctx.projectGuard
+        ? [{
+            matcher: 'Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep|Bash',
+            hooks: [
+              async (hookInput: unknown) => {
+                const i = hookInput as PreToolUseHookInput;
+                const why = ctx.projectGuard!(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, i.cwd || ctx.workspaceDir);
+                if (!why) return {};
+                return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
+              },
+            ],
+          }]
+        : []),
     ];
 
     const options: Options = {
@@ -302,6 +315,7 @@ export class ClaudeProvider implements AgentProvider {
         ctx.botHome,
         ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
         ...readOnlyDirs,
+        ...(ctx.projectDirs ?? []),
       ],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
@@ -350,6 +364,7 @@ export class ClaudeProvider implements AgentProvider {
                   ctx.workspaceDir,
                   ctx.botHome,
                   ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []),
+                  ...(ctx.projectDirs ?? []),
                   ...(i.tool_name !== 'NotebookEdit' ? readOnlyDirs : []),
                 ];
                 const paths = pathsFromInput(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>);

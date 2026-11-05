@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { BookOpen, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
+import { BookOpen, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
 // P9
 import { Smartphone } from 'lucide-react';
 import { DevicesSection } from '../settings/DevicesSection';
@@ -23,10 +23,12 @@ import { AppearanceSection } from '../settings/AppearanceSection';
 import { AboutSection } from '../settings/AboutSection';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
+import { ProjectsSection } from '../settings/ProjectsSection';
 
 export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
   // P4
   | 'integrations'
+  | 'projects'
   // P9
   | 'devices';
 
@@ -35,6 +37,7 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'security', label: 'Security', icon: LockKeyhole },
   { id: 'claude', label: 'Claude', icon: Sparkles },
   { id: 'bots', label: 'Bots', icon: ShieldCheck },
+  { id: 'projects', label: 'Projects', icon: FolderGit2 },
   // P4
   { id: 'integrations', label: 'Connections', icon: Plug },
   // P7
@@ -139,6 +142,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection readOnly={device} /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
             {/* P9 */}
+            <TabsPrimitive.Content value="projects" tabIndex={-1} className={PANEL}><ProjectsSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="devices" tabIndex={-1} className={PANEL}><DevicesSection /></TabsPrimitive.Content>
           </div>
         </div>

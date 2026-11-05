@@ -17,6 +17,13 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - A room holds up to 20 bots.
 - Sidebar sections fold with the arrow beside their name, and stay folded on that device. A folded section shows how many bots it holds, any unread chats, and the chat you have open.
 
+### Project folders and team templates
+
+- A project is a shared folder, and you choose which bots work in it under Settings, Projects. See `docs/project-folders.md`.
+- Bots search their projects with `search_project_context`. Outdated files are skipped, current facts come first, and each result shows its date. A check flags files that are expired, undated or duplicated.
+- A new project can start with a development team cloned from a versioned template, with its own group chat.
+- Bring a Claude project's context into a project folder three ways: a drop folder, a Claude data export, or a connector Claude saves to from inside the project. Everything is scrubbed for credentials and contact details, and reviewed by you first. See `docs/context-import.md`.
+
 ### Podium and Persona
 
 - Up to three main bots sit large above the bot list, chosen with the pencil on the podium.

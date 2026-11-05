@@ -54,7 +54,16 @@ export type HealthResponse = HealthInfo & { version?: string; provider?: Provide
  */
 export type AccountActionResponse = AccountState | { ok: boolean } | Record<string, unknown>;
 
+export interface ProjectInfo { slug: string; name: string; dir: string; memberIds: string[]; roomId: string | null; templateVersion: number | null; createdAt: number }
+export interface ProjectLint { issues: { kind: string; path: string; detail: string }[]; recentMisses: string[] }
+
 export const api = {
+  projects: {
+    list: () => req<ProjectInfo[]>('GET', '/api/projects'),
+    create: (input: { name: string; team?: boolean }) => req<{ project: ProjectInfo; bots: Bot[] }>('POST', '/api/projects', input),
+    setMembers: (slug: string, memberIds: string[]) => req<ProjectInfo>('PUT', '/api/projects/' + encodeURIComponent(slug) + '/members', { memberIds }),
+    lint: (slug: string) => req<ProjectLint>('GET', '/api/projects/' + encodeURIComponent(slug) + '/lint'),
+  },
   auth: {
     status: () => req<{ passwordSet: boolean; signedIn: boolean }>('GET', '/api/auth/status'),
     sessions: () => req<{ sessions: UserSessionInfo[]; current: string | null; passwordSet: boolean }>('GET', '/api/auth/sessions'),
