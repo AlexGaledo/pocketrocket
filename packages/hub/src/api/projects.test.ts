@@ -199,6 +199,9 @@ describe('the dev team template', () => {
   function withSources() {
     const s = service();
     for (const role of DEV_TEAM_TEMPLATE.roles) makeBot(s.repos, role.source, SOURCE);
+    for (const name of DEV_TEAM_TEMPLATE.skills) {
+      s.repos.upsertSkill({ name, description: '', path: '/x/' + name, source: 'authored', reviewStatus: 'approved', createdByBot: null });
+    }
     return s;
   }
   it('clones the roles into members with a group chat, and records the version', () => {
@@ -213,6 +216,37 @@ describe('the dev team template', () => {
     expect(bots[0].description).toContain(project.dir);
     expect(bots[0].description).not.toContain('create an agent');
   });
+  it('gives every clone the required skills and its source skills, without repeats', () => {
+    const { repos, projects } = withSources();
+    const shipping = repos.listSkills().find((s) => s.name === 'safe-shipping')!;
+    const debug = repos.upsertSkill({ name: 'debugging', description: '', path: '/x/debugging', source: 'authored', reviewStatus: 'approved', createdByBot: null });
+    const source = repos.getBotByHandle(DEV_TEAM_TEMPLATE.roles[0].source)!;
+    repos.setBotSkills(source.id, [shipping.id, debug.id]);
+    const { bots } = projects.create({ name: 'Shop', team: true });
+    expect(repos.botSkillIds(bots[0].id).slice().sort()).toEqual([shipping.id, debug.id].sort());
+    expect(repos.botSkillIds(bots[1].id)).toEqual([shipping.id]);
+  });
+  it('records the template in the project folder, and keeps a file already there', () => {
+    const { projects } = withSources();
+    const { project, bots } = projects.create({ name: 'Shop', team: true });
+    const record = fs.readFileSync(path.join(project.dir, 'TEMPLATE.md'), 'utf8');
+    expect(record).toContain('template v' + DEV_TEAM_TEMPLATE.version);
+    expect(record).toContain('@' + bots[0].handle + ': safe-shipping');
+    expect(bots[0].description).toContain('TEMPLATE.md');
+
+    const again = withSources();
+    const dir = path.join(again.root, 'keep');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'TEMPLATE.md'), 'mine');
+    again.projects.create({ name: 'Keep', team: true });
+    expect(fs.readFileSync(path.join(dir, 'TEMPLATE.md'), 'utf8')).toBe('mine');
+  });
+  it('refuses a team when a required skill is missing', () => {
+    const { repos, projects } = service();
+    for (const role of DEV_TEAM_TEMPLATE.roles) makeBot(repos, role.source, SOURCE);
+    expect(() => projects.create({ name: 'Bare', team: true })).toThrow(/needs the skill/);
+    expect(projects.get('bare')).toBeUndefined();
+  });
   it('fits a long project name into the handle limit', () => {
     const { projects } = withSources();
     const { bots } = projects.create({ name: 'A very long project name that goes on', team: true });
@@ -220,7 +254,8 @@ describe('the dev team template', () => {
   });
   it('leaves nothing behind when the team cannot be made', () => {
     const { repos, projects, root } = service();
-    makeBot(repos, 'product-engineer', SOURCE);
+    makeBot(repos, DEV_TEAM_TEMPLATE.roles[0].source, SOURCE);
+    repos.upsertSkill({ name: 'safe-shipping', description: '', path: '/x/safe-shipping', source: 'authored', reviewStatus: 'approved', createdByBot: null });
     const before = repos.listBots().length;
     expect(() => projects.create({ name: 'Half', team: true })).toThrow(/needs the bot/);
     expect(repos.listBots()).toHaveLength(before);

@@ -51,7 +51,7 @@ export function ProjectsSection() {
             <label className="flex items-center justify-between gap-3 text-ui">
               <span>
                 Add a development team
-                <span className="block text-hint text-muted">Five new bots and a group chat, cloned from the template.</span>
+                <span className="block text-hint text-muted">Three new bots and a group chat, cloned from the template.</span>
               </span>
               <Switch checked={team} onChange={setTeam} aria-label="Add a development team" />
             </label>

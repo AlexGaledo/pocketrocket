@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### A smaller development team template
+
+- A project's development team is now three bots: a lead, an engineer and a quality engineer. Each gets the `safe-shipping` skill, so it cannot push to the default branch.
+- The project folder gains `TEMPLATE.md`, which says which template version the team came from.
+
 ### Leave full screen in the desktop app
 
 - Press Alt+Enter to switch between full screen and a normal window you can minimize and drag between screens. The tray menu has it too.

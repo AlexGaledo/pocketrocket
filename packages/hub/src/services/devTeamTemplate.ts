@@ -6,15 +6,19 @@
  * with one real task, with and without it, before cloning from it. See docs/project-folders.md.
  */
 export const DEV_TEAM_TEMPLATE = {
-  version: 1,
-  /** Existing bots to clone. Their general role text carries over; the project details do not exist yet. */
+  version: 2,
+  /**
+   * Existing bots to clone. Their general role text and skills carry over; the project details do not exist yet.
+   * Three roles on purpose: one to plan, one to build, and one to check the work independently. Add a specialist such
+   * as @design-engineer to the project's chat when a project needs one.
+   */
   roles: [
-    { source: 'product-engineer', suffix: 'product', coordinator: true },
+    { source: 'lead-engineer', suffix: 'lead', coordinator: true },
     { source: 'software-engineer', suffix: 'engineer', coordinator: false },
-    { source: 'design-engineer', suffix: 'design', coordinator: false },
-    { source: 'devops-engineer', suffix: 'devops', coordinator: false },
     { source: 'quality-engineer', suffix: 'quality', coordinator: false },
   ],
+  /** Every clone gets these, whatever its source has. safe-shipping is what turns on the push block (shipGuard.ts). */
+  skills: ['safe-shipping'],
   rules: [
     "Never revert, discard, stash away or overwrite changes you did not make, even to tidy up. If someone else's work is in the way, say so and leave it.",
     'Never commit to or push the default branch. Work on a branch and open a pull request for the owner to review.',
@@ -31,7 +35,21 @@ export function cloneDescription(sourceDescription: string, projectName: string,
   const role = (at >= 0 ? sourceDescription.slice(0, at) : sourceDescription).trim();
   return [
     role,
-    'You work on the project ' + projectName + '. Its shared folder is ' + dir + ': read current.md there first, and keep it true when facts change.',
+    'You work on the project ' + projectName + '. Its shared folder is ' + dir + ': read current.md there first, and keep it true when facts change. TEMPLATE.md there says which team template you came from.',
     'Rules:\n' + DEV_TEAM_TEMPLATE.rules.map((r) => '- ' + r).join('\n'),
   ].join('\n\n');
+}
+
+/** What a project keeps about the template it was cloned from, so its bots and the owner can see where the rules came from. */
+export function templateRecord(projectName: string, today: string, skillsByHandle: Record<string, string[]>): string {
+  return [
+    '---', 'status: current', 'updated: ' + today, '---', '',
+    '# Team template for ' + projectName, '',
+    'Cloned from dev team template v' + DEV_TEAM_TEMPLATE.version + ' on ' + today + '. General practice comes from the template; what is true about this project belongs in current.md.', '',
+    '## Team', '',
+    ...Object.entries(skillsByHandle).map(([handle, skills]) => '- @' + handle + ': ' + (skills.length ? skills.join(', ') : 'no skills')),
+    '', '## Rules', '',
+    ...DEV_TEAM_TEMPLATE.rules.map((r) => '- ' + r),
+    '',
+  ].join('\n');
 }
