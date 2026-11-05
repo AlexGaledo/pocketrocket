@@ -290,6 +290,19 @@ export class ClaudeProvider implements AgentProvider {
       },
       ...controlGuard,
       ...knowledgeGuard,
+      ...(ctx.shipGuard
+        ? [{
+            matcher: 'Bash',
+            hooks: [
+              async (hookInput: unknown) => {
+                const i = hookInput as PreToolUseHookInput;
+                const why = ctx.shipGuard!(String((i.tool_input as { command?: unknown } | undefined)?.command ?? ''), i.cwd || ctx.workspaceDir);
+                if (!why) return {};
+                return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
+              },
+            ],
+          }]
+        : []),
       ...(ctx.projectGuard
         ? [{
             matcher: 'Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep|Bash',

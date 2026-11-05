@@ -74,6 +74,8 @@ export interface TurnContext {
   projectDirs?: string[];
   /** Why this tool call may not touch a project folder, or null. Holds with approvals bypassed. */
   projectGuard?: (toolName: string, input: Record<string, unknown>, cwd: string) => string | null;
+  /** Why this shell command may not ship, or null. Holds with approvals bypassed. */
+  shipGuard?: (command: string, cwd: string) => string | null;
   // P1: per-bot computers. Unset = no computer this turn, so no Browser tool.
   /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
   cdpUrl?: string;

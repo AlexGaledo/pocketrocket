@@ -24,6 +24,7 @@ import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
 import type { ProjectService } from '../services/ProjectService.js';
 import { projectAccessDenied } from '../permissions/projectGuard.js';
+import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGuard.js';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
 import { turnFailureNote } from './turnFailure.js';
@@ -370,6 +371,7 @@ export class BotRunner {
       knowledgeDir,
       readOnlyDirs: bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : undefined,
       projectDirs: this.projects?.dirsFor(bot.id),
+      shipGuard: this.repos.botSkillIds(bot.id).some((id) => this.repos.getSkill(id)?.name === SHIP_GUARD_SKILL) ? defaultBranchPushDenied : undefined,
       projectGuard: this.projects
         ? (name, input, cwd) => projectAccessDenied(name, input, cwd, this.projects!.root, this.projects!.slugsFor(bot.id), this.projects!.knownSlugs())
         : undefined,

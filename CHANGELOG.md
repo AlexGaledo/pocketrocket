@@ -25,6 +25,7 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 
 - A project is a shared folder, and you choose which bots work in it under Settings, Projects. See `docs/project-folders.md`.
 - Bots search their projects with `search_project_context`. Outdated files are skipped, current facts come first, and each result shows its date. A check flags files that are expired, undated or duplicated.
+- Attach the `safe-shipping` skill to a bot to stop it pushing to the default branch or merging a pull request.
 - A new project can start with a development team cloned from a versioned template, with its own group chat.
 - Bring a Claude project's context into a project folder three ways: a drop folder, a Claude data export, or a connector Claude saves to from inside the project. Everything is scrubbed for credentials and contact details, and reviewed by you first. See `docs/context-import.md`.
 
