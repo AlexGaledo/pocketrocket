@@ -15,6 +15,7 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - Search finds a message in any chat and opens it with the words highlighted.
 - A bot with no icon picked wears its own creature, and bot messages sit in bubbles.
 - A room holds up to 20 bots.
+- Sidebar sections fold with the arrow beside their name, and stay folded on that device. A folded section shows how many bots it holds, any unread chats, and the chat you have open.
 
 ### Podium and Persona
 
