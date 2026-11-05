@@ -5,7 +5,7 @@ import { BotInputSchema, type Bot, type Room } from '@pocketrocket/shared';
 import type { Db, Row } from '../db/db.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from './MemoryService.js';
-import { DEV_TEAM_TEMPLATE, cloneDescription } from './devTeamTemplate.js';
+import { DEV_TEAM_TEMPLATE, cloneDescription, templateRecord } from './devTeamTemplate.js';
 
 export interface Project {
   slug: string;
@@ -131,6 +131,12 @@ export class ProjectService {
       if (p.skillIds.length) this.deps.repos.setBotSkills(bot.id, p.skillIds);
       return bot;
     });
+    if (bots.length) {
+      const today = new Date(this.now()).toISOString().slice(0, 10);
+      const skills = Object.fromEntries(plan.map((p) => [p.input.handle, p.skillIds.map((id) => this.deps.repos.getSkill(id)?.name ?? id)]));
+      const record = path.join(dir, 'TEMPLATE.md');
+      if (!fs.existsSync(record)) fs.writeFileSync(record, templateRecord(name, today, skills));
+    }
     const coordinator = bots[plan.findIndex((p) => p.coordinator)]?.id ?? null;
     const room = bots.length
       ? this.deps.repos.createRoom({ kind: 'group', name, memberIds: bots.map((b) => b.id), coordinatorBotId: coordinator }) as Room
@@ -145,6 +151,12 @@ export class ProjectService {
   }
 
   private planTeam(slug: string, name: string, dir: string) {
+    const pool = this.deps.repos.listSkills();
+    const required = DEV_TEAM_TEMPLATE.skills.map((skillName) => {
+      const skill = pool.find((s) => s.name === skillName);
+      if (!skill) throw new ProjectError(409, 'The dev team template needs the skill ' + skillName + ', which does not exist');
+      return skill.id;
+    });
     return DEV_TEAM_TEMPLATE.roles.map((role) => {
       const source = this.deps.repos.getBotByHandle(role.source);
       if (!source) throw new ProjectError(409, 'The dev team template needs the bot @' + role.source + ', which does not exist');
@@ -161,7 +173,7 @@ export class ProjectService {
         maxBudgetUsd: source.maxBudgetUsd,
       });
       if (!parsed.success) throw new ProjectError(400, 'Cannot clone @' + role.source + ': ' + parsed.error.issues.map((i) => i.path.join('.') + ' ' + i.message).join('; '));
-      return { input: parsed.data, coordinator: role.coordinator, skillIds: this.deps.repos.botSkillIds(source.id) };
+      return { input: parsed.data, coordinator: role.coordinator, skillIds: [...new Set([...this.deps.repos.botSkillIds(source.id), ...required])] };
     });
   }
 

@@ -37,7 +37,7 @@ See `docs/context-import.md`. Imports become files under `imports/`, with their 
 
 ## Development team template
 
-Creating a project with a team clones `DEV_TEAM_TEMPLATE` from `services/devTeamTemplate.ts`: five bots with the project's folder and the template's rules, and a group chat. Project knowledge then builds up in that folder and chat, not in the template. Each project records the template version it came from, so a regression can be traced.
+Creating a project with a team clones `DEV_TEAM_TEMPLATE` from `services/devTeamTemplate.ts`: a lead, an engineer and a quality engineer with the project's folder, the template's rules and skills, and a group chat. The clones come from the bots @lead-engineer, @software-engineer and @quality-engineer, so a skill attached to one of those reaches later clones, not existing ones. Every clone also gets `safe-shipping`. Add a specialist such as @design-engineer to the chat and the project's members when a project needs one. Project knowledge then builds up in that folder and chat, not in the template. Each project records the template version it came from in the database and in `TEMPLATE.md`, so a regression can be traced.
 
 ### Blocking pushes to the default branch
 
