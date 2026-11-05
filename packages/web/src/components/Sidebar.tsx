@@ -1,4 +1,5 @@
-import { Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
 import { Avatar, Menu, MenuContent, MenuItem, cn } from './ui';
 import { Podium } from './Podium';
@@ -48,7 +49,33 @@ function activityFor(bot: Bot, messages: Record<string, Message[]>): { text: str
   return { text: (toolPhrase(p.name, 'now') + ' ' + file).trim(), toBot };
 }
 
+const COLLAPSED_KEY = 'pocketrocket.collapsedSections';
+/** The section of bots outside every group. Groups use their room id. */
+const SOLO_SECTION = 'bots';
+
+function readCollapsed(): Set<string> {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Which sidebar sections are folded. Kept per device: a phone and a desktop want different lists. */
+function useCollapsedSections() {
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggle = (id: string) => {
+    const next = new Set(collapsed);
+    if (!next.delete(id)) next.add(id);
+    setCollapsed(next);
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next])); } catch { /* still works until reload */ }
+  };
+  return { collapsed, toggle };
+}
+
 export function Sidebar() {
+  const { collapsed, toggle } = useCollapsedSections();
   const bots = useStore((s) => s.bots);
   const rooms = useStore((s) => s.rooms);
   const messages = useStore((s) => s.messages);
@@ -84,6 +111,16 @@ export function Sidebar() {
   const inAnyGroup = new Set(groups.flatMap((r) => r.memberIds));
   const podiumBots = settings.podiumBotIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is Bot => !!b);
   const soloBots = bots.filter((b) => !inAnyGroup.has(b.id) && !podiumBots.includes(b));
+
+  /** A folded section still shows the chat you are in, so opening one from search never loses your place. */
+  const visibleIn = (section: string, list: Bot[]) => {
+    if (!collapsed.has(section)) return list;
+    return list.filter((b) => { const dm = dmFor(b.id); return !!dm && dm.id === activeRoomId; });
+  };
+  /** Unread chats folded out of sight, which the section header has to own up to. */
+  const hiddenUnread = (list: Bot[], visible: Bot[]) => list
+    .filter((b) => !visible.includes(b))
+    .reduce((n, b) => { const dm = dmFor(b.id); return n + (dm ? unread[dm.id] ?? 0 : 0); }, 0);
 
   const row = (b: Bot) => {
     const dm = dmFor(b.id);
@@ -193,10 +230,17 @@ export function Sidebar() {
             canEdit={!device}
           />
         )}
-        {soloBots.length > 0 && <SectionHeader label="Bots" />}
+        {soloBots.length > 0 && (
+          <SoloHeader
+            collapsed={collapsed.has(SOLO_SECTION)}
+            count={soloBots.length}
+            unread={hiddenUnread(soloBots, visibleIn(SOLO_SECTION, soloBots))}
+            onToggle={() => toggle(SOLO_SECTION)}
+          />
+        )}
         <div className="mb-3">
           {/* Only bots outside every group: one in a group is listed under that group below. */}
-          <ul className="space-y-0.5">{soloBots.map(row)}</ul>
+          <ul className="space-y-0.5">{visibleIn(SOLO_SECTION, soloBots).map(row)}</ul>
           {/* Before the hub's hello there is nothing to show yet, which is not the same as having no bots. */}
           {!helloReceived ? <SkeletonRows count={3} /> : !bots.length && <div className="px-3 py-2 text-ui text-muted">No bots yet.</div>}
         </div>
@@ -204,21 +248,26 @@ export function Sidebar() {
         {!helloReceived ? (
           <SkeletonRows count={1} />
         ) : (
-          groups.map((r) => (
-            <section key={r.id} aria-label={r.name} className="mb-3">
-              <GroupHeader
-                room={r}
-                statusOf={statusOf}
-                active={r.id === activeRoomId}
-                unread={unread[r.id] ?? 0}
-                onClick={() => openRoom(r.id)}
-                onSettings={device ? undefined : () => openDialog({ kind: 'room', room: r })}
-              />
-              <ul className="space-y-0.5">
-                {r.memberIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is Bot => !!b && !podiumBots.includes(b)).map(row)}
-              </ul>
-            </section>
-          ))
+          groups.map((r) => {
+            const members = r.memberIds.map((id) => bots.find((b) => b.id === id)).filter((b): b is Bot => !!b && !podiumBots.includes(b));
+            const visible = visibleIn(r.id, members);
+            return (
+              <section key={r.id} aria-label={r.name} className={collapsed.has(r.id) ? 'mb-1' : 'mb-3'}>
+                <GroupHeader
+                  room={r}
+                  statusOf={statusOf}
+                  active={r.id === activeRoomId}
+                  unread={(unread[r.id] ?? 0) + hiddenUnread(members, visible)}
+                  collapsed={collapsed.has(r.id)}
+                  count={members.length}
+                  onToggle={() => toggle(r.id)}
+                  onClick={() => openRoom(r.id)}
+                  onSettings={device ? undefined : () => openDialog({ kind: 'room', room: r })}
+                />
+                <ul className="space-y-0.5">{visible.map(row)}</ul>
+              </section>
+            );
+          })
         )}
       </div>
 
@@ -278,16 +327,53 @@ function BotRow({ bot, status, activity, preview, active, unread, onOpen, onSett
   );
 }
 
-function SectionHeader({ label }: { label: string }) {
-  return <div className="mb-0.5 px-3 pt-2 text-label text-dim">{label}</div>;
+/** Folds a section. A separate button from the group's name, because the name opens the group chat. */
+function CollapseToggle({ name, collapsed, count, onToggle }: { name: string; collapsed: boolean; count: number; onToggle: () => void }) {
+  // Nothing to fold: holds the space so the section names stay lined up.
+  if (count === 0) return <span aria-hidden className="ml-1 h-6 w-6 shrink-0" />;
+  return (
+    <button
+      className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-dim hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+      title={(collapsed ? 'Show ' : 'Hide ') + 'the bots in ' + name}
+      aria-label={name + ' bots'}
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+    >
+      <ChevronRight size={13} aria-hidden className={cn('motion-safe:transition-transform', !collapsed && 'rotate-90')} />
+    </button>
+  );
+}
+
+/** How many bots a folded section is holding. */
+function FoldedCount({ collapsed, count }: { collapsed: boolean; count: number }) {
+  return collapsed && count > 0 ? <span className="shrink-0 text-hint text-dim">{count}</span> : null;
+}
+
+/** The header of the bots outside every group. */
+function SoloHeader({ collapsed, count, unread, onToggle }: { collapsed: boolean; count: number; unread: number; onToggle: () => void }) {
+  return (
+    <div className="mb-0.5 flex items-center pt-2">
+      <CollapseToggle name="Bots" collapsed={collapsed} count={count} onToggle={onToggle} />
+      <span className="flex min-w-0 items-center gap-1.5 px-1 text-label text-dim">
+        Bots
+        <FoldedCount collapsed={collapsed} count={count} />
+        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-[#4aa3ff]"><span className="sr-only">{unread} unread</span></span>}
+      </span>
+    </div>
+  );
 }
 
 /** A group's name, which opens its chat. Its bots are listed below it, each opening a chat of its own. */
-function GroupHeader({ room, statusOf, active, unread, onClick, onSettings }: {
+function GroupHeader({ room, statusOf, active, unread, collapsed, count, onToggle, onClick, onSettings }: {
   room: Room;
   statusOf: (botId: string) => BotStatus;
   active: boolean;
+  /** The group chat's unread messages, plus those of any one-on-one chats folded away under it. */
   unread: number;
+  collapsed: boolean;
+  /** Bots listed under this group. */
+  count: number;
+  onToggle: () => void;
   onClick: () => void;
   onSettings?: () => void;
 }) {
@@ -295,13 +381,15 @@ function GroupHeader({ room, statusOf, active, unread, onClick, onSettings }: {
   const needs = room.memberIds.filter((id) => statusOf(id) === 'needs_you').length;
   return (
     <div className={cn('group mb-0.5 flex items-center rounded-sm hover:bg-hover', active && 'bg-active')}>
+      <CollapseToggle name={room.name} collapsed={collapsed} count={count} onToggle={onToggle} />
       <button
-        className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-1 text-left text-label text-dim hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+        className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-label text-dim hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         title={'Open the ' + room.name + ' group chat'}
         aria-current={active ? 'page' : undefined}
         onClick={onClick}
       >
         <span className={cn('truncate', active && 'text-fg')}>{room.name}</span>
+        <FoldedCount collapsed={collapsed} count={count} />
         {needs > 0 ? <span className="shrink-0 text-hint text-warn">{needs} {needs === 1 ? 'needs' : 'need'} you</span> : busy > 0 && <span className="shrink-0 text-hint text-ok">{busy} working</span>}
         {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-[#4aa3ff]"><span className="sr-only">{unread} unread</span></span>}
       </button>
