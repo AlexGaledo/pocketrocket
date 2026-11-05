@@ -944,6 +944,48 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// Full screen is how the app opens, and a full screen window has no title bar to minimize or drag it by.
+fn toggle_fullscreen(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let on = w.is_fullscreen().unwrap_or(false);
+        let _ = w.set_fullscreen(!on);
+    }
+}
+
+/// Alt+Enter toggles full screen on any page, splash or hub. Caught in Rust, before the page, so the page gets no
+/// new JS-callable capability and the chat box does not read it as Enter and send the message.
+#[cfg(windows)]
+fn catch_alt_enter(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use webview2_com::AcceleratorKeyPressedEventHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS};
+    const VK_RETURN: u32 = 0x0D;
+    let app = app.clone();
+    window.with_webview(move |webview| {
+        let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let (mut kind, mut key, mut status) = (COREWEBVIEW2_KEY_EVENT_KIND::default(), 0u32, COREWEBVIEW2_PHYSICAL_KEY_STATUS::default());
+            unsafe {
+                args.KeyEventKind(&mut kind)?;
+                args.VirtualKey(&mut key)?;
+                args.PhysicalKeyStatus(&mut status)?;
+                if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN && key == VK_RETURN {
+                    args.SetHandled(true)?;
+                    // Holding the keys repeats the key press, which must not flicker the window.
+                    if !status.WasKeyDown.as_bool() {
+                        let app = app.clone();
+                        std::thread::spawn(move || toggle_fullscreen(&app));
+                    }
+                }
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        if let Err(e) = unsafe { webview.controller().add_AcceleratorKeyPressed(&handler, &mut token) } {
+            eprintln!("could not catch Alt+Enter: {e}");
+        }
+    })
+}
+
 /// The one way out: from the tray. `quitting` first, so the close handler
 /// never hides the window on the way out; `RunEvent::Exit` then kills the hub / tunnel tree, and on Windows
 /// the kill-on-close Job Object catches anything left when the process ends.
@@ -1112,7 +1154,7 @@ pub fn run() {
                 .find(|w| w.label == "main")
                 .cloned()
                 .ok_or("window \"main\" is missing from tauri.conf.json")?;
-            WebviewWindowBuilder::from_config(app.handle(), &win_cfg)?
+            let main_window = WebviewWindowBuilder::from_config(app.handle(), &win_cfg)?
                 .on_navigation(|url| {
                     if stays_in_webview(url) {
                         return true;
@@ -1125,6 +1167,10 @@ pub fn run() {
                     NewWindowResponse::Deny
                 })
                 .build()?;
+            #[cfg(windows)]
+            catch_alt_enter(app.handle(), &main_window)?;
+            #[cfg(not(windows))]
+            let _ = main_window;
 
             // The window has no menu bar and opens full screen, so everything lives in the tray menu.
             // P9: tray icon. Left click (Windows/macOS) shows the window. Linux tray menus need
@@ -1132,6 +1178,7 @@ pub fn run() {
             // why Show is in it.
             let keep = close_to_tray(&state.0.lock().unwrap().config);
             let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket", true, None::<&str>)?;
+            let m_fullscreen = MenuItem::with_id(app, "toggle_fullscreen", "Full screen on or off (Alt+Enter)", true, None::<&str>)?;
             let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
             let m_reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
@@ -1141,7 +1188,7 @@ pub fn run() {
             let t_keep = CheckMenuItem::with_id(app, "tray_keep", "Keep running when window closes", true, keep, None::<&str>)?;
             let t_quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[
-                &t_show, &m_settings, &m_reload,
+                &t_show, &m_fullscreen, &m_settings, &m_reload,
                 &PredefinedMenuItem::separator(app)?,
                 &m_data, &m_log,
                 &PredefinedMenuItem::separator(app)?,
@@ -1204,6 +1251,10 @@ pub fn run() {
                             connect(app, st, true);
                         }
                     });
+                }
+                "toggle_fullscreen" => {
+                    show_main_window(app);
+                    toggle_fullscreen(app);
                 }
                 "open_data" => open_data_folder(app),
                 "open_log" => open_log_file(app),
