@@ -11,6 +11,7 @@ import { INTEGRATION_READ_TOOLS, INTEGRATION_WRITE_TOOLS } from '../integrations
 import { patternMatches, type ApprovalStore, type ParkedApproval } from '../db/approvalStore.js';
 import { isComputerTool } from './controlInterlock.js';
 import { routingFileWrite } from './readOnlyRoots.js';
+import { redact } from '../providers/redact.js';
 
 export interface PermCtx {
   bot: Bot;
@@ -117,6 +118,9 @@ const GATED_HUB_TOOLS = new Set([
 
 /** Answered once per card: no "for this session", and no rule can pre-approve it. */
 const ASK_EVERY_TIME = new Set(['propose_routing_change', 'run_on_pc']);
+
+/** The largest outside MCP call input (as JSON) a card shows; anything bigger is refused, never truncated. */
+const OUTSIDE_INPUT_CAP = 8000;
 
 /** How long a `request_approval` grant stays valid. */
 export const GRANT_TTL_MS = 10 * 60 * 1000;
@@ -504,6 +508,41 @@ export class PermissionBroker {
     };
   }
 
+  /**
+   * A call to an owner-configured outside MCP server whose `approve` setting asks for a card
+   * (services/outsideMcp.ts). Those servers carry the owner's own API keys, so this asks on every call: under
+   * bypass too, for a strict turn too, and no approval rule or "always" answer covers it ("always" counts as a
+   * single allow and is not remembered). The card shows the server, the tool and the whole input, redacted; an
+   * input too long to show in full is refused without a card.
+   */
+  async askOutsideMcp(
+    ctx: PermCtx,
+    server: string,
+    tool: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<{ allowed: boolean; message: string }> {
+    if (this.opts.globalReadOnly?.()) {
+      return { allowed: false, message: 'Read-only mode: outside tools are turned off. Do not retry it; say so in the room.' };
+    }
+    // Never ask about input the owner cannot see in full: a hidden tail could carry the real payload.
+    const shown = redact(JSON.stringify(input ?? {}) ?? '{}');
+    if (shown.length > OUTSIDE_INPUT_CAP) {
+      return { allowed: false, message: 'Input too large to show for approval (' + shown.length + ' chars); split the call.' };
+    }
+    const { decision } = await this.prompt(
+      ctx, 'mcp__' + server + '__' + tool, { server, tool, input: shown },
+      'Outside server "' + server + '" tool "' + tool + '"', false, { signal, once: true },
+    );
+    if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
+    return {
+      allowed: false,
+      message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
+        ? 'No response from the user within 10 minutes; the outside tool was not called. Do not retry it; say so in the room.'
+        : 'The user declined this outside tool call. Do not retry it; say so in the room.',
+    };
+  }
+
   private async promptUser(
     ctx: PermCtx,
     toolName: string,
@@ -533,7 +572,8 @@ export class PermissionBroker {
     input: Record<string, unknown>,
     reason: string,
     danger: boolean,
-    opts: { signal: AbortSignal },
+    /** `once`: an "always" answer allows this call only and is never remembered. */
+    opts: { signal: AbortSignal; once?: boolean },
   ): Promise<{ decision: Decision; approvalId: string }> {
     // P2: the retry of a call the user allowed on a parked card goes through once, without a second card.
     const gk = this.grantKey(ctx.bot.id, toolName, input);
@@ -589,7 +629,7 @@ export class PermissionBroker {
       return { decision, approvalId };
     }
     this.repos.decideApproval(approvalId, decision, aborted || decision === 'timeout' ? null : 'owner');
-    if (decision === 'always') this.rememberSession(ctx.bot.id, toolName, input, danger);
+    if (decision === 'always' && !opts.once) this.rememberSession(ctx.bot.id, toolName, input, danger);
     const updated = this.repos.updateMessage(msg.id, { payload: { ...payload, status: decision } });
     if (updated) events.emitEvent({ type: 'message.update', id: msg.id, roomId: ctx.room.id, patch: { payload: updated.payload } });
     events.emitEvent({ type: 'approval.resolved', approvalId, decision });
