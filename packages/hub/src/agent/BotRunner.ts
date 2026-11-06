@@ -28,6 +28,7 @@ import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGu
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
 import { turnFailureNote } from './turnFailure.js';
+import { outsideMcpFor } from '../services/outsideMcp.js';
 import { computerToolGuard } from '../permissions/controlInterlock.js';
 import type { MediaStore } from '../services/MediaStore.js';
 
@@ -322,6 +323,8 @@ export class BotRunner {
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
     addSecret(mcpToken);
+    const outsideMcp = outsideMcpFor(bot.handle);
+    for (const s of outsideMcp) addSecret(s.token);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -376,6 +379,7 @@ export class BotRunner {
         ? (name, input, cwd) => projectAccessDenied(name, input, cwd, this.projects!.root, this.projects!.slugsFor(bot.id), this.projects!.knownSlugs())
         : undefined,
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
+      outsideMcp,
       computerFilesDir: computer?.filesDir ?? undefined,
       controlGuard: controlBlocked,
       computerGate: computer ? async (name, input) => (await useComputer()) ?? browserTabRule(name, input) : undefined,

@@ -79,6 +79,8 @@ export interface TurnContext {
   // P1: per-bot computers. Unset = no computer this turn, so no Browser tool.
   /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
   cdpUrl?: string;
+  /** Owner-configured outside MCP servers for this bot (data/mcp-servers.json). Claude only; never pre-approved. */
+  outsideMcp?: { name: string; url: string; token: string | null }[];
   /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */
   computerFilesDir?: string;
   // ---- P2 ----
