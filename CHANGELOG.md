@@ -15,7 +15,7 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - `update_memory` and `write_note` refuse text that contains something shaped like an API key, token or bearer header, so secrets never land in memory or notes.
 - When a bot's memory passes 75% of its 8 KB limit, auto-memory merges it into a shorter version instead of letting the oldest notes fall off. The old file is kept as `memory.md.bak`, a line in the chat says so, and text between `<!-- keep -->` and `<!-- /keep -->` is kept word for word.
 - The Memory tab shows how much of the limit is used and when auto-memory last saved.
-- Server: the daily backup stores a consistent copy of the database instead of the live files, and now includes the service user's Claude session transcripts. Claude Code no longer deletes bot sessions after 30 days (`cleanupPeriodDays` is set to 3650 for bot turns, at setup and at hub start when unset).
+- Server: the daily backup stores a consistent copy of the database instead of the live files, and now includes the service user's Claude session transcripts. Claude Code no longer deletes bot sessions after 30 days (`cleanupPeriodDays` is 3650 for bot turns, and server setup sets it for the service user; the hub never edits your own `~/.claude/settings.json`).
 - The hub logs at start how many `data/bots/` folders belong to no bot; `node scripts/prune-orphan-bot-dirs.mjs` lists them and `--apply` moves them to `data/trash/`.
 
 ### Every group chat has a coordinator

@@ -7,7 +7,6 @@ import {
   ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH, PROJECTS_DIR, setProjectRootsResolver,
 } from './config.js';
 import { Db } from './db/db.js';
-import { ensureCliRetention } from './providers/cliRetention.js';
 import { reportOrphanBotDirs } from './services/orphanBotDirs.js';
 import { Repos } from './db/repos.js';
 import { MemoryService } from './services/MemoryService.js';
@@ -157,14 +156,6 @@ export function createHub(opts: HubOptions = {}): Hub {
   if (!opts.skipBootstrap) {
     // Bot folders left behind by deletes in older versions: counted here, moved only by the prune script.
     reportOrphanBotDirs(BOTS_DIR, repos.listBots().map((b) => b.id));
-    // Keep the CLI from deleting the session transcripts bots resume from (see providers/cliRetention.ts).
-    try {
-      const r = ensureCliRetention();
-      if (r === 'created' || r === 'added') console.log('[claude] set cleanupPeriodDays in ~/.claude/settings.json so bot sessions are kept');
-      if (r === 'lower') console.warn('[claude] ~/.claude/settings.json sets a low cleanupPeriodDays; bot sessions older than that are deleted when you run claude yourself');
-    } catch (e) {
-      logError('[claude] could not update ~/.claude/settings.json:', e);
-    }
   }
   const skills = new SkillService(repos);
   const usage = new UsageTracker(repos);

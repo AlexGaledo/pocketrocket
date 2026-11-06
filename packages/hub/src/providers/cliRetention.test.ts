@@ -17,7 +17,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
 
 import { ClaudeProvider } from './claude.js';
 import type { TurnContext } from './types.js';
-import { SESSION_RETENTION_DAYS, ensureCliRetention } from './cliRetention.js';
+import { SESSION_RETENTION_DAYS } from './cliRetention.js';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
@@ -28,39 +28,6 @@ function claudeDir(settings?: string) {
   return d;
 }
 const read = (d: string) => JSON.parse(fs.readFileSync(path.join(d, 'settings.json'), 'utf8'));
-
-describe('ensureCliRetention', () => {
-  it('does nothing when the CLI was never used here', () => {
-    expect(ensureCliRetention(path.join(os.tmpdir(), 'prc-no-such-dir-' + Date.now()))).toBe('skipped');
-  });
-
-  it('creates settings.json when there is none', () => {
-    const d = claudeDir();
-    expect(ensureCliRetention(d)).toBe('created');
-    expect(read(d)).toEqual({ cleanupPeriodDays: SESSION_RETENTION_DAYS });
-  });
-
-  it('adds the key and keeps everything else', () => {
-    const d = claudeDir(JSON.stringify({ model: 'opus', permissions: { allow: ['Bash(ls)'] } }));
-    expect(ensureCliRetention(d)).toBe('added');
-    expect(read(d)).toEqual({ model: 'opus', permissions: { allow: ['Bash(ls)'] }, cleanupPeriodDays: SESSION_RETENTION_DAYS });
-    // Idempotent.
-    const before = fs.readFileSync(path.join(d, 'settings.json'), 'utf8');
-    expect(ensureCliRetention(d)).toBe('kept');
-    expect(fs.readFileSync(path.join(d, 'settings.json'), 'utf8')).toBe(before);
-  });
-
-  it('never overrides a value the owner chose, and never rewrites a file it cannot read', () => {
-    const low = claudeDir(JSON.stringify({ cleanupPeriodDays: 7 }));
-    expect(ensureCliRetention(low)).toBe('lower');
-    expect(read(low)).toEqual({ cleanupPeriodDays: 7 });
-    for (const bad of ['{ not json', '[1,2]', '"x"', JSON.stringify({ cleanupPeriodDays: 'forever' })]) {
-      const d = claudeDir(bad);
-      expect(ensureCliRetention(d)).toBe('skipped');
-      expect(fs.readFileSync(path.join(d, 'settings.json'), 'utf8')).toBe(bad);
-    }
-  });
-});
 
 describe('bot turns', () => {
   it('pass the retention as flag settings, which load although settingSources is empty', async () => {
