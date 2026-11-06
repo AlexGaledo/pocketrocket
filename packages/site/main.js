@@ -316,10 +316,8 @@ function setHeroMedia(mode) {
   var label = btn && btn.querySelector(".nl-label");
   if (!input || !btn || !label) return;
 
-  // Publishable key: safe in the browser. The table only allows anon INSERT of email + source
-  // (supabase/migrations/20260915000000_newsletter_signups.sql), so nothing can be read back with it.
-  var ENDPOINT = "https://aihkfrbjqalcvfurstor.supabase.co/rest/v1/newsletter_signups";
-  var KEY = "sb_publishable_I8mIenc7yM9Mq1aQDaVNWw_0k2qX1Kz";
+  // Same-origin serverless function (api/subscribe.js) holds the Supabase settings; none of them ship in this page.
+  var ENDPOINT = "/api/subscribe";
   // Same rule as the table's check constraint, so the server never rejects what the form accepted.
   var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
   var busy = false;
@@ -378,19 +376,15 @@ function setHeroMedia(mode) {
 
     fetch(ENDPOINT, {
       method: "POST",
-      headers: {
-        apikey: KEY,
-        "Content-Type": "application/json",
-        Prefer: "return=minimal"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email, source: "site" }),
       signal: controller ? controller.signal : undefined
     })
       .then(function (res) {
         clearTimeout(timeout);
         setBusy(false);
-        // 409 = already on the list. Treated as success so the form never reveals who has signed up.
-        if (res.status === 201 || res.status === 409) {
+        // The function answers a repeat signup like a new one, so the form never reveals who has signed up.
+        if (res.ok) {
           succeed();
         } else {
           setStatus("Something went wrong on our side. Please try again in a moment.", false);

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### No keys in the repo
+
+- The hub no longer ships a built-in Supabase project. Accounts are on only when `POCKETROCKET_SUPABASE_URL` and `POCKETROCKET_SUPABASE_KEY` are both set; otherwise the app runs signed out with accounts off. On a server, set them in a systemd drop-in (`docs/SERVER.md`, "Accounts").
+- Desktop release builds take both values from GitHub Actions secrets at build time and pass them to the hub they launch. A build without the secrets works, with accounts off.
+- The marketing site's newsletter form now posts to its own `/api/subscribe` function, which holds the Supabase settings in the Vercel project's environment (`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`). The page itself no longer contains any project URL or key.
+
 ### PC runner and key kill switch
 
 - New PC runner (`scripts/pc-runner/`): a small Windows helper that runs owner-approved jobs from the server hub in folders you allow on your PC. It connects over an outbound SSH tunnel, shows the full prompt in a Run / Refuse dialog before anything runs (no answer in 10 minutes means Refuse), and runs Claude with a fixed tool list, never with permission checks off, and without loading any settings, hooks or MCP servers from the job folder itself. Jobs cannot edit `.git/`, `.gitattributes` or `.gitmodules`, and git runs with fsmonitor, pager and hooks forced off. Desktop shortcuts turn it on and off; it never starts by itself. See `scripts/pc-runner/README.md`.
