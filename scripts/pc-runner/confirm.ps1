@@ -115,7 +115,21 @@ $layout.Controls.Add($bar)
 
 # Esc refuses; Enter does nothing by default, so a stray keypress never approves.
 $form.CancelButton = $refuse
-$form.Add_Shown({ $refuse.Focus(); $form.Activate() })
+# The runner starts this script hidden (no console flash), and Windows applies that "hidden" start flag to the
+# first ShowWindow call the process makes, which would be this form: it would run invisibly and time out.
+# Spend that first call on Load (SW_HIDE, the form is not visible yet anyway), so ShowDialog shows it normally,
+# then bring it to the front once it is up.
+Add-Type -Namespace PocketRocket -Name Win -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+[DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr hWnd);
+'@
+$form.Add_Load({ [void][PocketRocket.Win]::ShowWindow($form.Handle, 0) })
+$form.Add_Shown({
+  [void][PocketRocket.Win]::ShowWindow($form.Handle, 1)
+  [void][PocketRocket.Win]::SetForegroundWindow($form.Handle)
+  $form.Activate()
+  $refuse.Focus()
+})
 
 function Update-Countdown {
   $m = [math]::Floor($script:left / 60)
