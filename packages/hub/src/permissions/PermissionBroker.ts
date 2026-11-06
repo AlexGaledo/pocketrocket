@@ -117,8 +117,8 @@ const GATED_HUB_TOOLS = new Set([
 /** Answered once per card: no "for this session", and no rule can pre-approve it. */
 const ASK_EVERY_TIME = new Set(['propose_routing_change']);
 
-/** How much of an outside MCP call's input (as JSON) its card shows. */
-const OUTSIDE_INPUT_CAP = 2000;
+/** The largest outside MCP call input (as JSON) a card shows; anything bigger is refused, never truncated. */
+const OUTSIDE_INPUT_CAP = 8000;
 
 /** How long a `request_approval` grant stays valid. */
 export const GRANT_TTL_MS = 10 * 60 * 1000;
@@ -508,7 +508,8 @@ export class PermissionBroker {
    * A call to an owner-configured outside MCP server whose `approve` setting asks for a card
    * (services/outsideMcp.ts). Those servers carry the owner's own API keys, so this asks on every call: under
    * bypass too, for a strict turn too, and no approval rule or "always" answer covers it ("always" counts as a
-   * single allow and is not remembered). The card shows the server, the tool and the input, capped and redacted.
+   * single allow and is not remembered). The card shows the server, the tool and the whole input, redacted; an
+   * input too long to show in full is refused without a card.
    */
   async askOutsideMcp(
     ctx: PermCtx,
@@ -520,8 +521,11 @@ export class PermissionBroker {
     if (this.opts.globalReadOnly?.()) {
       return { allowed: false, message: 'Read-only mode: outside tools are turned off. Do not retry it; say so in the room.' };
     }
-    let shown = redact(JSON.stringify(input ?? {}) ?? '{}');
-    if (shown.length > OUTSIDE_INPUT_CAP) shown = shown.slice(0, OUTSIDE_INPUT_CAP) + '… (' + shown.length + ' chars in all)';
+    // Never ask about input the owner cannot see in full: a hidden tail could carry the real payload.
+    const shown = redact(JSON.stringify(input ?? {}) ?? '{}');
+    if (shown.length > OUTSIDE_INPUT_CAP) {
+      return { allowed: false, message: 'Input too large to show for approval (' + shown.length + ' chars); split the call.' };
+    }
     const { decision } = await this.prompt(
       ctx, 'mcp__' + server + '__' + tool, { server, tool, input: shown },
       'Outside server "' + server + '" tool "' + tool + '"', false, { signal, once: true },

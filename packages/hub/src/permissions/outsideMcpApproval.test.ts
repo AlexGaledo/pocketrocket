@@ -73,7 +73,7 @@ describe('askOutsideMcp', () => {
     expect(a.cards).toHaveLength(0);
   });
 
-  it('caps and redacts the input the card shows', async () => {
+  it('shows the whole input on the card, redacted', async () => {
     clearSecrets();
     addSecret('supabase-service-key-123');
     const s = setup();
@@ -83,7 +83,16 @@ describe('askOutsideMcp', () => {
     clearSecrets();
     const shown = (a.cards[0].toolInput as { input: string }).input;
     expect(shown).not.toContain('supabase-service-key-123');
-    expect(shown.length).toBeLessThan(2100);
-    expect(shown).toMatch(/chars in all\)$/);
+    expect(shown).toContain('x'.repeat(5000));
+  });
+
+  it('refuses an input too large to show in full, without a card, under bypass too', async () => {
+    const s = setup({ bypass: true });
+    const a = answer(s.broker, 'allow');
+    const r = await s.broker.askOutsideMcp(s.ctx, 'supabase', 'execute_sql', { sql: 'select 1; ' + 'x'.repeat(9000) }, signal());
+    a.off();
+    expect(r.allowed).toBe(false);
+    expect(r.message).toMatch(/^Input too large to show for approval \(\d+ chars\); split the call\.$/);
+    expect(a.cards).toHaveLength(0);
   });
 });

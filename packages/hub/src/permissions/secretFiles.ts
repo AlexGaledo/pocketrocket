@@ -18,14 +18,21 @@ import { segments, tokenize } from './bashRules.js';
  * - any `.env` / `.env.*` file under DATA_DIR/projects, except `.env.example` (and `.sample`, `.template`).
  *
  * Paths are resolved against the call's cwd and checked both as written and by realpath, so a symlink or
- * junction into DATA_DIR does not get around it. A Bash command is split the way bashRules.ts splits it, `cd`
- * is followed across segments, quoted arguments are searched for path-shaped words, and globs (`secrets*`,
- * `.env*`, `../*.json`) are matched against the protected names.
+ * junction into DATA_DIR does not get around it. A Bash command is split the way bashRules.ts splits it, and
+ * also on newlines, a lone `&`, `$(`, backticks and subshell parens; `cd` is followed across the pieces, quoted
+ * arguments are searched for path-shaped words, and globs (`secrets*`, `.env*`, `../*.json`) are matched against
+ * the protected names.
+ *
+ * Bash also has a backstop: with quotes and backslash escapes removed, a command whose text contains a hub key
+ * file's name, or `keys-disabled`, is refused whatever its paths look like (so `f=hub-token; cat ../$f` and
+ * `cat ~/../hub\-token` are caught). `.env` is not on that list, because the bare name turns up in ordinary
+ * work (`cp .env.example .env`); project env files rely on the path checks alone.
  *
  * This raises the bar; it is not a wall. It reads the command line, and every bot is the same OS user, so a
- * command that builds the path at run time gets past it: `python -c` with string concatenation, a base64-decoded
- * name, `$VAR` expansion, `find -exec`, a script the bot wrote to disk first. The real boundary for those keys is
- * not putting them where a bot's user can read them. What it does stop is the honest and the casual read.
+ * command that assembles the name at run time gets past it: `h=hub; cat $h-token`, `python -c` with string
+ * concatenation, a base64-decoded name, `find -exec`, a script the bot wrote to disk first. The real boundary for
+ * those keys is not putting them where a bot's user can read them. What it does stop is the honest and the
+ * casual read, and the obvious tricks.
  *
  * Apps keep working: `pnpm dev`, `npm test` and friends read `.env` inside their own process, which this never
  * sees; only a bot naming the file in its own tool call is refused. `node --env-file=.env` is let through for
@@ -181,7 +188,55 @@ function wordsOf(tok: string): string[] {
   return [...out];
 }
 
+/**
+ * The command text with quotes and backslash escapes removed (outside single quotes, a backslash keeps the next
+ * character literally), so `hub\-token`, `"secr"'ets.json'` and `hub''-token` read as the names they spell.
+ */
+function unescapeShell(cmd: string): string {
+  let out = '';
+  let quote: string | null = null;
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      else if (quote === '"' && c === '\\' && i + 1 < cmd.length) out += cmd[++i];
+      else out += c;
+      continue;
+    }
+    if (c === '\\' && i + 1 < cmd.length) { out += cmd[++i]; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    out += c;
+  }
+  return out;
+}
+
+/** Names that no Bash command may contain at all, however it is built. Not `.env`: see `bashAccess`. */
+const BACKSTOP_NAMES = [...HUB_FILES, KEYS_DIR].map((n) => n.toLowerCase());
+
+/**
+ * Splits off what the shell would run as separate commands, beyond what `segments` knows: newlines, a lone `&`
+ * (not `&&`, `2>&1` or `&>`), command substitution and subshells. Each becomes a `;` so `cd` inside one is seen.
+ */
+function shellPieces(cmd: string): string {
+  return cmd.replace(/\r?\n/g, ';').replace(/(?<![&<>|])&(?![&>])/g, ';').replace(/\$\(|[`()]/g, ';');
+}
+
 function bashAccess(cmd: string, startCwd: string, l: Layout): Hit {
+  // Backstop: the path checks below follow what the command line shows, and shell syntax has many ways to hide a
+  // path from them. Any command whose text, unescaped, names a hub key file or keys-disabled is refused outright.
+  // `.env` is left to the path checks: matching the bare name would block ordinary `cp .env.example .env` work.
+  // Known gap: a name assembled at run time (`h=hub; cat $h-token`) still passes this; see the file comment.
+  const flat = unescapeShell(cmd);
+  if (BACKSTOP_NAMES.some((n) => flat.toLowerCase().includes(n))) return 'hub';
+  // As written (Windows backslash paths) and unescaped (`.e\nv`); either one naming a guarded path is enough.
+  for (const text of new Set([cmd, flat])) {
+    const hit = bashPathAccess(shellPieces(text), startCwd, l);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function bashPathAccess(cmd: string, startCwd: string, l: Layout): Hit {
   let cwd = startCwd;
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg);

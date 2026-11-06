@@ -131,10 +131,54 @@ describe('secretFileAccess: Bash', () => {
     expect(check('Bash', { command: 'node --env-file=.env server.js' }, app)).toBeNull();
   });
 
+  it('sees through shell syntax that hides a command or a path', () => {
+    const { check } = setup();
+    const refused = [
+      'ls\ncat ../hub-token',
+      'cd ..\ncat hub-token',
+      'sleep 1 & cat ../secrets.json',
+      'echo $(cat ../secrets.json)',
+      'echo `cat ../mcp-servers.json`',
+      'cat ~/../hub\\-token',
+      'cat ../secr\\ets.json',
+      'cat ../"secrets".json',
+      "cat ../'hub'-token",
+      '(cd .. && cat hub-token)',
+      'f=hub-token; cat ../$f',
+      'ls ../keys-disabled',
+      'cat ../vault.key',
+      'cat ../integrations.json',
+      'cat ../account.json',
+      'cat ../vapid.json',
+      'cat ../pc-runner.json',
+    ];
+    for (const command of refused) expect(check('Bash', { command }), command).toBe(HUB_KEYS_MESSAGE);
+  });
+
+  it('sees a project .env behind shell syntax too', () => {
+    const { app, check } = setup();
+    expect(check('Bash', { command: 'true & cat .env' }, app)).toBe(ENV_FILE_MESSAGE);
+    expect(check('Bash', { command: 'echo $(cat .env)' }, app)).toBe(ENV_FILE_MESSAGE);
+    expect(check('Bash', { command: 'cat .e\\nv' }, app)).toBe(ENV_FILE_MESSAGE);
+    expect(check('Bash', { command: 'ls\ncat .env.local' }, app)).toBe(ENV_FILE_MESSAGE);
+    expect(check('Bash', { command: 'cp .env.example .env.example.bak && pnpm test 2>&1 | tail' }, app)).toBeNull();
+  });
+
+  it('known gap: a name assembled at run time still passes', () => {
+    const { check } = setup();
+    // Documented in secretFiles.ts: neither the path checks nor the backstop see "hub-token" here.
+    expect(check('Bash', { command: 'h=hub; cat ../$h-token' })).toBeNull();
+  });
+
+  it('refuses any command naming a key file, even a harmless one (the backstop has no context)', () => {
+    const { check } = setup();
+    expect(check('Bash', { command: 'grep -rn secrets.json src' })).toBe(HUB_KEYS_MESSAGE);
+  });
+
   it('leaves everyday commands alone', () => {
     const { check } = setup();
     expect(check('Bash', { command: 'ls -la .. && git status' })).toBeNull();
-    expect(check('Bash', { command: 'grep -rn secrets.json src' })).toBeNull();
+    expect(check('Bash', { command: 'npm run build > out.log 2>&1 && echo done &> /dev/null' })).toBeNull();
     expect(check('Bash', { command: 'cat README.md | head -20 2>/dev/null' })).toBeNull();
     expect(check('Bash', { command: 'cd ../projects/app && ls *.ts' })).toBeNull();
   });
