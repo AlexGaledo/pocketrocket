@@ -1,33 +1,27 @@
-<title>Page not found · PocketRocket</title>
+<!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Page not found · PocketRocket</title>
 <meta name="robots" content="noindex" />
-<meta name="description" content="This page doesn't exist. Head back to PocketRocket, your pocket fleet of AI agents." />
+<meta name="description" content="This page doesn't exist. Head back to PocketRocket." />
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
-
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<!-- Same head snippet as index.html: JS flag + saved theme before the first paint. Every path in this
+<meta name="color-scheme" content="light dark" />
+<link rel="preload" href="/assets/fonts/google-sans-latin.woff2" as="font" type="font/woff2" crossorigin />
+<!-- Same head script as index.html, byte for byte (vercel.json allows it by sha256). Every path in this
      file is absolute, because Vercel serves it for any missing URL at any depth. -->
-<script>
-  (function () {
-    var root = document.documentElement;
-    root.classList.add("js");
-    try {
-      var theme = localStorage.getItem("pr-theme");
-      if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
-    } catch (e) {}
-  })();
-</script>
+<script>(function(){var r=document.documentElement;r.classList.add("js");try{var t=localStorage.getItem("pr-theme");if(t==="light"||t==="dark")r.setAttribute("data-theme",t)}catch(e){}})();</script>
 <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
 
 <a class="skip-link" href="#main">Skip to content</a>
 
 <header class="site-nav">
   <div class="wrap nav-row">
     <a class="brand" href="/">
-      <img src="/assets/rocket.svg" alt="" width="28" height="28" />
+      <svg class="mark" viewBox="0 0 1024 1024" width="26" height="26" aria-hidden="true"><circle cx="512" cy="512" r="512" class="mark-disc"/><g class="mark-rocket" transform="translate(512 512) rotate(45) translate(-512 -512)"><path d="M512 176c96 0 168 128 168 336v168H344V512c0-208 72-336 168-336z"/><path d="M344 560l-96 96v128l96-64zM680 560l96 96v128l-96-64z"/><circle cx="512" cy="452" r="58" class="mark-disc"/><circle cx="512" cy="452" r="34"/><path d="M440 680h144l24 56H416z"/></g><circle class="mark-rocket" cx="318" cy="742" r="46" opacity=".9"/><circle class="mark-rocket" cx="236" cy="808" r="30" opacity=".6"/></svg>
       PocketRocket
     </a>
     <button class="icon-btn theme-toggle" type="button" aria-label="Theme: System. Switch to Light." title="Theme: System">
@@ -39,29 +33,27 @@
 </header>
 
 <main id="main" tabindex="-1">
-  <div class="wrap lost">
-    <div>
-      <div class="lost-orbit" aria-hidden="true">
-        <img src="/assets/rocket.svg" alt="" width="84" height="84" />
-      </div>
-      <p class="eyebrow">Error 404</p>
-      <h1>This page drifted out of orbit</h1>
-      <p class="sub">The link may be old or mistyped, or the page moved. The rest of PocketRocket is right where you left it.</p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="/">Back home</a>
-        <a class="btn btn-secondary" href="https://github.com/AlexGaledo/pocketrocket/releases/latest">Download</a>
-        <a class="btn btn-secondary" href="https://github.com/AlexGaledo/pocketrocket/issues/new/choose">Report a broken link</a>
-      </div>
+  <section class="wrap lost" aria-labelledby="lost-h">
+    <p class="code">404</p>
+    <h1 id="lost-h">Nothing here. The crew checked.</h1>
+    <p class="lead">The link may be old or mistyped, or the page moved. Everything else is where you left it.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="/">Back to the home page</a>
+      <a class="btn btn-quiet" href="https://github.com/AlexGaledo/pocketrocket/issues/new/choose">Report a broken link</a>
     </div>
-  </div>
+  </section>
 </main>
 
 <footer class="site-foot">
   <div class="wrap foot-row">
-    <span>MIT licensed</span>
-    <a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a>
-    <span>Made by Alex Galedo</span>
+    <p class="foot-brand">PocketRocket, MIT licensed. Made by Alex Galedo.</p>
+    <ul class="foot-links">
+      <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
+      <li><a href="https://github.com/AlexGaledo/pocketrocket/releases/latest">Download</a></li>
+    </ul>
   </div>
 </footer>
 
 <script src="/main.js" defer></script>
+</body>
+</html>
