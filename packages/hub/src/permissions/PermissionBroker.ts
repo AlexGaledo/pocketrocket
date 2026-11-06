@@ -584,6 +584,8 @@ export class PermissionBroker {
     }
     const approvalId = nanoid(10);
     const payload: ApprovalPayload = { approvalId, toolName, toolInput: input, reason, danger, status: 'pending' };
+    // Tells the card to offer no "for this session": this answer is never remembered.
+    if (opts.once || ASK_EVERY_TIME.has(toolName)) payload.once = true;
     const msg = this.repos.insertMessage({
       roomId: ctx.room.id,
       authorType: 'system',

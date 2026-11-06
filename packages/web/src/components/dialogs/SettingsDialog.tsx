@@ -9,8 +9,9 @@ import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { BookOpen, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
 // P9
-import { Smartphone } from 'lucide-react';
+import { Monitor, Smartphone } from 'lucide-react';
 import { DevicesSection } from '../settings/DevicesSection';
+import { PcRunnerSection } from '../settings/PcRunnerSection';
 import { SecuritySection } from '../settings/SecuritySection';
 import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
@@ -30,7 +31,8 @@ export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance
   | 'integrations'
   | 'projects'
   // P9
-  | 'devices';
+  | 'devices'
+  | 'pc-runner';
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'account', label: 'Account', icon: UserRound },
@@ -44,6 +46,8 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   // P9
   { id: 'devices', label: 'Devices', icon: Smartphone },
+  // Desktop only (not in DEVICE_SECTIONS): the hub refuses a phone on /api/pc-runner.
+  { id: 'pc-runner', label: 'PC runner', icon: Monitor },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'about', label: 'About', icon: Info },
 ];
@@ -144,6 +148,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             {/* P9 */}
             <TabsPrimitive.Content value="projects" tabIndex={-1} className={PANEL}><ProjectsSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="devices" tabIndex={-1} className={PANEL}><DevicesSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="pc-runner" tabIndex={-1} className={PANEL}><PcRunnerSection /></TabsPrimitive.Content>
           </div>
         </div>
       </TabsPrimitive.Root>

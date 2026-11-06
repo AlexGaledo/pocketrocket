@@ -459,4 +459,15 @@ registerMigrations([160, 169], [
           'CREATE INDEX IF NOT EXISTS idx_pc_jobs_status ON pc_jobs(status, updated_at)',
       ),
   },
+  {
+    // Settings > PC runner shows when a job started and finished, and how long the PC says it ran.
+    version: 161,
+    name: 'pc_jobs.started_at, finished_at, duration_ms',
+    up: (db) => {
+      addColumnIfMissing(db, 'pc_jobs', 'started_at', 'INTEGER');
+      addColumnIfMissing(db, 'pc_jobs', 'finished_at', 'INTEGER');
+      addColumnIfMissing(db, 'pc_jobs', 'duration_ms', 'INTEGER');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_pc_jobs_created ON pc_jobs(created_at)');
+    },
+  },
 ]);
