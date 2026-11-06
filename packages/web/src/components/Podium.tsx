@@ -37,7 +37,7 @@ export function Podium({ bots, statusOf, activeBotId, unreadOf, onOpen, canEdit 
                 <span className="relative">
                   <Avatar bot={b} {...avatarStatus(statusOf(b.id))} size={46} />
                   {b.id === personaBotId && <span title="Your assistant" className="absolute -bottom-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#f59e0b] text-white ring-2 ring-bg"><Star aria-hidden size={10} fill="currentColor" /></span>}
-                  {unread > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-[#4aa3ff] ring-2 ring-bg"><span className="sr-only">{unread} unread</span></span>}
+                  {unread > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-bg"><span className="sr-only">{unread} unread</span></span>}
                 </span>
                 <span className="w-full truncate text-center text-hint font-medium">{b.title ? b.name + ' · ' + b.title : b.name}</span>
               </button>

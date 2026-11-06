@@ -179,6 +179,18 @@ export class ProjectService {
     this.db.run('DELETE FROM project_members WHERE slug=?', slug);
     for (const id of new Set(botIds)) this.db.run('INSERT INTO project_members (slug,bot_id) VALUES (?,?)', slug, id);
   }
+  /** Links the project to a group chat, so that chat's Files panel and bots use the project folder. Null unlinks. */
+  setRoom(slug: string, roomId: string | null) {
+    this.need(slug);
+    if (roomId !== null) {
+      const room = this.deps.repos.getRoom(roomId);
+      if (!room) throw new ProjectError(400, 'Unknown room id: ' + roomId);
+      if (room.kind !== 'group') throw new ProjectError(400, 'Only a group chat can be linked to a project');
+      const other = this.forRoom(roomId);
+      if (other && other.slug !== slug) throw new ProjectError(409, 'That chat is already linked to ' + other.name);
+    }
+    this.db.run('UPDATE projects SET room_id=? WHERE slug=?', roomId, slug);
+  }
   /** Bots that were deleted lose their place. */
   pruneMembers(liveBotIds: string[]) {
     const live = new Set(liveBotIds);

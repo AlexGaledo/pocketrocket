@@ -33,21 +33,7 @@ export function ChatPane() {
 
   if (!room && !helloReceived) {
     // Until the hub's hello arrives there is no telling whether the team is empty, so claim nothing.
-    return (
-      <div role="status" aria-label="Connecting" className="flex h-full flex-col gap-5 px-6 py-8">
-        <div className="mx-auto flex w-full max-w-[var(--page-max)] flex-col gap-5 motion-safe:animate-pulse">
-          {[64, 40, 52].map((w, i) => (
-            <div key={i} className="flex gap-3">
-              <div className="h-[30px] w-[30px] shrink-0 rounded-full bg-card2" />
-              <div className="flex flex-1 flex-col gap-2 pt-1">
-                <div className="h-3 w-24 rounded-full bg-card2" />
-                <div className="h-3 rounded-full bg-card2" style={{ width: w + '%' }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return <div className="flex h-full flex-col px-6 py-8"><TranscriptSkeleton label="Connecting" /></div>;
   }
 
   if (!room && bots.length > 0) {
@@ -91,7 +77,7 @@ export function ChatPane() {
 
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center gap-3 px-5">
+      <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
         {room.kind === 'group' && <RoomAvatar room={room} size={30} />}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
@@ -111,9 +97,13 @@ export function ChatPane() {
             {working.length > 0 && <span className="ml-2 text-ok">{working.length} working</span>}
           </div>
         </div>
-        {/* A narrow group header has the group's own picture, and the sidebar lists its bots: the name keeps the room. */}
+        {/* A narrow group header has the group's own picture, and the sidebar lists its bots: the name keeps the room.
+            In a one-on-one chat the name and the button beside this already open the bot's page, so the face only shows
+            its state. */}
         <div className={cn('flex shrink-0 -space-x-2', room.kind === 'group' && '@max-[480px]:hidden')}>
-          {members.slice(0, HEADER_AVATARS).map((m) => (
+          {members.slice(0, HEADER_AVATARS).map((m) => room.kind === 'dm' ? (
+            <span key={m.id} className="rounded-full ring-2 ring-bg"><Avatar bot={m} {...avatarStatus(statusOf(m.id))} size={26} /></span>
+          ) : (
             <button key={m.id} type="button" className="rounded-full ring-2 ring-bg" aria-label={'Open ' + m.name + "'s page"} title={'Open ' + m.name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: m.id, tab: 'memory' })}>
               <Avatar bot={m} {...avatarStatus(statusOf(m.id))} size={26} />
             </button>
@@ -139,6 +129,23 @@ export function ChatPane() {
       <Transcript key={room.id} roomId={room.id} />
       <Composer members={members} />
     </>
+  );
+}
+
+/** Grey message shapes while a chat loads, so the page doesn't flash an empty "Loading…" and then jump. */
+function TranscriptSkeleton({ label }: { label: string }) {
+  return (
+    <div role="status" aria-label={label} className="mx-auto flex w-full max-w-[var(--page-max)] flex-col gap-5 motion-safe:animate-pulse">
+      {[64, 40, 52].map((w, i) => (
+        <div key={i} className="flex gap-3">
+          <div className="h-[30px] w-[30px] shrink-0 rounded-full bg-card2" />
+          <div className="flex flex-1 flex-col gap-2 pt-1">
+            <div className="h-3 w-24 rounded-full bg-card2" />
+            <div className="h-3 rounded-full bg-card2" style={{ width: w + '%' }} />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -250,12 +257,12 @@ function Transcript({ roomId }: { roomId: string }) {
         // Overlaid rather than in the flow, so it appearing does not push the transcript down.
         <div role="status" className="absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-full bg-panel px-3 py-1 text-hint text-muted shadow-[var(--shadow-overlay)]">Loading…</div>
       )}
-      <div ref={ref} onScroll={onScroll} className="flex-1 overflow-y-auto px-6 py-4 [overflow-anchor:none]">
+      <div ref={ref} onScroll={onScroll} className="flex-1 overflow-x-clip overflow-y-auto overscroll-contain px-6 py-4 [overflow-anchor:none]">
         <div className="mx-auto flex max-w-[var(--page-max)] flex-col gap-6">
           {!messages?.length && (
             loaded
               ? <div className="py-12 text-center text-ui text-muted">Nothing here yet. Say what you need.</div>
-              : <div role="status" className="py-12 text-center text-ui text-dim">Loading…</div>
+              : <TranscriptSkeleton label="Loading messages" />
           )}
           {groups.map((g) => (
             <MessageGroup key={g.key} group={g} bots={bots} />
@@ -645,7 +652,7 @@ function Composer({ members }: { members: Bot[] }) {
     : 'Message ' + (members[0]?.title ? members[0].name + ' · ' + members[0].title : members[0]?.name ?? ''));
 
   return (
-    <div className="relative shrink-0 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 sm:px-6">
+    <div className="relative shrink-0 px-3 pb-5 pt-2 sm:px-6">
       <div className="relative mx-auto max-w-[var(--page-max)]">
         {suggestions.length > 0 && (
           <div className="absolute bottom-full left-0 mb-2 w-[320px] max-w-full rounded-xl bg-panel p-1.5 shadow-[var(--shadow)]">

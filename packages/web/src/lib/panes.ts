@@ -24,6 +24,14 @@ export const COLLAPSE_PAST = 48;
 export const SIDEBAR_INLINE_MIN = 768;
 /** Below this the sidebar's and panel's minimums plus the chat's no longer fit, so the panel is a drawer. */
 export const PANEL_INLINE_MIN = PANES.sidebar.min + PANES.panel.min + CHAT_MIN + SEP_W * 2;
+/** Without the sidebar the panel still fits beside the chat down to here. */
+export const PANEL_SOLO_MIN = PANES.panel.min + CHAT_MIN + SEP_W * 2 + REOPEN_W;
+
+/**
+ * Too narrow for all three, wide enough for chat and panel: an open panel takes the sidebar's place rather than
+ * covering the whole window, and the sidebar comes back when the panel closes.
+ */
+export const panelSqueezesSidebar = (vw: number, panelOpen: boolean) => panelOpen && vw >= PANEL_SOLO_MIN && vw < PANEL_INLINE_MIN;
 
 export const clampPane = (want: number, min: number, max: number, room: number) => Math.max(min, Math.min(want, max, room));
 
@@ -41,8 +49,8 @@ function paneRoom(vw: number, sidebarOn: boolean) {
 
 /** What each pane actually gets at this window width; 0 when collapsed or shown as a drawer. */
 export function paneLayout(vw: number, s: PaneState): PaneWidths {
-  const sidebarOn = s.sidebarOpen && vw >= SIDEBAR_INLINE_MIN;
-  const panelOn = s.panelOpen && vw >= PANEL_INLINE_MIN;
+  const sidebarOn = s.sidebarOpen && vw >= SIDEBAR_INLINE_MIN && !panelSqueezesSidebar(vw, s.panelOpen);
+  const panelOn = s.panelOpen && vw >= PANEL_SOLO_MIN;
   const room = paneRoom(vw, sidebarOn);
   const { sidebar: sb, panel: pn } = PANES;
   const panel = panelOn ? clampPane(s.panelExpanded ? pn.max : s.paneW.panel, pn.min, pn.max, room - (sidebarOn ? sb.min : 0)) : 0;

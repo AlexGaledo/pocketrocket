@@ -86,7 +86,7 @@ export function FilesPanel({ inline }: { inline: boolean }) {
   }, []);
 
   return (
-    <aside ref={ref} aria-label="Files" className="@container panel flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
+    <aside ref={ref} aria-label="Files" className="@container panel flex min-h-0 w-full min-w-0 flex-col overflow-clip">
       {!room ? (
         <>
           <PanelHeader inline={inline} />

@@ -27,7 +27,7 @@ function probe(url: string): Promise<boolean> {
 }
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
-import type { MemoryService } from '../services/MemoryService.js';
+import { MAX_MEMORY_BYTES, type MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
@@ -290,7 +290,12 @@ export function createRest(deps: RestDeps) {
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return { ok: true };
   });
-  add('GET', '/api/bots/:id/memory', ({ params }) => ({ text: memory.read(need(repos.getBot(params.id), 'Bot').id) }));
+  // The Memory tab shows how full memory.md is and when auto-memory last wrote to it.
+  add('GET', '/api/bots/:id/memory', ({ params }) => {
+    const bot = need(repos.getBot(params.id), 'Bot');
+    const text = memory.read(bot.id);
+    return { text, bytes: Buffer.byteLength(text, 'utf8'), limit: MAX_MEMORY_BYTES, lastAutoSavedAt: repos.lastAutoMemorySave(bot.id) };
+  });
   add('PUT', '/api/bots/:id/memory', ({ params, body }) => {
     const { text } = parse(z.object({ text: z.string() }), body);
     memory.write(need(repos.getBot(params.id), 'Bot').id, text);

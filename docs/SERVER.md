@@ -57,7 +57,8 @@ What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket`
 - `data/workspace`: the desktop folder itself (Desktop/Downloads/Documents point here)
 - `data/desktop-home`: XFCE settings, panel layout, app config, and the X auth cookie
 - `data/browser-profile`: Chrome logins, cookies, history
-- `data/pocketrocket.db`, `data/bots/<id>` (memory), `data/skills`
+- `data/pocketrocket.db` (as a consistent copy taken with SQLite's backup API, stored as `db-snapshot/pocketrocket.db`), `data/bots/<id>` (memory), `data/skills`
+- `/home/pocketrocket/.claude/projects` (the Claude Code session transcripts bots resume from, stored as `.claude/projects`). Setup also sets `cleanupPeriodDays` to 3650 in that user's `~/.claude/settings.json`, so the CLI stops deleting them after 30 days
 - Backups are readable by root only. `data/hub-token` is **not** in them: after a restore the hub writes a new one, so sign in with that.
 - `data/integrations.json` (encrypted integration tokens). Its key, `data/vault.key`, is **not** in the backup: copy it off the VPS yourself (`scp`), or reconnect the integrations after a restore
 
@@ -73,8 +74,9 @@ through approval cards, so only give them to bots you trust with the logged-in s
 machine.
 
 Ops: `systemctl status pocketrocket-screen`, `journalctl -u pocketrocket-screen -f`. Restore a
-backup: stop both services, untar into `/home/pocketrocket/pocketrocket`, `chown -R
-pocketrocket:pocketrocket` it, start them again.
+backup: stop both services, untar into `/home/pocketrocket/pocketrocket`, move `db-snapshot/pocketrocket.db` to
+`data/pocketrocket.db` (delete any `data/pocketrocket.db-wal` and `-shm` first) and `.claude/projects` to
+`/home/pocketrocket/.claude/projects`, `chown -R pocketrocket:pocketrocket` both, start them again.
 
 ## Per-bot computers
 

@@ -436,3 +436,9 @@ registerMigrations([130, 139], [
       ),
   },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+// Memory fixes: when auto-memory last wrote to a bot's memory.md (the Memory tab shows it).
+registerMigrations([150, 159], [
+  { version: 150, name: 'auto_memory.saved_at', up: (db) => addColumnIfMissing(db, 'auto_memory', 'saved_at', 'INTEGER') },
+]);

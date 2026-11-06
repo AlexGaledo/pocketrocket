@@ -8,6 +8,7 @@ import { logError } from '../providers/redact.js';
 
 const CreateInput = z.object({ name: z.string().trim().min(1).max(60), team: z.boolean().optional(), memberIds: z.array(z.string()).max(100).optional() });
 const MembersInput = z.object({ memberIds: z.array(z.string()).max(100) });
+const RoomLinkInput = z.object({ roomId: z.string().min(1).nullable() });
 
 const send = (res: ServerResponse, status: number, body: unknown): true => {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -22,6 +23,7 @@ const send = (res: ServerResponse, status: number, body: unknown): true => {
  *   GET    /api/projects
  *   POST   /api/projects                { name, team?, memberIds? }; team clones the dev team template
  *   PUT    /api/projects/:slug/members  { memberIds }
+ *   PUT    /api/projects/:slug/room     { roomId | null }; links a group chat to the folder
  *   GET    /api/projects/:slug/search   ?q=&archived=1, with no AI turn
  *   GET    /api/projects/:slug/lint     what has gone stale or messy
  *   DELETE /api/projects/:slug          forgets it; the folder and any cloned bots stay
@@ -57,6 +59,12 @@ export function createProjectsApi(deps: { projects: ProjectService; repos: Repos
         const p = MembersInput.safeParse(body);
         if (!p.success) return send(res, 400, { error: p.error.issues.map((i) => i.path.join('.') + ': ' + i.message).join('; ') });
         projects.setMembers(slug, p.data.memberIds);
+        return send(res, 200, projects.need(slug));
+      }
+      if (parts.length === 2 && action === 'room' && method === 'PUT') {
+        const p = RoomLinkInput.safeParse(body);
+        if (!p.success) return send(res, 400, { error: p.error.issues.map((i) => i.path.join('.') + ': ' + i.message).join('; ') });
+        projects.setRoom(slug, p.data.roomId);
         return send(res, 200, projects.need(slug));
       }
       if (parts.length === 2 && action === 'search' && method === 'GET') {

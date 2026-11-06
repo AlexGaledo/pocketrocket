@@ -81,6 +81,14 @@ export class MemoryService {
     events.emitEvent({ type: 'memory.updated', botId, text: capped.text });
     return capped.trimmed;
   }
+  /** Copy of memory.md from before AutoMemory replaced it with a merged version; only the newest is kept. */
+  backupFile(botId: string) {
+    return this.file(botId) + '.bak';
+  }
+  backup(botId: string, text: string) {
+    this.ensureHome(botId);
+    fs.writeFileSync(this.backupFile(botId), text);
+  }
   append(botId: string, text: string): boolean {
     const cur = this.read(botId);
     return this.write(botId, (cur ? cur.replace(/\s+$/, '') + '\n' : '') + text.trim() + '\n');

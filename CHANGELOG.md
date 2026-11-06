@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Memory fixes
+
+- A bot whose chat context was reset, or that joins a busy chat, is shown at most the last 60 unread messages (or 30 KB). A line says how many earlier ones were left out, and the bot can read them with `read_room`.
+- `update_memory` and `write_note` refuse text that contains something shaped like an API key, token or bearer header, so secrets never land in memory or notes.
+- When a bot's memory passes 75% of its 8 KB limit, auto-memory merges it into a shorter version instead of letting the oldest notes fall off. The old file is kept as `memory.md.bak`, a line in the chat says so, and text between `<!-- keep -->` and `<!-- /keep -->` is kept word for word.
+- The Memory tab shows how much of the limit is used and when auto-memory last saved.
+- Server: the daily backup stores a consistent copy of the database instead of the live files, and now includes the service user's Claude session transcripts. Claude Code no longer deletes bot sessions after 30 days (`cleanupPeriodDays` is 3650 for bot turns, and server setup sets it for the service user; the hub never edits your own `~/.claude/settings.json`).
+- The hub logs at start how many `data/bots/` folders belong to no bot; `node scripts/prune-orphan-bot-dirs.mjs` lists them and `--apply` moves them to `data/trash/`.
+
+### Scrolling and small screens
+
+- The chat no longer slides sideways or leaves blank space at its end. Long paths and links wrap, and wide tables scroll inside their own box.
+- The page itself no longer bounces when a list reaches its end.
+- On a window between 820 and 979 px wide, opening the screen folds the sidebar away instead of covering the whole window. The sidebar comes back when the screen closes.
+- Phone: the app fits the visible screen when the keyboard opens, dialogs fit too, toasts sit above the message box, and the sidebar button sits in the page header instead of taking a column.
+- Icon buttons are 40 px on touch screens. Unread dots use the accent color. A one-on-one chat header has one button to the bot's page instead of two.
+- A chat shows grey placeholder messages while it loads, and the screen panel's empty message is centred.
+- Deleting a bot, chat, skill, schedule, trigger or recording, and resetting a chat's context, now ask in an in-app dialog instead of the browser's pop-up.
+
 ### Room file folders
 
 - Every chat has a file folder. A project's chat uses the project folder, any other group chat gets its own folder under `data/rooms/`, and a direct chat uses the bot's `files/` folder.

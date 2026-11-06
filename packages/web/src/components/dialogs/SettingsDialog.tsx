@@ -129,7 +129,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
 
         <div className="relative min-h-0 flex-1 border-t border-line sm:border-t-0">
           <div className="absolute right-4 top-4 z-10 hidden sm:block"><DialogCloseButton /></div>
-          <div className="h-full overflow-y-auto">
+          <div className="h-full overflow-y-auto overscroll-contain">
             {/* tabIndex -1: every panel has its own controls to Tab into, so the panel itself needn't be a stop. */}
             <TabsPrimitive.Content value="account" tabIndex={-1} className={PANEL}><AccountSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="security" tabIndex={-1} className={PANEL}><SecuritySection /></TabsPrimitive.Content>
