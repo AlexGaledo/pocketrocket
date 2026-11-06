@@ -12,6 +12,7 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 ### Website
 
 - The marketing site (`packages/site`) is redesigned in the app's current warm colours and Google Sans. The hero is a drawn group chat that ends on an approval card. The page covers how rooms, bots and approvals fit together, a feature list that marks what is only in the next release, a safety section that states each guard's limits, local and server setup, and a FAQ. The newsletter form still posts to `/api/subscribe`.
+- Site concept C, "Mission Control": the hero gets a quiet launch layer. A trajectory climbs from Earth's limb, a small rocket holds for GO while the approval card runs a go/no-go poll, and then flies on into orbit once you choose Allow once. A telemetry strip shows the demo crew. How it works counts down from T-3 to T-0, and the safety section ticks itself off as a pre-flight checklist. Guards that arrive in the next release get an open circle, not a tick. The page is a day launch in light mode and a night launch in dark mode. With reduced motion it is a still picture of the finished GO state. Self-hosted `mission.js`, about 4 KB gzipped, no libraries.
 - Fonts are self-hosted, and the site now sends a Content-Security-Policy that allows only its own files, the GitHub releases API and `/api/subscribe`. A new test fails if the inline theme script and the policy's hash drift apart.
 
 ### No keys in the repo

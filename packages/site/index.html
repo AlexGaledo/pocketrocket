@@ -55,6 +55,35 @@
 
 <main id="main" tabindex="-1">
 
+  <div class="launch" id="launch">
+  <!-- Mission control layer. Decorative and silent: aria-hidden throughout, so the moving HUD text is
+       never announced. The markup is the finished state (rocket in orbit, GO); mission.js rewinds it and
+       plays the flight once when motion is allowed. -->
+  <div class="sky" aria-hidden="true">
+    <svg class="flight" viewBox="0 0 1440 860" preserveAspectRatio="xMidYMax slice" focusable="false">
+      <defs>
+        <radialGradient id="limb-fill" cx="0.5" cy="0" r="0.5">
+          <stop offset="0" class="limb-a"/>
+          <stop offset="1" class="limb-b"/>
+        </radialGradient>
+      </defs>
+      <circle class="limb" cx="-180" cy="2080" r="1460" fill="url(#limb-fill)"/>
+      <circle class="limb-glow" cx="-180" cy="2080" r="1466"/>
+      <path class="traj-ahead" d="M600 840 C 640 660 752 590 752 470 C 752 300 760 130 776 70 C 792 36 1100 30 1380 40"/>
+      <path class="traj-flown" d="M600 840 C 640 660 752 590 752 470 C 752 300 760 130 776 70 C 792 36 1100 30 1380 40"/>
+      <g class="hold" transform="translate(776 70)">
+        <circle class="hold-ring" r="9"/>
+        <circle class="hold-dot" r="3"/>
+        <text class="hold-label hold-wait" x="16" y="24">HOLD FOR GO</text>
+        <text class="hold-label hold-go" x="16" y="24">GO</text>
+      </g>
+      <g class="ship" transform="translate(1380 40) rotate(2)">
+        <path class="ship-plume" d="M-11 0 L-40 -3 L-40 3 Z"/>
+        <path class="ship-body" d="M15 0 C 10 -5 2 -5.4 -9 -4.2 L-9 4.2 C 2 5.4 10 5 15 0 Z M-3 -4.8 L-10 -8.4 L-11.5 -8 L-9 -3.8 Z M-3 4.8 L-10 8.4 L-11.5 8 L-9 3.8 Z"/><circle class="ship-port" cx="5" cy="0" r="1.6"/>
+      </g>
+    </svg>
+    <div class="ruler"><span class="ruler-mark"></span></div>
+  </div>
   <section class="hero wrap" id="top" aria-labelledby="hero-h">
     <div class="hero-copy">
       <h1 id="hero-h">A crew of AI bots that checks with you first.</h1>
@@ -70,7 +99,7 @@
 
     <!-- An illustration drawn with the app's own tokens, not a screenshot. Each beat plays once on load
          (pure CSS, .b1 to .b5); with reduced motion or no CSS animation support it is simply all there. -->
-    <figure class="room" role="img" aria-label="Illustration of a PocketRocket group chat. You ask the lead bot to ship the pricing page tonight. Lead hands the build check to Coder and the copy pass to Writer. Coder then shows an approval card asking to run pnpm build and pnpm test in projects/site, with the buttons Allow once, Allow for this session and Deny.">
+    <figure class="room" role="img" aria-label="Illustration of a PocketRocket group chat. You ask the lead bot to ship the pricing page tonight. Lead hands the build check to Coder and the copy pass to Writer. Coder then shows an approval card asking to run pnpm build and pnpm test in projects/site, with a go or no-go poll: the workspace and the thread budget are go, and the final call is yours. You choose Allow once, the card turns to go, and Writer reports the copy is ready.">
       <div class="room-head" aria-hidden="true">
         <div>
           <p class="room-name">site-launch</p>
@@ -100,14 +129,20 @@
         </div>
         <div class="approval b4">
           <p class="approval-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg>
-            Needs your OK <code>Bash</code>
+            <svg class="ico-wait" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg>
+            <svg class="ico-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M8.5 12.2l2.4 2.4 4.6-4.8"/></svg>
+            <span class="t-swap"><span class="t-wait">Needs your OK</span><span class="t-go">Allowed once</span></span> <code>Bash</code>
           </p>
           <p class="approval-why">Run a command that isn't on the read-only list.</p>
           <pre class="approval-cmd">cd projects/site
 pnpm build &amp;&amp; pnpm test</pre>
+          <ul class="poll">
+            <li class="p1"><span>Workspace</span><span class="p-note">projects/site</span><b class="go">GO</b></li>
+            <li class="p2"><span>Thread budget</span><span class="p-note">within cap</span><b class="go">GO</b></li>
+            <li class="p3"><span>Flight director</span><span class="p-note">you</span><b class="go"><i class="p-hold">HOLD</i><i class="p-go">GO</i></b></li>
+          </ul>
           <div class="approval-actions">
-            <span class="fake-btn primary">Allow once</span>
+            <span class="fake-btn primary press">Allow once</span>
             <span class="fake-btn">Allow for this session</span>
             <span class="fake-btn">Deny</span>
           </div>
@@ -124,10 +159,22 @@ pnpm build &amp;&amp; pnpm test</pre>
     </figure>
   </section>
 
+  <!-- Telemetry for the demo crew in the illustration above. Not real usage figures. -->
+  <div class="hud" aria-hidden="true">
+    <div class="wrap hud-row">
+      <p class="hud-item hud-sim"><span class="hud-k">SIM</span><span class="hud-v">DEMO CREW</span></p>
+      <p class="hud-item"><span class="hud-k">MET</span><span class="hud-v" data-hud="clock">T+00:00:06</span></p>
+      <p class="hud-item hud-wide"><span class="hud-k">CREW</span><span class="hud-v" data-hud="crew">3 ONLINE</span></p>
+      <p class="hud-item hud-wide"><span class="hud-k">KEYS</span><span class="hud-v">VPS 3 · PC 2</span></p>
+      <p class="hud-item hud-status"><span class="hud-k">BASH</span><span class="hud-v" data-hud="status">APPROVAL REQUIRED → GO</span></p>
+    </div>
+  </div>
+  </div>
+
   <section class="band" id="how" aria-labelledby="how-h">
     <div class="wrap">
       <h2 id="how-h">How it works</h2>
-      <ol class="steps">
+      <ol class="steps countdown">
         <li>
           <h3>Make a room</h3>
           <p>A room is a group chat. Message one bot directly, or put a few together on a job. A message with no @mention goes to the room's coordinator, so something always picks it up.</p>
@@ -141,6 +188,7 @@ pnpm build &amp;&amp; pnpm test</pre>
           <p>Before a bot runs a shell command, edits outside its workspace or changes your team, an approval card appears in the chat. Allow once, allow for the session, or deny.</p>
         </li>
       </ol>
+      <p class="liftoff"><span class="liftoff-t" aria-hidden="true">T−0</span>Then your crew works, and checks with you whenever it matters.</p>
     </div>
   </section>
 
@@ -198,7 +246,7 @@ pnpm build &amp;&amp; pnpm test</pre>
         <h2 id="safety-h">The guard rails, and where they stop</h2>
         <p>Treat every bot like a contractor with a shell on your machine. These guards catch honest mistakes. They are not a wall against a model that has been tricked by something it read.</p>
       </div>
-      <ul class="guards">
+      <ul class="guards checklist">
         <li>
           <h3>Approval cards</h3>
           <p>On by default for shell commands, edits outside the workspace and changes to your team. From the next release, routine and trigger turns always ask, even with approvals bypassed.</p>
@@ -347,5 +395,6 @@ pnpm build &amp;&amp; pnpm test</pre>
 </footer>
 
 <script src="/main.js" defer></script>
+<script src="/mission.js" defer></script>
 </body>
 </html>
