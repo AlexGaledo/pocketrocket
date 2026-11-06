@@ -13,8 +13,8 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `POCKETROCKET_WEB_DIST` ★ | `<repo>/packages/web/dist` | Where the built web UI is served from. Desktop points it at the bundled `hub/web`. |
 | `POCKETROCKET_TOKEN` ★ | auto-generated when unset, stored in `<data>/hub-token` | Bearer token required on every `/api/*` route (except `GET /api/health`), `/ws`, and `/screen/*`. When unset, the hub reuses the token in `<data>/hub-token` (0600), minting and writing one the first time or whenever that file is missing or malformed. The value is never printed: startup output names the file (or this variable) and gives the URL without the token. Reuse is what keeps an already-open UI working across a restart. Desktop generates its own per-launch token in `local` mode and reads the remote one over SSH in `remote` mode. There is no unauthenticated mode. |
 | `POCKETROCKET_ROTATE_TOKEN` | unset | `1` = mint a brand-new hub token on every start instead of reusing `<data>/hub-token`. Tighter (a leaked token dies with the process) but every restart makes an already-open UI ask you to paste the new one. |
-| `POCKETROCKET_SUPABASE_URL` | built-in PocketRocket project | Supabase project URL for the optional PocketRocket account (Settings → Account). Accounts are enabled only when this and `POCKETROCKET_SUPABASE_KEY` both resolve to a value; otherwise the app runs signed out and `GET /api/account` reports `enabled: false`. The hub keeps the session in `<data>/account.json` (owner-only) and deletes it on sign-out. |
-| `POCKETROCKET_SUPABASE_KEY` | built-in PocketRocket key | The project's **publishable** (anon) key, public by design. Never a service-role / secret key. |
+| `POCKETROCKET_SUPABASE_URL` | unset (accounts off) | Supabase project URL for the optional PocketRocket account (Settings → Account). No project is built into the source: accounts are enabled only when this and `POCKETROCKET_SUPABASE_KEY` are both set; otherwise the app runs signed out and `GET /api/account` reports `enabled: false`. The hub keeps the session in `<data>/account.json` (owner-only) and deletes it on sign-out. Release desktop builds pass in values baked from CI secrets (§1a); on a VPS set it in a systemd drop-in (`docs/SERVER.md`, "Accounts"). |
+| `POCKETROCKET_SUPABASE_KEY` | unset (accounts off) | The project's **publishable** key. Never a service-role / secret key, and never committed to the repo. |
 | `POCKETROCKET_ACCOUNT_EMAIL` | off | `1` offers email link/code sign-in next to GitHub/Google. Leave off while the Supabase project uses the built-in mailer, which only delivers to the project's own team. |
 | `POCKETROCKET_DEBUG` | unset | `1` = log provider CLI stderr and PreToolUse hook decisions. |
 | `CLAUDE_EXE` | `~/.local/bin/claude(.exe)` | Path to the Claude Code CLI the Agent SDK spawns. |
@@ -50,6 +50,17 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 
 Not configurable by env in this version (constants in `config.ts`): `HOST=127.0.0.1`, `APPROVAL_TIMEOUT_MS=10 min`, `USER_SKILLS_DIR=~/.claude/skills`.
+
+### 1a. Where the Supabase settings come from
+
+No Supabase project URL or key is committed anywhere in this repo. Each place that needs them reads them from its own environment:
+
+| Where | Variables | How to set them |
+|---|---|---|
+| Hub on a VPS | `POCKETROCKET_SUPABASE_URL`, `POCKETROCKET_SUPABASE_KEY` | systemd drop-in, see [SERVER.md](SERVER.md#accounts-optional). |
+| Hub from source | same | `.env` at the repo root (git-ignored). |
+| Desktop release build | GitHub Actions secrets `POCKETROCKET_SUPABASE_URL`, `POCKETROCKET_SUPABASE_KEY` | `release.yml` passes them to the build steps only; `lib.rs` bakes them in with `option_env!` and hands them to the hub it launches. A value already in the user's environment wins. Unset secrets still build: the app just runs with accounts off. |
+| Marketing site (Vercel) | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Vercel project → Settings → Environment Variables (Production, and Preview if previews should accept signups). Read only by `packages/site/api/subscribe.js`; the page posts to `/api/subscribe` and never sees them. Unset, the form answers "Something went wrong". Redeploy after changing them. |
 
 ## 2. Settings (live, `GET/PUT /api/settings`, stored in the `settings` table)
 

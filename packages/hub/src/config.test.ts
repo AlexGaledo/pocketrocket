@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -112,5 +113,52 @@ describe('live values', () => {
   it('PLAYWRIGHT_MCP_CLI sits under a HUB_DIR that has node_modules', () => {
     expect(PLAYWRIGHT_MCP_CLI).toBe(path.join(HUB_DIR, 'node_modules', '@playwright', 'mcp', 'cli.js'));
     expect(HUB_DIR.endsWith(`${path.sep}src`)).toBe(false);
+  });
+});
+
+describe('Supabase account config (env only, nothing built in)', () => {
+  const NAMES = ['POCKETROCKET_SUPABASE_URL', 'POCKETROCKET_SUPABASE_KEY'] as const;
+  const saved = Object.fromEntries(NAMES.map((n) => [n, process.env[n]]));
+  const setEnv = (url: string | undefined, key: string | undefined) => {
+    for (const [n, v] of [[NAMES[0], url], [NAMES[1], key]] as const) {
+      if (v === undefined) delete process.env[n];
+      else process.env[n] = v;
+    }
+    vi.resetModules();
+  };
+  afterEach(() => setEnv(saved[NAMES[0]], saved[NAMES[1]]));
+
+  it('has no URL or key without the env, so the default AccountService is off and never writes the session', async () => {
+    setEnv(undefined, undefined);
+    const cfg = await import('./config.js');
+    expect(cfg.SUPABASE_URL).toBe('');
+    expect(cfg.SUPABASE_PUBLISHABLE_KEY).toBe('');
+    const { AccountService } = await import('./services/AccountService.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-account-off-'));
+    const file = path.join(dir, 'account.json');
+    try {
+      const s = new AccountService({ file });
+      expect(s.enabled).toBe(false);
+      expect(s.state()).toMatchObject({ enabled: false, signedIn: false, user: null, email: false });
+      await s.start();
+      await expect(s.oauthUrl('google', 'http://127.0.0.1:7788/auth/callback')).rejects.toMatchObject({ status: 409 });
+      await s.signOut();
+      expect(fs.existsSync(file)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stays off when only one of the two is set', async () => {
+    setEnv('https://proj.supabase.co', undefined);
+    const { AccountService } = await import('./services/AccountService.js');
+    expect(new AccountService({ file: path.join(os.tmpdir(), 'pr-account-never-written.json') }).enabled).toBe(false);
+  });
+
+  it('reads both from the env, trimmed', async () => {
+    setEnv(' https://proj.supabase.co ', 'sb_publishable_x\n');
+    const cfg = await import('./config.js');
+    expect(cfg.SUPABASE_URL).toBe('https://proj.supabase.co');
+    expect(cfg.SUPABASE_PUBLISHABLE_KEY).toBe('sb_publishable_x');
   });
 });
