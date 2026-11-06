@@ -129,12 +129,20 @@ function MemoryTab({ botId }: { botId: string }) {
   });
   const [text, setText] = useState('');
   const [dirty, setDirty] = useState(false);
+  // The cap (8 KB on the hub) and when auto-memory last wrote; refetched whenever memory.md changes.
+  const [limit, setLimit] = useState<number | null>(null);
+  const [autoSavedAt, setAutoSavedAt] = useState<number | null>(null);
   useEffect(() => {
-    api.bots.memory(botId).then((r) => { setText(r.text); setDirty(false); }).catch(() => undefined);
+    api.bots.memory(botId).then((r) => { setText(r.text); setDirty(false); setLimit(r.limit); setAutoSavedAt(r.lastAutoSavedAt); }).catch(() => undefined);
   }, [botId]);
   useEffect(() => {
     if (live !== undefined && !dirty) setText(live);
   }, [live, dirty]);
+  useEffect(() => {
+    if (live === undefined) return;
+    api.bots.memory(botId).then((r) => setAutoSavedAt(r.lastAutoSavedAt)).catch(() => undefined);
+  }, [botId, live]);
+  const bytes = new TextEncoder().encode(text).length;
   const save = async () => {
     // On failure the edit stays dirty, so nothing the user typed is lost and Save stays available.
     try {
@@ -153,10 +161,13 @@ function MemoryTab({ botId }: { botId: string }) {
   };
   return (
     <div className="flex flex-col gap-2 p-3">
-      <Label hint="Only this bot reads it">Memory</Label>
-      <Textarea value={text} onChange={(e) => { setText(e.target.value); setDirty(true); }} rows={18} className="font-mono text-hint" placeholder="Empty. The bot adds notes, or edit here." />
-      <div className="flex items-center justify-between">
+      <Label hint={'Only this bot reads it' + (limit ? ' · ' + bytes + ' / ' + limit + ' bytes' : '')}>Memory</Label>
+      <Textarea value={text} onChange={(e) => { setText(e.target.value); setDirty(true); }} rows={18} className="font-mono text-hint" placeholder={'Empty. The bot adds notes, or edit here.\n\nWhen memory fills up it is merged into a shorter version. Text between <!-- keep --> and <!-- /keep --> is kept word for word.'} />
+      <div className="flex flex-wrap items-center justify-between gap-y-1">
         <Button size="sm" variant="ghost" onClick={reset} disabled={!room} title={room ? 'Bot forgets ' + room.name + '. Memory stays.' : 'No chat with this bot yet'}><RefreshCw size={13} /> Reset chat context</Button>
+        <span className="ml-auto mr-2 text-hint text-dim">
+          {autoSavedAt ? 'Last auto-saved ' + new Date(autoSavedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Not auto-saved yet'}
+        </span>
         <Button size="sm" variant="primary" onClick={save} disabled={!dirty}><Save size={13} /> Save</Button>
       </div>
     </div>

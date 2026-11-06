@@ -72,6 +72,27 @@ describe('backups (P4, P9)', () => {
     expect(backup).not.toMatch(/vapid/);
   });
 
+  it('setup keeps the service user\'s Claude transcripts past the CLI\'s 30-day default', () => {
+    const setup = read('deploy/setup-vps.sh');
+    expect(setup).toMatch(/sudo -u "\$APP_USER" -H python3 - <<'PY'/);
+    expect(setup).toContain("s['cleanupPeriodDays'] = 3650");
+  });
+
+  it('archives a consistent copy of the database, not the live WAL files', () => {
+    // python3's sqlite3 online backup (the server has no sqlite3 CLI), run as the database's owner.
+    expect(backup).toMatch(/as_owner python3 - "\$DB" "\$SNAP\/db-snapshot\/pocketrocket\.db"/);
+    expect(backup).toMatch(/src\.backup\(dst\)/);
+    expect(backup).toMatch(/runuser -u "\$owner"/);
+    for (const f of ['pocketrocket.db', 'pocketrocket.db-wal', 'pocketrocket.db-shm']) expect(backup).toContain("'data/" + f + "'");
+    // Both branches take the snapshot and the service user's Claude transcripts.
+    expect(backup).toMatch(/tar -czf [^\n]* -C "\$ROOT" data "\$\{EXTRA\[@\]\}"/);
+    expect(backup).toMatch(/restic backup [^\n]*"\$ROOT\/data" "\$\{EXTRA_PATHS\[@\]\}"/);
+    expect(backup).toMatch(/\$CLAUDE_HOME\/projects/);
+    // Retention is unchanged: 7 archives.
+    expect(backup).toMatch(/tail -n \+8/);
+    expect(backup).toMatch(/--keep-daily 7/);
+  });
+
   it('vapid.json is owner-only when minted and again when loaded with looser modes', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prc-vapid-'));
     try {

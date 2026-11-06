@@ -100,7 +100,8 @@ export const api = {
     create: (b: BotInput) => req<Bot>('POST', '/api/bots', b),
     update: (id: string, b: Partial<BotInput>) => req<Bot>('PATCH', '/api/bots/' + id, b),
     remove: (id: string) => req<{ ok: true }>('DELETE', '/api/bots/' + id),
-    memory: (id: string) => req<{ text: string }>('GET', '/api/bots/' + id + '/memory'),
+    /** memory.md, its size and cap in bytes, and when auto-memory last wrote to it (null: never). */
+    memory: (id: string) => req<{ text: string; bytes: number; limit: number; lastAutoSavedAt: number | null }>('GET', '/api/bots/' + id + '/memory'),
     setMemory: (id: string, text: string) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/memory', { text }),
     skills: (id: string) => req<string[]>('GET', '/api/bots/' + id + '/skills'),
     setSkills: (id: string, skillIds: string[]) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/skills', { skillIds }),

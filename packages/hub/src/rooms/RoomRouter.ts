@@ -57,6 +57,27 @@ export function formatMessage(repos: Repos, m: Message, text: string = m.text): 
   return '#' + m.seq + ' [' + who + ']: ' + quoteTags(text);
 }
 
+/** Most unread messages one turn is shown (after a context reset, or when a bot joins a busy room). */
+export const BACKLOG_MAX_MESSAGES = 60;
+/** ...and most bytes of them; whichever limit is hit first wins. */
+export const BACKLOG_MAX_BYTES = 30 * 1024;
+
+/**
+ * The newest transcript lines that fit {@link BACKLOG_MAX_MESSAGES} and {@link BACKLOG_MAX_BYTES}, plus how many
+ * older ones were left out. The newest line is always kept, however long: it is usually what the bot must answer.
+ */
+export function capBacklog(lines: string[], maxMessages = BACKLOG_MAX_MESSAGES, maxBytes = BACKLOG_MAX_BYTES): { lines: string[]; dropped: number } {
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0 && kept.length < maxMessages; i--) {
+    const cost = Buffer.byteLength(lines[i], 'utf8') + 1;
+    if (kept.length && used + cost > maxBytes) break;
+    kept.unshift(lines[i]);
+    used += cost;
+  }
+  return { lines: kept, dropped: lines.length - kept.length };
+}
+
 export class RoomRouter {
   private lanes = new Map<string, Lane>();
   private states = new Map<string, Map<string, BotState>>(); // botId -> roomId -> state
@@ -332,7 +353,8 @@ export class RoomRouter {
     const msgs = this.repos
       .messagesAfter(room.id, lastSeenSeq)
       .filter((m) => isConversation(m) && m.authorId !== bot.id);
-    const lines = msgs.map((m) => formatMessage(this.repos, m));
+    const { lines, dropped } = capBacklog(msgs.map((m) => formatMessage(this.repos, m)));
+    if (dropped) lines.unshift('(' + dropped + ' earlier unread message' + (dropped === 1 ? ' was' : 's were') + ' left out to keep this short. Use read_room to read them if you need them.)');
     const trig = triggerSeqs.length ? '\n\n(Message' + (triggerSeqs.length > 1 ? 's' : '') + ' that triggered you: ' + triggerSeqs.map((s) => '#' + s).join(', ') + '.' : '(';
     const reminder = room.kind === 'group'
       ? ' Reply NO_REPLY if you have nothing new to add, if your part depends on another bot that has not finished, or if this was already handled.)'

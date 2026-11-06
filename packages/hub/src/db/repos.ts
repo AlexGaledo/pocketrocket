@@ -308,6 +308,17 @@ export class Repos {
     );
   }
 
+  /** Records that auto-memory just wrote to the bot's memory.md (notes or a merge) from this room. */
+  markAutoMemorySaved(botId: string, roomId: string, at: number = now()) {
+    this.saveAutoMemory(botId, roomId, {});
+    this.db.run('UPDATE auto_memory SET saved_at=? WHERE bot_id=? AND room_id=?', at, botId, roomId);
+  }
+  /** When auto-memory last wrote to the bot's memory.md, from any room; null when it never has. */
+  lastAutoMemorySave(botId: string): number | null {
+    const r = this.db.get<{ at: number | null }>('SELECT MAX(saved_at) AS at FROM auto_memory WHERE bot_id=?', botId);
+    return r?.at ?? null;
+  }
+
   // ---------- settings (key -> JSON value) ----------
   allSettings(): Record<string, unknown> {
     const out: Record<string, unknown> = {};

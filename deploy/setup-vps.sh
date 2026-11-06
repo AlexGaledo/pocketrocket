@@ -83,6 +83,33 @@ echo "==> hourly Claude Code CLI update (new models need a minimum CLI version)"
 install -m 755 -o root -g root deploy/claude-update.sh /etc/cron.hourly/pocketrocket-claude-update
 /etc/cron.hourly/pocketrocket-claude-update || echo "   (claude update failed; see: journalctl -t pocketrocket-claude-update)"
 
+echo "==> keep the service user's Claude Code transcripts (the CLI deletes them after 30 days; bots resume from them)"
+# Bot turns also pass cleanupPeriodDays as flag settings, and the hub adds it at start when it is missing; this
+# raises a lower value too, since on this machine the CLI belongs to PocketRocket alone.
+sudo -u "$APP_USER" -H python3 - <<'PY' || echo "   (could not update ~$APP_USER/.claude/settings.json; set cleanupPeriodDays to 3650 by hand)"
+import json, os
+d = os.path.expanduser('~/.claude')
+os.makedirs(d, exist_ok=True)
+f = os.path.join(d, 'settings.json')
+try:
+    with open(f) as fh:
+        s = json.load(fh)
+except FileNotFoundError:
+    s = {}
+if not isinstance(s, dict):
+    raise SystemExit('settings.json is not a JSON object')
+if not isinstance(s.get('cleanupPeriodDays'), int) or s['cleanupPeriodDays'] < 3650:
+    s['cleanupPeriodDays'] = 3650
+    tmp = f + '.tmp'
+    with open(tmp, 'w') as fh:
+        json.dump(s, fh, indent=2)
+        fh.write('\n')
+    os.replace(tmp, f)
+    print('   cleanupPeriodDays = 3650')
+else:
+    print('   cleanupPeriodDays already %d' % s['cleanupPeriodDays'])
+PY
+
 echo "==> installing pocketrocket.service (hub unit; scripts/deploy.sh restarts it after each deploy)"
 cp deploy/pocketrocket.service /etc/systemd/system/pocketrocket.service
 systemctl daemon-reload

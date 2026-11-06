@@ -4,7 +4,7 @@ import { Repos } from '../db/repos.js';
 import { UsageTracker } from '../services/UsageTracker.js';
 import { CAUSE_COST_CAP_USD } from '../config.js';
 import type { BotRunner, TurnRequest, TurnResult } from '../agent/BotRunner.js';
-import { RoomRouter } from './RoomRouter.js';
+import { BACKLOG_MAX_BYTES, BACKLOG_MAX_MESSAGES, RoomRouter, capBacklog } from './RoomRouter.js';
 
 function setup() {
   const repos = new Repos(new Db(':memory:'));
@@ -75,5 +75,66 @@ describe('RoomRouter coordinator fallback', () => {
     expect(reqs[0].bot.id).toBe(lead.id);
     expect(repos.getRoom(room.id)!.coordinatorBotId).toBe(lead.id);
     expect(repos.listMessages(room.id, { limit: 20 }).some((m) => m.kind === 'system' && m.text.includes('@team-lead) is now coordinator'))).toBe(true);
+  });
+});
+
+describe('RoomRouter backlog cap', () => {
+  it('keeps the newest lines within the message and byte limits and counts the rest', () => {
+    const lines = Array.from({ length: 100 }, (_, i) => 'line ' + i);
+    expect(capBacklog(lines, 60, 1e6)).toEqual({ lines: lines.slice(40), dropped: 40 });
+    const big = Array.from({ length: 10 }, (_, i) => String(i).repeat(999));
+    // 1000 bytes per line with its newline: 3 fit in 3000.
+    expect(capBacklog(big, 60, 3000)).toEqual({ lines: big.slice(7), dropped: 7 });
+    expect(capBacklog(['a', 'b'])).toEqual({ lines: ['a', 'b'], dropped: 0 });
+  });
+
+  it('always keeps the newest line, even when it alone is over the byte limit', () => {
+    expect(capBacklog(['old', 'x'.repeat(50)], 60, 10)).toEqual({ lines: ['x'.repeat(50)], dropped: 1 });
+  });
+
+  it('shows a fresh session only the last BACKLOG_MAX_MESSAGES messages, with a note about the rest', async () => {
+    const { repos, router, bot } = setup();
+    const a = bot('ann');
+    const room = repos.createRoom({ kind: 'dm', name: 'a', memberIds: [a.id], coordinatorBotId: null });
+    for (let i = 0; i < BACKLOG_MAX_MESSAGES + 15; i++) {
+      repos.insertMessage({ roomId: room.id, authorType: 'user', authorId: null, kind: 'text', text: 'old ' + i, payload: null, causeId: null, hop: 0, turnId: null });
+    }
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: '', costUsd: 0 }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'latest question');
+    await until(() => reqs.length === 1);
+    const input = reqs[0].injected;
+    expect(input).toMatch(/^\(16 earlier unread messages were left out to keep this short\. Use read_room/);
+    expect(input).toContain('latest question');
+    expect(input).not.toContain('old 15\n');
+    expect(input).toContain('old 16\n');
+    expect(input.split('\n').filter((l) => /^#\d+ \[/.test(l))).toHaveLength(BACKLOG_MAX_MESSAGES);
+  });
+
+  it('caps the backlog by size too', async () => {
+    const { repos, router, bot } = setup();
+    const a = bot('ann');
+    const room = repos.createRoom({ kind: 'dm', name: 'a', memberIds: [a.id], coordinatorBotId: null });
+    for (let i = 0; i < 20; i++) {
+      repos.insertMessage({ roomId: room.id, authorType: 'user', authorId: null, kind: 'text', text: 'p' + i + ' ' + 'y'.repeat(4000), payload: null, causeId: null, hop: 0, turnId: null });
+    }
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: '', costUsd: 0 }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'go');
+    await until(() => reqs.length === 1);
+    expect(Buffer.byteLength(reqs[0].injected, 'utf8')).toBeLessThan(BACKLOG_MAX_BYTES + 1000);
+    expect(reqs[0].injected).toMatch(/^\(\d+ earlier unread messages were left out/);
+    expect(reqs[0].injected).toContain('go');
+  });
+
+  it('adds no note when nothing was left out', async () => {
+    const { repos, router, bot } = setup();
+    const a = bot('ann');
+    const room = repos.createRoom({ kind: 'dm', name: 'a', memberIds: [a.id], coordinatorBotId: null });
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: '', costUsd: 0 }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'hi');
+    await until(() => reqs.length === 1);
+    expect(reqs[0].injected).not.toContain('left out');
   });
 });
