@@ -478,7 +478,7 @@ path.orb-glyph { fill: var(--fg); stroke: none; }
 }
 @keyframes orb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-/* Safety: every guard sits beside its limit. */
+/* Safety: each guard as a heading and one line. */
 .safety { background: var(--band); padding: clamp(64px, 9vw, 112px) 0; }
 /* The shield ring: the five guards around your hub, with a dotted amber gap where they stop. */
 .safety-top { display: grid; gap: 8px 48px; align-items: center; margin-bottom: 48px; }
@@ -503,7 +503,7 @@ path.orb-glyph { fill: var(--fg); stroke: none; }
   display: grid; gap: 10px 32px; padding: 28px 0; border-bottom: 1px solid var(--line2);
 }
 @media (min-width: 900px) {
-  .guards li { grid-template-columns: 15rem minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .guards li { grid-template-columns: 17rem minmax(0, 1fr); align-items: start; }
 }
 .guards h3 { font-size: 1.125rem; }
 .guards p { color: var(--muted); max-width: 36em; }

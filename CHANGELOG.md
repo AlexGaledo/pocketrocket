@@ -13,6 +13,7 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 
 - The marketing site (`packages/site`) is redesigned in the app's current warm colours and Google Sans. The hero is a drawn group chat that ends on an approval card. The page covers how rooms, bots and approvals fit together, a feature list that marks what is only in the next release, a safety section that states each guard's limits, local and server setup, and a FAQ. The newsletter form still posts to `/api/subscribe`.
 - The hero now sits in a small orbit: the chat card is the planet, the bots circle it on tilted rings, hand work to each other as pulses, and one pulse waits at an amber approval checkpoint until it gets a tick. The pointer tilts the rings a little. Feature headings get small orbit icons, and the safety section shows its guards as a shield ring with a marked gap where they stop. Reduced motion shows a still frame; the animation pauses when the hero is off-screen.
+- The page copy is rewritten as a landing page: a benefit-led hero with Download and GitHub buttons, three benefit columns, three setup steps, a short safety section, six FAQs and a closing get-started section. Release-only features, file names, ports and per-guard limits moved off the page; the full threat model stays in SECURITY.md.
 - Fonts are self-hosted, and the site now sends a Content-Security-Policy that allows only its own files, the GitHub releases API and `/api/subscribe`. A new test fails if the inline theme script and the policy's hash drift apart.
 
 ### No keys in the repo
