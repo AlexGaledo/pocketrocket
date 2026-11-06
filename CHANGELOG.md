@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### PC runner and key kill switch
+
+- New PC runner (`scripts/pc-runner/`): a small Windows helper that runs owner-approved jobs from the server hub in folders you allow on your PC. It connects over an outbound SSH tunnel, shows the full prompt in a Run / Refuse dialog before anything runs (no answer in 10 minutes means Refuse), and runs Claude with a fixed tool list, never with permission checks off, and without loading any settings, hooks or MCP servers from the job folder itself. Jobs cannot edit `.git/`, `.gitattributes` or `.gitmodules`, and git runs with fsmonitor, pager and hooks forced off. Desktop shortcuts turn it on and off; it never starts by itself. See `scripts/pc-runner/README.md`.
+- Server: `deploy/keys.sh` lists every key the hub holds, by name only, with where to rotate each one. It can also move them all out of the hub at once and put them back later, or shred them. See "Kill switch" in `docs/SERVER.md`.
+
 ### PC runner (hub)
 
 - Bots can ask your own PC to run a Claude Code job with the new `run_on_pc` tool, in a folder the PC allows. You approve every job on a card, even with approvals bypassed (no "always" and no approval rule covers it), and the PC asks you again before it starts. One job runs at a time, at most five wait, a job nobody picks up within 30 minutes expires, and the bot gets back at most 20 KB of redacted output.

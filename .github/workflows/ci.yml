@@ -39,6 +39,12 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: PC runner tests
+        run: node --test "scripts/pc-runner/*.test.mjs"
+
+      - name: Syntax-check the kill switch
+        run: bash -n deploy/keys.sh
+
   desktop-check:
     name: Desktop (cargo check)
     runs-on: windows-latest
