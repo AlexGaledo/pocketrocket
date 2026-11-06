@@ -21,7 +21,8 @@
         "resizable": true,
         "center": true,
         "fullscreen": true,
-        "zoomHotkeysEnabled": true
+        "zoomHotkeysEnabled": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

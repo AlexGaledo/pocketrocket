@@ -3,7 +3,7 @@
 import type { FileEntry } from '@pocketrocket/shared';
 
 export type FileKind = 'folder' | 'doc' | 'pdf' | 'code' | 'image' | 'data' | 'archive' | 'media' | 'other';
-export type PreviewKind = 'image' | 'pdf' | 'markdown' | 'text' | 'audio' | 'video' | 'maybe-text';
+export type PreviewKind = 'image' | 'svg' | 'pdf' | 'markdown' | 'text' | 'audio' | 'video' | 'maybe-text';
 
 const KIND_EXTS: Record<Exclude<FileKind, 'folder' | 'other'>, string[]> = {
   doc: ['md', 'markdown', 'txt', 'rtf', 'doc', 'docx', 'odt', 'pages', 'log', 'tex'],
@@ -21,8 +21,20 @@ export function fileKind(e: Pick<FileEntry, 'kind' | 'ext'>): FileKind {
   return e.kind === 'dir' ? 'folder' : KIND_OF.get(e.ext) ?? 'other';
 }
 
-// What a browser shows itself. HEIC and TIFF do not decode in Chromium, so they are not here.
-const IMAGE_PREVIEW = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp', 'avif']);
+/**
+ * The only types a preview ever gives a blob URL, chosen by extension and never taken from the server or the bytes.
+ * All are passive (pictures, sound, video) or open in the browser's own PDF viewer; nothing here can run script in
+ * the app's origin, even if someone opens the blob URL in a tab. HEIC and TIFF don't decode in Chromium, so they
+ * aren't here; SVG can carry script, so it isn't either (it previews through a data: URL in an <img>, see FilePreview).
+ */
+export const BLOB_TYPES: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
+  bmp: 'image/bmp', ico: 'image/x-icon',
+  pdf: 'application/pdf',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+};
+const IMAGE_PREVIEW = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'avif']);
 // The hub's own text list (api/files.ts), plus formats that are text whatever their content type.
 const TEXT_PREVIEW = new Set([
   'txt', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'ini', 'xml', 'html', 'htm', 'css', 'scss', 'js', 'mjs', 'cjs', 'ts', 'tsx',
@@ -34,6 +46,7 @@ const TEXT_PREVIEW = new Set([
 export function previewKind(e: Pick<FileEntry, 'ext' | 'size'>): PreviewKind | null {
   const x = e.ext;
   if (IMAGE_PREVIEW.has(x)) return 'image';
+  if (x === 'svg') return 'svg';
   if (x === 'pdf') return 'pdf';
   if (x === 'md' || x === 'markdown') return 'markdown';
   if (TEXT_PREVIEW.has(x)) return 'text';

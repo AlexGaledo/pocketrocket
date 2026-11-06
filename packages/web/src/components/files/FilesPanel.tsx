@@ -6,10 +6,9 @@ import { ArrowDown, ArrowUp, ChevronRight, Download, Eye, FolderOpen, FolderPlus
 import { MAX_FILE_LIST_ENTRIES, MAX_FILE_UPLOAD_BYTES, isValidFileName, type FileEntry, type FileListing, type Room } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById, filesRevKey } from '../../store';
 import { api, ApiError } from '../../lib/api';
-import { Button, Dialog, Input, Menu, MenuContent, MenuItem, MenuSeparator, cn } from '../ui';
+import { Button, Dialog, Input, Menu, MenuContent, MenuItem, MenuSeparator, cn, confirmAction } from '../ui';
 import { RowIcon, TileIcon } from './FileIcon';
 import { FilePreview } from './FilePreview';
-import { useConfirm } from './FileConfirm';
 import { KIND_LABEL, baseName, fileKind, fmtBytes, fmtModified, fmtModifiedFull, joinPath, parentPath, resolveFileLink } from './fileKinds';
 
 type View = 'grid' | 'list';
@@ -47,16 +46,20 @@ function sortEntries(entries: FileEntry[], sort: Sort): FileEntry[] {
   return [...entries].sort((a, b) => (a.kind === b.kind ? by(a, b) * sort.dir : a.kind === 'dir' ? -1 : 1));
 }
 
-/** Saves a fetched file the way a link with `download` would. */
+/**
+ * Saves a fetched file the way a link with `download` would. Re-typed as octet-stream first, so the URL is only ever
+ * something to save: were it opened as a page, a text/html or SVG type would run in the app's origin.
+ */
 function saveBlob(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
   document.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  // The click has started the download by now; a moment's grace for a slow browser, then the URL goes.
+  setTimeout(() => URL.revokeObjectURL(url), 5_000);
 }
 
 const message = (e: unknown) => (e as Error)?.message || 'Unknown error';
@@ -177,7 +180,6 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
   const [naming, setNaming] = useState<Naming | null>(null);
   const [uploading, setUploading] = useState<{ i: number; n: number; name: string } | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [confirmEl, ask] = useConfirm();
 
   const listRef = useRef<HTMLUListElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -306,7 +308,7 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
 
   const remove = useCallback(async (e: FileEntry) => {
     const dir = e.kind === 'dir';
-    const ok = await ask({
+    const ok = await confirmAction({
       title: 'Delete ' + e.name + '?',
       body: dir ? "The folder and everything in it are deleted from the hub. Bots in this chat lose them too. This can't be undone." : "It's deleted from the hub, for the bots in this chat too. This can't be undone.",
       confirmLabel: 'Delete',
@@ -323,7 +325,7 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
     } catch (err) {
       toast("Couldn't delete " + e.name + ': ' + message(err), true);
     }
-  }, [ask, roomId, path, toast, reload, focusName]);
+  }, [roomId, path, toast, reload, focusName]);
 
   const submitName = async (name: string): Promise<string | null> => {
     if (!naming) return null;
@@ -357,7 +359,7 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
           done.push(f.name);
         } catch (err) {
           if (statusOf(err) !== 409) { toast("Couldn't upload " + f.name + ': ' + message(err), true); continue; }
-          const replace = await ask({ title: 'Replace ' + f.name + '?', body: 'A file with that name is already in ' + where + '. Replacing it overwrites it.', confirmLabel: 'Replace', danger: true });
+          const replace = await confirmAction({ title: 'Replace ' + f.name + '?', body: 'A file with that name is already in ' + where + '. Replacing it overwrites it.', confirmLabel: 'Replace', danger: true });
           if (!replace) continue;
           try {
             await api.files.uploadFile(roomId, into, f, true);
@@ -375,7 +377,7 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
     toast(done.length === 1 ? 'Uploaded ' + done[0] : 'Uploaded ' + done.length + ' files');
     focusNext.current = done.length === 1 ? done[0] : null;
     reload();
-  }, [roomId, path, toast, ask, reload]);
+  }, [roomId, path, toast, reload]);
 
   // ---- keyboard ----
   const cols = () => {
@@ -591,7 +593,6 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
           onDownload={download}
         />
       )}
-      {confirmEl}
     </div>
   );
 }

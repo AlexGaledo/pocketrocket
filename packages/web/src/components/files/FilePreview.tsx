@@ -1,5 +1,10 @@
-// One file, big. The bytes come with the hub token like any API call and are shown through a blob URL that only
-// this tab can use, so the token never rides a URL (lib/media.ts does the same for pictures).
+// One file, big. The bytes come with the hub token like any API call, so the token never rides a URL.
+//
+// Safety: a file here may be anything a bot or an upload put in the folder, including HTML or an SVG with script.
+// A blob: URL runs in the app's own origin if it is ever opened as a page, so a blob URL is only made with a type
+// from BLOB_TYPES (by extension, never the server's or the file's word), text is read as text, and SVG goes through
+// a data: URL in an <img> (no script in an image; an opaque origin, and Chromium refuses it as a top-level page).
+// Nothing here calls window.open. The hub's /raw route adds nosniff and a sandbox CSP for direct requests too.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
@@ -8,10 +13,22 @@ import { api, ApiError } from '../../lib/api';
 import { Button, DialogCloseButton, DialogShell, DialogTitle } from '../ui';
 import { Markdown, FileLinkBase } from '../Markdown';
 import { RowIcon } from './FileIcon';
-import { fmtBytes, fmtModifiedFull, joinPath, previewKind } from './fileKinds';
+import { BLOB_TYPES, fmtBytes, fmtModifiedFull, joinPath, previewKind } from './fileKinds';
 
 /** Text and code show this much; past it, a line says so and Download has the rest. */
 const TEXT_PREVIEW_BYTES = 1024 * 1024;
+/** An SVG past this is shown as its source instead: a data: URL that big is slow and pointless. */
+const SVG_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** The bytes as a data: URL of a fixed type. */
+function dataUrl(blob: Blob, type: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error ?? new Error('Could not read the file'));
+    r.onload = () => resolve(String(r.result));
+    r.readAsDataURL(new Blob([blob], { type }));
+  });
+}
 
 type Shown =
   | { kind: 'loading' }
@@ -46,11 +63,15 @@ export function FilePreview({ roomId, folder, files, index, onIndex, onClose, on
     api.files.blob(roomId, joinPath(folder, entry.name)).then(async (blob) => {
       if (!alive) return;
       if (kind === 'image' || kind === 'pdf' || kind === 'audio' || kind === 'video') {
-        // The type is set here rather than trusted from the response, so a PDF always opens in the PDF viewer and
-        // nothing else is ever handed to an iframe.
-        const typed = kind === 'pdf' ? new Blob([blob], { type: 'application/pdf' }) : blob;
-        url = URL.createObjectURL(typed);
+        const type = BLOB_TYPES[entry.ext];
+        if (!type) { setShown({ kind: 'none', why: 'No preview for .' + entry.ext + ' files.' }); return; }
+        url = URL.createObjectURL(new Blob([blob], { type }));
         setShown({ kind: 'url', as: kind, url });
+        return;
+      }
+      if (kind === 'svg' && blob.size <= SVG_IMAGE_BYTES) {
+        const src = await dataUrl(blob, 'image/svg+xml');
+        if (alive) setShown({ kind: 'url', as: 'image', url: src });
         return;
       }
       const head = await blob.slice(0, TEXT_PREVIEW_BYTES).text();
@@ -140,12 +161,14 @@ function Body({ shown, entry, folder, onDownload }: { shown: Shown; entry: FileE
     if (shown.as === 'image') {
       return (
         <div className="flex h-full items-center justify-center overflow-auto p-4">
-          <img src={shown.url} alt={entry.name} className="max-h-full max-w-full rounded-sm object-contain shadow-[var(--shadow-sm)]" />
+          <img src={shown.url} alt={entry.name} draggable={false} className="max-h-full max-w-full rounded-sm object-contain shadow-[var(--shadow-sm)]" />
         </div>
       );
     }
     if (shown.as === 'pdf') {
-      // data-own-arrows: the PDF viewer pages with the arrow keys itself.
+      // data-own-arrows: the PDF viewer pages with the arrow keys itself. No `sandbox`: Chromium and WebView2 refuse
+      // to show a PDF in any sandboxed frame (tried: every token set leaves it blank). The blob is always typed
+      // application/pdf here, so it opens in the browser's PDF viewer, never as a page of ours.
       return <iframe data-own-arrows title={entry.name} src={shown.url} className="block h-full w-full border-0" />;
     }
     if (shown.as === 'audio') {
