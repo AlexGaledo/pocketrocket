@@ -67,7 +67,7 @@ describe('PATCH /api/rooms/:id', () => {
 
   it('adds and removes, with a line for each, and says nothing when nothing changed', async () => {
     const [a, b, c] = [bot('Ann'), bot('Bob'), bot('Cid')];
-    const room = group([a.id, b.id]);
+    const room = group([a.id, b.id], a.id);
     await req('PATCH', '/api/rooms/' + room.id, { memberIds: [a.id, c.id] });
     expect(hub.repos.getRoom(room.id)!.memberIds.sort()).toEqual([a.id, c.id].sort());
     expect(lines(room.id)).toEqual([
@@ -111,6 +111,17 @@ describe('PATCH /api/rooms/:id', () => {
     const left = await req('PATCH', '/api/rooms/' + room.id, { memberIds: [a.id] });
     expect(left.json.coordinatorBotId).toBeNull();
     expect(lines(room.id).at(-1)).toBe('This chat has no coordinator now.');
+  });
+
+  it('always gives a group of two or more a coordinator, preferring a lead', async () => {
+    const [a, b] = [bot('Ann'), bot('Bob')];
+    const lead = hub.repos.createBot({ name: 'Lead', handle: 'crew-lead', title: '', description: 'x', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1 });
+    const made = await req('POST', '/api/rooms', { kind: 'group', name: 'new', memberIds: [a.id, lead.id], coordinatorBotId: null });
+    expect(made.json.coordinatorBotId).toBe(lead.id);
+    const room = group([a.id, b.id], a.id);
+    expect([a.id, b.id]).toContain((await req('PATCH', '/api/rooms/' + room.id, { coordinatorBotId: null })).json.coordinatorBotId);
+    const swapped = await req('PATCH', '/api/rooms/' + room.id, { memberIds: [b.id, lead.id] });
+    expect(swapped.json.coordinatorBotId).toBe(lead.id);
   });
 
   it('a deleted bot stops being the coordinator', async () => {

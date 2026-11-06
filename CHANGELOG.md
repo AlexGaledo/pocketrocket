@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Every group chat has a coordinator
+
+- A group chat with two or more bots always has a coordinator, so a message with no @mention always reaches someone. The hub prefers a bot whose handle or title reads as a lead (`wika-lead`, `chief`), else the first bot. An older chat with none gets one on its next unaddressed message, with a line in the chat saying who.
+- Outside MCP servers can be given to a room (`rooms` in `data/mcp-servers.json`, by id or name): every bot working in that room gets them.
+- Desktop: Ctrl + plus, Ctrl + minus and Ctrl + 0 zoom the app.
+
 ### Outside MCP servers for named bots
 
 - The owner can give named bots an outside MCP server (for example the Wika dashboard) in `data/mcp-servers.json`: a name, an `https` address, an optional key and a list of bot handles. It is read on every turn, so no restart is needed.

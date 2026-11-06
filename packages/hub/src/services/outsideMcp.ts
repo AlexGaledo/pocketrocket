@@ -12,11 +12,13 @@ import { DATA_DIR } from '../config.js';
  *     "wika": {
  *       "url": "https://dashboard.wikaph.com/api/mcp",
  *       "token": "<key>",
- *       "bots": ["wika-backend", "wika-app"]
+ *       "rooms": ["Wika"],
+ *       "bots": ["wika-backend"]
  *     }
  *   }
  *
- * `bots` lists handles. Tools from these servers are never pre-approved: outside bypass mode every call goes
+ * `rooms` lists room ids or names: every bot gets the server while it works in that room. `bots` lists
+ * handles that get it in every room. An entry needs at least one of the two. Tools from these servers are never pre-approved: outside bypass mode every call goes
  * through the approval broker like any other unlisted tool. Give a bot a read-only key.
  * Claude provider only; other adapters ignore it.
  */
@@ -33,7 +35,7 @@ export interface OutsideMcpServer {
 }
 
 /** The servers configured for this bot handle. A missing or broken file means none. */
-export function outsideMcpFor(handle: string, file: string = OUTSIDE_MCP_PATH): OutsideMcpServer[] {
+export function outsideMcpFor(handle: string, room: { id: string; name: string } | null, file: string = OUTSIDE_MCP_PATH): OutsideMcpServer[] {
   let raw: unknown;
   try {
     raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -44,8 +46,10 @@ export function outsideMcpFor(handle: string, file: string = OUTSIDE_MCP_PATH): 
   const out: OutsideMcpServer[] = [];
   for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!NAME_RE.test(name) || RESERVED.has(name) || !v || typeof v !== 'object') continue;
-    const s = v as { url?: unknown; token?: unknown; bots?: unknown };
-    if (!Array.isArray(s.bots) || !s.bots.includes(handle)) continue;
+    const s = v as { url?: unknown; token?: unknown; bots?: unknown; rooms?: unknown };
+    const byBot = Array.isArray(s.bots) && s.bots.includes(handle);
+    const byRoom = !!room && Array.isArray(s.rooms) && (s.rooms.includes(room.id) || s.rooms.includes(room.name));
+    if (!byBot && !byRoom) continue;
     if (typeof s.url !== 'string') continue;
     let url: URL;
     try {

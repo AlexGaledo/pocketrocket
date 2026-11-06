@@ -109,7 +109,7 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
       <Field className="mt-3">
         <Label hint="Answers messages with no @mention">Coordinator</Label>
         <Select value={coord && members.includes(coord) ? coord : ''} onChange={(e) => setCoord(e.target.value)}>
-          <option value="">None (@mention required)</option>
+          <option value="">{inRoom.length >= 2 ? 'Automatic (a lead, else the first bot)' : 'None'}</option>
           {inRoom.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </Select>
       </Field>

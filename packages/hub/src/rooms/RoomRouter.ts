@@ -1,3 +1,4 @@
+import { pickCoordinator } from './coordinator.js';
 import type { Bot, BotState, CauseKind, Message, Room, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
@@ -141,7 +142,17 @@ export class RoomRouter {
     else {
       targets = parseMentions(msg.text, members);
       if (!targets.length) {
-        const coord = room.coordinatorBotId ? members.find((b) => b.id === room.coordinatorBotId) : undefined;
+        let coord = room.coordinatorBotId ? members.find((b) => b.id === room.coordinatorBotId) : undefined;
+        // A group with no coordinator (an older room, or one whose coordinator left) gets one now, so an
+        // unaddressed message is never dropped. Saved, and said in the chat, so the owner can change it.
+        if (!coord && room.kind === 'group') {
+          coord = pickCoordinator(members) ?? undefined;
+          if (coord) {
+            this.repos.updateRoom(room.id, { coordinatorBotId: coord.id });
+            events.emitEvent({ type: 'rooms.changed', rooms: this.repos.listRooms() });
+            this.note(room, coord.name + ' (@' + coord.handle + ') is now coordinator of this chat: messages with no @mention go to them. Change it in the chat settings.', msg.causeId, 0);
+          }
+        }
         if (coord) targets = [coord];
       }
     }
