@@ -6,7 +6,7 @@ import type { Bot, ComputerStatus, Skill } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type BotTab } from '../store';
 import { api, ApiError } from '../lib/api';
 import { hasComputer } from '../lib/screenView';
-import { Avatar, Badge, Button, Input, Label, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn } from './ui';
+import { Avatar, Badge, Button, Input, Label, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, confirmAction } from './ui';
 import { VoicePanel } from './VoicePanel';
 import { TrainingSection } from './TrainingSection';
 import { SkillGitImport } from './SkillGitImport';
@@ -36,7 +36,7 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   const dm = rooms.find((r) => r.kind === 'dm' && r.memberIds[0] === bot.id);
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center gap-3 px-5">
+      <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
         <Button variant="ghost" size="icon" title="Back to chat" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button>
         <Avatar bot={bot} {...avatarStatus(statusOf(bot.id))} size={30} />
         <div className="min-w-0 flex-1">
@@ -147,7 +147,7 @@ function MemoryTab({ botId }: { botId: string }) {
   };
   const reset = async () => {
     if (!room) return;
-    if (!confirm('Bot forgets this chat. Memory stays.')) return;
+    if (!(await confirmAction({ title: 'Reset chat context?', body: 'The bot forgets this chat. Its memory stays.', confirmLabel: 'Reset' }))) return;
     await api.bots.resetSession(botId, room.id);
     toast('Chat context reset');
   };
@@ -207,7 +207,7 @@ function SkillsTab({ botId }: { botId: string }) {
     await load();
   };
   const review = async (s: Skill, status: 'approved' | 'pending') => { await api.skills.review(s.id, status); await load(); };
-  const remove = async (s: Skill) => { if (confirm('Delete ' + s.name + ' for all bots?')) { await api.skills.remove(s.id); await load(); } };
+  const remove = async (s: Skill) => { if (await confirmAction({ title: 'Delete ' + s.name + '?', body: 'It is removed for all bots.', confirmLabel: 'Delete', danger: true })) { await api.skills.remove(s.id); await load(); } };
   const createSkill = async () => {
     try { await api.skills.create(nw.name, nw.description, nw.markdown); setShowNew(false); setNw({ name: '', description: '', markdown: '' }); await load(); }
     catch (e) { toast((e as Error).message, true); }

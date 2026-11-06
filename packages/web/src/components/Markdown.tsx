@@ -56,8 +56,13 @@ function MdLink({ href, children, node: _node, ...rest }: ComponentPropsWithoutR
   );
 }
 
+/** A wide table scrolls inside its own box instead of pushing the whole transcript sideways. */
+function MdTable({ node: _node, ...rest }: ComponentPropsWithoutRef<'table'> & { node?: unknown }) {
+  return <div className="md-table"><table {...rest} /></div>;
+}
+
 // Module-level so ReactMarkdown sees the same object every render.
-const COMPONENTS: Components = { a: MdLink };
+const COMPONENTS: Components = { a: MdLink, table: MdTable };
 const PLUGINS = [remarkGfm];
 
 export function Markdown({ children }: { children: string }) {

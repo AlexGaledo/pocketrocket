@@ -32,7 +32,8 @@ export function Button({ className, variant = 'outline', size = 'md', ...p }: Bt
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel',
         size === 'sm' && 'h-7 px-2.5 text-ui',
         size === 'md' && 'h-8 px-3 text-ui',
-        size === 'icon' && 'h-8 w-8',
+        // A finger needs more than a pointer: icon buttons grow to 40px on touch screens.
+        size === 'icon' && 'h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10',
         variant === 'primary' && 'bg-ink text-ink-fg hover:opacity-90',
         variant === 'outline' && 'bg-card2 text-fg hover:brightness-95 dark:hover:brightness-110',
         variant === 'ghost' && 'text-muted hover:bg-hover hover:text-fg',
@@ -97,16 +98,18 @@ export function Label({ children, hint, htmlFor, id }: { children: React.ReactNo
  * padding inside it; a dialog with its own layout (Settings has a side nav) uses the shell directly
  * and renders `DialogTitle` itself.
  */
-export function DialogShell({ open, onOpenChange, className, hasDescription, children }: { open: boolean; onOpenChange: (o: boolean) => void; className?: string; hasDescription?: boolean; children: React.ReactNode }) {
+/** `stacked` raises a dialog over another open one, so its overlay dims the dialog underneath too. */
+export function DialogShell({ open, onOpenChange, className, hasDescription, role, stacked, children }: { open: boolean; onOpenChange: (o: boolean) => void; className?: string; hasDescription?: boolean; role?: 'dialog' | 'alertdialog'; stacked?: boolean; children: React.ReactNode }) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px] dark:bg-black/60" />
+        <DialogPrimitive.Overlay className={cn('fixed inset-0 bg-black/30 backdrop-blur-[2px] dark:bg-black/60', stacked ? 'z-[51]' : 'z-40')} />
         <DialogPrimitive.Content
           // Radix warns unless a dialog either has a Description or opts out with an explicit undefined.
           {...(hasDescription ? {} : { 'aria-describedby': undefined })}
+          {...(role ? { role } : {})}
           // max-w keeps every dialog inside a phone-width window instead of running off the right edge.
-          className={cn('fixed left-1/2 top-1/2 z-50 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl bg-panel shadow-[var(--shadow-lg)] focus:outline-none', className)}
+          className={cn('fixed left-1/2 top-1/2 max-w-[calc(100vw-1.5rem)]', stacked ? 'z-[52]' : 'z-50', '-translate-x-1/2 -translate-y-1/2 rounded-xl bg-panel shadow-[var(--shadow-lg)] focus:outline-none', className)}
         >
           {children}
         </DialogPrimitive.Content>
@@ -129,7 +132,7 @@ export function DialogCloseButton() {
 
 export function Dialog({ open, onOpenChange, title, description, children, wide }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; description?: string; children: React.ReactNode; wide?: boolean }) {
   return (
-    <DialogShell open={open} onOpenChange={onOpenChange} hasDescription={!!description} className={cn('max-h-[90vh] overflow-y-auto p-7', wide ? 'w-[720px]' : 'w-[520px]')}>
+    <DialogShell open={open} onOpenChange={onOpenChange} hasDescription={!!description} className={cn('max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain p-7', wide ? 'w-[720px]' : 'w-[520px]')}>
       <div className="mb-5 flex items-center justify-between">
         <DialogTitle>{title}</DialogTitle>
         <DialogCloseButton />
@@ -138,6 +141,66 @@ export function Dialog({ open, onOpenChange, title, description, children, wide 
       {children}
     </DialogShell>
   );
+}
+
+export interface ConfirmOptions {
+  /** The question, as the dialog's title: "Delete Scout?" */
+  title: string;
+  /** What happens, and what doesn't: "Chat history stays." */
+  body?: React.ReactNode;
+  /** A verb for what the button does ("Delete"), never "OK". */
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** Destructive: the confirm button uses the danger style. */
+  danger?: boolean;
+}
+
+/**
+ * The in-app stand-in for `window.confirm`: a small alert dialog with Cancel and one action. Cancel comes first, so
+ * it takes the initial focus and Enter on a stray keypress never deletes anything. Controlled; for a one-line
+ * "ask, then act", `confirmAction()` below is shorter.
+ */
+export function ConfirmDialog({ open, onOpenChange, onConfirm, title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger }: ConfirmOptions & { open: boolean; onOpenChange: (o: boolean) => void; onConfirm: () => void }) {
+  return (
+    // Stacked: it is often asked from inside another dialog (a bot's settings), and must sit over that one.
+    <DialogShell open={open} onOpenChange={onOpenChange} hasDescription={!!body} role="alertdialog" stacked className="w-[420px] p-6">
+      <DialogTitle>{title}</DialogTitle>
+      {body && <DialogPrimitive.Description className="mt-2 text-ui leading-relaxed text-muted">{body}</DialogPrimitive.Description>}
+      <div className="mt-6 flex justify-end gap-2">
+        <DialogPrimitive.Close asChild><Button>{cancelLabel}</Button></DialogPrimitive.Close>
+        <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm}>{confirmLabel}</Button>
+      </div>
+    </DialogShell>
+  );
+}
+
+type PendingConfirm = ConfirmOptions & { resolve: (ok: boolean) => void };
+let askConfirm: ((p: PendingConfirm) => void) | null = null;
+
+/**
+ * Ask, then act: `if (!(await confirmAction({ title: 'Delete Scout?', confirmLabel: 'Delete', danger: true }))) return;`
+ * Resolves true on the action, false on Cancel, Escape or a click outside. Needs `<ConfirmHost />` mounted once
+ * (App does); without it the answer is false, so nothing destructive runs unasked.
+ */
+export function confirmAction(options: ConfirmOptions): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (askConfirm) askConfirm({ ...options, resolve });
+    else resolve(false);
+  });
+}
+
+/** Renders whatever `confirmAction()` is asking. Mount once, near the root. */
+export function ConfirmHost() {
+  const [pending, setPending] = React.useState<PendingConfirm | null>(null);
+  React.useEffect(() => {
+    // A second question replaces the first, which counts as cancelled.
+    askConfirm = (next) => setPending((cur) => { cur?.resolve(false); return next; });
+    return () => { askConfirm = null; };
+  }, []);
+  if (!pending) return null;
+  const { resolve, ...options } = pending;
+  const answer = (ok: boolean) => { resolve(ok); setPending(null); };
+  return <ConfirmDialog open {...options} onOpenChange={(o) => { if (!o) answer(false); }} onConfirm={() => answer(true)} />;
 }
 
 /**
@@ -220,13 +283,13 @@ export function Switch({ checked, onChange, className, disabled, ...aria }: { ch
       {...aria}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-default disabled:opacity-60',
+        'relative h-6 w-10 shrink-0 rounded-full transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-default disabled:opacity-60',
         checked ? 'bg-ink' : 'bg-card2 ring-1 ring-inset ring-faint',
         className,
       )}
     >
       {/* left-0 matters: without it the knob starts from the button's centred content position. */}
-      <span aria-hidden className={cn('absolute left-0 top-0.5 h-5 w-5 rounded-full bg-panel shadow-[var(--shadow-sm)] transition-transform', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+      <span aria-hidden className={cn('absolute left-0 top-0.5 h-5 w-5 rounded-full bg-panel shadow-[var(--shadow-sm)] transition-transform motion-reduce:transition-none', checked ? 'translate-x-[18px]' : 'translate-x-0.5')} />
     </button>
   );
 }

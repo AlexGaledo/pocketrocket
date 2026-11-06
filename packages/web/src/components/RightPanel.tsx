@@ -202,7 +202,7 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
     <aside
       aria-label={bot.name + "'s screen"}
       hidden={glance && (dismissed || page || !live)}
-      className={cn('@container flex min-w-0 flex-col overflow-hidden', glance
+      className={cn('@container flex min-w-0 flex-col overflow-clip', glance
         ? 'fixed right-5 top-[60px] z-20 aspect-[16/10] w-[240px] rounded-lg bg-black shadow-[var(--shadow-overlay)] ring-1 ring-line max-sm:right-3 max-sm:w-[136px]'
         : 'panel w-full')}
     >
@@ -241,7 +241,7 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
         {live ? (
           src && <iframe key={nonce} title={bot.name + "'s screen"} src={src} onLoad={hideVncChrome} tabIndex={glance ? -1 : undefined} className={cn('block h-full w-full border-0', glance && 'pointer-events-none')} allow="clipboard-read; clipboard-write" />
         ) : !glance && (
-          <div className="flex h-full flex-col gap-2 p-1 text-hint text-muted">
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-hint text-muted">
             {!perBot ? (
               <>
                 <p className="font-medium text-fg">{state === undefined ? 'Checking…' : local ? 'Screen needs a server install.' : 'No screen on this server.'}</p>
