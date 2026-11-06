@@ -356,7 +356,7 @@ describe('/api/projects', () => {
 
   it('is for the owner: no token is refused, and a paired phone cannot reach it', async () => {
     expect((await request('GET', '/api/projects', { token: null })).status).toBe(401);
-    for (const [m, p] of [['GET', '/api/projects'], ['POST', '/api/projects'], ['PUT', '/api/projects/x/members'], ['GET', '/api/projects/x/search'], ['DELETE', '/api/projects/x']] as const) {
+    for (const [m, p] of [['GET', '/api/projects'], ['POST', '/api/projects'], ['PUT', '/api/projects/x/members'], ['PUT', '/api/projects/x/room'], ['GET', '/api/projects/x/search'], ['DELETE', '/api/projects/x']] as const) {
       expect(deviceMayAccess(m, p)).toBe(false);
     }
   });
@@ -368,7 +368,8 @@ describe('/api/projects', () => {
     expect((await request('PUT', '/api/projects/api-test/members', { body: { memberIds: [member.id] } })).json.memberIds).toEqual([member.id]);
     const room = hub.repos.createRoom({ kind: 'group', name: 'Api Test', memberIds: [member.id, stranger.id], coordinatorBotId: null });
     const dm = hub.repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [member.id], coordinatorBotId: null });
-    hub.repos.db.run('UPDATE projects SET room_id=? WHERE slug=?', room.id, 'api-test');
+    expect((await request('PUT', '/api/projects/api-test/room', { body: { roomId: dm.id } })).status).toBe(400);
+    expect((await request('PUT', '/api/projects/api-test/room', { body: { roomId: room.id } })).json.roomId).toBe(room.id);
     expect(botRoots(member.id, room.id)).toContain(path.join(dir, 'api-test'));
     // The same member from a direct chat, a stranger in the project's room, or no room at all: closed.
     expect(botRoots(member.id, dm.id)).not.toContain(path.join(dir, 'api-test'));
