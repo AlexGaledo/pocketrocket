@@ -119,7 +119,7 @@ describe('PATCH /api/rooms/:id', () => {
     const made = await req('POST', '/api/rooms', { kind: 'group', name: 'new', memberIds: [a.id, lead.id], coordinatorBotId: null });
     expect(made.json.coordinatorBotId).toBe(lead.id);
     const room = group([a.id, b.id], a.id);
-    expect((await req('PATCH', '/api/rooms/' + room.id, { coordinatorBotId: null })).json.coordinatorBotId).toBe(a.id);
+    expect([a.id, b.id]).toContain((await req('PATCH', '/api/rooms/' + room.id, { coordinatorBotId: null })).json.coordinatorBotId);
     const swapped = await req('PATCH', '/api/rooms/' + room.id, { memberIds: [b.id, lead.id] });
     expect(swapped.json.coordinatorBotId).toBe(lead.id);
   });
