@@ -311,6 +311,30 @@ h3 { font-size: 1.125rem; line-height: 1.35; font-weight: var(--w-semibold); let
   .hero .actions .btn { flex: 1 1 100%; }
 }
 
+/* The orbit stage: a full-bleed layer behind the hero. orbit.js draws the bots circling the room
+   (the planet) on the canvas. Light mode reads as a technical diagram on paper; dark mode as deep
+   space. The canvas fades out at the bottom so the hero meets the next section without a seam. */
+.hero-stage { position: relative; isolation: isolate; overflow: hidden; }
+.hero-stage .hero { position: relative; z-index: 1; }
+/* Stacked: leave a band between the buttons and the card for the planet to rise into. */
+@media (max-width: 979px) { .hero-stage .hero { gap: 112px; } }
+.orbit {
+  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  pointer-events: none; opacity: 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  transition: opacity 600ms ease;
+}
+.orbit.is-on { opacity: 1; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hero-stage {
+    background: radial-gradient(ellipse 70% 80% at 72% 42%, color-mix(in oklab, var(--tint-1) 55%, var(--bg)), var(--bg) 70%);
+  }
+}
+:root[data-theme="dark"] .hero-stage {
+  background: radial-gradient(ellipse 70% 80% at 72% 42%, color-mix(in oklab, var(--tint-1) 55%, var(--bg)), var(--bg) 70%);
+}
+
 /* The room illustration. Mirrors ChatPane: bubbles on card2 with a tucked corner, approval card with a
    warn ring, the work line. Pure CSS; nothing in it is focusable. */
 .room {
@@ -438,14 +462,48 @@ h3 { font-size: 1.125rem; line-height: 1.35; font-weight: var(--w-semibold); let
 .feature-col dt { font-weight: var(--w-semibold); margin-top: 22px; }
 .feature-col dd { color: var(--muted); margin-top: 4px; }
 
-/* Safety: every guard sits beside its limit. */
+/* Feature columns: each heading's icon sits on a small ring with one satellite. */
+.feature-col > h3 { display: flex; align-items: center; gap: 12px; }
+.orb { width: 36px; height: 36px; flex: none; overflow: visible; }
+.orb-ring { fill: none; stroke: var(--line2); stroke-width: 1.2; }
+.orb-sat { fill: var(--accent); transform-box: view-box; transform-origin: 50% 50%; }
+.orb-glyph { fill: none; stroke: var(--fg); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+path.orb-glyph { fill: var(--fg); stroke: none; }
+.feature-col:nth-child(2) .orb-sat { transform: rotate(120deg); }
+.feature-col:nth-child(3) .orb-sat { transform: rotate(240deg); }
+@media (prefers-reduced-motion: no-preference) {
+  .orb-sat { animation: orb-spin 22s linear infinite; }
+  .feature-col:nth-child(2) .orb-sat { animation-duration: 30s; animation-delay: -10s; }
+  .feature-col:nth-child(3) .orb-sat { animation-duration: 38s; animation-delay: -25s; }
+}
+@keyframes orb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Safety: each guard as a heading and one line. */
 .safety { background: var(--band); padding: clamp(64px, 9vw, 112px) 0; }
+/* The shield ring: the five guards around your hub, with a dotted amber gap where they stop. */
+.safety-top { display: grid; gap: 8px 48px; align-items: center; margin-bottom: 48px; }
+.safety-top .section-head { margin-bottom: 0; }
+@media (min-width: 900px) { .safety-top { grid-template-columns: minmax(0, 40rem) minmax(0, 1fr); } }
+.shield { width: 100%; max-width: 360px; height: auto; justify-self: center; overflow: visible; }
+.sh-orbit { fill: none; stroke: var(--line2); stroke-width: 1; stroke-dasharray: 1 5; }
+.sh-planet { fill: var(--panel); stroke: var(--line2); stroke-width: 1; }
+.sh-core { fill: var(--tint-1); }
+.sh-ring { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 6 4; }
+.sh-gap { fill: none; stroke: var(--warn); stroke-width: 1.6; stroke-dasharray: 1 4; stroke-linecap: round; }
+.sh-nodes circle { fill: var(--panel); stroke: var(--accent); stroke-width: 1.6; }
+.sh-labels text, .sh-limit { font-family: var(--mono); font-size: 11.5px; }
+.sh-labels text { fill: var(--muted); }
+.sh-limit { fill: var(--warn); font-weight: 600; }
+@media (prefers-reduced-motion: no-preference) {
+  .sh-ring { animation: sh-drift 14s linear infinite; }
+}
+@keyframes sh-drift { to { stroke-dashoffset: -100; } }
 .guards { border-top: 1px solid var(--line2); }
 .guards li {
   display: grid; gap: 10px 32px; padding: 28px 0; border-bottom: 1px solid var(--line2);
 }
 @media (min-width: 900px) {
-  .guards li { grid-template-columns: 15rem minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+  .guards li { grid-template-columns: 17rem minmax(0, 1fr); align-items: start; }
 }
 .guards h3 { font-size: 1.125rem; }
 .guards p { color: var(--muted); max-width: 36em; }
@@ -587,6 +645,91 @@ pre {
 .lost .lead { max-width: 30em; }
 .lost .code { font-family: var(--mono); color: var(--dim); font-size: 14px; margin-bottom: 20px; }
 
+/* ---- nav actions (Sign in, Get started) ---- */
+.btn-sm { min-height: 36px; padding: 0 14px; font-size: 14.5px; border-radius: 10px; }
+.nav-cta { display: flex; align-items: center; gap: 8px; }
+.nav-mobile-only { display: none; }
+@media (max-width: 820px) {
+  .nav-signin { display: none; }
+  .nav-mobile-only { display: block; }
+  .js .nav-cta { order: 1; margin-left: auto; }
+  .js .nav-cta ~ .theme-toggle { margin-left: 0; }
+}
+
+/* ---- pricing ---- */
+.pricing-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 40px; }
+.pricing-head .section-head { margin-bottom: 0; }
+/* The monthly / yearly switch needs main.js, so it only appears with JS. */
+.billing-toggle { display: none; padding: 4px; gap: 2px; border-radius: 999px; background: var(--card2); box-shadow: inset 0 0 0 1px var(--line); }
+.js .billing-toggle { display: inline-flex; }
+.billing-toggle button {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 16px;
+  border: 0; border-radius: 999px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 14.5px; font-weight: var(--w-medium); color: var(--muted);
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+.billing-toggle button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: var(--shadow), 0 0 0 1px var(--line2); }
+.billing-toggle button:focus-visible { outline-offset: 2px; border-radius: 999px; }
+@media (hover: hover) and (pointer: fine) { .billing-toggle button[aria-pressed="false"]:hover { color: var(--fg); } }
+.billing-toggle .save { font-size: 12px; color: var(--ok); font-weight: var(--w-semibold); }
+
+.tiers { display: grid; gap: 20px; }
+@media (min-width: 640px) { .tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1060px) { .tiers { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; } }
+.tier {
+  position: relative; display: flex; flex-direction: column; gap: 14px; min-width: 0;
+  background: var(--panel); border-radius: var(--r-xl); padding: 28px 24px;
+  box-shadow: var(--shadow), 0 0 0 1px var(--line);
+}
+.tier.is-featured { box-shadow: var(--shadow-lg), 0 0 0 2px var(--accent); }
+.tier-badge {
+  position: absolute; top: -12px; left: 24px; padding: 2px 10px; border-radius: 999px;
+  font-size: 12.5px; font-weight: var(--w-semibold); background: var(--tint-1); color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+.tier h3 { font-size: 1.25rem; }
+.tier-desc { color: var(--muted); font-size: 15px; margin-top: -8px; }
+.tier-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.price-amount { font-size: 2.25rem; line-height: 1.1; font-weight: var(--w-semibold); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.price-period { color: var(--muted); font-size: 15px; }
+.tier-credits {
+  align-self: flex-start; padding: 3px 10px; border-radius: 999px;
+  font-family: var(--mono); font-size: 13px; background: var(--card2); color: var(--fg);
+}
+.tier-list { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tier-list li { position: relative; padding-left: 24px; font-size: 15px; }
+.tier-list li::before {
+  content: ""; position: absolute; left: 3px; top: 0.42em;
+  width: 10px; height: 5px; border-left: 1.8px solid var(--ok); border-bottom: 1.8px solid var(--ok);
+  transform: rotate(-45deg);
+}
+.tier > .btn { margin-top: auto; width: 100%; }
+.pricing-note { margin-top: 28px; color: var(--muted); font-size: 15px; }
+
+/* ---- final call to action ---- */
+.cta-panel {
+  display: grid; justify-items: center; gap: 14px; text-align: center;
+  background: var(--panel); border-radius: var(--r-xl); padding: clamp(32px, 6vw, 64px) clamp(20px, 4vw, 44px);
+  box-shadow: var(--shadow), 0 0 0 1px var(--line);
+}
+.cta-panel p { color: var(--muted); font-size: 17px; }
+.cta-panel .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 10px; }
+#get-started + #newsletter { padding-top: 0; }
+
+/* ---- footer columns ---- */
+.foot-grid { display: grid; gap: 32px 24px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 12px; }
+.foot-about { grid-column: 1 / -1; }
+@media (min-width: 820px) {
+  .foot-grid { grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); }
+  .foot-about { grid-column: auto; }
+}
+.foot-name { font-weight: var(--w-semibold); font-size: 16px; }
+.foot-about .foot-brand { margin-top: 6px; max-width: 22em; }
+.foot-col h2 { font-size: 13.5px; font-weight: var(--w-semibold); letter-spacing: 0.01em; color: var(--fg); margin-bottom: 8px; }
+.foot-col a { color: var(--muted); font-size: 14.5px; text-decoration: none; display: inline-block; padding: 5px 0; }
+@media (hover: hover) and (pointer: fine) { .foot-col a:hover { color: var(--fg); text-decoration: underline; } }
+.foot-legal { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--dim); font-size: 13.5px; }
+
 /* ---- reduced motion ---- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
@@ -595,8 +738,9 @@ pre {
 
 /* ---- print ---- */
 @media print {
-  .site-nav, .skip-link, #newsletter, .copy-btn { display: none !important; }
+  .site-nav, .skip-link, #newsletter, .copy-btn, .billing-toggle { display: none !important; }
   .band, .safety { background: none; }
   .room { box-shadow: 0 0 0 1px #ccc; }
+  .orbit, .shield { display: none; }
   a { color: inherit; }
 }

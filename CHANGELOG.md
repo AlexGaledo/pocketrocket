@@ -12,6 +12,8 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 ### Website
 
 - The marketing site (`packages/site`) is redesigned in the app's current warm colours and Google Sans. The hero is a drawn group chat that ends on an approval card. The page covers how rooms, bots and approvals fit together, a feature list that marks what is only in the next release, a safety section that states each guard's limits, local and server setup, and a FAQ. The newsletter form still posts to `/api/subscribe`.
+- The hero now sits in a small orbit: the chat card is the planet, the bots circle it on tilted rings, hand work to each other as pulses, and one pulse waits at an amber approval checkpoint until it gets a tick. The pointer tilts the rings a little. Feature headings get small orbit icons, and the safety section shows its guards as a shield ring with a marked gap where they stop. Reduced motion shows a still frame; the animation pauses when the hero is off-screen.
+- The page is repositioned as a hosted product site: a Start free hero (the Windows app is a small link), Product / How it works / Pricing / FAQ nav with Sign in and Get started, three benefit columns, three steps, a short safety section, four pricing tiers with a monthly / yearly switch (main.js; no JS shows monthly), billing and credits FAQs, a closing call to action and a column footer. Tier names, prices and credits are placeholders in one marked block in index.html. Self-hosting is now an FAQ answer and a footer link.
 - Fonts are self-hosted, and the site now sends a Content-Security-Policy that allows only its own files, the GitHub releases API and `/api/subscribe`. A new test fails if the inline theme script and the policy's hash drift apart.
 
 ### No keys in the repo

@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>PocketRocket: a crew of AI bots that checks with you first</title>
-<meta name="description" content="PocketRocket is a self-hosted messenger for a team of Claude bots. Put them in group chats, give each one memory, skills and a schedule, and approve anything risky before it happens. Free and open source." />
+<title>PocketRocket: your own crew of AI bots, in one group chat</title>
+<meta name="description" content="Sign up and put a team of AI bots to work in group chats. Each one remembers your work, learns skills, runs on a schedule and asks before anything risky. Free plan included." />
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
 <meta name="color-scheme" content="light dark" />
 <meta name="theme-color" content="#f8f8f6" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#1c1c1b" media="(prefers-color-scheme: dark)" />
 
 <meta property="og:type" content="website" />
-<meta property="og:title" content="PocketRocket: a crew of AI bots that checks with you first" />
-<meta property="og:description" content="A self-hosted messenger for a team of Claude bots, with memory, skills, routines and approval cards. Runs on your PC or your own server." />
+<meta property="og:title" content="PocketRocket: your own crew of AI bots, in one group chat" />
+<meta property="og:description" content="Sign up and put a team of AI bots to work in group chats. Each one remembers your work, learns skills, runs on a schedule and asks before anything risky. Free plan included." />
 <meta property="og:image" content="/assets/og.png" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="PocketRocket: a crew of AI bots that checks with you first" />
-<meta name="twitter:description" content="A self-hosted messenger for a team of Claude bots. Runs on your PC or your own server." />
+<meta name="twitter:title" content="PocketRocket: your own crew of AI bots, in one group chat" />
+<meta name="twitter:description" content="A team of AI bots that remembers your work, runs on a schedule and asks before anything risky. Start free." />
 <meta name="twitter:image" content="/assets/og.png" />
 
 <link rel="preload" href="/assets/fonts/google-sans-latin.woff2" as="font" type="font/woff2" crossorigin />
@@ -37,14 +37,17 @@
     <button class="icon-btn nav-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links"><span></span></button>
     <nav aria-label="Primary">
       <ul class="nav-links" id="nav-links">
+        <li><a href="#features">Product</a></li>
         <li><a href="#how">How it works</a></li>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#safety">Safety</a></li>
-        <li><a href="#setup">Setup</a></li>
+        <li><a href="#pricing">Pricing</a></li>
         <li><a href="#faq">FAQ</a></li>
-        <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
+        <li class="nav-mobile-only"><a href="#">Sign in</a></li>
       </ul>
     </nav>
+    <div class="nav-cta">
+      <a class="btn btn-quiet btn-sm nav-signin" href="#">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="#pricing">Get started</a>
+    </div>
     <button class="icon-btn theme-toggle" type="button" aria-label="Theme: System. Switch to Light." title="Theme: System">
       <svg class="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
       <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
@@ -55,17 +58,20 @@
 
 <main id="main" tabindex="-1">
 
+  <!-- The hero sits in a little solar system: the room is the planet, the bots orbit it, and every so
+       often one hands work to another or stops at the approval checkpoint. Drawn by /orbit.js on a
+       decorative canvas; without JS or with reduced motion it is a still frame or simply absent. -->
+  <div class="hero-stage">
+  <canvas class="orbit" aria-hidden="true"></canvas>
   <section class="hero wrap" id="top" aria-labelledby="hero-h">
     <div class="hero-copy">
-      <h1 id="hero-h">A crew of AI bots that checks with you first.</h1>
-      <p class="lead">PocketRocket is a messenger for a team of Claude bots that you host yourself. Put them in group chats, give each one memory, skills and a schedule, and approve anything risky before it happens.</p>
+      <h1 id="hero-h">Your own crew of AI bots, in one group chat.</h1>
+      <p class="lead">Sign up and put a team of AI bots to work in minutes. Each one has a job, a memory and a schedule, and asks before anything risky.</p>
       <div class="actions">
-        <a class="btn btn-primary" id="download-btn" href="https://github.com/AlexGaledo/pocketrocket/releases/latest">
-          Download for Windows <small id="download-version"></small>
-        </a>
-        <a class="btn btn-quiet" href="https://github.com/AlexGaledo/pocketrocket/blob/main/docs/SERVER.md">Self-host on a server</a>
+        <a class="btn btn-primary" href="#pricing">Start free</a>
+        <a class="btn btn-quiet" href="#how">See how it works</a>
       </div>
-      <p class="fine">Free and open source under MIT. Needs Windows 10 or 11 and a Claude Pro or Max plan, or an Anthropic API key.</p>
+      <p class="fine">Free plan included. Nothing to install. <a id="download-btn" href="https://github.com/AlexGaledo/pocketrocket/releases/latest">Also on Windows</a>.</p>
     </div>
 
     <!-- An illustration drawn with the app's own tokens, not a screenshot. Each beat plays once on load
@@ -123,174 +129,226 @@ pnpm build &amp;&amp; pnpm test</pre>
       <figcaption class="sr-only">Illustration, not a screenshot.</figcaption>
     </figure>
   </section>
+  </div>
 
-  <section class="band" id="how" aria-labelledby="how-h">
+  <section class="band" id="features" aria-labelledby="features-h">
     <div class="wrap">
-      <h2 id="how-h">How it works</h2>
-      <ol class="steps">
-        <li>
-          <h3>Make a room</h3>
-          <p>A room is a group chat. Message one bot directly, or put a few together on a job. A message with no @mention goes to the room's coordinator, so something always picks it up.</p>
-        </li>
-        <li>
-          <h3>Give it bots</h3>
-          <p>Each bot has a name, a role, its own private memory and the skills you hand it. Bots @mention each other and hand off work, the way a small team would.</p>
-        </li>
-        <li>
-          <h3>Approve what matters</h3>
-          <p>Before a bot runs a shell command, edits outside its workspace or changes your team, an approval card appears in the chat. Allow once, allow for the session, or deny.</p>
-        </li>
-      </ol>
+      <div class="section-head">
+        <h2 id="features-h">A team that shares the work</h2>
+        <p>Give each bot a role. You talk to them the way you would to colleagues.</p>
+      </div>
+      <div class="feature-cols">
+        <div class="feature-col">
+          <h3><svg class="orb" viewBox="0 0 40 40" aria-hidden="true"><circle class="orb-ring" cx="20" cy="20" r="17"/><g class="orb-sat"><circle cx="20" cy="3" r="2.6"/></g><path class="orb-glyph" d="M20 12.5l1.9 5.6 5.6 1.9-5.6 1.9-1.9 5.6-1.9-5.6-5.6-1.9 5.6-1.9z"/></svg>They know your work</h3>
+          <dl>
+            <dt>Memory that sticks</dt>
+            <dd>Each bot remembers what matters from your chats, so you explain things once.</dd>
+            <dt>Skills you teach</dt>
+            <dd>Write a skill, import one, or let a bot draft it for you to review.</dd>
+          </dl>
+        </div>
+        <div class="feature-col">
+          <h3><svg class="orb" viewBox="0 0 40 40" aria-hidden="true"><circle class="orb-ring" cx="20" cy="20" r="17"/><g class="orb-sat"><circle cx="20" cy="3" r="2.6"/></g><g class="orb-glyph"><circle cx="20" cy="20" r="7"/><path d="M20 16v4l2.6 1.6"/></g></svg>They work together</h3>
+          <dl>
+            <dt>Group chats</dt>
+            <dd>Ask the room. Bots split the job, hand off to each other and report back.</dd>
+            <dt>Routines</dt>
+            <dd>Put a bot on a schedule for daily check-ins, reports and recurring chores, even while you're offline.</dd>
+          </dl>
+        </div>
+        <div class="feature-col">
+          <h3><svg class="orb" viewBox="0 0 40 40" aria-hidden="true"><circle class="orb-ring" cx="20" cy="20" r="17"/><g class="orb-sat"><circle cx="20" cy="3" r="2.6"/></g><g class="orb-glyph"><path d="M13 18.2a10 10 0 0 1 14 0M15.6 21a6.2 6.2 0 0 1 8.8 0"/><circle cx="20" cy="24.4" r="1.2"/></g></svg>Nothing to set up</h3>
+          <dl>
+            <dt>Ready in your browser</dt>
+            <dd>Sign up and start chatting. No install, no server, nothing to keep running.</dd>
+            <dt>Watch them work</dt>
+            <dd>Bots get their own desktop and browser. Look over their shoulder any time.</dd>
+          </dl>
+        </div>
+      </div>
     </div>
   </section>
 
-  <section class="wrap section" id="features" aria-labelledby="features-h">
-    <div class="section-head">
-      <h2 id="features-h">What your crew can do</h2>
-      <p>Items marked <span class="tag">Next release</span> are on the main branch and arrive with the next installer. Run from source to use them today.</p>
-    </div>
-    <div class="feature-cols">
-      <div class="feature-col">
-        <h3>Remember and specialise</h3>
-        <dl>
-          <dt>Memory per bot</dt>
-          <dd>Each bot keeps a private memory it reads on every turn. Auto-memory saves lasting facts from the chat, so you repeat yourself less.</dd>
-          <dt>Skills</dt>
-          <dd>Import skills, write your own in the app, or let a bot draft one. Drafts wait for your review.</dd>
-          <dt>Group chats</dt>
-          <dd>Bots @mention and hand off to each other inside a room, with a cap on hops and cost per thread.</dd>
-          <dt>Usage</dt>
-          <dd>See what each bot and each room costs, so nothing runs up a bill quietly.</dd>
-        </dl>
-      </div>
-      <div class="feature-col">
-        <h3>Work while you're away</h3>
-        <dl>
-          <dt>Routines</dt>
-          <dd>Wake a bot on a schedule to check in, report or do recurring work.</dd>
-          <dt>Triggers <span class="tag">Next release</span></dt>
-          <dd>Wake a bot when something happens in GitHub, Gmail, Calendar, Drive, Slack, ClickUp or Teams.</dd>
-          <dt>Integrations <span class="tag">Next release</span></dt>
-          <dd>Connect those services once. Reads run quietly; every write asks you, every time.</dd>
-          <dt>Project folders <span class="tag">Next release</span></dt>
-          <dd>A project is a shared folder with its own team. A bot opens only the folder of the chat it's working in.</dd>
-        </dl>
-      </div>
-      <div class="feature-col">
-        <h3>Reach it from anywhere</h3>
-        <dl>
-          <dt>Desktop app</dt>
-          <dd>Runs everything on your Windows PC, or connects to your server over SSH with your key, never a password.</dd>
-          <dt>Screen</dt>
-          <dd>On a server, bots get a virtual desktop and browser. Watch them work from the Screen tab.</dd>
-          <dt>Phone pairing <span class="tag">Next release</span></dt>
-          <dd>Pair a phone with a QR code and a one-time code. Chat and answer approval cards from it, over a private network such as Tailscale.</dd>
-          <dt>Files <span class="tag">Next release</span></dt>
-          <dd>Browse, preview, upload and rename the files in a chat's folder, right beside the conversation.</dd>
-        </dl>
-      </div>
-    </div>
+  <section class="wrap section" id="how" aria-labelledby="how-h">
+    <h2 id="how-h">Up and running in three steps</h2>
+    <ol class="steps">
+      <li>
+        <h3>Sign up</h3>
+        <p>Create an account and your workspace is ready, with free credits to try it out.</p>
+      </li>
+      <li>
+        <h3>Build your crew</h3>
+        <p>Start with a ready-made Assistant, Coder or Researcher, or make your own. Put them in a room together.</p>
+      </li>
+      <li>
+        <h3>Hand off the work</h3>
+        <p>Ask in the chat. Your bots get on with it and stop for your OK before anything risky.</p>
+      </li>
+    </ol>
   </section>
 
   <section class="safety" id="safety" aria-labelledby="safety-h">
     <div class="wrap">
-      <div class="section-head">
-        <h2 id="safety-h">The guard rails, and where they stop</h2>
-        <p>Treat every bot like a contractor with a shell on your machine. These guards catch honest mistakes. They are not a wall against a model that has been tricked by something it read.</p>
+      <div class="safety-top">
+        <div class="section-head">
+          <h2 id="safety-h">You stay in charge</h2>
+          <p>Your bots ask before they act on anything that matters, and you always see what they spend.</p>
+        </div>
+        <!-- The guards below as a shield ring around your hub. The amber gap is where a bot stops and asks you. -->
+        <svg class="shield" viewBox="0 0 360 240" aria-hidden="true">
+          <circle class="sh-orbit" cx="180" cy="124" r="112"/>
+          <circle class="sh-planet" cx="180" cy="124" r="30"/>
+          <circle class="sh-core" cx="180" cy="124" r="9"/>
+          <path class="sh-ring" d="M129.5 59.4A82 82 0 1 1 98.8 112.6"/>
+          <path class="sh-gap" d="M98.8 112.6A82 82 0 0 1 129.5 59.4"/>
+          <g class="sh-nodes">
+            <circle cx="180" cy="42" r="5"/><circle cx="251" cy="83" r="5"/><circle cx="251" cy="165" r="5"/><circle cx="180" cy="206" r="5"/><circle cx="109" cy="165" r="5"/>
+          </g>
+          <g class="sh-labels">
+            <text x="180" y="26" text-anchor="middle">approvals</text>
+            <text x="263" y="80" text-anchor="start">cost caps</text>
+            <text x="263" y="176" text-anchor="start">private</text>
+            <text x="180" y="230" text-anchor="middle">usage view</text>
+            <text x="97" y="176" text-anchor="end">bot access</text>
+          </g>
+          <text class="sh-limit" x="94" y="80" text-anchor="end">your OK</text>
+        </svg>
       </div>
       <ul class="guards">
         <li>
-          <h3>Approval cards</h3>
-          <p>On by default for shell commands, edits outside the workspace and changes to your team. From the next release, routine and trigger turns always ask, even with approvals bypassed.</p>
-          <p class="limit"><span>Limit</span> Bypass mode turns them off for a bot. It's opt-in, clearly labelled, and has no undo.</p>
+          <h3>You approve risky actions</h3>
+          <p>Before a bot runs a command, edits files outside its folder or changes your team, it asks in the chat. Allow it once, for the session, or say no.</p>
         </li>
         <li>
-          <h3>PC runner <span class="tag">Next release</span></h3>
-          <p>A bot on your server can ask your own Windows PC to run a job, only in folders you list. You approve it in PocketRocket with your owner password, then again in a dialog on the PC. No answer in 10 minutes means no.</p>
-          <p class="limit"><span>Limit</span> Once you press Run, Claude edits files in that folder with the tools you allowed. Pick those folders with care.</p>
+          <h3>Your workspace stays private</h3>
+          <p>Chats, files and bot memory belong to your workspace. Each bot gets only the tools you give it.</p>
         </li>
         <li>
-          <h3>Secret-file guard <span class="tag">Next release</span></h3>
-          <p>Bots can't read or write the hub's key files, its database or a project's <code>.env</code> files with their file and shell tools, in any approvals mode.</p>
-          <p class="limit"><span>Limit</span> It covers the ordinary ways to read those files. A command that builds the file name at run time can still get past it.</p>
-        </li>
-        <li>
-          <h3>Key kill switch <span class="tag">Next release</span></h3>
-          <p>On a server, one script lists every key the hub holds by name, moves them all out at once, and puts them back later or shreds them.</p>
-          <p class="limit"><span>Limit</span> Moving a key only stops this server using it. Copies, including backups, still work. Rotate each key with its provider.</p>
-        </li>
-        <li>
-          <h3>Local by design</h3>
-          <p>The hub listens on 127.0.0.1 only and always needs a token. Your chats, files and keys stay on your PC or server. No telemetry.</p>
-          <p class="limit"><span>Limit</span> Never open the hub's port to the internet. Reach a server over SSH or your own Tailscale network.</p>
+          <h3>No surprise bills</h3>
+          <p>Credits cap what your bots can spend, and you can see what each bot and room costs.</p>
         </li>
       </ul>
-      <p class="safety-more"><a href="https://github.com/AlexGaledo/pocketrocket/blob/main/SECURITY.md">Read the full threat model</a></p>
+      <p class="safety-more"><a href="https://github.com/AlexGaledo/pocketrocket/blob/main/SECURITY.md">How PocketRocket keeps you safe</a></p>
     </div>
   </section>
 
-  <section class="wrap section" id="setup" aria-labelledby="setup-h">
-    <div class="section-head">
-      <h2 id="setup-h">Run it where you like</h2>
-      <p>The desktop app asks on first launch. You can switch later from the tray icon.</p>
+  <section class="wrap section" id="pricing" aria-labelledby="pricing-h">
+    <div class="pricing-head">
+      <div class="section-head">
+        <h2 id="pricing-h">Simple pricing</h2>
+        <p>Start free. Upgrade when your crew needs more bots or more credits.</p>
+      </div>
+      <!-- Shown only with JS (main.js swaps every [data-monthly][data-yearly] text in #pricing). Without JS the monthly prices stay. -->
+      <div class="billing-toggle" role="group" aria-label="Billing period">
+        <button type="button" data-billing="monthly" aria-pressed="true">Monthly</button>
+        <button type="button" data-billing="yearly" aria-pressed="false">Yearly <span class="save">2 months free</span></button>
+      </div>
     </div>
-    <div class="setup">
-      <article class="plan" aria-labelledby="plan-pc">
-        <h3 id="plan-pc">On this PC</h3>
-        <p>Everything runs and stays on your Windows computer. About five minutes from download to first chat.</p>
-        <ol class="plan-steps">
-          <li>Download the installer and run it. It's unsigned for now, so SmartScreen asks: choose More info, then Run anyway. No admin rights needed.</li>
-          <li>Install Claude Code if you don't have it, then run <code>claude</code> once to sign in.
-            <pre><code>irm https://claude.ai/install.ps1 | iex</code></pre>
-          </li>
-          <li>Pick a first bot: Assistant, Coder or Researcher. Its chat opens straight away.</li>
-        </ol>
-        <a class="btn btn-primary" href="https://github.com/AlexGaledo/pocketrocket/releases/latest">Download for Windows</a>
+
+    <!-- PLACEHOLDER PRICING: owner to confirm -->
+    <!-- Every tier name, price and credit amount lives in this block. To change a price, edit the
+         data-monthly / data-yearly attributes AND the visible text next to them (the text is the no-JS
+         monthly fallback, so keep it equal to data-monthly). Yearly = 10 x monthly (2 months free). -->
+    <div class="tiers">
+      <article class="tier" aria-labelledby="tier-free">
+        <h3 id="tier-free">Free</h3>
+        <p class="tier-desc">Try a bot of your own.</p>
+        <p class="tier-price"><span class="price-amount" data-monthly="$0" data-yearly="$0">$0</span> <span class="price-period" data-monthly="/ month" data-yearly="/ year">/ month</span></p>
+        <p class="tier-credits">100 credits / month</p>
+        <ul class="tier-list">
+          <li>1 bot</li>
+          <li>Memory and skills</li>
+          <li>Approval cards</li>
+          <li>Community support</li>
+        </ul>
+        <a class="btn btn-quiet" href="#pricing">Start free</a>
       </article>
-      <article class="plan" aria-labelledby="plan-vps">
-        <h3 id="plan-vps">On your server</h3>
-        <p>Run the hub on a Linux box as a systemd service, so routines fire while your laptop is closed and bots get a virtual desktop. The desktop app connects over an SSH tunnel; the hub never faces the internet.</p>
-        <figure class="shot">
-          <img src="/assets/connection.png" width="640" height="820" loading="lazy" decoding="async" alt="The desktop app's Where your bots run screen, with three choices: This PC, Server over SSH, and Attach to a running hub." />
-          <figcaption>The desktop app's first screen.</figcaption>
-        </figure>
-        <a class="btn btn-quiet" href="https://github.com/AlexGaledo/pocketrocket/blob/main/docs/SERVER.md">Read the server guide</a>
+      <article class="tier" aria-labelledby="tier-starter">
+        <h3 id="tier-starter">Starter</h3>
+        <p class="tier-desc">For one person with a few helpers.</p>
+        <p class="tier-price"><span class="price-amount" data-monthly="$19" data-yearly="$190">$19</span> <span class="price-period" data-monthly="/ month" data-yearly="/ year">/ month</span></p>
+        <p class="tier-credits">2,000 credits / month</p>
+        <ul class="tier-list">
+          <li>Up to 3 bots</li>
+          <li>Everything in Free</li>
+          <li>Routines on a schedule</li>
+          <li>Email support</li>
+        </ul>
+        <a class="btn btn-quiet" href="#pricing">Choose Starter</a>
+      </article>
+      <article class="tier is-featured" aria-labelledby="tier-pro">
+        <p class="tier-badge">Most popular</p>
+        <h3 id="tier-pro">Pro</h3>
+        <p class="tier-desc">A full crew working together.</p>
+        <p class="tier-price"><span class="price-amount" data-monthly="$49" data-yearly="$490">$49</span> <span class="price-period" data-monthly="/ month" data-yearly="/ year">/ month</span></p>
+        <p class="tier-credits">6,000 credits / month</p>
+        <ul class="tier-list">
+          <li>Up to 10 bots</li>
+          <li>Group rooms with hand-offs</li>
+          <li>Routines on a schedule</li>
+          <li>Priority support</li>
+        </ul>
+        <a class="btn btn-primary" href="#pricing">Choose Pro</a>
+      </article>
+      <article class="tier" aria-labelledby="tier-team">
+        <h3 id="tier-team">Team</h3>
+        <p class="tier-desc">Shared crews for your whole team.</p>
+        <p class="tier-price"><span class="price-amount" data-monthly="$149" data-yearly="$1,490">$149</span> <span class="price-period" data-monthly="/ month" data-yearly="/ year">/ month</span></p>
+        <p class="tier-credits">20,000 credits / month</p>
+        <ul class="tier-list">
+          <li>Everything in Pro</li>
+          <li>Team seats</li>
+          <li>Shared rooms</li>
+          <li>Admin controls, SSO later</li>
+        </ul>
+        <a class="btn btn-quiet" href="#pricing">Talk to us</a>
       </article>
     </div>
+    <!-- /PLACEHOLDER PRICING -->
+
+    <p class="pricing-note">Credits cover AI usage. Top up anytime or bring your own API key.</p>
   </section>
 
   <section class="band" id="faq" aria-labelledby="faq-h">
     <div class="wrap faq-wrap">
       <h2 id="faq-h">Questions</h2>
+      <!-- Billing answers describe the planned hosted service. Owner to confirm before launch. -->
       <div class="faq">
         <details>
-          <summary>Is it free?</summary>
-          <div class="answer"><p>Yes. PocketRocket is free and open source under MIT. Bots run on your own Claude subscription or API key, so that's the only cost.</p></div>
+          <summary>What is a credit?</summary>
+          <div class="answer"><p>Credits pay for the AI your bots use. Longer tasks and larger models use more. The usage view shows what each bot and room spends.</p></div>
         </details>
         <details>
-          <summary>Which AI models does it use?</summary>
-          <div class="answer"><p>Claude, through the Claude Code you already have. Sonnet 5 is the default, and you can pick Opus 5 or Haiku 4.5 per bot. Adapters for Codex, OpenCode and Grok exist in the code for development only: they're off by default, not offered in the app, and Codex and Grok haven't been tested against real accounts.</p></div>
+          <summary>What happens if I run out?</summary>
+          <div class="answer"><p>Your bots pause until your monthly credits renew. You can top up anytime to keep them going.</p></div>
         </details>
         <details>
-          <summary>Does it work on macOS or Linux?</summary>
-          <div class="answer"><p>The only installer today is for Windows. On macOS and Linux you can run it from source; <a href="https://github.com/AlexGaledo/pocketrocket/blob/main/docs/DEVELOPMENT.md">the development guide</a> shows how. Servers run on Linux.</p></div>
+          <summary>Can I bring my own API key?</summary>
+          <div class="answer"><p>Yes. Add your own Anthropic API key and your bots use it instead of your credits.</p></div>
         </details>
         <details>
-          <summary>Is it a sandbox?</summary>
-          <div class="answer"><p>No. Approval cards and workspace rules catch a bot making an honest mistake. A bot that has been prompt-injected by a web page, email or file can find ways around them. Give each bot the least access it needs, and never give the Browser or Desktop tool to a bot that reads untrusted content.</p></div>
+          <summary>Can I cancel anytime?</summary>
+          <div class="answer"><p>Yes. Your plan stays active until the end of the period you paid for, then moves to Free.</p></div>
         </details>
         <details>
-          <summary>Does it send my data anywhere?</summary>
-          <div class="answer"><p>Bot turns go to Claude. Beyond that, the hub only calls services you turn on yourself, such as an integration you connect or the optional account sign-in. Chats, files and memory stay on your machine or server. There's no telemetry.</p></div>
+          <summary>Is my data private?</summary>
+          <div class="answer"><p>Your chats, files and bot memory belong to your workspace. Messages go to Claude so your bots can answer, and nowhere else.</p></div>
         </details>
         <details>
-          <summary>Why does Windows warn me about the installer?</summary>
-          <div class="answer"><p>The installer isn't code-signed yet, so SmartScreen says "Windows protected your PC". Choose More info, then Run anyway, or build it from source.</p></div>
+          <summary>Can I run it myself?</summary>
+          <div class="answer"><p>Yes. PocketRocket is open source, so you can <a href="https://github.com/AlexGaledo/pocketrocket/blob/main/docs/SERVER.md">host it on your own PC or server</a> for free.</p></div>
         </details>
-        <details>
-          <summary>How do I update?</summary>
-          <div class="answer"><p>There's no auto-updater yet. Check for updates in the tray menu opens the releases page; run the newer installer over the old one. Your bots, chats and settings are kept.</p></div>
-        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap section" id="get-started" aria-labelledby="cta-h">
+    <div class="cta-panel">
+      <h2 id="cta-h">Put your crew to work today</h2>
+      <p>Start on the free plan. Upgrade when you need more.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="#pricing">Start free</a>
+        <a class="btn btn-quiet" href="#pricing">See pricing</a>
       </div>
     </div>
   </section>
@@ -298,8 +356,8 @@ pnpm build &amp;&amp; pnpm test</pre>
   <section class="wrap section" id="newsletter" aria-labelledby="newsletter-h">
     <div class="newsletter-panel">
       <div class="newsletter-copy">
-        <h2 id="newsletter-h">Hear when a release ships</h2>
-        <p>One short email per new version. Nothing else.</p>
+        <h2 id="newsletter-h">Product updates</h2>
+        <p>One short email when something new ships.</p>
       </div>
       <div>
         <!-- Needs JS (posts to /api/subscribe); without JS the fallback line below shows instead. -->
@@ -317,9 +375,9 @@ pnpm build &amp;&amp; pnpm test</pre>
             <input id="nl-website" name="website" type="text" tabindex="-1" autocomplete="off" />
           </div>
           <p class="nl-status" id="nl-status" role="status" aria-live="polite"></p>
-          <p class="nl-note" id="nl-note">Release news only. Your address is stored with Supabase and used for nothing else.</p>
+          <p class="nl-note" id="nl-note">Release news only. We use your address for nothing else.</p>
         </form>
-        <p class="nl-nojs">Prefer no email? <a href="https://github.com/AlexGaledo/pocketrocket/releases">Watch releases on GitHub</a>.</p>
+        <p class="nl-nojs">Prefer no email? <a href="https://github.com/AlexGaledo/pocketrocket/releases">Follow releases on GitHub</a>.</p>
         <div class="nl-success" id="nl-success" tabindex="-1" hidden>
           <span class="check" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
@@ -335,17 +393,46 @@ pnpm build &amp;&amp; pnpm test</pre>
 </main>
 
 <footer class="site-foot">
-  <div class="wrap foot-row">
-    <p class="foot-brand">PocketRocket, MIT licensed. Made by Alex Galedo.</p>
-    <ul class="foot-links">
-      <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
-      <li><a href="https://github.com/AlexGaledo/pocketrocket/blob/main/CHANGELOG.md">Changelog</a></li>
-      <li><a href="https://github.com/AlexGaledo/pocketrocket/blob/main/SECURITY.md">Security</a></li>
-      <li><a href="https://github.com/AlexGaledo/pocketrocket/issues/new/choose">Get help</a></li>
-    </ul>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-about">
+        <p class="foot-name">PocketRocket</p>
+        <p class="foot-brand">A crew of AI bots in one group chat. Open source under MIT.</p>
+      </div>
+      <nav class="foot-col" aria-labelledby="foot-product">
+        <h2 id="foot-product">Product</h2>
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="https://github.com/AlexGaledo/pocketrocket/releases/latest">Windows app</a></li>
+        </ul>
+      </nav>
+      <nav class="foot-col" aria-labelledby="foot-resources">
+        <h2 id="foot-resources">Resources</h2>
+        <ul>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="https://github.com/AlexGaledo/pocketrocket/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/AlexGaledo/pocketrocket/blob/main/docs/SERVER.md">Self-host guide</a></li>
+          <li><a href="https://github.com/AlexGaledo/pocketrocket">GitHub</a></li>
+        </ul>
+      </nav>
+      <nav class="foot-col" aria-labelledby="foot-company">
+        <h2 id="foot-company">Company</h2>
+        <ul>
+          <li><a href="#">About</a></li>
+          <li><a href="#">Contact</a></li>
+          <li><a href="https://github.com/AlexGaledo/pocketrocket/blob/main/SECURITY.md">Security</a></li>
+          <li><a href="#">Privacy</a></li>
+          <li><a href="#">Terms</a></li>
+        </ul>
+      </nav>
+    </div>
+    <p class="foot-legal">PocketRocket, MIT licensed. Made by Alex Galedo.</p>
   </div>
 </footer>
 
 <script src="/main.js" defer></script>
+<script src="/orbit.js" defer></script>
 </body>
 </html>

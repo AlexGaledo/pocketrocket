@@ -7,7 +7,9 @@
 // 5. the nav hairline once the page has scrolled
 // 6. newsletter signup (POST /api/subscribe)
 // 7. print prep: open every FAQ answer
-// The hero's chat illustration plays in pure CSS (styles.css, .room .b1 to .b5); nothing here drives it.
+// 8. pricing: the monthly / yearly billing switch
+// The hero's chat illustration plays in pure CSS (styles.css, .room .b1 to .b5); the orbit behind it is
+// orbit.js, loaded by index.html only.
 
 // One polite live region for short status messages (copy results), created up front so screen readers
 // already track it when the first message lands.
@@ -330,5 +332,25 @@ function currentTheme() {
   window.addEventListener("afterprint", function () {
     opened.forEach(function (d) { d.open = false; });
     opened = [];
+  });
+})();
+
+(function billingToggle() {
+  // Pricing: the Monthly / Yearly switch. Every element in #pricing with both data-monthly and
+  // data-yearly gets the matching text; the HTML ships the monthly text, so no JS means monthly prices.
+  var pricing = document.getElementById("pricing");
+  var group = pricing && pricing.querySelector(".billing-toggle");
+  if (!group) return;
+  var buttons = group.querySelectorAll("button[data-billing]");
+  var targets = pricing.querySelectorAll("[data-monthly][data-yearly]");
+
+  buttons.forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (b.getAttribute("aria-pressed") === "true") return;
+      var period = b.getAttribute("data-billing");
+      buttons.forEach(function (o) { o.setAttribute("aria-pressed", o === b ? "true" : "false"); });
+      targets.forEach(function (el) { el.textContent = el.getAttribute("data-" + period); });
+      announce(period === "yearly" ? "Showing yearly prices, 2 months free" : "Showing monthly prices");
+    });
   });
 })();
