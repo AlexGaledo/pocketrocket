@@ -325,6 +325,75 @@ describe('jobs', () => {
   });
 });
 
+describe('the owner\'s job log', () => {
+  it('lists jobs newest first with bot, room, timing, cost and redacted output; one job by id', async () => {
+    const t = await pair();
+    const seen: unknown[] = [];
+    const off = events.onEvent((ev) => { if (ev.type === 'pc-runner.changed') seen.push(ev); });
+    const tl = tool();
+    const pending = tl.run({ folder: 'site', prompt: 'Build the site' });
+    const job = await claim(t);
+    clock += 1000;
+    await request('POST', '/api/pc-runner/jobs/' + job.id + '/start', { token: t, body: {} });
+    clock += 4000;
+    await request('POST', '/api/pc-runner/jobs/' + job.id + '/result', { token: t, body: { ok: true, output: 'built ' + TOKEN, costUsd: 0.05, durationMs: 3999.6 } });
+    await pending;
+    const { bot, room } = botAndRoom();
+    const older = hub.pcRunner.create({ botId: bot.id, roomId: room.id, folder: 'notes', prompt: 'never approved' });
+    hub.pcRunner.cancel(older.id, 'The turn was stopped');
+    off();
+
+    const r = await request('GET', '/api/pc-runner/jobs?limit=2');
+    expect(r.status).toBe(200);
+    expect(r.json).toHaveLength(2);
+    const [cancelled, done] = r.json;
+    expect(cancelled).toMatchObject({ id: older.id, status: 'cancelled', output: null, error: 'The turn was stopped', startedAt: null, refusedLocally: false });
+    expect(cancelled.finishedAt).toEqual(expect.any(Number));
+    expect(done).toEqual({
+      id: job.id, bot: { id: tl.bot.id, handle: tl.bot.handle }, room: { id: tl.room.id, name: 'PC chat' }, folder: 'site', prompt: 'Build the site',
+      status: 'done', output: expect.stringContaining('built '), costUsd: 0.05, durationMs: 4000,
+      createdAt: expect.any(Number), startedAt: expect.any(Number), finishedAt: expect.any(Number), refusedLocally: false, error: null,
+    });
+    expect(done.output).not.toContain(TOKEN);
+    expect(done.finishedAt - done.startedAt).toBe(4000);
+    expect((await request('GET', '/api/pc-runner/jobs/' + job.id)).json).toEqual(done);
+    expect((await request('GET', '/api/pc-runner/jobs/nope')).status).toBe(404);
+    // Live updates name the job and carry nothing else.
+    expect(seen).toContainEqual({ type: 'pc-runner.changed', jobId: job.id });
+    for (const ev of seen) for (const k of Object.keys(ev as object)) expect(['type', 'jobId']).toContain(k);
+    expect(JSON.stringify(seen)).not.toContain('Build the site');
+  });
+
+  it('a job refused on the PC says so', async () => {
+    const t = await pair();
+    const pending = tool().run({ folder: 'site', prompt: 'deploy' });
+    const job = await claim(t);
+    await request('POST', '/api/pc-runner/jobs/' + job.id + '/result', { token: t, body: { ok: false, refusedLocally: true, output: '' } });
+    await pending;
+    expect((await request('GET', '/api/pc-runner/jobs/' + job.id)).json).toMatchObject({ status: 'refused', refusedLocally: true, error: null });
+  });
+
+  it('only the owner reads it: the runner token and a paired phone get 403', async () => {
+    const t = await pair();
+    const { bot, room } = botAndRoom();
+    const j = hub.pcRunner.create({ botId: bot.id, roomId: room.id, folder: 'site', prompt: 'secret plan' });
+    const { code } = hub.devices.mintPairingCode();
+    const device = hub.devices.redeem(code, 'phone').token;
+    for (const tok of [t, device]) {
+      for (const p of ['/api/pc-runner/jobs', '/api/pc-runner/jobs?limit=5', '/api/pc-runner/jobs/' + j.id]) {
+        const r = await request('GET', p, { token: tok });
+        expect([p, r.status]).toEqual([p, 403]);
+        expect(JSON.stringify(r.json)).not.toContain('secret plan');
+      }
+    }
+    expect((await request('GET', '/api/pc-runner/jobs', { token: null })).status).toBe(401);
+    expect(runnerMayAccess('GET', '/api/pc-runner/jobs')).toBe(false);
+    expect(runnerMayAccess('GET', '/api/pc-runner/jobs/' + j.id)).toBe(false);
+    expect(deviceMayAccess('GET', '/api/pc-runner/jobs')).toBe(false);
+    expect(deviceMayAccess('GET', '/api/pc-runner/jobs/' + j.id)).toBe(false);
+  });
+});
+
 describe('the approval card', () => {
   it('asks on every call under bypass: neither "always" nor an allow rule pre-approves run_on_pc', async () => {
     const { bot, room } = botAndRoom();
@@ -332,9 +401,11 @@ describe('the approval card', () => {
     hub.approvals.addPolicy({ botId: bot.id, tool: 'run_on_pc', pattern: '*', decision: 'allow', scope: 'always' });
     expect(broker.matchPolicy(bot.id, 'run_on_pc', '*')).toBeNull();
     const seen: unknown[] = [];
+    const onceFlags: unknown[] = [];
     const off = events.onEvent((ev) => {
       if (ev.type === 'approval.request' && ev.botId === bot.id) {
         seen.push(ev.approval.toolInput);
+        onceFlags.push(ev.approval.once);
         setTimeout(() => broker.resolve(ev.approval.approvalId, 'always', { signedIn: true }), 0);
       }
     });
@@ -346,6 +417,8 @@ describe('the approval card', () => {
     }
     off();
     expect(seen).toEqual([input, input]);
+    // The card offers no "for this session".
+    expect(onceFlags).toEqual([true, true]);
     // A deny rule still refuses.
     hub.approvals.addPolicy({ botId: bot.id, tool: 'run_on_pc', pattern: '*', decision: 'deny', scope: 'always' });
     expect((await broker.askFleetChange(ctx, 'run_on_pc', input, 'r', new AbortController().signal, { evenUnderBypass: true })).allowed).toBe(false);

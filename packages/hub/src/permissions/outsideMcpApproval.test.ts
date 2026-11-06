@@ -42,6 +42,8 @@ describe('askOutsideMcp', () => {
     expect(a.cards).toHaveLength(1);
     expect(a.cards[0].toolName).toBe('mcp__runpod__create_pod');
     expect(a.cards[0].toolInput).toEqual({ server: 'runpod', tool: 'create_pod', input: '{"gpu":"A100","count":2}' });
+    // The card offers no "for this session".
+    expect(a.cards[0].once).toBe(true);
   });
 
   it('is not skipped by an "allow" rule or an earlier "always" answer, and records no rule', async () => {

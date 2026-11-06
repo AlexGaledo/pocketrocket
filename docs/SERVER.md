@@ -43,6 +43,32 @@ one and the old value stops working. **Never expose the port directly**;
 reach it over an SSH tunnel or Tailscale. Data lives in `/home/pocketrocket/pocketrocket/data/` on
 the VPS. Logs: `journalctl -u pocketrocket -f`.
 
+### Accounts (optional)
+
+The optional PocketRocket account (Settings → Account) needs a Supabase project. No project URL or key
+is in the repo, so a fresh server runs with accounts off (`GET /api/account` reports `enabled: false`)
+and everything else works as normal. To turn accounts on, put both values in a drop-in, which
+`scripts/deploy.sh` never overwrites:
+
+```bash
+sudo systemctl edit pocketrocket
+```
+
+```ini
+[Service]
+Environment=POCKETROCKET_SUPABASE_URL=https://<project-ref>.supabase.co
+Environment=POCKETROCKET_SUPABASE_KEY=<publishable key>
+```
+
+```bash
+sudo systemctl restart pocketrocket
+sudo systemctl show pocketrocket -p DropInPaths   # confirms /etc/systemd/system/pocketrocket.service.d/override.conf
+```
+
+Use the **publishable** key only (Supabase dashboard → Project Settings → API Keys), never a secret or
+service-role key. Both must be set; one alone leaves accounts off. To turn accounts off again, delete
+the two lines (or the drop-in) and restart.
+
 ## Screen: a persistent desktop the bots and you share
 
 This is the **shared** screen, used when per-bot computers are off. With them on (the default on a

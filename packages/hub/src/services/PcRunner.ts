@@ -4,6 +4,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { nanoid } from 'nanoid';
 import type { Db } from '../db/db.js';
 import { addSecret, logError, redact, removeSecret } from '../providers/redact.js';
+import { events } from '../events.js';
 
 /**
  * The owner's Windows PC as a job runner. A helper on the PC polls the hub (over the SSH tunnel) with its own
@@ -42,6 +43,12 @@ export interface PcJob {
   costUsd: number | null;
   createdAt: number;
   updatedAt: number;
+  /** When the PC said it started (POST .../start). */
+  startedAt: number | null;
+  /** When the job reached a terminal status. */
+  finishedAt: number | null;
+  /** How long the PC says the run took. */
+  durationMs: number | null;
 }
 
 interface RunnerFile {
@@ -77,7 +84,13 @@ const toJob = (r: Record<string, unknown>): PcJob => ({
   costUsd: (r.cost_usd as number | null) ?? null,
   createdAt: r.created_at as number,
   updatedAt: r.updated_at as number,
+  startedAt: (r.started_at as number | null) ?? null,
+  finishedAt: (r.finished_at as number | null) ?? null,
+  durationMs: (r.duration_ms as number | null) ?? null,
 });
+
+/** Tells clients to refetch GET /api/pc-runner and its jobs. Carries no job content: paired phones get every event. */
+const changed = (jobId?: string) => events.emitEvent({ type: 'pc-runner.changed', ...(jobId ? { jobId } : {}) });
 
 export class PcRunnerError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -167,6 +180,7 @@ export class PcRunner {
     this.heardAt = null;
     this.save();
     this.cancelWhere(['claimed', 'running'], 'PC runner was paired again; this job was dropped');
+    changed();
     return token;
   }
 
@@ -177,7 +191,9 @@ export class PcRunner {
     if (this.liveToken) removeSecret(this.liveToken);
     this.liveToken = null;
     try { fs.rmSync(this.opts.file, { force: true }); } catch (e) { logError('[pc-runner]', e); }
-    return this.cancelWhere(OPEN, PC_OFF_MESSAGE);
+    const n = this.cancelWhere(OPEN, PC_OFF_MESSAGE);
+    changed();
+    return n;
   }
 
   /** Constant-time check of a presented token against the stored hash. */
@@ -193,14 +209,17 @@ export class PcRunner {
     const c = this.cfg;
     if (!c) throw new PcRunnerError(403, 'Not paired');
     const t = this.now();
+    const wasOnline = this.online();
     this.heardAt = t;
-    const changed = folders.join('\n') !== c.folders.join('\n');
+    const foldersChanged = folders.join('\n') !== c.folders.join('\n');
     // lastSeenAt survives a restart; written when the list changes or at most once a minute, not every beat.
-    if (changed || c.lastSeenAt === null || t - c.lastSeenAt >= 60_000) {
+    if (foldersChanged || c.lastSeenAt === null || t - c.lastSeenAt >= 60_000) {
       c.folders = [...folders];
       c.lastSeenAt = t;
       this.save();
     }
+    // Only on something the panel shows changing (came online, new folder list), not on every beat.
+    if (foldersChanged || !wasOnline) changed();
   }
 
   // ---------- jobs ----------
@@ -225,18 +244,31 @@ export class PcRunner {
       'INSERT INTO pc_jobs (id, bot_id, room_id, folder, prompt, status, result, cost_usd, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
       id, j.botId, j.roomId, j.folder, j.prompt, 'pending_approval', null, null, t, t,
     );
+    changed(id);
     return this.get(id)!;
   }
 
-  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null } = {}): boolean {
+  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null; durationMs?: number | null } = {}): boolean {
+    const t = this.now();
     const r = this.opts.db.run(
-      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), updated_at = ? ' +
+      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), duration_ms = COALESCE(?, duration_ms), updated_at = ?, ' +
+        'started_at = COALESCE(started_at, ?), finished_at = COALESCE(finished_at, ?) ' +
         'WHERE id = ? AND status IN (' + from.map(() => '?').join(',') + ')',
-      status, extra.result ?? null, extra.costUsd ?? null, this.now(), id, ...from,
+      status, extra.result ?? null, extra.costUsd ?? null, extra.durationMs ?? null, t,
+      status === 'running' ? t : null, TERMINAL.has(status) ? t : null, id, ...from,
     );
     const ok = Number(r.changes) > 0;
-    if (ok) this.wake(id);
+    if (ok) {
+      this.wake(id);
+      changed(id);
+    }
     return ok;
+  }
+
+  /** The owner's log, newest first. */
+  list(limit = 50): PcJob[] {
+    const n = Math.max(1, Math.min(200, Math.floor(limit) || 50));
+    return this.opts.db.all('SELECT * FROM pc_jobs ORDER BY created_at DESC, rowid DESC LIMIT ?', n).map(toJob);
   }
 
   /** The owner said yes on the card. False when the job was cancelled meanwhile (kill switch, abort). */
@@ -288,12 +320,12 @@ export class PcRunner {
    * What the PC reports. The output is redacted (known secrets, key-shaped strings) and then capped, before it is
    * stored or handed to the bot.
    */
-  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number }): PcJob {
+  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number; durationMs?: number }): PcJob {
     const j = this.get(id);
     if (!j) throw new PcRunnerError(404, 'No such job');
     const status: PcJobStatus = r.refusedLocally ? 'refused' : r.ok ? 'done' : 'failed';
     const output = capOutput(redact(r.output));
-    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null })) {
+    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null, durationMs: r.durationMs !== undefined ? Math.round(r.durationMs) : null })) {
       throw new PcRunnerError(409, 'Job is ' + j.status + '; it no longer takes a result');
     }
     return this.get(id)!;

@@ -5,6 +5,6 @@
   "version": "0.2.0",
   "scripts": {
     "build": "echo static",
-    "test": "echo skip"
+    "test": "node --test test/subscribe.test.cjs"
   }
 }
