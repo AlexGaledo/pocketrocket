@@ -58,7 +58,7 @@ function chunk(text: string): string[] {
 
 /**
  * Project folders: plain files on disk are the truth, and a bot works in a project's folder when the owner lists it
- * as a member. The search index is only a copy, rebuilt from the files whenever they change.
+ * as a member and it is replying in the project's room (rooms/roomFiles.ts). The search index is only a copy, rebuilt from the files whenever they change.
  */
 export class ProjectService {
   constructor(private deps: { db: Db; repos: Repos; memory: MemoryService; root: string; now?: () => number }) {}
@@ -92,17 +92,13 @@ export class ProjectService {
     if (!p) throw new ProjectError(404, 'No project called ' + slug);
     return p;
   }
+  /** The project whose group chat this room is, if any. */
+  forRoom(roomId: string): Project | undefined {
+    const r = this.db.get('SELECT * FROM projects WHERE room_id=? ORDER BY created_at LIMIT 1', roomId);
+    return r ? this.toProject(r) : undefined;
+  }
   knownSlugs(): string[] {
     return this.db.all('SELECT slug FROM projects').map((r) => r.slug as string);
-  }
-  slugsFor(botId: string): string[] {
-    return this.db.all('SELECT slug FROM project_members WHERE bot_id=? ORDER BY slug', botId).map((r) => r.slug as string);
-  }
-  dirsFor(botId: string): string[] {
-    return this.slugsFor(botId).map((s) => this.dirOf(s));
-  }
-  forBot(botId: string): Project[] {
-    return this.slugsFor(botId).map((s) => this.get(s)).filter((p): p is Project => !!p);
   }
 
   /** Never overwrites a folder that is already there, so a project can adopt existing files. */
@@ -182,6 +178,18 @@ export class ProjectService {
     for (const id of botIds) if (!this.deps.repos.getBot(id)) throw new ProjectError(400, 'Unknown bot id: ' + id);
     this.db.run('DELETE FROM project_members WHERE slug=?', slug);
     for (const id of new Set(botIds)) this.db.run('INSERT INTO project_members (slug,bot_id) VALUES (?,?)', slug, id);
+  }
+  /** Links the project to a group chat, so that chat's Files panel and bots use the project folder. Null unlinks. */
+  setRoom(slug: string, roomId: string | null) {
+    this.need(slug);
+    if (roomId !== null) {
+      const room = this.deps.repos.getRoom(roomId);
+      if (!room) throw new ProjectError(400, 'Unknown room id: ' + roomId);
+      if (room.kind !== 'group') throw new ProjectError(400, 'Only a group chat can be linked to a project');
+      const other = this.forRoom(roomId);
+      if (other && other.slug !== slug) throw new ProjectError(409, 'That chat is already linked to ' + other.name);
+    }
+    this.db.run('UPDATE projects SET room_id=? WHERE slug=?', roomId, slug);
   }
   /** Bots that were deleted lose their place. */
   pruneMembers(liveBotIds: string[]) {

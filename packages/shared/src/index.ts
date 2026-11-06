@@ -12,3 +12,5 @@ export * from './triggers.js';
 export * from './teach.js';
 // Bot training pilot
 export * from './training.js';
+// Room files
+export * from './files.js';
