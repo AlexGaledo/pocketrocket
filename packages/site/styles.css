@@ -41,6 +41,17 @@
   --tint-3: #f2e8d9;
   --shadow: 0 2px 6px rgba(60, 35, 0, 0.03), 0 8px 12px rgba(60, 35, 0, 0.03);
   --shadow-lg: 0 24px 60px rgba(20, 16, 10, 0.14), 0 2px 8px rgba(20, 16, 10, 0.06);
+  /* Launch layer (sky, stars, exhaust). Decorative only; no text sits on a colour that fails AA. */
+  --sky-top: #e9eef6;
+  --sky-mid: #f5f0e8;
+  --sky-glow: rgba(255, 255, 255, 0.7);
+  --horizon: rgba(246, 190, 130, 0.16);
+  --star: 96 106 128;
+  --star-a: 0.5;
+  --star-fade: 1;
+  --flame: #ec8433;
+  --flame-hot: #ffc77d;
+  --contrail: rgba(255, 255, 255, 0.95);
   color-scheme: light;
 }
 
@@ -68,6 +79,16 @@
     --tint-3: #40362a;
     --shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 8px 12px rgba(0, 0, 0, 0.10);
     --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+    --sky-top: #0e121b;
+    --sky-mid: #16191f;
+    --sky-glow: rgba(74, 104, 178, 0.2);
+    --horizon: rgba(244, 163, 90, 0.07);
+    --star: 255 244 226;
+    --star-a: 1;
+    --star-fade: 0.55;
+    --flame: #f4a35a;
+    --flame-hot: #ffe0b0;
+    --contrail: transparent;
     color-scheme: dark;
   }
 }
@@ -95,6 +116,16 @@
   --tint-3: #40362a;
   --shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 8px 12px rgba(0, 0, 0, 0.10);
   --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --sky-top: #0e121b;
+  --sky-mid: #16191f;
+  --sky-glow: rgba(74, 104, 178, 0.2);
+  --horizon: rgba(244, 163, 90, 0.07);
+  --star: 255 244 226;
+  --star-a: 1;
+  --star-fade: 0.55;
+  --flame: #f4a35a;
+  --flame-hot: #ffe0b0;
+  --contrail: transparent;
   color-scheme: dark;
 }
 
@@ -384,11 +415,19 @@ h3 { font-size: 1.125rem; line-height: 1.35; font-weight: var(--w-semibold); let
   .room .b1, .room .b2, .room .b3, .room .b4, .room .b5 {
     animation: beat 520ms var(--ease-out) both;
   }
-  .room .b1 { animation-delay: 300ms; }
-  .room .b2 { animation-delay: 1000ms; }
-  .room .b3 { animation-delay: 1700ms; }
-  .room .b4 { animation-delay: 2300ms; }
-  .room .b5 { animation-delay: 3300ms; }
+  /* The chat starts as the capsule docks (below). */
+  .room .b1 { animation-delay: 1150ms; }
+  .room .b2 { animation-delay: 1750ms; }
+  .room .b3 { animation-delay: 2350ms; }
+  .room .b4 { animation-delay: 2850ms; }
+  .room .b5 { animation-delay: 3750ms; }
+  /* The room card docks like a capsule: it rises a little, slows, and locks in while the rocket climbs. */
+  .room { animation: dock 1300ms cubic-bezier(0.16, 1, 0.3, 1) 350ms both; }
+}
+@keyframes dock {
+  from { opacity: 0; transform: translateY(36px) scale(0.965); }
+  60% { opacity: 1; }
+  to { opacity: 1; transform: none; }
 }
 @keyframes beat {
   from { opacity: 0; transform: translateY(10px); }
@@ -400,6 +439,100 @@ h3 { font-size: 1.125rem; line-height: 1.35; font-weight: var(--w-semibold); let
   .approval { margin-left: 0; }
   .msg.me { padding-left: 8%; }
 }
+
+/* ---- launch layer ----
+   The hero sits under a sky: CSS gradient (dawn in light, night in dark), a canvas starfield in three
+   parallax layers, and an SVG trail the rocket draws on load (launch.js). Everything here is aria-hidden
+   and pointer-events: none. Without JS it is just the sky; with reduced motion launch.js paints the
+   finished scene once and never moves it. */
+.sky {
+  position: relative; isolation: isolate; overflow: hidden;
+  background:
+    radial-gradient(90% 60% at 82% 0%, var(--sky-glow), transparent 70%),
+    radial-gradient(70% 45% at 8% 100%, var(--horizon), transparent 70%),
+    linear-gradient(to bottom, var(--sky-top) 0%, var(--sky-mid) 64%, var(--bg) 100%);
+}
+/* Let the sky run up behind the nav, which stays clear until the page scrolls. */
+.js .sky { margin-top: -64px; padding-top: 64px; }
+.js .site-nav:not(.is-scrolled):not(.is-nav-open) {
+  background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.sky-deco { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.stars, .launch { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sky .hero { position: relative; z-index: 1; }
+
+/* Daylight contrails: two hairlines high in the light sky. Gone at night. */
+.contrail {
+  position: absolute; height: 1.5px; border-radius: 2px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, transparent, var(--contrail) 70%, transparent);
+}
+.contrail.c1 { top: 18%; left: 52%; width: 34%; transform: rotate(-9deg); opacity: 0.9; }
+.contrail.c2 { top: 9%; left: 64%; width: 22%; transform: rotate(-14deg); opacity: 0.6; }
+
+/* The trail and rocket are hidden until launch.js has measured the headline and laid the path. */
+.launch { overflow: visible; opacity: 0; }
+.sky.is-ready .launch { opacity: 1; }
+.trail-glow, .trail-core { fill: none; stroke: url(#trail-grad); stroke-linecap: round; }
+.trail-glow { stroke-width: 7; opacity: 0.55; filter: url(#trail-blur); transition: opacity 1200ms ease; }
+.trail-core { stroke-width: 1.6; transition: opacity 1200ms ease; }
+.is-settled .trail-glow { opacity: 0.22; }
+.is-settled .trail-core { opacity: 0.7; }
+.trail-grad-tail { stop-color: var(--flame); stop-opacity: 0.28; }
+.trail-grad-mid { stop-color: var(--flame); stop-opacity: 0.9; }
+.trail-grad-head { stop-color: var(--flame-hot); stop-opacity: 1; }
+.rk-body { fill: var(--ink); }
+.rk-fin { fill: var(--accent); }
+.rk-port { fill: var(--sky-top); stroke: var(--accent); stroke-width: 1.2; }
+.rk-flame { fill: var(--flame); }
+.rk-flame-core { fill: var(--flame-hot); }
+
+/* The flight path: the trail carried down the page as a scroll progress line, with a node per section.
+   Only where the margin is wide enough to hold it clear of the text. */
+main { position: relative; }
+.flightpath { display: none; }
+@media (min-width: 1180px) {
+  .js .flightpath {
+    display: block; position: absolute; z-index: 2; pointer-events: none; top: 0; height: 0; width: 9px;
+    left: max(12px, calc((100% - var(--max)) / 2 - 32px));
+  }
+}
+.fp-track, .fp-fill { position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; }
+.fp-track { background: linear-gradient(to bottom, var(--line2) 60%, transparent); }
+.fp-fill {
+  width: 2px; left: 3.5px; transform-origin: 50% 0; transform: scaleY(0);
+  background: linear-gradient(to bottom, var(--flame), color-mix(in oklab, var(--flame) 55%, var(--accent)));
+}
+.fp-head, .fp-node {
+  position: absolute; left: 0; top: -4.5px; width: 9px; height: 9px; border-radius: 50%;
+}
+.fp-head {
+  background: var(--flame-hot);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--flame) 50%, transparent), 0 0 14px 3px color-mix(in oklab, var(--flame) 45%, transparent);
+}
+.fp-node {
+  background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--line2);
+  transition: background-color 300ms ease, box-shadow 300ms ease;
+}
+.fp-node.is-lit { background: var(--flame); box-shadow: inset 0 0 0 1.5px var(--flame), 0 0 0 4px color-mix(in oklab, var(--flame) 18%, transparent); }
+
+/* Primary hero CTA: a small rocket that ignites on hover, focus and press. */
+.btn-rocket { width: 20px; height: 20px; flex: none; overflow: visible; margin-left: -4px; }
+.btn-rocket .ig { transition: transform 220ms var(--ease-out); }
+.btn-rocket .ig-body { fill: currentColor; }
+.btn-rocket .ig-flame {
+  fill: var(--flame); transform-box: fill-box; transform-origin: 50% 0;
+  transform: scale(0.2, 0); transition: transform 180ms var(--ease-out);
+}
+.btn-ignite { transition: transform 160ms var(--ease-out), background-color 160ms ease, box-shadow 220ms ease; }
+.btn-ignite:focus-visible .ig { transform: translate(1px, -1px); }
+.btn-ignite:focus-visible .ig-flame { transform: none; }
+@media (hover: hover) and (pointer: fine) {
+  .btn-ignite:hover { box-shadow: 0 12px 28px -12px color-mix(in oklab, var(--flame) 80%, transparent); }
+  .btn-ignite:hover .ig { transform: translate(1px, -1px); }
+  .btn-ignite:hover .ig-flame { transform: none; }
+}
+.btn-ignite:active .ig { transform: translate(3px, -3px); transition-duration: 120ms; }
+.btn-ignite:active .ig-flame { transform: scale(1.15, 1.6); transition-duration: 120ms; }
 
 /* ---- sections ---- */
 .section { padding-top: clamp(64px, 9vw, 120px); padding-bottom: clamp(64px, 9vw, 120px); }
@@ -591,11 +724,13 @@ pre {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
   .btn:active, .copy-btn:active { transform: none; }
+  .btn-ignite .ig, .btn-ignite:active .ig { transform: none; }
 }
 
 /* ---- print ---- */
 @media print {
-  .site-nav, .skip-link, #newsletter, .copy-btn { display: none !important; }
+  .site-nav, .skip-link, #newsletter, .copy-btn, .sky-deco, .flightpath { display: none !important; }
+  .sky { background: none; }
   .band, .safety { background: none; }
   .room { box-shadow: 0 0 0 1px #ccc; }
   a { color: inherit; }

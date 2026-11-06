@@ -13,6 +13,7 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 
 - The marketing site (`packages/site`) is redesigned in the app's current warm colours and Google Sans. The hero is a drawn group chat that ends on an approval card. The page covers how rooms, bots and approvals fit together, a feature list that marks what is only in the next release, a safety section that states each guard's limits, local and server setup, and a FAQ. The newsletter form still posts to `/api/subscribe`.
 - Fonts are self-hosted, and the site now sends a Content-Security-Policy that allows only its own files, the GitHub releases API and `/api/subscribe`. A new test fails if the inline theme script and the policy's hash drift apart.
+- Site concept "Launch": the hero now sits under a sky, a dawn sky in light mode and a night sky in dark mode, with a three-layer starfield that moves slightly with scroll and the pointer. On load a small rocket lifts off and draws a warm trail behind the headline while the chat card docks. On wide screens the trail continues down the page as a scroll progress line through How it works, Features and Safety. The Download button's rocket ignites on hover. All of it is decorative, pauses when off screen, and becomes a still scene with reduced motion.
 
 ### No keys in the repo
 

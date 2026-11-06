@@ -8,6 +8,7 @@
 // 6. newsletter signup (POST /api/subscribe)
 // 7. print prep: open every FAQ answer
 // The hero's chat illustration plays in pure CSS (styles.css, .room .b1 to .b5); nothing here drives it.
+// The sky, rocket and flight path live in launch.js.
 
 // One polite live region for short status messages (copy results), created up front so screen readers
 // already track it when the first message lands.
