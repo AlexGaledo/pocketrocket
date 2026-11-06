@@ -12,6 +12,7 @@ import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrock
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
 import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
+import type { PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -249,8 +250,17 @@ export const api = {
     test: (id: string, body: TriggerTestInput = {}) => req<TriggerFire>('POST', '/api/triggers/' + id + '/test', body),
   },
   // ---- P9: paired devices and opt-in Web Push ----
+  // The owner's PC as a job runner. Hub principal only; a paired phone and the runner itself get 403.
+  pcRunner: {
+    status: () => req<PcRunnerStatus>('GET', '/api/pc-runner'),
+    jobs: (limit = 50) => req<PcRunnerJob[]>('GET', '/api/pc-runner/jobs?limit=' + limit),
+    job: (id: string) => req<PcRunnerJob>('GET', '/api/pc-runner/jobs/' + encodeURIComponent(id)),
+    /** Shown once and never stored here: the caller keeps it in component state only. Replaces the old token. */
+    mintToken: () => req<{ token: string }>('POST', '/api/pc-runner/token', {}),
+    turnOff: () => req<{ ok: true; cancelled: number }>('DELETE', '/api/pc-runner'),
+  },
   devices: {
-    list: () => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),
+    list:() => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),
     // Hub token only. The answer carries a one-time code, never the hub token.
     pairing: () => req<PairingCode>('POST', '/api/devices/pairing', {}),
     rename: (id: string, name: string) => req<DeviceInfo>('PATCH', '/api/devices/' + encodeURIComponent(id), { name }),

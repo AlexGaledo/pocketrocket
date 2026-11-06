@@ -180,6 +180,8 @@ interface State {
   recorder: Record<string, RecorderStatus>;
   /** Bumped on `skills.changed`, so the Skills tab and an open version list refetch. */
   skillsRev: number;
+  /** Bumped on `pc-runner.changed`, so Settings > PC runner refetches its status and jobs. */
+  pcRunnerRev: number;
   /** Bumped per bot on `training.changed`, so its Training section refetches. */
   trainingRev: Record<string, number>;
 
@@ -268,6 +270,7 @@ export const useStore = create<State>((set, get) => ({
   policiesRev: 0,
   recorder: {},
   skillsRev: 0,
+  pcRunnerRev: 0,
   trainingRev: {},
 
   setConnected: (connected) => {
@@ -448,6 +451,9 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'skills.changed':
         set({ skillsRev: s.skillsRev + 1 });
+        return;
+      case 'pc-runner.changed':
+        set({ pcRunnerRev: s.pcRunnerRev + 1 });
         return;
       case 'files.changed': {
         const key = filesRevKey(ev.roomId, ev.path);

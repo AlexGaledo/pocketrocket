@@ -136,6 +136,8 @@ export interface ApprovalPayload {
   status: 'pending' | 'allow' | 'always' | 'deny' | 'timeout' | 'expired';
   /** P2: a routine/trigger turn stopped waiting on this card; it resumes when the card is answered. */
   parked?: boolean;
+  /** Answered once only (run_on_pc, outside MCP tools): "always" is never remembered, so the card does not offer it. */
+  once?: boolean;
 }
 export interface HandoffPayload {
   fromBotId: string;

@@ -466,6 +466,12 @@ function cardWords(p: ApprovalPayload): { main: string; more?: string } | null {
   return { main, more: typeof more === 'string' && more ? more : undefined };
 }
 
+/** run_on_pc's input, when it has the expected shape. Anything else falls back to the raw view. */
+function pcJobInput(p: ApprovalPayload): { folder: string; prompt: string } | null {
+  const input = (p.toolInput ?? {}) as Record<string, unknown>;
+  return typeof input.folder === 'string' && typeof input.prompt === 'string' ? { folder: input.folder, prompt: input.prompt } : null;
+}
+
 function ApprovalCard({ m }: { m: Message }) {
   const p = m.payload as ApprovalPayload;
   const decide = useStore((s) => s.decide);
@@ -479,7 +485,10 @@ function ApprovalCard({ m }: { m: Message }) {
   const proposal = p.toolName === 'propose_routing_change';
   const yesOrNo = handoff || proposal;
   const words = yesOrNo ? cardWords(p) : null;
-  const outcome = p.status === 'allow' ? (handoff ? 'Sent' : proposal ? 'Added' : 'Allowed once') : p.status === 'always' ? 'Allowed for this session' : p.status === 'deny' ? (handoff ? 'Kept here' : proposal ? 'Not added' : 'Denied') : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired after restart. Ask the bot to retry.' : null;
+  // Asked on every call (a PC job, an outside MCP tool): no "for this session", and no rule offer after.
+  const once = !!p.once || p.toolName === 'run_on_pc';
+  const pcJob = p.toolName === 'run_on_pc' ? pcJobInput(p) : null;
+  const outcome = p.status === 'allow' ? (handoff ? 'Sent' : proposal ? 'Added' : 'Allowed once') : p.status === 'always' ? (once ? 'Allowed once' : 'Allowed for this session') : p.status === 'deny' ? (handoff ? 'Kept here' : proposal ? 'Not added' : 'Denied') : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired after restart. Ask the bot to retry.' : null;
   return (
     <div className={cn('max-w-[640px] overflow-hidden rounded-lg ring-1', p.danger ? 'ring-bad/40' : pending ? 'ring-warn/40' : 'ring-line')}>
       <div className="flex items-center gap-2 px-4 pt-3 text-ui">
@@ -490,7 +499,13 @@ function ApprovalCard({ m }: { m: Message }) {
       </div>
       <div className="px-4 py-1.5 text-ui text-muted">{p.reason}</div>
       {pending && p.parked && <div className="px-4 pb-1.5 text-ui text-warn">Run paused until you answer.</div>}
-      {words ? (
+      {pcJob ? (
+        // The owner reads the whole job before it reaches the PC: folder name, then the prompt as written.
+        <div className="mx-4 mb-3 rounded-md bg-card2 p-2.5 text-ui">
+          <div className="text-hint text-muted">Folder <span className="font-mono text-fg">{pcJob.folder}</span></div>
+          <div className="mt-1.5 max-h-60 overflow-auto whitespace-pre-wrap break-words">{pcJob.prompt}</div>
+        </div>
+      ) : words ? (
         <div className="mx-4 mb-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-card2 p-2.5 text-ui">
           {words.main}
           {words.more && <div className="mt-1.5 text-muted">{words.more}</div>}
@@ -503,12 +518,13 @@ function ApprovalCard({ m }: { m: Message }) {
         <div className="flex flex-wrap gap-2 px-4 pb-4">
           <Button size="sm" variant="primary" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'allow'); }}>{handoff ? 'Send it' : proposal ? 'Add it' : 'Allow once'}</Button>
           {/* A paired device answers once; the hub refuses a standing grant from one (and approval rules). */}
-          {!device && !yesOrNo && <Button size="sm" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'always'); }}>Allow for this session</Button>}
+          {!device && !yesOrNo && !once && <Button size="sm" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'always'); }}>Allow for this session</Button>}
           <Button size="sm" variant={yesOrNo ? 'outline' : 'danger'} className="touch-target" onClick={() => decide(p.approvalId, 'deny')}>{handoff ? 'Keep it here' : proposal ? 'Leave it out' : 'Deny'}</Button>
-          {device && !yesOrNo && <span className="basis-full text-hint text-muted">Session-wide allow is desktop only.</span>}
+          {device && !yesOrNo && !once && <span className="basis-full text-hint text-muted">Session-wide allow is desktop only.</span>}
+          {once && <span className="basis-full text-hint text-muted">Asked every time.</span>}
         </div>
       )}
-      {answered && !device && !yesOrNo && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}
+      {answered && !device && !yesOrNo && !once && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}
     </div>
   );
 }

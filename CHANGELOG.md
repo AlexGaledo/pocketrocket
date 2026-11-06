@@ -24,6 +24,9 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 
 - Bots can ask your own PC to run a Claude Code job with the new `run_on_pc` tool, in a folder the PC allows. You approve every job on a card, even with approvals bypassed (no "always" and no approval rule covers it), and the PC asks you again before it starts. One job runs at a time, at most five wait, a job nobody picks up within 30 minutes expires, and the bot gets back at most 20 KB of redacted output.
 - The PC's helper signs in with its own token from `POST /api/pc-runner/token`, shown once. The hub keeps only its sha256 in `pc-runner.json`, and the token reaches only the runner's own routes. `DELETE /api/pc-runner` turns it off and cancels every open job.
+- Settings has a new PC runner section (desktop only). It shows whether your PC is paired and online, when it was last seen and which folders it allows. From there you can make a new pairing token, which is shown once (masked, with reveal and copy) and replaces the old one, or turn the runner off. It also lists the last 50 jobs with status, bot, chat, folder, time, duration and cost; click a job to read its full prompt and output as plain text. The list updates live.
+- New owner-only routes `GET /api/pc-runner/jobs?limit=50` and `GET /api/pc-runner/jobs/:id`, and a content-free `pc-runner.changed` WebSocket event. The runner token and paired phones get 403. Jobs now record when they started and finished and how long the PC says they ran (migration 161).
+- Approval cards for `run_on_pc` and outside MCP tools no longer offer "Allow for this session", which was never remembered for them anyway. A `run_on_pc` card shows the folder and the prompt as written, wrapped, instead of raw JSON.
 
 ### Outside MCP servers and key files
 
