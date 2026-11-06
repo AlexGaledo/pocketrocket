@@ -20,6 +20,7 @@ import { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { Routine } from '@pocketrocket/shared';
 import { isInside } from '../permissions/pathRules.js';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
+import { MAX_PC_PROMPT_BYTES, PC_EXPIRED_MESSAGE, PC_FOLDER_RE, PcRunnerError, type PcRunner } from '../services/PcRunner.js';
 
 export interface ToolCtx {
   bot: Bot;
@@ -69,6 +70,11 @@ export interface ToolCtx {
   routinesChanged?: () => void;
   /** Zone routine times are read in. Defaults to `settings.timezone`. */
   timezone?: string;
+  // ---- PC runner ----
+  /** The owner's PC as a job runner. Adds `run_on_pc` while it is paired. */
+  pcRunner?: PcRunner;
+  /** The turn's abort signal; run_on_pc cancels its job when the turn is stopped. */
+  signal?: AbortSignal;
 }
 
 export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
@@ -704,6 +710,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
   const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom, deleteRoom];
 
   tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
+  if (ctx.pcRunner?.isPaired()) tools.push(runOnPcTool(ctx, ctx.pcRunner));
   // ---- P7 (7.2): notes/, searched on demand so memory.md can stay small ----
   tools.push(
     hubTool(
@@ -1025,4 +1032,73 @@ function routineTools(
   );
 
   return [listRoutines, createRoutine, updateRoutine, deleteRoutine];
+}
+
+// ---------------------------------------------------------------------------------------------------
+// PC runner: a Claude Code job on the owner's PC, in a folder the PC allowlists. The owner approves every job
+// on a card (under bypass too; no "always" and no approval rule covers it), and the PC asks again locally.
+
+export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
+  const userName = settings.get().userName;
+  return hubTool(
+    'run_on_pc',
+    'Ask ' + userName + "'s own PC to run a Claude Code job in one of the folders the PC allows, and wait for its answer (up to 15 minutes). " +
+      userName + ' approves every job here and again on the PC, so give a complete, self-contained prompt. One job runs at a time.' +
+      (pc.folders().length ? ' Folders the PC allows: ' + pc.folders().join(', ') + '.' : ' The PC has not reported any folders yet.'),
+    {
+      folder: z.string().regex(PC_FOLDER_RE).describe('One of the folder names the PC allows'),
+      prompt: z.string().min(1).describe('What Claude Code on the PC should do, self-contained (max 8 KB)'),
+    },
+    async (a) => {
+      if (!pc.isPaired()) return err('No PC is paired with this hub. ' + userName + ' can pair one in Settings.');
+      const allowed = pc.folders();
+      if (!allowed.includes(a.folder)) {
+        return err('"' + a.folder + '" is not a folder the PC allows. ' + (allowed.length ? 'Allowed: ' + allowed.join(', ') + '.' : 'The PC has not reported any folders.'));
+      }
+      if (Buffer.byteLength(a.prompt, 'utf8') > MAX_PC_PROMPT_BYTES) return err('The prompt is over 8 KB. Make it shorter.');
+      // Fails closed: without a card nobody approved it.
+      if (!ctx.confirmFleetChange) return err('Jobs on the PC need ' + userName + "'s approval, and none can be asked for here.");
+      let jobId: string;
+      try {
+        jobId = pc.create({ botId: ctx.bot.id, roomId: ctx.room.id, folder: a.folder, prompt: a.prompt }).id;
+      } catch (e) {
+        if (e instanceof PcRunnerError) return err(e.message);
+        throw e;
+      }
+      const offline = !pc.online();
+      const r = await ctx.confirmFleetChange({
+        tool: 'run_on_pc',
+        evenUnderBypass: true,
+        reason: 'Run Claude Code on your PC in "' + a.folder + '". Your PC asks you again before it starts.' +
+          (offline ? ' Your PC looks offline: the job waits up to 30 minutes for it.' : ''),
+        input: { folder: a.folder, prompt: a.prompt },
+      });
+      if (!r.allowed) {
+        pc.cancel(jobId, 'Not approved');
+        return err(r.message);
+      }
+      if (!pc.approve(jobId)) return err('The job was cancelled before it was queued: ' + (pc.get(jobId)?.result ?? 'unknown reason') + '.');
+      recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'pc-runner.job.approved', jobId, a.folder + ' (room ' + ctx.room.id + ')');
+      ctx.setState('waiting');
+      let j;
+      try {
+        j = await pc.wait(jobId, ctx.signal);
+      } finally {
+        ctx.setState('working');
+      }
+      const out = redact(j.result ?? '');
+      switch (j.status) {
+        case 'done':
+          return text('The PC finished the job in "' + a.folder + '"' + (j.costUsd !== null ? ' ($' + j.costUsd.toFixed(4) + ')' : '') + '. Its output:\n\n' + (out || '(no output)'));
+        case 'failed':
+          return err('The job failed on the PC. Its output:\n\n' + (out || '(no output)'));
+        case 'refused':
+          return err(userName + ' declined the job on the PC. Do not retry it; say so in the room.' + (out ? '\n\n' + out : ''));
+        case 'expired':
+          return err(PC_EXPIRED_MESSAGE + ' within 30 minutes; the job was dropped.');
+        default:
+          return err('The job was cancelled: ' + (out || 'no reason given') + '.' + (offline ? ' The PC was offline when you asked.' : ''));
+      }
+    },
+  );
 }

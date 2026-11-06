@@ -14,6 +14,17 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - New PC runner (`scripts/pc-runner/`): a small Windows helper that runs owner-approved jobs from the server hub in folders you allow on your PC. It connects over an outbound SSH tunnel, shows the full prompt in a Run / Refuse dialog before anything runs (no answer in 10 minutes means Refuse), and runs Claude with a fixed tool list, never with permission checks off, and without loading any settings, hooks or MCP servers from the job folder itself. Jobs cannot edit `.git/`, `.gitattributes` or `.gitmodules`, and git runs with fsmonitor, pager and hooks forced off. Desktop shortcuts turn it on and off; it never starts by itself. See `scripts/pc-runner/README.md`.
 - Server: `deploy/keys.sh` lists every key the hub holds, by name only, with where to rotate each one. It can also move them all out of the hub at once and put them back later, or shred them. See "Kill switch" in `docs/SERVER.md`.
 
+### PC runner (hub)
+
+- Bots can ask your own PC to run a Claude Code job with the new `run_on_pc` tool, in a folder the PC allows. You approve every job on a card, even with approvals bypassed (no "always" and no approval rule covers it), and the PC asks you again before it starts. One job runs at a time, at most five wait, a job nobody picks up within 30 minutes expires, and the bot gets back at most 20 KB of redacted output.
+- The PC's helper signs in with its own token from `POST /api/pc-runner/token`, shown once. The hub keeps only its sha256 in `pc-runner.json`, and the token reaches only the runner's own routes. `DELETE /api/pc-runner` turns it off and cancels every open job.
+
+### Outside MCP servers and key files
+
+- `data/mcp-servers.json` can now list local stdio servers (`command`, `args`, `env`) as well as remote ones. `command` must be `npx`, `node` or an absolute path, and every `env` value is scrubbed from chat and logs like the hub's own tokens.
+- Each outside server takes `approve`: `every-call`, `writes` (with `readTools` listing the tools that skip it) or `none`. You get an approval card for those calls even with approvals bypassed, and "Always" or an approval rule never covers them. The card shows the whole input; a call whose input is too long to show in full (over 8000 characters) is refused instead. Stdio servers default to `every-call`; existing url servers stay at `none`.
+- Bots can no longer read or write the hub's key files (`hub-token`, `secrets.json`, `mcp-servers.json`, `pc-runner.json`, the account session, the push and vault keys, `keys-disabled/`) or a project's `.env` files with their file and shell tools, in any approvals mode. `.env.example` stays readable, and `pnpm dev` and test runs still load `.env` themselves. A shell command that names one of those key files is refused however it is quoted or escaped. A command that builds the name at run time can still get past the check; it covers the ordinary ways a bot would read those files.
+
 ### Memory fixes
 
 - A bot whose chat context was reset, or that joins a busy chat, is shown at most the last 60 unread messages (or 30 KB). A line says how many earlier ones were left out, and the bot can read them with `read_room`.

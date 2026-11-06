@@ -14,6 +14,7 @@ import { EMPTY_USAGE, type ProviderInit, type TurnContext, type TurnOutcome, typ
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
+import type { PcRunner } from '../services/PcRunner.js';
 import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, canUpgrade, type RouteChoice, type RouteRequest } from './ModelRouter.js';
@@ -29,7 +30,7 @@ import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGu
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
 import { turnFailureNote } from './turnFailure.js';
-import { outsideMcpFor } from '../services/outsideMcp.js';
+import { outsideMcpFor, registerOutsideMcpSecrets } from '../services/outsideMcp.js';
 import { computerToolGuard } from '../permissions/controlInterlock.js';
 import type { MediaStore } from '../services/MediaStore.js';
 
@@ -114,6 +115,8 @@ export class BotRunner {
   roomFiles?: RoomFiles;
   /** P2: computer control (take over / hand back / pause). Set by createHub; absent in most unit tests. */
   control?: ComputerControlService;
+  /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
+  pcRunner?: PcRunner;
 
   constructor(
     private repos: Repos,
@@ -279,6 +282,8 @@ export class BotRunner {
         }
       } : undefined,
       routinesChanged: this.hooks.routinesChanged,
+      pcRunner: this.pcRunner,
+      signal: ac.signal,
     });
 
     if (desktopOn && computer) {
@@ -331,7 +336,8 @@ export class BotRunner {
     // everywhere until the turn ends (audit 2026-09-09, B22).
     addSecret(mcpToken);
     const outsideMcp = outsideMcpFor(bot.handle, room);
-    for (const s of outsideMcp) addSecret(s.token);
+    // Bearer tokens and stdio env values (the owner's API keys): scrubbed from tool output, chat and logs.
+    registerOutsideMcpSecrets(outsideMcp);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -393,6 +399,12 @@ export class BotRunner {
         : undefined,
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       outsideMcp,
+      outsideMcpGate: async (name, input) => {
+        const s = outsideMcp.find((x) => name.startsWith('mcp__' + x.name + '__'));
+        if (!s) return 'Unknown outside tool: ' + name;
+        const r = await this.broker.askOutsideMcp(permCtx, s.name, name.slice(('mcp__' + s.name + '__').length), input, ac.signal);
+        return r.allowed ? null : r.message;
+      },
       computerFilesDir: computer?.filesDir ?? undefined,
       controlGuard: controlBlocked,
       computerGate: computer ? async (name, input) => (await useComputer()) ?? browserTabRule(name, input) : undefined,

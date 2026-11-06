@@ -13,6 +13,8 @@ import { SESSION_RETENTION_DAYS } from './cliRetention.js';
 import { deleteGate } from '../permissions/deleteGate.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '../permissions/readOnlyRoots.js';
+import { secretFileAccess } from '../permissions/secretFiles.js';
+import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
@@ -20,7 +22,7 @@ import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, Tu
 // cwd/additionalDirectories are already free, edits inside are covered by acceptEdits, and anything
 // outside (plus every Bash call) then falls through to the PermissionBroker.
 const AUTO_OK = new Set(['WebSearch', 'WebFetch']);
-const ALL_BUILTINS = ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit'];
+const ALL_BUILTINS = ['Read','Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit'];
 
 const MODELS: ModelInfo[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'balanced, default', default: true },
@@ -225,9 +227,12 @@ export class ClaudeProvider implements AgentProvider {
     }
 
     // Owner-configured outside servers (data/mcp-servers.json). Left out of allowedTools on purpose, so
-    // outside bypass mode each call reaches canUseTool and the approval broker.
+    // outside bypass mode each call reaches canUseTool and the approval broker. The ones whose `approve` asks
+    // for a card get it from outsideGuard below, in every mode.
     for (const s of ctx.outsideMcp ?? []) {
-      mcpServers[s.name] = { type: 'http', url: s.url, ...(s.token ? { headers: { Authorization: 'Bearer ' + s.token } } : {}) };
+      mcpServers[s.name] = s.kind === 'stdio'
+        ? { type: 'stdio', command: s.command, args: s.args, env: s.env }
+        : { type: 'http', url: s.url, ...(s.token ? { headers: { Authorization: 'Bearer ' + s.token } } : {}) };
     }
 
     let resolveDone: () => void = () => undefined;
@@ -282,19 +287,49 @@ export class ClaudeProvider implements AgentProvider {
         }]
       : [];
 
-    // No bot writes the owner's routing rules. Bypass skips canUseTool, and this holds in every mode.
+    // Outside servers with `approve` set: the owner's card on each call that needs one, under bypass too (bypass
+    // skips canUseTool, never a hook). An allowed card answers 'allow', so canUseTool does not ask a second time.
+    const gatedOutside = (ctx.outsideMcp ?? []).filter((s) => s.approve !== 'none');
+    const outsideGuard = gatedOutside.length
+      ? [{
+          // Server names are [a-z0-9_-] with no `__` (outsideMcp.ts), so they need no escaping here.
+          matcher: 'mcp__(' + gatedOutside.map((s) => s.name).join('|') + ')__.*',
+          hooks: [
+            async (hookInput: unknown) => {
+              const i = hookInput as PreToolUseHookInput;
+              const s = gatedOutside.find((g) => i.tool_name.startsWith('mcp__' + g.name + '__'));
+              if (!s || !outsideMcpNeedsCard(s, i.tool_name.slice(('mcp__' + s.name + '__').length))) return {};
+              const why = ctx.outsideMcpGate
+                ? await ctx.outsideMcpGate(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>)
+                : 'This outside tool needs the owner\'s approval, and none can be asked for here.';
+              return {
+                hookSpecificOutput: why
+                  ? { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why }
+                  : { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: 'Approved by the owner.' },
+              };
+            },
+          ],
+        }]
+      : [];
+
+    // No bot writes the owner's routing rules, or touches the hub's key files. Bypass skips canUseTool, and
+    // these hold in every mode.
     const guards = [
       {
-        matcher: READ_ONLY_GUARD_TOOLS.join('|'),
+        // The write tools and Bash for routing.md, plus the read tools for the key files.
+        matcher: [...new Set([...READ_ONLY_GUARD_TOOLS, 'Read', 'Glob', 'Grep'])].join('|'),
         hooks: [
           async (hookInput: unknown) => {
             const i = hookInput as PreToolUseHookInput;
-            const why = routingFileWrite(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, i.cwd || ctx.workspaceDir);
+            const input = (i.tool_input ?? {}) as Record<string, unknown>;
+            const cwd = i.cwd || ctx.workspaceDir;
+            const why = routingFileWrite(i.tool_name, input, cwd) ?? secretFileAccess(i.tool_name, input, cwd);
             if (!why) return {};
             return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
           },
         ],
       },
+      ...outsideGuard,
       ...controlGuard,
       ...knowledgeGuard,
       ...(ctx.shipGuard
