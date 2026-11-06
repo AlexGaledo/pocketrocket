@@ -23,7 +23,8 @@ import type { ComputerEndpoint, ComputerManager } from '../services/ComputerMana
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
 import type { ProjectService } from '../services/ProjectService.js';
-import { projectAccessDenied } from '../permissions/projectGuard.js';
+import { folderAccessDenied } from '../permissions/projectGuard.js';
+import type { RoomFiles } from '../rooms/roomFiles.js';
 import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGuard.js';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
@@ -109,6 +110,8 @@ export class BotRunner {
   integrations?: IntegrationService;
   /** Set by createHub. Which project folders this bot works in. */
   projects?: ProjectService;
+  /** Set by createHub. Which file folder each room uses; a turn may use only its own room's. */
+  roomFiles?: RoomFiles;
   /** P2: computer control (take over / hand back / pause). Set by createHub; absent in most unit tests. */
   control?: ComputerControlService;
 
@@ -319,6 +322,10 @@ export class BotRunner {
     };
 
     const knowledgeDir = this.p7.knowledgeDir?.() ?? null;
+    // The one file folder this turn may use: its room's. Every other project and room folder stays shut.
+    const folder = this.roomFiles?.forBot(room, bot.id) ?? null;
+    const folderDir = folder ? this.roomFiles!.ensure(folder) : null;
+    const roomProject = folder?.kind === 'project' ? this.projects?.get(folder.projectSlug!) : undefined;
     const mcpToken = this.turns.registerTurn(tools, computerToolGuard(controlBlocked));
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
@@ -330,7 +337,8 @@ export class BotRunner {
       systemPrompt: buildSystemPrompt({
         owner: this.repos.owner(),
         bot, room, members: req.members, hop: req.hop, memory: memoryText, identity,
-        projects: this.projects?.forBot(bot.id).map((p) => ({ name: p.name, dir: p.dir })),
+        projects: roomProject ? [{ name: roomProject.name, dir: roomProject.dir }] : undefined,
+        roomFolder: folder && folder.kind !== 'project' && folderDir ? { kind: folder.kind, dir: folderDir } : undefined,
         browser: browserOn, desktop: desktopOn,
         toolPrefix: provider.id === 'claude' ? 'mcp__pocketrocket__' : '',
         requestApproval: bestEffort,
@@ -373,10 +381,15 @@ export class BotRunner {
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
       readOnlyDirs: bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : undefined,
-      projectDirs: this.projects?.dirsFor(bot.id),
+      projectDirs: folderDir ? [folderDir] : [],
       shipGuard: this.repos.botSkillIds(bot.id).some((id) => this.repos.getSkill(id)?.name === SHIP_GUARD_SKILL) ? defaultBranchPushDenied : undefined,
-      projectGuard: this.projects
-        ? (name, input, cwd) => projectAccessDenied(name, input, cwd, this.projects!.root, this.projects!.slugsFor(bot.id), this.projects!.knownSlugs())
+      projectGuard: this.projects || this.roomFiles
+        ? (name, input, cwd) => folderAccessDenied(name, input, cwd, [
+            ...(this.projects ? [{ root: this.projects.root, allowed: roomProject ? [roomProject.slug] : [], known: this.projects.knownSlugs() }] : []),
+            ...(this.roomFiles
+              ? [{ root: this.roomFiles.roomsDir, allowed: folder?.kind === 'room' ? [room.id] : [], known: this.repos.listRooms().map((r) => r.id) }]
+              : []),
+          ])
         : undefined,
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       outsideMcp,

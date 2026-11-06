@@ -197,7 +197,7 @@ export class PermissionBroker {
       if (hit) return { behavior: 'deny', message: 'The knowledge repo is read-only; this shell command writes there: ' + hit };
       return { behavior: 'allow' };
     }
-    const roots = botRoots(ctx.bot.id);
+    const roots = botRoots(ctx.bot.id, ctx.room.id);
     let reason = '';
     let danger = false;
 
@@ -250,7 +250,7 @@ export class PermissionBroker {
     if (GATED_HUB_TOOLS.has(bare)) return 'Read-only mode: fleet, room and integration changes are turned off.';
     if (PATH_TOOLS.has(toolName) && !READ_TOOLS.has(toolName)) return 'Read-only mode: ' + toolName + ' cannot write files.';
     if (toolName === 'Bash') {
-      const v = classifyBash(String(input.command ?? ''), botRoots(ctx.bot.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] });
+      const v = classifyBash(String(input.command ?? ''), botRoots(ctx.bot.id, ctx.room.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] });
       if (v.verdict !== 'allow') return 'Read-only mode: not a known read-only command (' + v.reason + ').';
     }
     return null;
@@ -350,7 +350,7 @@ export class PermissionBroker {
     const refused = req.command ? routingFileWrite('Bash', { command: req.command }, WORKSPACE_DIR) : null;
     if (refused) return { allowed: false, message: refused };
     if (this.opts.globalReadOnly?.()) {
-      const v = req.command ? classifyBash(req.command, botRoots(ctx.bot.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] }) : null;
+      const v = req.command ? classifyBash(req.command, botRoots(ctx.bot.id, ctx.room.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] }) : null;
       if (!v || v.verdict !== 'allow') return { allowed: false, message: 'Read-only mode: this hub refuses writes outright. Choose another approach or ask in chat.' };
     }
     if (this.bypassedFor(ctx)) {
@@ -358,7 +358,7 @@ export class PermissionBroker {
       if (hit) return { allowed: false, message: 'The knowledge repo is read-only; this command writes there: ' + hit };
       return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     }
-    const danger = req.command ? classifyBash(req.command, botRoots(ctx.bot.id)).danger : false;
+    const danger = req.command ? classifyBash(req.command, botRoots(ctx.bot.id, ctx.room.id)).danger : false;
     const askInput = { action: req.action, command: req.command, paths: req.paths, reason: req.reason };
     const rule = this.matchPolicy(ctx.bot.id, 'request_approval', approvalSubject('request_approval', askInput), danger);
     if (rule === 'deny') return { allowed: false, message: 'An approval rule the user set denies this. Choose another approach or ask in chat.' };

@@ -58,7 +58,7 @@ function chunk(text: string): string[] {
 
 /**
  * Project folders: plain files on disk are the truth, and a bot works in a project's folder when the owner lists it
- * as a member. The search index is only a copy, rebuilt from the files whenever they change.
+ * as a member and it is replying in the project's room (rooms/roomFiles.ts). The search index is only a copy, rebuilt from the files whenever they change.
  */
 export class ProjectService {
   constructor(private deps: { db: Db; repos: Repos; memory: MemoryService; root: string; now?: () => number }) {}
@@ -92,17 +92,13 @@ export class ProjectService {
     if (!p) throw new ProjectError(404, 'No project called ' + slug);
     return p;
   }
+  /** The project whose group chat this room is, if any. */
+  forRoom(roomId: string): Project | undefined {
+    const r = this.db.get('SELECT * FROM projects WHERE room_id=? ORDER BY created_at LIMIT 1', roomId);
+    return r ? this.toProject(r) : undefined;
+  }
   knownSlugs(): string[] {
     return this.db.all('SELECT slug FROM projects').map((r) => r.slug as string);
-  }
-  slugsFor(botId: string): string[] {
-    return this.db.all('SELECT slug FROM project_members WHERE bot_id=? ORDER BY slug', botId).map((r) => r.slug as string);
-  }
-  dirsFor(botId: string): string[] {
-    return this.slugsFor(botId).map((s) => this.dirOf(s));
-  }
-  forBot(botId: string): Project[] {
-    return this.slugsFor(botId).map((s) => this.get(s)).filter((p): p is Project => !!p);
   }
 
   /** Never overwrites a folder that is already there, so a project can adopt existing files. */

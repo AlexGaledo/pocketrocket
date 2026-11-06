@@ -11,6 +11,7 @@ import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInpu
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
+import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -57,7 +58,50 @@ export type AccountActionResponse = AccountState | { ok: boolean } | Record<stri
 export interface ProjectInfo { slug: string; name: string; dir: string; memberIds: string[]; roomId: string | null; templateVersion: number | null; createdAt: number }
 export interface ProjectLint { issues: { kind: string; path: string; detail: string }[]; recentMisses: string[] }
 
+const filesBase = (roomId: string) => '/api/rooms/' + encodeURIComponent(roomId) + '/files';
+
+/** A File as plain base64 (no `data:` prefix), the shape POST /api/rooms/:id/files/upload takes. */
+function fileToBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error ?? new Error('Could not read the file'));
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''));
+    r.readAsDataURL(file);
+  });
+}
+
 export const api = {
+  /**
+   * A room's file folder (hub token only; a paired phone gets 403). Paths are relative to the room's folder with '/'
+   * separators, '' being the folder itself. `files.changed` events name the folder whose listing changed.
+   */
+  files: {
+    list: (roomId: string, path = '') => req<FileListing>('GET', filesBase(roomId) + '?path=' + encodeURIComponent(path)),
+    /** The raw-bytes URL. It needs the Bearer header, so fetch it with `blob` rather than putting it in an <img>. */
+    rawUrl: (roomId: string, path: string, download = false) =>
+      filesBase(roomId) + '/raw?path=' + encodeURIComponent(path) + (download ? '&download=1' : ''),
+    /** The file's bytes, for a preview (blob URL) or a download. Files over 50 MB are refused with 413. */
+    blob: async (roomId: string, path: string, download = false): Promise<Blob> => {
+      const token = getToken();
+      const r = await fetch(api.files.rawUrl(roomId, path, download), { headers: token ? { authorization: 'Bearer ' + token } : {} });
+      if (r.status === 401) reportAuthFailure();
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new ApiError((j as { error?: string }).error ?? r.statusText, r.status);
+      }
+      return r.blob();
+    },
+    upload: (roomId: string, input: FileUploadInput) => req<FileChangeResult>('POST', filesBase(roomId) + '/upload', input),
+    /** Reads a picked or dropped File and uploads it into the folder `path` (25 MB cap; 409 if the name is taken). */
+    uploadFile: async (roomId: string, path: string, file: File, overwrite = false) =>
+      api.files.upload(roomId, { path, name: file.name, dataBase64: await fileToBase64(file), overwrite }),
+    mkdir: (roomId: string, path: string, name: string) => req<FileChangeResult>('POST', filesBase(roomId) + '/folder', { path, name }),
+    /** Rename or move: both paths relative to the room's folder. 409 when `to` exists. */
+    rename: (roomId: string, from: string, to: string) => req<FileChangeResult>('PATCH', filesBase(roomId), { from, to }),
+    /** A folder with anything in it needs `recursive` (409 otherwise). */
+    remove: (roomId: string, path: string, recursive = false) =>
+      req<FileChangeResult>('DELETE', filesBase(roomId) + '?path=' + encodeURIComponent(path) + (recursive ? '&recursive=true' : '')),
+  },
   projects: {
     list: () => req<ProjectInfo[]>('GET', '/api/projects'),
     create: (input: { name: string; team?: boolean }) => req<{ project: ProjectInfo; bots: Bot[] }>('POST', '/api/projects', input),

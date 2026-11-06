@@ -73,6 +73,8 @@ const NOT_AUDITED = [
   /^\/api\/push(\/|$)/,
   /^\/api\/auth(\/|$)/,
   /^\/api\/settings$/,
+  // The files API writes its own rows, with the path that changed.
+  /^\/api\/rooms\/[^/]+\/files(\/|$)/,
 ];
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
