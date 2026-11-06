@@ -90,7 +90,7 @@ const DANGER: RegExp[] = [
 ];
 
 /** Split a command line into pipeline/sequence segments. */
-function segments(cmd: string): string[] {
+export function segments(cmd: string): string[] {
   return cmd
     .split(/\s*(?:&&|\|\||;|\|)\s*/)
     .map((s) => s.trim())
