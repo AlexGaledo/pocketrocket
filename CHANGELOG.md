@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Folder uploads
+
+- The Files panel uploads whole folders: an "Upload folder" button (hidden on iPhone, iPad and Android, which can't pick folders) and dropping folders onto the panel. The folder structure is kept under the folder you're in, empty folders included when dropped. A progress line shows "Uploading 12 of 340: path" with a Cancel that stops after the current file. Files already there are asked about once for the whole batch (Replace all, Skip existing, Cancel), and files over 25 MB are listed at the end instead of stopping the upload. A folder upload takes at most 1,000 files and 500 MB, and asks first above 200 files. `.git/`, `node_modules/`, `.DS_Store` and `Thumbs.db` are left out, and so are files that look like keys (`.env*` except `.env.example`, `*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*` and other SSH keys, `service-account*.json`), with a warning that lists them.
+- Hub: `POST /api/rooms/:id/files/upload` and `/files/folder` take `parents: true` to make missing folders on the way (`mkdir -p`). Every folder name is checked like a file name, and the path rules stay the same: no `..`, absolute paths, drive letters, backslash tricks, NUL, or links that lead outside the room's folder. A Windows hub also refuses device names (`nul`, `com1.txt`) and `< > : " | ? *` in new file and folder names, so `a.txt:x` can no longer write to a hidden stream.
+
 ### No keys in the repo
 
 - The hub no longer ships a built-in Supabase project. Accounts are on only when `POCKETROCKET_SUPABASE_URL` and `POCKETROCKET_SUPABASE_KEY` are both set; otherwise the app runs signed out with accounts off. On a server, set them in a systemd drop-in (`docs/SERVER.md`, "Accounts").

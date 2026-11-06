@@ -93,10 +93,15 @@ export const api = {
       return r.blob();
     },
     upload: (roomId: string, input: FileUploadInput) => req<FileChangeResult>('POST', filesBase(roomId) + '/upload', input),
-    /** Reads a picked or dropped File and uploads it into the folder `path` (25 MB cap; 409 if the name is taken). */
-    uploadFile: async (roomId: string, path: string, file: File, overwrite = false) =>
-      api.files.upload(roomId, { path, name: file.name, dataBase64: await fileToBase64(file), overwrite }),
-    mkdir: (roomId: string, path: string, name: string) => req<FileChangeResult>('POST', filesBase(roomId) + '/folder', { path, name }),
+    /**
+     * Reads a picked or dropped File and uploads it into the folder `path` (25 MB cap; 409 if the name is taken).
+     * `parents` makes any missing folder in `path` first, as a folder upload needs.
+     */
+    uploadFile: async (roomId: string, path: string, file: File, overwrite = false, parents = false, name = file.name) =>
+      api.files.upload(roomId, { path, name, dataBase64: await fileToBase64(file), overwrite, ...(parents ? { parents } : {}) }),
+    /** `parents`: mkdir -p, so missing folders in `path` are made and a folder already called `name` is fine. */
+    mkdir: (roomId: string, path: string, name: string, parents = false) =>
+      req<FileChangeResult>('POST', filesBase(roomId) + '/folder', parents ? { path, name, parents } : { path, name }),
     /** Rename or move: both paths relative to the room's folder. 409 when `to` exists. */
     rename: (roomId: string, from: string, to: string) => req<FileChangeResult>('PATCH', filesBase(roomId), { from, to }),
     /** A folder with anything in it needs `recursive` (409 otherwise). */

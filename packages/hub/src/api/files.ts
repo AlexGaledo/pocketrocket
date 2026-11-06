@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
-  FileFolderSchema, FileRenameSchema, FileUploadSchema, MAX_FILE_DOWNLOAD_BYTES, MAX_FILE_LIST_ENTRIES, MAX_FILE_UPLOAD_BYTES,
+  FileFolderSchema, FileRenameSchema, FileUploadSchema, MAX_FILE_DOWNLOAD_BYTES, MAX_FILE_LIST_ENTRIES, MAX_FILE_UPLOAD_BYTES, isValidFileName,
   type FileEntry, type FileListing,
 } from '@pocketrocket/shared';
 import { events } from '../events.js';
@@ -69,6 +69,52 @@ function resolveIn(root: string, rel: string): { abs: string; rel: string } {
 
 function statOr404(abs: string): fs.Stats {
   try { return fs.statSync(abs); } catch { throw new FilesError(404, 'Not found'); }
+}
+
+const WIN_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$/i;
+/**
+ * Names Windows would take for something else: a device (`nul`, `com1.txt`) or, with a colon, an alternate data
+ * stream of another file (`a.txt:x`). Null when the name is fine. Exported for the tests, which run on every OS.
+ */
+export function windowsNameProblem(name: string): string | null {
+  if (/[<>:"|?*]/.test(name)) return 'A name can\'t contain < > : " | ? or *';
+  if (WIN_RESERVED.test(name)) return 'Windows keeps that name for a device';
+  return null;
+}
+/** A name the hub is about to create: valid everywhere (the schema checked that), and on Windows, not a device. */
+function checkNewName(name: string): void {
+  if (!isValidFileName(name)) throw new FilesError(400, 'Not a valid name: ' + name);
+  const why = process.platform === 'win32' ? windowsNameProblem(name) : null;
+  if (why) throw new FilesError(400, why + ': ' + name);
+}
+
+/**
+ * The folder `rel`, which must exist, or with `parents` is made one level at a time (`mkdir -p`). Each level is
+ * resolved through resolveIn before it is made, so a link part way down that leads out of the folder is refused
+ * rather than followed, and every name in the path is checked like a file name. Returns the folder and the folders made.
+ */
+function folderIn(root: string, rel: string, parents: boolean): { abs: string; rel: string; made: string[] } {
+  const dir = resolveIn(root, rel);
+  const made: string[] = [];
+  if (parents) {
+    const segs = dir.rel ? dir.rel.split('/') : [];
+    // Every name first, so a bad one deep down leaves nothing half made.
+    segs.forEach(checkNewName);
+    let cur = '';
+    for (const seg of segs) {
+      const step = resolveIn(root, cur ? cur + '/' + seg : seg);
+      const st = statOrNull(step.abs);
+      if (st && !st.isDirectory()) throw new FilesError(409, 'There is already a file called ' + step.rel);
+      if (!st) {
+        try { fs.mkdirSync(step.abs); made.push(step.rel); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
+      }
+      cur = step.rel;
+    }
+  }
+  // Asked again once made: the disk has the last word on where the folder really is.
+  const final = resolveIn(root, dir.rel);
+  if (!statOr404(final.abs).isDirectory()) throw new FilesError(400, 'Not a folder');
+  return { ...final, made };
 }
 const parentOf = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '');
 
@@ -162,27 +208,35 @@ export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles }) {
           if (p.error.issues.some((i) => i.code === 'too_big')) return send(res, 413, { error: 'File too large (max 25 MB)' });
           return bad(p.error.issues);
         }
-        const dir = resolveIn(root, p.data.path);
-        if (!statOr404(dir.abs).isDirectory()) throw new FilesError(400, 'Not a folder');
         const bytes = Buffer.from(p.data.dataBase64, 'base64');
         if (bytes.length > MAX_FILE_UPLOAD_BYTES) return send(res, 413, { error: 'File too large (max 25 MB)' });
+        checkNewName(p.data.name);
+        const dir = folderIn(root, p.data.path, !!p.data.parents);
         const target = resolveIn(root, cleanRel(dir.rel + '/' + p.data.name));
         const existing = lstatOrNull(target.abs);
         if (existing && (!p.data.overwrite || !existing.isFile())) throw new FilesError(409, 'There is already something called ' + p.data.name + ' here');
         fs.writeFileSync(target.abs, bytes, { flag: p.data.overwrite ? 'w' : 'wx' });
-        changed('uploaded', target.rel, [dir.rel], target.rel + ' (' + bytes.length + ' bytes)');
+        changed('uploaded', target.rel, [dir.rel, ...dir.made.map(parentOf)], target.rel + ' (' + bytes.length + ' bytes)');
         return send(res, 200, { ok: true, path: target.rel });
       }
 
       if (action === 'folder' && method === 'POST') {
         const p = FileFolderSchema.safeParse(body);
         if (!p.success) return bad(p.error.issues);
-        const dir = resolveIn(root, p.data.path);
-        if (!statOr404(dir.abs).isDirectory()) throw new FilesError(400, 'Not a folder');
+        checkNewName(p.data.name);
+        const dir = folderIn(root, p.data.path, !!p.data.parents);
         const target = resolveIn(root, cleanRel(dir.rel + '/' + p.data.name));
-        if (lstatOrNull(target.abs)) throw new FilesError(409, 'There is already something called ' + p.data.name + ' here');
+        const existing = lstatOrNull(target.abs);
+        if (existing) {
+          // mkdir -p: a folder that is already there is what was asked for.
+          if (p.data.parents && statOrNull(target.abs)?.isDirectory()) {
+            if (dir.made.length) changed('folder_created', dir.rel, dir.made.map(parentOf));
+            return send(res, 200, { ok: true, path: target.rel });
+          }
+          throw new FilesError(409, 'There is already something called ' + p.data.name + ' here');
+        }
         fs.mkdirSync(target.abs);
-        changed('folder_created', target.rel, [dir.rel]);
+        changed('folder_created', target.rel, [dir.rel, ...dir.made.map(parentOf)]);
         return send(res, 200, { ok: true, path: target.rel });
       }
 

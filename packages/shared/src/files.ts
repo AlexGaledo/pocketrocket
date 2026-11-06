@@ -53,17 +53,24 @@ export function isValidFileName(n: string): boolean {
 }
 export const FileNameSchema = z.string().refine(isValidFileName, 'not a valid file name');
 
-/** POST /api/rooms/:id/files/upload. `path` is the folder to put it in. Refuses to overwrite unless `overwrite`. */
+/**
+ * POST /api/rooms/:id/files/upload. `path` is the folder to put it in. Refuses to overwrite unless `overwrite`.
+ * With `parents`, any missing folder in `path` is made first (a folder upload), each name checked like a file name.
+ */
 export const FileUploadSchema = z.object({
   path: RelPath.default(''),
   name: FileNameSchema,
   dataBase64: z.string().max(Math.ceil(MAX_FILE_UPLOAD_BYTES / 3) * 4 + 4).regex(/^[A-Za-z0-9+/]*={0,2}$/, 'not base64'),
   overwrite: z.boolean().optional(),
+  parents: z.boolean().optional(),
 });
 export type FileUploadInput = z.input<typeof FileUploadSchema>;
 
-/** POST /api/rooms/:id/files/folder. Makes `name` inside the folder `path`. */
-export const FileFolderSchema = z.object({ path: RelPath.default(''), name: FileNameSchema });
+/**
+ * POST /api/rooms/:id/files/folder. Makes `name` inside the folder `path`. With `parents` it works like `mkdir -p`:
+ * missing folders in `path` are made too, and a folder already called `name` is fine.
+ */
+export const FileFolderSchema = z.object({ path: RelPath.default(''), name: FileNameSchema, parents: z.boolean().optional() });
 export type FileFolderInput = z.input<typeof FileFolderSchema>;
 
 /**
@@ -72,6 +79,32 @@ export type FileFolderInput = z.input<typeof FileFolderSchema>;
  */
 export const FileRenameSchema = z.object({ from: RelPath.min(1), to: RelPath.min(1) });
 export type FileRenameInput = z.input<typeof FileRenameSchema>;
+
+/** Most files one folder upload sends. */
+export const MAX_FOLDER_UPLOAD_FILES = 1000;
+/** Most bytes, all files together, one folder upload sends. */
+export const MAX_FOLDER_UPLOAD_BYTES = 500 * 1024 * 1024;
+/** Past this many files the app asks before a folder upload starts. */
+export const FOLDER_UPLOAD_CONFIRM_FILES = 200;
+
+const JUNK_DIRS = new Set(['.git', 'node_modules']);
+const JUNK_FILES = new Set(['.ds_store', 'thumbs.db']);
+/** Names that usually hold keys. `.env.example` and friends are templates, not keys. */
+const SECRET_RE = /^(\.env.*|id_(rsa|dsa|ecdsa|ed25519).*|service-account.*\.json|.+\.(pem|key|p8|p12|pfx))$/i;
+const SECRET_OK_RE = /^\.env\.(example|sample|template)(\..*)?$/i;
+
+/**
+ * Why a folder upload leaves a file or folder out: 'junk' (version control, dependencies, OS litter, left out
+ * quietly; a junk folder is not walked at all) or 'secret' (looks like a key file: left out, and the user told).
+ * Null to keep it.
+ */
+export function folderUploadSkip(name: string, isDir: boolean): 'junk' | 'secret' | null {
+  const lower = name.toLowerCase();
+  if (isDir) return JUNK_DIRS.has(lower) ? 'junk' : null;
+  if (JUNK_FILES.has(lower)) return 'junk';
+  if (SECRET_RE.test(name) && !SECRET_OK_RE.test(name)) return 'secret';
+  return null;
+}
 
 /** What every successful change answers: the path that changed, relative to the room's folder. */
 export interface FileChangeResult {
