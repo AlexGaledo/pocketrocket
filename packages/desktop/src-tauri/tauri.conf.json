@@ -20,7 +20,8 @@
         "minHeight": 600,
         "resizable": true,
         "center": true,
-        "fullscreen": true
+        "fullscreen": true,
+        "zoomHotkeysEnabled": true
       }
     ],
     "security": {

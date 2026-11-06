@@ -1,3 +1,4 @@
+import { pickCoordinator } from '../rooms/coordinator.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
@@ -318,7 +319,10 @@ export function createRest(deps: RestDeps) {
     if (input.kind === 'dm' && input.memberIds.length !== 1) throw new HttpError(400, 'DM needs exactly one bot');
     if (input.coordinatorBotId && !input.memberIds.includes(input.coordinatorBotId)) throw new HttpError(400, 'The coordinator must be in the chat');
     needPicture(input.avatar);
-    const room = repos.createRoom(input);
+    const coord = input.kind === 'group' && input.memberIds.length >= 2 && !input.coordinatorBotId
+      ? pickCoordinator(input.memberIds.map((id) => repos.getBot(id)!))
+      : null;
+    const room = repos.createRoom(coord ? { ...input, coordinatorBotId: coord.id } : input);
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return room;
   });
@@ -331,7 +335,12 @@ export function createRest(deps: RestDeps) {
     const memberIds = input.memberIds ?? cur.memberIds;
     if (input.coordinatorBotId && !memberIds.includes(input.coordinatorBotId)) throw new HttpError(400, 'The coordinator must be in the chat');
     // A coordinator who leaves stops being one. An empty `memberIds` never gets here: the schema wants at least one bot.
-    const coordinatorBotId = input.coordinatorBotId === undefined && cur.coordinatorBotId && !memberIds.includes(cur.coordinatorBotId) ? null : input.coordinatorBotId;
+    let coordinatorBotId = input.coordinatorBotId === undefined && cur.coordinatorBotId && !memberIds.includes(cur.coordinatorBotId) ? null : input.coordinatorBotId;
+    // A group of two or more always has a coordinator: clearing it, or losing it, picks another member.
+    const kept = coordinatorBotId === undefined ? cur.coordinatorBotId : coordinatorBotId;
+    if ((input.kind ?? cur.kind) === 'group' && memberIds.length >= 2 && !kept) {
+      coordinatorBotId = pickCoordinator(memberIds.map((id) => repos.getBot(id)!))?.id ?? null;
+    }
     const room = repos.updateRoom(params.id, { ...input, coordinatorBotId })!;
     for (const id of cur.memberIds) if (!room.memberIds.includes(id)) router.botLeftRoom(id, room.id);
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });

@@ -61,3 +61,19 @@ describe('RoomRouter cause cost cap', () => {
     expect(reqs.map((r) => r.bot.handle).sort()).toEqual(['ann', 'bob']);
   });
 });
+
+describe('RoomRouter coordinator fallback', () => {
+  it('gives a group with no coordinator one on the first unaddressed message, and routes to it', async () => {
+    const { repos, router, bot } = setup();
+    const a = bot('ann');
+    const lead = bot('team-lead');
+    const room = repos.createRoom({ kind: 'group', name: 'g', memberIds: [a.id, lead.id], coordinatorBotId: null });
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: '', costUsd: 0 }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'who can help?');
+    await until(() => reqs.length === 1);
+    expect(reqs[0].bot.id).toBe(lead.id);
+    expect(repos.getRoom(room.id)!.coordinatorBotId).toBe(lead.id);
+    expect(repos.listMessages(room.id, { limit: 20 }).some((m) => m.kind === 'system' && m.text.includes('@team-lead) is now coordinator'))).toBe(true);
+  });
+});

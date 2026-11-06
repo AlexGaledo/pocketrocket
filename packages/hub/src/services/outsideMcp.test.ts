@@ -17,20 +17,20 @@ describe('outsideMcpFor', () => {
   });
 
   it('gives a listed bot its servers', () => {
-    expect(outsideMcpFor('wika-backend', file(good))).toEqual([
+    expect(outsideMcpFor('wika-backend', null, file(good))).toEqual([
       { name: 'wika', url: 'https://dashboard.wikaph.com/api/mcp', token: 'k-123456789' },
       { name: 'local', url: 'http://127.0.0.1:9000/mcp', token: null },
     ]);
   });
 
   it('gives an unlisted bot nothing', () => {
-    expect(outsideMcpFor('wika-qa', file(good))).toEqual([]);
+    expect(outsideMcpFor('wika-qa', null, file(good))).toEqual([]);
   });
 
   it('treats a missing or broken file as none', () => {
-    expect(outsideMcpFor('wika-backend', path.join(os.tmpdir(), 'nope-' + Date.now() + '.json'))).toEqual([]);
-    expect(outsideMcpFor('wika-backend', file('{not json'))).toEqual([]);
-    expect(outsideMcpFor('wika-backend', file('[]'))).toEqual([]);
+    expect(outsideMcpFor('wika-backend', null, path.join(os.tmpdir(), 'nope-' + Date.now() + '.json'))).toEqual([]);
+    expect(outsideMcpFor('wika-backend', null, file('{not json'))).toEqual([]);
+    expect(outsideMcpFor('wika-backend', null, file('[]'))).toEqual([]);
   });
 
   it('refuses reserved names, bad names, plain http to another host and bad urls', () => {
@@ -42,6 +42,14 @@ describe('outsideMcpFor', () => {
       broken: { url: 'not a url', bots: ['b'] },
       nobots: { url: 'https://a.example/mcp' },
     }));
-    expect(outsideMcpFor('b', f)).toEqual([]);
+    expect(outsideMcpFor('b', null, f)).toEqual([]);
+  });
+
+  it('gives every bot in a listed room the server, by room id or name, and only in that room', () => {
+    const f = file(JSON.stringify({ wika: { url: 'https://dashboard.wikaph.com/api/mcp', token: 'k-123456789', rooms: ['Wika', 'r2'] } }));
+    expect(outsideMcpFor('anyone', { id: 'r1', name: 'Wika' }, f).map((s) => s.name)).toEqual(['wika']);
+    expect(outsideMcpFor('anyone', { id: 'r2', name: 'Other' }, f).map((s) => s.name)).toEqual(['wika']);
+    expect(outsideMcpFor('anyone', { id: 'r3', name: 'Elsewhere' }, f)).toEqual([]);
+    expect(outsideMcpFor('anyone', null, f)).toEqual([]);
   });
 });

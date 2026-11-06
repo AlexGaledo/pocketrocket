@@ -323,7 +323,7 @@ export class BotRunner {
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
     addSecret(mcpToken);
-    const outsideMcp = outsideMcpFor(bot.handle);
+    const outsideMcp = outsideMcpFor(bot.handle, room);
     for (const s of outsideMcp) addSecret(s.token);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
