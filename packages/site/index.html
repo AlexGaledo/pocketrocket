@@ -55,6 +55,11 @@
 
 <main id="main" tabindex="-1">
 
+  <!-- The hero sits in a little solar system: the room is the planet, the bots orbit it, and every so
+       often one hands work to another or stops at the approval checkpoint. Drawn by /orbit.js on a
+       decorative canvas; without JS or with reduced motion it is a still frame or simply absent. -->
+  <div class="hero-stage">
+  <canvas class="orbit" aria-hidden="true"></canvas>
   <section class="hero wrap" id="top" aria-labelledby="hero-h">
     <div class="hero-copy">
       <h1 id="hero-h">A crew of AI bots that checks with you first.</h1>
@@ -123,6 +128,7 @@ pnpm build &amp;&amp; pnpm test</pre>
       <figcaption class="sr-only">Illustration, not a screenshot.</figcaption>
     </figure>
   </section>
+  </div>
 
   <section class="band" id="how" aria-labelledby="how-h">
     <div class="wrap">
@@ -151,7 +157,7 @@ pnpm build &amp;&amp; pnpm test</pre>
     </div>
     <div class="feature-cols">
       <div class="feature-col">
-        <h3>Remember and specialise</h3>
+        <h3><svg class="orb" viewBox="0 0 40 40" aria-hidden="true"><circle class="orb-ring" cx="20" cy="20" r="17"/><g class="orb-sat"><circle cx="20" cy="3" r="2.6"/></g><path class="orb-glyph" d="M20 12.5l1.9 5.6 5.6 1.9-5.6 1.9-1.9 5.6-1.9-5.6-5.6-1.9 5.6-1.9z"/></svg>Remember and specialise</h3>
         <dl>
           <dt>Memory per bot</dt>
           <dd>Each bot keeps a private memory it reads on every turn. Auto-memory saves lasting facts from the chat, so you repeat yourself less.</dd>
@@ -164,7 +170,7 @@ pnpm build &amp;&amp; pnpm test</pre>
         </dl>
       </div>
       <div class="feature-col">
-        <h3>Work while you're away</h3>
+        <h3><svg class="orb" viewBox="0 0 40 40" aria-hidden="true"><circle class="orb-ring" cx="20" cy="20" r="17"/><g class="orb-sat"><circle cx="20" cy="3" r="2.6"/></g><g class="orb-glyph"><circle cx="20" cy="20" r="7"/><path d="M20 16v4l2.6 1.6"/></g></svg>Work while you're away</h3>
         <dl>
           <dt>Routines</dt>
           <dd>Wake a bot on a schedule to check in, report or do recurring work.</dd>
@@ -177,7 +183,7 @@ pnpm build &amp;&amp; pnpm test</pre>
         </dl>
       </div>
       <div class="feature-col">
-        <h3>Reach it from anywhere</h3>
+        <h3><svg class="orb" viewBox="0 0 40 40" aria-hidden="true"><circle class="orb-ring" cx="20" cy="20" r="17"/><g class="orb-sat"><circle cx="20" cy="3" r="2.6"/></g><g class="orb-glyph"><path d="M13 18.2a10 10 0 0 1 14 0M15.6 21a6.2 6.2 0 0 1 8.8 0"/><circle cx="20" cy="24.4" r="1.2"/></g></svg>Reach it from anywhere</h3>
         <dl>
           <dt>Desktop app</dt>
           <dd>Runs everything on your Windows PC, or connects to your server over SSH with your key, never a password.</dd>
@@ -194,9 +200,30 @@ pnpm build &amp;&amp; pnpm test</pre>
 
   <section class="safety" id="safety" aria-labelledby="safety-h">
     <div class="wrap">
-      <div class="section-head">
-        <h2 id="safety-h">The guard rails, and where they stop</h2>
-        <p>Treat every bot like a contractor with a shell on your machine. These guards catch honest mistakes. They are not a wall against a model that has been tricked by something it read.</p>
+      <div class="safety-top">
+        <div class="section-head">
+          <h2 id="safety-h">The guard rails, and where they stop</h2>
+          <p>Treat every bot like a contractor with a shell on your machine. These guards catch honest mistakes. They are not a wall against a model that has been tricked by something it read.</p>
+        </div>
+        <!-- The five guards below as a shield ring around your hub, with the gap where they stop. -->
+        <svg class="shield" viewBox="0 0 360 240" aria-hidden="true">
+          <circle class="sh-orbit" cx="180" cy="124" r="112"/>
+          <circle class="sh-planet" cx="180" cy="124" r="30"/>
+          <circle class="sh-core" cx="180" cy="124" r="9"/>
+          <path class="sh-ring" d="M129.5 59.4A82 82 0 1 1 98.8 112.6"/>
+          <path class="sh-gap" d="M98.8 112.6A82 82 0 0 1 129.5 59.4"/>
+          <g class="sh-nodes">
+            <circle cx="180" cy="42" r="5"/><circle cx="251" cy="83" r="5"/><circle cx="251" cy="165" r="5"/><circle cx="180" cy="206" r="5"/><circle cx="109" cy="165" r="5"/>
+          </g>
+          <g class="sh-labels">
+            <text x="180" y="26" text-anchor="middle">approvals</text>
+            <text x="263" y="80" text-anchor="start">pc runner</text>
+            <text x="263" y="176" text-anchor="start">secret files</text>
+            <text x="180" y="230" text-anchor="middle">kill switch</text>
+            <text x="97" y="176" text-anchor="end">127.0.0.1</text>
+          </g>
+          <text class="sh-limit" x="94" y="80" text-anchor="end">limits</text>
+        </svg>
       </div>
       <ul class="guards">
         <li>
@@ -347,5 +374,6 @@ pnpm build &amp;&amp; pnpm test</pre>
 </footer>
 
 <script src="/main.js" defer></script>
+<script src="/orbit.js" defer></script>
 </body>
 </html>

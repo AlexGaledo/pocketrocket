@@ -311,6 +311,30 @@ h3 { font-size: 1.125rem; line-height: 1.35; font-weight: var(--w-semibold); let
   .hero .actions .btn { flex: 1 1 100%; }
 }
 
+/* The orbit stage: a full-bleed layer behind the hero. orbit.js draws the bots circling the room
+   (the planet) on the canvas. Light mode reads as a technical diagram on paper; dark mode as deep
+   space. The canvas fades out at the bottom so the hero meets the next section without a seam. */
+.hero-stage { position: relative; isolation: isolate; overflow: hidden; }
+.hero-stage .hero { position: relative; z-index: 1; }
+/* Stacked: leave a band between the buttons and the card for the planet to rise into. */
+@media (max-width: 979px) { .hero-stage .hero { gap: 112px; } }
+.orbit {
+  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  pointer-events: none; opacity: 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+  transition: opacity 600ms ease;
+}
+.orbit.is-on { opacity: 1; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hero-stage {
+    background: radial-gradient(ellipse 70% 80% at 72% 42%, color-mix(in oklab, var(--tint-1) 55%, var(--bg)), var(--bg) 70%);
+  }
+}
+:root[data-theme="dark"] .hero-stage {
+  background: radial-gradient(ellipse 70% 80% at 72% 42%, color-mix(in oklab, var(--tint-1) 55%, var(--bg)), var(--bg) 70%);
+}
+
 /* The room illustration. Mirrors ChatPane: bubbles on card2 with a tucked corner, approval card with a
    warn ring, the work line. Pure CSS; nothing in it is focusable. */
 .room {
@@ -438,8 +462,42 @@ h3 { font-size: 1.125rem; line-height: 1.35; font-weight: var(--w-semibold); let
 .feature-col dt { font-weight: var(--w-semibold); margin-top: 22px; }
 .feature-col dd { color: var(--muted); margin-top: 4px; }
 
+/* Feature columns: each heading's icon sits on a small ring with one satellite. */
+.feature-col > h3 { display: flex; align-items: center; gap: 12px; }
+.orb { width: 36px; height: 36px; flex: none; overflow: visible; }
+.orb-ring { fill: none; stroke: var(--line2); stroke-width: 1.2; }
+.orb-sat { fill: var(--accent); transform-box: view-box; transform-origin: 50% 50%; }
+.orb-glyph { fill: none; stroke: var(--fg); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+path.orb-glyph { fill: var(--fg); stroke: none; }
+.feature-col:nth-child(2) .orb-sat { transform: rotate(120deg); }
+.feature-col:nth-child(3) .orb-sat { transform: rotate(240deg); }
+@media (prefers-reduced-motion: no-preference) {
+  .orb-sat { animation: orb-spin 22s linear infinite; }
+  .feature-col:nth-child(2) .orb-sat { animation-duration: 30s; animation-delay: -10s; }
+  .feature-col:nth-child(3) .orb-sat { animation-duration: 38s; animation-delay: -25s; }
+}
+@keyframes orb-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 /* Safety: every guard sits beside its limit. */
 .safety { background: var(--band); padding: clamp(64px, 9vw, 112px) 0; }
+/* The shield ring: the five guards around your hub, with a dotted amber gap where they stop. */
+.safety-top { display: grid; gap: 8px 48px; align-items: center; margin-bottom: 48px; }
+.safety-top .section-head { margin-bottom: 0; }
+@media (min-width: 900px) { .safety-top { grid-template-columns: minmax(0, 40rem) minmax(0, 1fr); } }
+.shield { width: 100%; max-width: 360px; height: auto; justify-self: center; overflow: visible; }
+.sh-orbit { fill: none; stroke: var(--line2); stroke-width: 1; stroke-dasharray: 1 5; }
+.sh-planet { fill: var(--panel); stroke: var(--line2); stroke-width: 1; }
+.sh-core { fill: var(--tint-1); }
+.sh-ring { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 6 4; }
+.sh-gap { fill: none; stroke: var(--warn); stroke-width: 1.6; stroke-dasharray: 1 4; stroke-linecap: round; }
+.sh-nodes circle { fill: var(--panel); stroke: var(--accent); stroke-width: 1.6; }
+.sh-labels text, .sh-limit { font-family: var(--mono); font-size: 11.5px; }
+.sh-labels text { fill: var(--muted); }
+.sh-limit { fill: var(--warn); font-weight: 600; }
+@media (prefers-reduced-motion: no-preference) {
+  .sh-ring { animation: sh-drift 14s linear infinite; }
+}
+@keyframes sh-drift { to { stroke-dashoffset: -100; } }
 .guards { border-top: 1px solid var(--line2); }
 .guards li {
   display: grid; gap: 10px 32px; padding: 28px 0; border-bottom: 1px solid var(--line2);
@@ -598,5 +656,6 @@ pre {
   .site-nav, .skip-link, #newsletter, .copy-btn { display: none !important; }
   .band, .safety { background: none; }
   .room { box-shadow: 0 0 0 1px #ccc; }
+  .orbit, .shield { display: none; }
   a { color: inherit; }
 }

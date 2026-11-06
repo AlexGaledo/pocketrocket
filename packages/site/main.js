@@ -7,7 +7,8 @@
 // 5. the nav hairline once the page has scrolled
 // 6. newsletter signup (POST /api/subscribe)
 // 7. print prep: open every FAQ answer
-// The hero's chat illustration plays in pure CSS (styles.css, .room .b1 to .b5); nothing here drives it.
+// The hero's chat illustration plays in pure CSS (styles.css, .room .b1 to .b5); the orbit behind it is
+// orbit.js, loaded by index.html only.
 
 // One polite live region for short status messages (copy results), created up front so screen readers
 // already track it when the first message lands.
