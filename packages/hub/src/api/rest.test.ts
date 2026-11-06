@@ -58,7 +58,8 @@ describe('settings / secrets / providers REST', () => {
   });
 
   it('defaults auto-memory on (every 10) and patches it within bounds', async () => {
-    const bot = (await api<Bot>('POST', '/api/bots', { name: 'Memo', handle: 'memo' })).body;
+    const made = await api<Bot>('POST', '/api/bots', { name: 'Memo', handle: 'memo' });
+    const bot = made.body;
     expect(bot).toMatchObject({ autoMemory: true, autoMemoryEvery: 10 });
     const off = (await api<Bot>('PATCH', '/api/bots/' + bot.id, { autoMemory: false, autoMemoryEvery: 25 })).body;
     expect(off).toMatchObject({ autoMemory: false, autoMemoryEvery: 25, name: 'Memo' });
@@ -150,5 +151,21 @@ describe('rooms and bot delete REST', () => {
     expect(fs.existsSync(botHome(bot.id))).toBe(true);
     expect((await api('DELETE', '/api/bots/' + bot.id)).status).toBe(200);
     expect(fs.existsSync(botHome(bot.id))).toBe(false);
+  });
+});
+
+describe('bot memory REST', () => {
+  it('reports the size, the cap and when auto-memory last saved', async () => {
+    const bot = (await api<Bot>('POST', '/api/bots', { name: 'Memtab', handle: 'memtab' })).body;
+    try {
+      expect((await api('PUT', '/api/bots/' + bot.id + '/memory', { text: '- café\n' })).status).toBe(200);
+      const r = await api<{ text: string; bytes: number; limit: number; lastAutoSavedAt: number | null }>('GET', '/api/bots/' + bot.id + '/memory');
+      expect(r.body).toEqual({ text: '- café\n', bytes: 8, limit: 8 * 1024, lastAutoSavedAt: null });
+      const room = (await api<Room>('POST', '/api/rooms', { kind: 'dm', name: 'DM', memberIds: [bot.id] })).body;
+      hub.repos.markAutoMemorySaved(bot.id, room.id, 1_700_000_000_000);
+      expect((await api<{ lastAutoSavedAt: number }>('GET', '/api/bots/' + bot.id + '/memory')).body.lastAutoSavedAt).toBe(1_700_000_000_000);
+    } finally {
+      await api('DELETE', '/api/bots/' + bot.id);
+    }
   });
 });

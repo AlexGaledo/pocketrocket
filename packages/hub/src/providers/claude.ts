@@ -9,6 +9,7 @@ import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/share
 import { CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
+import { SESSION_RETENTION_DAYS } from './cliRetention.js';
 import { deleteGate } from '../permissions/deleteGate.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '../permissions/readOnlyRoots.js';
@@ -340,6 +341,9 @@ export class ClaudeProvider implements AgentProvider {
       model: ctx.model,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: ctx.systemPrompt },
       settingSources: [],
+      // Flag settings load even with settingSources: [] (user settings do not), so this is what stops the CLI's
+      // 30-day sweep from deleting the session files bots resume from.
+      settings: { cleanupPeriodDays: SESSION_RETENTION_DAYS },
       plugins: pluginDir ? [{ type: 'local', path: pluginDir }] : undefined,
       skills: pluginDir ? 'all' : [],
       // Approvals bypassed: the SDK skips canUseTool entirely (and the out-of-workspace hook below is left

@@ -74,6 +74,19 @@ export interface ToolCtx {
 export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
 export const err = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }], isError: true });
 
+/**
+ * memory.md rides every prompt and notes/ are plain files that end up in backups, so neither may hold a secret.
+ * Text that `redact()` would change (a known hub token or a key-shaped string) is refused whole, not saved
+ * half-redacted. Returns the tool error, or null when the text is clean.
+ */
+export function refuseSecret(what: string, ...texts: (string | undefined)[]): ToolOutput | null {
+  if (!texts.some((t) => t && redact(t) !== t)) return null;
+  return err(
+    'Not saved: the ' + what + ' looks like it contains a secret (an API key, token or bearer header). ' +
+      'Never write secrets to memory or notes. Remove it and save the rest, or describe where the secret lives instead.',
+  );
+}
+
 /** Build a provider-agnostic HubTool from a zod shape; the handler sees parsed, typed args. */
 export function hubTool<S extends z.ZodRawShape>(
   name: string,
@@ -315,6 +328,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       find: z.string().optional().describe('Text to find (patch mode only)'),
     },
     async (a) => {
+      const secret = refuseSecret('memory text', a.text);
+      if (secret) return secret;
       let trimmed = false;
       if (a.mode === 'replace') trimmed = ctx.memory.write(ctx.bot.id, a.text);
       else if (a.mode === 'append') trimmed = ctx.memory.append(ctx.bot.id, a.text);
@@ -714,6 +729,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
         mode: z.enum(['replace', 'append']).optional().describe('Default replace'),
       },
       async (a) => {
+        const secret = refuseSecret('note', a.title, a.text);
+        if (secret) return secret;
         try {
           const r = ctx.memory.writeNote(ctx.bot.id, a.title, a.text, a.mode ?? 'replace');
           return text('Saved ' + r.file + (r.trimmed ? ' (cut at 32 KB; split it into several notes)' : '') + '.');

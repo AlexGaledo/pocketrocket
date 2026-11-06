@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
-  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, ENABLED_PROVIDERS, MEDIA_DIR,
+  HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, BOTS_DIR, ENABLED_PROVIDERS, MEDIA_DIR,
   ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH, PROJECTS_DIR, ROOMS_DIR, botFilesDir, setRoomRootsResolver,
 } from './config.js';
 import { Db } from './db/db.js';
+import { reportOrphanBotDirs } from './services/orphanBotDirs.js';
 import { Repos } from './db/repos.js';
 import { MemoryService } from './services/MemoryService.js';
 import { SkillService } from './services/SkillService.js';
@@ -158,6 +159,10 @@ export function createHub(opts: HubOptions = {}): Hub {
   const db = opts.dbFile ? new Db(opts.dbFile) : new Db();
   const repos = new Repos(db);
   const memory = new MemoryService();
+  if (!opts.skipBootstrap) {
+    // Bot folders left behind by deletes in older versions: counted here, moved only by the prune script.
+    reportOrphanBotDirs(BOTS_DIR, repos.listBots().map((b) => b.id));
+  }
   const skills = new SkillService(repos);
   const usage = new UsageTracker(repos);
   const secrets = new SecretsStore();

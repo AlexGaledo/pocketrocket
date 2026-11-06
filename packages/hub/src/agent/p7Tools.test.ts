@@ -6,6 +6,7 @@ import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
 import { MemoryService } from '../services/MemoryService.js';
 import { SkillService } from '../services/SkillService.js';
+import { addSecret, clearSecrets } from '../providers/redact.js';
 import { createHubTools, type ToolCtx } from './botTools.js';
 
 /** P7 hub tools: handoff to a bot from the fleet directory (7.3), and search_notes / write_note (7.2). */
@@ -125,5 +126,42 @@ describe('search_notes / write_note (7.2)', () => {
     expect(found.content[0]).toMatchObject({ text: expect.stringContaining('vendor-contacts.md') });
     const none = await s.tool('search_notes').handler({ query: 'zebra' });
     expect(none.content[0]).toMatchObject({ text: expect.stringContaining('No notes match') });
+  });
+});
+
+describe('memory and notes refuse secrets', () => {
+  const KEY = 'sk-ant-' + 'a1B2c3D4e5F6g7H8i9J0kLmN';
+  afterEach(() => clearSecrets());
+
+  it('update_memory refuses key-shaped text in every mode and leaves memory untouched', async () => {
+    const s = setup('dm');
+    expect((await s.tool('update_memory').handler({ mode: 'replace', text: 'Deploys go out Fridays.' })).isError).toBeFalsy();
+    for (const a of [
+      { mode: 'replace', text: 'Anthropic key: ' + KEY },
+      { mode: 'append', text: 'Authorization: Bearer abcdefghijklmnop' },
+      { mode: 'patch', find: 'Fridays', text: 'Fridays, token ghp_abcdefghijklmnopqrstuvwxyz0123' },
+    ]) {
+      const out = await s.tool('update_memory').handler(a);
+      expect(out.isError).toBe(true);
+      expect(out.content[0]).toMatchObject({ text: expect.stringContaining('looks like it contains a secret') });
+    }
+    expect(s.ctx.memory.read(s.chief.id)).toBe('Deploys go out Fridays.');
+  });
+
+  it('update_memory refuses a value the hub registered as a secret', async () => {
+    const s = setup('dm');
+    addSecret('plain-looking-hub-token-123');
+    const out = await s.tool('update_memory').handler({ mode: 'append', text: 'hub token is plain-looking-hub-token-123' });
+    expect(out.isError).toBe(true);
+    expect(s.ctx.memory.read(s.chief.id)).toBe('');
+  });
+
+  it('write_note refuses a secret in the body or the title and writes no file', async () => {
+    const s = setup('dm');
+    expect((await s.tool('write_note').handler({ title: 'Keys', text: 'xoxb-1234567890-abcdefghij' })).isError).toBe(true);
+    expect((await s.tool('write_note').handler({ title: KEY, text: 'harmless' })).isError).toBe(true);
+    expect(s.ctx.memory.listNotes(s.chief.id)).toEqual([]);
+    // Talking about keys without one is fine.
+    expect((await s.tool('write_note').handler({ title: 'Keys', text: 'The API key lives in Settings > Secrets.' })).isError).toBeFalsy();
   });
 });
