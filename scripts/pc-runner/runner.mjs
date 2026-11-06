@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import {
   HUB_PORT, JOB_TIMEOUT_MS, CONFIRM_TIMEOUT_MS, RUNNER_SETTINGS,
   validateConfig, folderFor, parseJob, buildClaudeArgs, buildMcpConfig, parseClaudeResult, capOutput, promptPreview,
-  cleanToken, backoffMs, logFileName, resolveClaudePath, canRunCode, listenerIsOurs, isInside,
+  cleanToken, backoffMs, logFileName, resolveClaudePath, canRunCode, listenerIsOurs, isInside, gitHardenedEnv,
 } from './lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -306,7 +306,9 @@ function runClaude(claudePath, folder, mcpDefs, prompt) {
   }
   return new Promise((resolve) => {
     let out = '', err = '', timedOut = false, outBytes = 0;
-    const child = spawn(claudePath, args, { cwd: folder.path, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // gitHardenedEnv: every git the job runs ignores system/user git config and has fsmonitor, pager, hooks and
+    // sshCommand forced off, whatever the repo's .git/config says.
+    const child = spawn(claudePath, args, { cwd: folder.path, env: gitHardenedEnv(process.env), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     currentChildren.add(child);
     const t = setTimeout(() => { timedOut = true; killTree(child); }, JOB_TIMEOUT_MS);
     // Keep memory bounded: the JSON result can't be parsed past ~4 MB anyway.

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_ALLOWED_TOOLS, validateConfig, folderFor, parseJob, buildClaudeArgs, capOutput, parseClaudeResult,
   promptPreview, cleanToken, toolError, backoffMs, logFileName,
-  DISALLOWED_TOOLS, RUNNER_SETTINGS, canRunCode, resolveClaudePath, isInside, buildMcpConfig, listenerIsOurs,
+  DISALLOWED_TOOLS, RUNNER_SETTINGS, GIT_FORCED_CONFIG, gitHardenedEnv, canRunCode, resolveClaudePath, isInside, buildMcpConfig, listenerIsOurs,
 } from './lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -119,13 +119,44 @@ test('runner settings deny the git escapes, allow nothing, and turn hooks off', 
   assert.deepEqual(RUNNER_SETTINGS.permissions.deny, [...DISALLOWED_TOOLS]);
 });
 
-test('defaults have no test runners; canRunCode flags write + script runner', () => {
+test('defaults have no test runners; canRunCode flags any write tool + any shell entry, git included', () => {
   assert.ok(!DEFAULT_ALLOWED_TOOLS.some((t) => /test/.test(t)));
-  assert.equal(canRunCode([...DEFAULT_ALLOWED_TOOLS]), false);
+  assert.equal(canRunCode([...DEFAULT_ALLOWED_TOOLS]), true);
   assert.equal(canRunCode([...DEFAULT_ALLOWED_TOOLS, 'Bash(pnpm test:*)']), true);
+  assert.equal(canRunCode(['Edit', 'Bash(git diff:*)']), true);
+  assert.equal(canRunCode(['Write', 'PowerShell(Get-ChildItem:*)']), true);
   assert.equal(canRunCode(['Read', 'Bash(pnpm test:*)']), false);
-  assert.equal(canRunCode(['Write', 'Bash(node scripts/x.mjs)']), true);
-  assert.equal(canRunCode(['Edit', 'Bash(git diff:*)']), false);
+  assert.equal(canRunCode(['Read', 'Glob', 'Grep', 'Edit', 'Write']), false);
+  assert.equal(canRunCode(['Read', 'mcp__wika-dashboard__list_routes']), false);
+});
+
+test('git metadata is never editable: .git/**, .gitattributes, .gitmodules denied for Edit and Write', () => {
+  for (const tool of ['Edit', 'Write']) {
+    for (const p of ['.git/**', '**/.git/**', '**/.gitattributes', '**/.gitmodules']) {
+      assert.ok(DISALLOWED_TOOLS.includes(`${tool}(${p})`), `${tool}(${p})`);
+    }
+  }
+  const args = buildClaudeArgs({ allowedTools: [...DEFAULT_ALLOWED_TOOLS], ...files });
+  for (const d of ['Edit(.git/**)', 'Write(**/.gitattributes)', 'Edit(**/.gitmodules)']) assert.ok(valueOf(args, '--disallowedTools').split(',').includes(d), d);
+  for (const d of DISALLOWED_TOOLS) assert.ok(toolError(d) === null || /^(Edit|Write)\(/.test(d), d);
+});
+
+test('gitHardenedEnv: no system/global config, forced safe values, hostile git env vars dropped', () => {
+  const env = gitHardenedEnv({
+    PATH: 'C:\\bin', USERPROFILE: 'C:\\Users\\a', git_dir: 'C:\\elsewhere', GIT_EXTERNAL_DIFF: 'evil', GIT_SSH_COMMAND: 'evil',
+    Git_Config_Count: '1', GIT_CONFIG_KEY_0: 'core.pager', GIT_CONFIG_VALUE_0: 'evil', GIT_CONFIG_PARAMETERS: "'core.pager=evil'", PAGER: 'evil', EDITOR: 'evil',
+  });
+  assert.equal(env.PATH, 'C:\\bin');
+  assert.equal(env.USERPROFILE, 'C:\\Users\\a');
+  assert.equal(env.GIT_CONFIG_NOSYSTEM, '1');
+  assert.equal(env.GIT_CONFIG_GLOBAL, 'NUL');
+  assert.equal(env.GIT_PAGER, 'cat');
+  assert.equal(env.PAGER, 'cat');
+  for (const k of ['git_dir', 'GIT_EXTERNAL_DIFF', 'GIT_SSH_COMMAND', 'Git_Config_Count', 'GIT_CONFIG_PARAMETERS', 'EDITOR']) assert.ok(!(k in env), k);
+  assert.equal(env.GIT_CONFIG_COUNT, String(GIT_FORCED_CONFIG.length));
+  const forced = Object.fromEntries(GIT_FORCED_CONFIG.map((_, i) => [env[`GIT_CONFIG_KEY_${i}`], env[`GIT_CONFIG_VALUE_${i}`]]));
+  assert.deepEqual(forced, { 'core.fsmonitor': 'false', 'core.pager': 'cat', 'core.hooksPath': 'NUL', 'core.sshCommand': '' });
+  assert.equal(Object.keys(env).filter((k) => /^GIT_CONFIG_KEY_/.test(k)).length, GIT_FORCED_CONFIG.length);
 });
 
 test('resolveClaudePath: config, then ~/.local/bin, then absolute PATH entries; never inside a folder', () => {

@@ -70,10 +70,26 @@ else. A tool that isn't on the list is denied without a prompt, because `-p` mod
 
 - **Test runners are opt-in per folder.** `Bash(pnpm test:*)` and `Bash(npm test:*)` run scripts from the repo, and
   together with Edit/Write that means a job can run any code it writes. Add them only to folders where you accept
-  that. When a folder's tools can both write files and run something, the dialog shows a red line: **"This job can
-  run code in this folder."** `check` warns too.
-- These are always denied: `git ... --output=<file>` (writes a file anywhere), `git ... --ext-diff` (runs a
-  configured diff program) and `git -c ...` (sets any config for one command).
+  that.
+- **Edit/Write plus any shell command counts as running code, git included.** A file edit can turn the next
+  `git status` into a program run, through `core.fsmonitor`, `core.pager` or aliases in `.git/config`, or through
+  filter/diff drivers named in `.gitattributes`. The default list has both, so the dialog shows a red line on
+  every such job: **"This job can run code in this folder."** `check` warns too. A folder that only needs reading
+  can use `["Read", "Glob", "Grep"]` plus git commands, and gets no warning.
+- These are always denied, whatever the list says:
+  - `git ... --output=<file>`, which writes a file anywhere
+  - `git ... --ext-diff`, which runs a configured diff program
+  - `git -c ...`, which sets any config for one command
+  - Edit or Write on `.git/**` (also nested), `.gitattributes` and `.gitmodules`
+- Every git a job runs gets a hardened environment:
+  - `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=NUL`, so no system or user git config (`git status/diff/log/show`
+    don't need your git identity)
+  - forced `core.fsmonitor=false`, `core.pager=cat`, `core.hooksPath=NUL` and `core.sshCommand=` through
+    `GIT_CONFIG_COUNT`, which overrides the repo's own `.git/config`
+  - `GIT_DIR`, `GIT_EXTERNAL_DIFF`, `GIT_SSH_COMMAND`, pagers and editors removed
+
+  `diff.external` can't be forced off: git has no "none" value, and an empty one breaks every `git diff`. A job
+  can't plant one, because `.git/**` is denied. One that is already in your own clone's `.git/config` would run.
 - Claude Code itself auto-approves some read-only shell commands such as `whoami`, even when they aren't on the
   list. Anything that writes or runs a program is denied.
 - **MCP servers.** A job sees only the servers its folder names in `mcpServers`, and only the tools of theirs you
@@ -105,8 +121,9 @@ A job folder is a repo that bots can push to, so its own `.claude/settings.json`
 | `--permission-mode dontAsk` + `--permission-prompts none` | anything not pre-approved is denied |
 | `--strict-mcp-config --mcp-config <runner temp file>` | only the folder's `mcpServers`; `.mcp.json` and `~/.claude.json` servers are ignored |
 | `--tools <built-ins>` | only the built-in tools the list names exist |
-| `--allowedTools` / `--disallowedTools` | the folder's list, and the always-denied git commands |
+| `--allowedTools` / `--disallowedTools` | the folder's list, and the always-denied git commands and git-metadata edits |
 | `--no-session-persistence` | no transcript is left on disk |
+| process environment | the hardened git environment above |
 
 Every flag was checked against `claude --help` (Claude Code 2.1.319). `--permission-mode default` is not one of
 that version's listed choices, so the runner uses `dontAsk`, which denies anything not pre-approved.
@@ -121,6 +138,10 @@ The owner's own user settings also had `defaultMode: bypassPermissions`. Results
 - `git diff --output=OUT.txt` and `git -c core.pager=cat diff` were denied.
 - No hook or MCP marker file appeared, and no `mcp__` tools were loaded.
 - Only `whoami` ran, because Claude Code auto-approves read-only commands.
+- The repo's `.git/config` also had a planted `core.fsmonitor` that writes `%TEMP%\pr-pwned.txt`. It fired on a
+  plain `git status`. The job's `git status` and `git diff` worked and did not create the file.
+- Edit on `.git/config`, and Write of `.gitattributes` and `.gitmodules` (at the repo root), were all denied.
+  The files were unchanged or not created.
 
 ## Threat model, in plain words
 

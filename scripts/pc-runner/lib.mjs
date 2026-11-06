@@ -30,7 +30,46 @@ export const DEFAULT_ALLOWED_TOOLS = Object.freeze([
  */
 export const DISALLOWED_TOOLS = Object.freeze([
   'Bash(git * --output*)', 'Bash(git diff --output*)', 'Bash(git * --ext-diff*)', 'Bash(git -c *)',
+  // Editing git's own config is code execution: core.fsmonitor, core.pager, diff.external, aliases in .git/config,
+  // or filter/diff drivers named from .gitattributes, run on the next `git status` / `git diff`.
+  'Edit(.git/**)', 'Write(.git/**)', 'Edit(**/.git/**)', 'Write(**/.git/**)',
+  'Edit(**/.gitattributes)', 'Write(**/.gitattributes)', 'Edit(**/.gitmodules)', 'Write(**/.gitmodules)',
 ]);
+
+/**
+ * Git config forced for every git the job runs (Claude's Bash tool inherits claude's environment). Entries passed
+ * through GIT_CONFIG_COUNT have command-line scope, so they override whatever a repo's .git/config says.
+ *
+ * Not here: `diff.external`. Git has no value meaning "none": an empty one makes every `git diff` fail with
+ * "cannot spawn" (tested on git 2.46). A planted diff.external, like filter/textconv drivers, is instead kept
+ * out by denying Edit/Write on .git/** and .gitattributes (DISALLOWED_TOOLS); GIT_EXTERNAL_DIFF is dropped from env.
+ */
+export const GIT_FORCED_CONFIG = Object.freeze([
+  ['core.fsmonitor', 'false'],
+  ['core.pager', 'cat'],
+  ['core.hooksPath', 'NUL'],
+  ['core.sshCommand', ''],
+]);
+
+/**
+ * The environment for the claude process: the caller's, minus anything that points git elsewhere or runs a
+ * program, plus GIT_CONFIG_NOSYSTEM / GIT_CONFIG_GLOBAL=NUL (no system or user git config, so no user aliases or
+ * credential helpers) and GIT_FORCED_CONFIG. Windows env names are case-insensitive, so removal ignores case.
+ */
+export function gitHardenedEnv(baseEnv) {
+  const drop = /^(GIT_CONFIG.*|GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR|GIT_EXTERNAL_DIFF|GIT_PAGER|PAGER|GIT_SSH|GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_EDITOR|EDITOR|VISUAL|GIT_TRACE.*)$/i;
+  const env = {};
+  for (const [k, v] of Object.entries(baseEnv ?? {})) if (!drop.test(k)) env[k] = v;
+  env.GIT_CONFIG_NOSYSTEM = '1';
+  env.GIT_CONFIG_GLOBAL = 'NUL';
+  env.GIT_ATTR_NOSYSTEM = '1';
+  env.GIT_TERMINAL_PROMPT = '0';
+  env.GIT_PAGER = 'cat';
+  env.PAGER = 'cat';
+  env.GIT_CONFIG_COUNT = String(GIT_FORCED_CONFIG.length);
+  GIT_FORCED_CONFIG.forEach(([k, v], i) => { env[`GIT_CONFIG_KEY_${i}`] = k; env[`GIT_CONFIG_VALUE_${i}`] = v; });
+  return env;
+}
 
 /**
  * The only settings a job sees (passed with --settings; user, project and local settings files are not loaded).
@@ -44,8 +83,6 @@ export const RUNNER_SETTINGS = Object.freeze({
 /** Flags that would turn off Claude's permission checks. Never passed, never accepted from config or a job. */
 const FORBIDDEN = /dangerously|bypasspermissions|skip-permissions|permission-mode/i;
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
-/** Bash patterns that only read. Any other Bash entry is treated as able to run code from the folder. */
-const READ_ONLY_BASH = /^Bash\(git (status|diff|log|show)(:\*|\s\*)?\)$/;
 
 /** Returns an error string for a bad tool entry, or null. */
 export function toolError(t) {
@@ -58,11 +95,15 @@ export function toolError(t) {
   return null;
 }
 
-/** True when the list can both change files and run something from the folder (so: run code). */
+/**
+ * True when the list can both change files and run any command, git included: a file edit can turn the next
+ * command (even `git status`) into running a program. The runner denies the known git routes (DISALLOWED_TOOLS,
+ * gitHardenedEnv), but the dialog still says so plainly.
+ */
 export function canRunCode(tools) {
   const list = Array.isArray(tools) ? tools : [];
   const writes = list.some((t) => WRITE_TOOLS.has(t));
-  const runs = list.some((t) => /^(Bash|PowerShell)\b/.test(t) && !READ_ONLY_BASH.test(t));
+  const runs = list.some((t) => /^(Bash|PowerShell)\b/.test(t));
   return writes && runs;
 }
 
