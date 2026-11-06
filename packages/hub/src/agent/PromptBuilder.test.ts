@@ -4,6 +4,7 @@ import type { Repos } from '../db/repos.js';
 import { formatMessage } from '../rooms/RoomRouter.js';
 import { ownerTag } from '../services/SettingsStore.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
+import { parseKeyRegistry } from '../services/keyRegistry.js';
 
 const bot: Bot = {
   id: 'b1', name: 'Scout', handle: 'scout', title: 'Researcher', description: 'You research things.',
@@ -29,6 +30,16 @@ describe('buildSystemPrompt', () => {
     const p = buildSystemPrompt({ ...base, toolPrefix: '', requestApproval: true });
     expect(p).toContain('request_approval({ action, command?, paths?, reason? })');
     expect(p).toContain('Approvals:');
+  });
+
+  it('lists key names per place and points at where_to_run, only when the registry has keys', () => {
+    const keyRegistry = parseKeyRegistry({ keys: { firecrawl: { tier: 1, where: ['vps', 'pc'] }, 'store-p8': { tier: 3, where: ['pc'] } } });
+    const p = buildSystemPrompt({ ...base, keyRegistry, toolPrefix: '' });
+    expect(p).toContain('## Keys');
+    expect(p).toContain('On the VPS: firecrawl (tier 1). On the PC: firecrawl (tier 1), store-p8 (tier 3).');
+    expect(p).toContain('call where_to_run({ needs: [names] })');
+    expect(buildSystemPrompt({ ...base, keyRegistry: new Map() })).not.toContain('## Keys');
+    expect(buildSystemPrompt({ ...base })).not.toContain('## Keys');
   });
 
   it('names the desktop tools with the provider prefix', () => {

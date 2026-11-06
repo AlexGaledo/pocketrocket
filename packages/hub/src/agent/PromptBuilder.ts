@@ -3,6 +3,7 @@ import { MAX_HOPS, WORKSPACE_DIR, botHome } from '../config.js';
 import path from 'node:path';
 import { ownerTag, settings } from '../services/SettingsStore.js';
 import { MAX_VOICE_BYTES, capMemory } from '../services/MemoryService.js';
+import { keyRegistryNote, type KeyRegistry } from '../services/keyRegistry.js';
 
 export interface PromptCtx {
   bot: Bot;
@@ -47,6 +48,8 @@ export interface PromptCtx {
   routing?: string;
   /** This turn runs on Sonnet under Auto and can call use_stronger_model. */
   canMoveUp?: boolean;
+  /** key-registry.json: key names and tiers per place, so the bot asks where_to_run instead of guessing. */
+  keyRegistry?: KeyRegistry;
   /** The owner started this turn, so the bot may propose a line for routing.md. */
   canProposeRouting?: boolean;
 }
@@ -200,11 +203,17 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
     ...(ctx.fleetGate
       ? ['Every one of those tools shows ' + USER_NAME + ' an approval card before anything changes, and the tool returns only after they answer — so call it once and wait, do not retry or ask in chat first. The one exception: editing your OWN name, title, avatar or description goes through immediately. Changing tools, model or budget on any bot (including yourself), renaming a handle, or touching another bot always asks. If ' + USER_NAME + ' declines, accept it and say so in one line; do not attempt the same change another way. When ' + USER_NAME + ' asks for a change, make the call in that same turn — the card is where they confirm, and confirm=true on delete_bot only records your intent. Deleting yourself is fine when asked; finish your other steps first, delete last, then reply with a short goodbye.']
       : ['These take effect immediately: this hub runs without approval cards, so nothing pauses for ' + USER_NAME + ' to confirm and there is no undo. That makes you responsible for the check ' + USER_NAME + ' is no longer being asked for — change the fleet only when the current instruction actually asks for it, never on your own initiative, and say in the room what you changed. confirm=true on delete_bot and delete_room is your own intent, not consent from ' + USER_NAME + '; if a destructive change is implied rather than asked for, ask in chat first and wait for the answer.']),
+    ...keySection(ctx, prefix),
     '',
     '## Memory',
     ctx.memory.trim() || '(empty)',
     ...p7Sections(ctx, prefix, USER_NAME),
   ].join('\n');
+}
+
+function keySection(ctx: PromptCtx, prefix: string): string[] {
+  const note = ctx.keyRegistry ? keyRegistryNote(ctx.keyRegistry, prefix) : null;
+  return note ? ['', '## Keys', note] : [];
 }
 
 /** P7 additions, appended after memory: voice, notes, the knowledge repo and the fleet directory. */

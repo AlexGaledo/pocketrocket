@@ -425,6 +425,11 @@ export function createHub(opts: HubOptions = {}): Hub {
 
   const limiter = new AuthRateLimiter();
   const auth = new AuthService(db);
+  // Forgotten password: an env var on the hub's own process, which a bot cannot set for it. The hub token no
+  // longer resets a password (api/auth.ts), because a signed-in browser is what approves a job on the PC.
+  if (process.env.POCKETROCKET_RESET_PASSWORD === '1' && auth.clearPassword(repos.owner().id)) {
+    console.log('[pocketrocket] POCKETROCKET_RESET_PASSWORD=1: the owner password was cleared and every browser signed out. Set a new one in Settings, then remove the variable.');
+  }
   // Cookies ignore ports, so hubs on one machine need different names or signing in to one signs out the other.
   const sessionCookieName = () => SESSION_COOKIE + '_' + port;
   const authDeps = { db, repos, auth, limiter, cookieName: sessionCookieName };
@@ -630,7 +635,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
-  const wss = attachWs(server, { repos, router, broker, settings });
+  const wss = attachWs(server, { repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
   server.on('upgrade', (req, socket, head) => {
     const p = req.url ?? '';
     const url = new URL(p, 'http://localhost');

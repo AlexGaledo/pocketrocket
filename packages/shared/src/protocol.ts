@@ -10,7 +10,7 @@ import type { RecorderStatus } from './teach.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
-  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings; /** Who this connection is (P9): a paired device has narrower rights (guard.ts DEVICE_ALLOW). */ principal?: 'hub' | 'device'; /** Every card still waiting, including ones in rooms this client has not loaded. */ openApprovals?: OpenApproval[] }
+  | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings; /** Who this connection is (P9): a paired device has narrower rights (guard.ts DEVICE_ALLOW). */ principal?: 'hub' | 'device'; /** This connection carries a browser session (owner password), so it may allow sign-in-required cards. */ signedIn?: boolean; /** Every card still waiting, including ones in rooms this client has not loaded. */ openApprovals?: OpenApproval[] }
   | { type: 'settings.changed'; settings: Settings }
   /** Provider switched (or its check changed); clients refetch GET /api/providers. */
   | { type: 'providers.changed'; active: ProviderId }

@@ -12,7 +12,7 @@ import { segments, tokenize } from './bashRules.js';
  *
  * Why it exists: bots run as the same OS user that owns DATA_DIR, and under approvals bypass `cat ../secrets.json`
  * from the workspace simply runs. Protected:
- * - in DATA_DIR: hub-token, secrets.json, mcp-servers.json, pc-runner.json, account.json (the Supabase session),
+ * - in DATA_DIR: hub-token, secrets.json, mcp-servers.json, pc-runner.json, key-registry.json, account.json (the Supabase session),
  *   vapid.json (Web Push keys), vault.key and integrations.json (the integration vault), and anything under
  *   keys-disabled/;
  * - any `.env` / `.env.*` file under DATA_DIR/projects, except `.env.example` (and `.sample`, `.template`).
@@ -44,7 +44,7 @@ export const ENV_FILE_MESSAGE = "Env files hold the app's keys. Don't read or pr
 
 const isWin = process.platform === 'win32';
 const HUB_FILES = [
-  path.basename(HUB_TOKEN_PATH), path.basename(SECRETS_PATH), 'mcp-servers.json', 'pc-runner.json',
+  path.basename(HUB_TOKEN_PATH), path.basename(SECRETS_PATH), 'mcp-servers.json', 'pc-runner.json', 'key-registry.json',
   path.basename(ACCOUNT_PATH), path.basename(VAPID_PATH), path.basename(VAULT_KEY_PATH), path.basename(INTEGRATIONS_PATH),
 ];
 const KEYS_DIR = 'keys-disabled';

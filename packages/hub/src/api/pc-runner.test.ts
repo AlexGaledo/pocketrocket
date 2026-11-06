@@ -335,7 +335,7 @@ describe('the approval card', () => {
     const off = events.onEvent((ev) => {
       if (ev.type === 'approval.request' && ev.botId === bot.id) {
         seen.push(ev.approval.toolInput);
-        setTimeout(() => broker.resolve(ev.approval.approvalId, 'always'), 0);
+        setTimeout(() => broker.resolve(ev.approval.approvalId, 'always', { signedIn: true }), 0);
       }
     });
     const ctx = { bot, room, turnId: 't', hop: 0, causeId: 'c', setState: () => undefined };

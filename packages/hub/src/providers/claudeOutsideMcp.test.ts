@@ -28,9 +28,9 @@ import { HUB_KEYS_MESSAGE } from '../permissions/secretFiles.js';
 type Hook = { matcher: string; hooks: ((i: unknown) => Promise<{ hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string } }>)[] };
 
 const servers: OutsideMcpServer[] = [
-  { kind: 'stdio', name: 'runpod', command: 'npx', args: ['-y', 'runpod-mcp'], env: { RUNPOD_API_KEY: 'rp-key-12345678' }, approve: 'every-call', readTools: [] },
-  { kind: 'stdio', name: 'firecrawl', command: 'npx', args: [], env: {}, approve: 'writes', readTools: ['firecrawl_search'] },
-  { kind: 'http', name: 'wika', url: 'https://dashboard.wikaph.com/api/mcp', token: 'k-123456789', approve: 'none', readTools: [] },
+  { kind: 'stdio', name: 'runpod', command: 'npx', args: ['-y', 'runpod-mcp'], env: { RUNPOD_API_KEY: 'rp-key-12345678' }, approve: 'every-call', readTools: [], needs: [] },
+  { kind: 'stdio', name: 'firecrawl', command: 'npx', args: [], env: {}, approve: 'writes', readTools: ['firecrawl_search'], needs: [] },
+  { kind: 'http', name: 'wika', url: 'https://dashboard.wikaph.com/api/mcp', token: 'k-123456789', approve: 'none', readTools: [], needs: [] },
 ];
 
 async function runTurn(bypass: boolean, gate?: (name: string, input: Record<string, unknown>) => Promise<string | null>) {

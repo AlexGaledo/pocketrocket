@@ -86,7 +86,7 @@ describe('read_owner_messages', () => {
 });
 
 describe('createHubTools', () => {
-  it('returns the 21 hub tools and no request_approval for a full-permission provider', () => {
+  it('returns the 22 hub tools and no request_approval for a full-permission provider', () => {
     const { tools } = setup();
     expect(tools.map((t) => t.name)).toEqual([
       'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
@@ -94,6 +94,8 @@ describe('createHubTools', () => {
       'remove_from_room', 'delete_room',
       // P3
       'list_routines', 'create_routine', 'update_routine', 'delete_routine',
+      // Key routing
+      'where_to_run',
       // P7
       'search_notes', 'write_note',
     ]);

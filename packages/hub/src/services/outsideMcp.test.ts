@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { outsideMcpFor, outsideMcpNeedsCard, registerOutsideMcpSecrets } from './outsideMcp.js';
+import { outsideMcpFor, outsideMcpNeedsCard, registerOutsideMcpSecrets, vpsMountable } from './outsideMcp.js';
+import { parseKeyRegistry } from './keyRegistry.js';
 import { clearSecrets, redact } from '../providers/redact.js';
 
 function file(content: string): string {
@@ -19,8 +20,8 @@ describe('outsideMcpFor', () => {
 
   it('gives a listed bot its servers', () => {
     expect(outsideMcpFor('wika-backend', null, file(good))).toEqual([
-      { kind: 'http', name: 'wika', url: 'https://dashboard.wikaph.com/api/mcp', token: 'k-123456789', approve: 'none', readTools: [] },
-      { kind: 'http', name: 'local', url: 'http://127.0.0.1:9000/mcp', token: null, approve: 'none', readTools: [] },
+      { kind: 'http', name: 'wika', url: 'https://dashboard.wikaph.com/api/mcp', token: 'k-123456789', approve: 'none', readTools: [], needs: [] },
+      { kind: 'http', name: 'local', url: 'http://127.0.0.1:9000/mcp', token: null, approve: 'none', readTools: [], needs: [] },
     ]);
   });
 
@@ -66,8 +67,8 @@ describe('stdio entries', () => {
       runpod: { command: abs, bots: ['b'] },
     }));
     expect(outsideMcpFor('b', null, f)).toEqual([
-      { kind: 'stdio', name: 'firecrawl', command: 'npx', args: ['-y', 'firecrawl-mcp'], env: { FIRECRAWL_API_KEY: 'fc-abcdef123456' }, approve: 'every-call', readTools: [] },
-      { kind: 'stdio', name: 'runpod', command: abs, args: [], env: {}, approve: 'every-call', readTools: [] },
+      { kind: 'stdio', name: 'firecrawl', command: 'npx', args: ['-y', 'firecrawl-mcp'], env: { FIRECRAWL_API_KEY: 'fc-abcdef123456' }, approve: 'every-call', readTools: [], needs: [] },
+      { kind: 'stdio', name: 'runpod', command: abs, args: [], env: {}, approve: 'every-call', readTools: [], needs: [] },
     ]);
   });
 
@@ -111,6 +112,36 @@ describe('stdio entries', () => {
       ['d', 'every-call', []],
       ['e', 'every-call', []],
     ]);
+  });
+
+  it('reads needs; a malformed needs skips the entry rather than reading as "needs nothing"', () => {
+    const f = file(JSON.stringify({
+      a: { command: 'npx', needs: ['firecrawl'], bots: ['b'] },
+      b: { url: 'https://a.example/mcp', needs: ['github-repo', 'firecrawl'], bots: ['b'] },
+      c: { command: 'npx', needs: 'firecrawl', bots: ['b'] },
+      d: { command: 'npx', needs: [1], bots: ['b'] },
+    }));
+    expect(outsideMcpFor('b', null, f).map((s) => [s.name, s.needs])).toEqual([
+      ['a', ['firecrawl']],
+      ['b', ['github-repo', 'firecrawl']],
+    ]);
+  });
+
+  it('vpsMountable keeps servers whose needs route to the VPS and drops tier 3, PC-only and unknown ones', () => {
+    const reg = parseKeyRegistry({ keys: {
+      firecrawl: { tier: 1, where: ['vps', 'pc'] },
+      'pc-only': { tier: 2, where: ['pc'] },
+      'store-p8': { tier: 3, where: ['pc'] },
+    } });
+    const mk = (name: string, needs: string[]) => ({ kind: 'stdio' as const, name, command: 'npx', args: [], env: {}, approve: 'every-call' as const, readTools: [], needs });
+    const logs: string[] = [];
+    const kept = vpsMountable([
+      mk('plain', []), mk('fc', ['firecrawl']), mk('store', ['store-p8', 'firecrawl']), mk('pconly', ['pc-only']), mk('mystery', ['nope']),
+    ], reg, (m) => logs.push(m));
+    expect(kept.map((s) => s.name)).toEqual(['plain', 'fc']);
+    expect(logs).toHaveLength(3);
+    expect(logs[0]).toMatch(/not mounting "store".*Tier 3/);
+    expect(logs[2]).toMatch(/not mounting "mystery".*Not in the key registry: nope/);
   });
 
   it('asks per the approve setting', () => {

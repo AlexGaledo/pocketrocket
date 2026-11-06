@@ -27,10 +27,13 @@ function setup() {
 describe('secretFileAccess: file tools', () => {
   it('refuses a plain absolute path to every hub key file, for reads and writes', () => {
     const { data, check } = setup();
-    for (const f of ['hub-token', 'secrets.json', 'mcp-servers.json', 'pc-runner.json', 'account.json', 'vapid.json']) {
+    for (const f of ['hub-token', 'secrets.json', 'mcp-servers.json', 'pc-runner.json', 'account.json', 'vapid.json', 'key-registry.json']) {
       expect(check('Read', { file_path: path.join(data, f) })).toBe(HUB_KEYS_MESSAGE);
     }
     expect(check('Write', { file_path: path.join(data, 'mcp-servers.json'), content: '{}' })).toBe(HUB_KEYS_MESSAGE);
+    // A bot must not re-tier a key to steer where its job runs.
+    expect(check('Write', { file_path: path.join(data, 'key-registry.json'), content: '{}' })).toBe(HUB_KEYS_MESSAGE);
+    expect(check('Bash', { command: 'echo {} > ../key-registry.json' })).toBe(HUB_KEYS_MESSAGE);
     expect(check('Edit', { file_path: path.join(data, 'secrets.json'), old_string: 'a', new_string: 'b' })).toBe(HUB_KEYS_MESSAGE);
     expect(check('Read', { file_path: path.join(data, 'keys-disabled', 'old.json') })).toBe(HUB_KEYS_MESSAGE);
   });

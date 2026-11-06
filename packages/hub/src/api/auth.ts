@@ -119,8 +119,11 @@ export function createAuthApi(deps: AuthApiDeps) {
       }
       if (method === 'POST' && p === '/api/auth/password') {
         const had = auth.hasPassword(owner.id);
-        // The hub token is the recovery route: whoever holds it already controls this hub.
-        if (had && current) {
+        // Changing a password always needs the current one, from the hub token too. A password is what a signed-in
+        // browser proves, and only a signed-in browser may approve a job on the PC (PermissionBroker SIGN_IN_TOOLS);
+        // if the token could reset it, a bot that read the token could sign itself in and answer its own card.
+        // A forgotten password is cleared by starting the hub with POCKETROCKET_RESET_PASSWORD=1.
+        if (had) {
           const result = await checkPassword(deps, clientIp(req), owner.id, body.currentPassword);
           if (result === 'blocked') return send(res, 429, TOO_MANY, { 'retry-after': '60' });
           if (result === 'wrong') {

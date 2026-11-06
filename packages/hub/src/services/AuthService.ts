@@ -48,7 +48,8 @@ export function checkNewPassword(password: unknown): string {
 /**
  * The owner's password and browser sessions. A session is a long random token held in an httpOnly cookie; the
  * database keeps only its hash, so a copy of the database cannot sign anyone in. The hub token stays valid for
- * the desktop app and scripts, and is how an owner who forgets the password sets a new one.
+ * the desktop app and scripts and can set the first password, but changing one needs the current password; an
+ * owner who forgets it starts the hub with POCKETROCKET_RESET_PASSWORD=1 (see hub.ts).
  */
 export class AuthService {
   private revokeListeners = new Set<(sessionId: string) => void>();
@@ -65,6 +66,13 @@ export class AuthService {
         'ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash, updated_at=excluded.updated_at',
       userId, hash, this.now(),
     );
+  }
+
+  /** Recovery for a forgotten password: forget it and sign every browser out. True when there was one. */
+  clearPassword(userId: string): boolean {
+    const r = this.db.run('DELETE FROM user_credentials WHERE user_id=?', userId);
+    this.revokeAll(userId);
+    return Number(r.changes) > 0;
   }
 
   async verifyPassword(userId: string, password: unknown): Promise<boolean> {

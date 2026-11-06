@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../config.js';
 import { addSecret } from '../providers/redact.js';
+import { routeByNeeds, type KeyRegistry } from './keyRegistry.js';
 
 /**
  * Outside MCP servers the owner gives to named bots, e.g. the Wika dashboard for the Wika bots.
@@ -42,6 +43,10 @@ import { addSecret } from '../providers/redact.js';
  * - `none`: no card of its own. The default for url entries. Outside bypass mode such a call still reaches
  *   the approval broker like any other unlisted tool; under bypass it runs.
  * An unknown `approve` value means `every-call`. Give a bot a read-only key where the service offers one.
+ *
+ * `needs` lists key names from key-registry.json (services/keyRegistry.ts) the server's keys stand for. An
+ * entry whose needs do not all route to the VPS (a tier 3 key, a key the registry keeps on the PC, or a name the
+ * registry does not know) is not mounted on this hub; `vpsMountable` drops it and logs why.
  * Claude provider only; other adapters ignore this file.
  */
 export const OUTSIDE_MCP_PATH = path.join(DATA_DIR, 'mcp-servers.json');
@@ -61,6 +66,8 @@ interface OutsideMcpBase {
   approve: OutsideMcpApprove;
   /** Bare tool names that skip the card when `approve` is 'writes'. */
   readTools: string[];
+  /** Key names from key-registry.json this server's keys stand for. Empty: none declared. */
+  needs: string[];
 }
 export interface OutsideMcpHttp extends OutsideMcpBase {
   kind: 'http';
@@ -122,12 +129,15 @@ export function outsideMcpFor(handle: string, room: { id: string; name: string }
     if (!NAME_RE.test(name) || RESERVED.has(name) || !v || typeof v !== 'object') continue;
     const s = v as {
       url?: unknown; token?: unknown; command?: unknown; args?: unknown; env?: unknown;
-      bots?: unknown; rooms?: unknown; approve?: unknown; readTools?: unknown;
+      bots?: unknown; rooms?: unknown; approve?: unknown; readTools?: unknown; needs?: unknown;
     };
     const byBot = Array.isArray(s.bots) && s.bots.includes(handle);
     const byRoom = !!room && Array.isArray(s.rooms) && (s.rooms.includes(room.id) || s.rooms.includes(room.name));
     if (!byBot && !byRoom) continue;
     const readTools = strings(s.readTools) ?? [];
+    // A malformed `needs` must not read as "needs nothing": skip the entry.
+    const needs = strings(s.needs);
+    if (!needs) continue;
 
     if (s.command !== undefined) {
       if (s.url !== undefined) continue;
@@ -139,7 +149,7 @@ export function outsideMcpFor(handle: string, room: { id: string; name: string }
       const entries = Object.entries(rawEnv as Record<string, unknown>);
       if (!entries.every(([k, val]) => ENV_KEY_RE.test(k) && typeof val === 'string')) continue;
       const env = Object.fromEntries(entries) as Record<string, string>;
-      out.push({ kind: 'stdio', name, command, args, env, approve: approveOf(s.approve, 'every-call'), readTools });
+      out.push({ kind: 'stdio', name, command, args, env, approve: approveOf(s.approve, 'every-call'), readTools, needs });
       continue;
     }
 
@@ -155,8 +165,35 @@ export function outsideMcpFor(handle: string, room: { id: string; name: string }
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) continue;
     out.push({
       kind: 'http', name, url: url.toString(), token: typeof s.token === 'string' && s.token ? s.token : null,
-      approve: approveOf(s.approve, 'none'), readTools,
+      approve: approveOf(s.approve, 'none'), readTools, needs,
     });
   }
   return out;
+}
+
+const logged = new Set<string>();
+/** The file is read every turn; say why a server is off once per process, not once per turn. */
+function logOnce(msg: string): void {
+  if (logged.has(msg)) return;
+  logged.add(msg);
+  console.warn(msg);
+}
+
+/**
+ * The servers this hub may mount. One that declares `needs` must route to the VPS (routeByNeeds): a tier 3
+ * key, a key kept on the PC, or a name the registry does not know keeps the server off this hub. Undeclared
+ * needs are not second-guessed. `log` gets one line per dropped server.
+ */
+export function vpsMountable(
+  servers: readonly OutsideMcpServer[],
+  registry: KeyRegistry,
+  log: (msg: string) => void = logOnce,
+): OutsideMcpServer[] {
+  return servers.filter((s) => {
+    if (!s.needs.length) return true;
+    const r = routeByNeeds(registry, s.needs, false);
+    if (r.place === 'vps') return true;
+    log('[outside-mcp] not mounting "' + s.name + '" on this hub: ' + r.reason);
+    return false;
+  });
 }
