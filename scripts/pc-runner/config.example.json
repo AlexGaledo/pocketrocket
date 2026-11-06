@@ -1,0 +1,21 @@
+{
+  "sshAlias": "crm-agency",
+  "localPort": 7789,
+  "defaultAllowedTools": [
+    "Read", "Glob", "Grep", "Edit", "Write",
+    "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+    "Bash(pnpm test:*)", "Bash(npm test:*)"
+  ],
+  "folders": {
+    "pocketrocket": {
+      "path": "C:\\Users\\you\\Desktop\\claude-grokbot"
+    },
+    "wika-notes": {
+      "path": "C:\\Users\\you\\Documents\\wika-notes",
+      "allowedTools": [
+        "Read", "Glob", "Grep",
+        "mcp__wika__list_routes", "mcp__wika__describe_route"
+      ]
+    }
+  }
+}

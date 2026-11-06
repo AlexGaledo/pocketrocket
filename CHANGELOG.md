@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### PC runner and key kill switch
+
+- New PC runner (`scripts/pc-runner/`): a small Windows helper that runs owner-approved jobs from the server hub in folders you allow on your PC. It connects over an outbound SSH tunnel, shows the full prompt in a Run / Refuse dialog before anything runs (no answer in 10 minutes means Refuse), and runs Claude with a fixed tool list and never with permission checks off. Desktop shortcuts turn it on and off; it never starts by itself. See `scripts/pc-runner/README.md`.
+- Server: `deploy/keys.sh` lists every key the hub holds, by name only, with where to rotate each one. It can also move them all out of the hub at once and put them back later, or shred them. See "Kill switch" in `docs/SERVER.md`.
+
 ### Memory fixes
 
 - A bot whose chat context was reset, or that joins a busy chat, is shown at most the last 60 unread messages (or 30 KB). A line says how many earlier ones were left out, and the bot can read them with `read_room`.

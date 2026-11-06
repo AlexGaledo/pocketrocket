@@ -185,6 +185,36 @@ RESTIC_PASSWORD_FILE=/root/.pocketrocket-restic-pass
 With both set, the daily job takes a restic snapshot instead of a tarball and keeps 7 daily snapshots. It is
 off until you create that file. Offsite copies are up to you.
 
+## Kill switch: take every key away from the hub
+
+`deploy/keys.sh`, run as root on the server, lists and pulls every key the hub holds. It never prints a value,
+only names.
+
+```sh
+sudo bash deploy/keys.sh inventory          # Markdown table: service, item, file, where to rotate it
+sudo bash deploy/keys.sh disable            # stop, move the keys out, start; bots keep running without them
+sudo bash deploy/keys.sh restore <ts>       # put them back exactly as they were (owner and mode)
+sudo bash deploy/keys.sh delete             # type DELETE: disable, then shred the moved files
+sudo bash deploy/keys.sh delete --all       # also new hub token + Claude login removed (second confirm)
+```
+
+- **What moves** (all under `data/`): `mcp-servers.json` (replaced by an empty `{}`), `secrets.json`,
+  `integrations.json` and `vault.key` (the encrypted integration tokens and their key), `pc-runner.json`,
+  `account.json` (Supabase session), `vapid.json`, and every `.env*` except `.env.example` under
+  `data/projects/`.
+- **Where it moves**: `/root/pocketrocket-keys-disabled-<ts>/` (mode 700), with the same relative paths, a
+  `manifest.tsv` of owners and modes, and `rotate-list-<ts>.md`, which is the inventory taken just before.
+- **What stays**: `data/hub-token` and `~pocketrocket/.claude/.credentials.json`, the Claude login. Deleting the
+  login stops every bot. Only `delete --all` touches them: it writes a new hub token the way the hub does
+  (32 hex characters, 0600), so the desktop app must reconnect, and you must run
+  `sudo -u pocketrocket -H claude auth login` again.
+- After `delete`, only `/root/rotate-list-<ts>.md` is left, and it is printed.
+- Symlinked files, or files under a symlinked folder, are skipped and reported. Check those by hand.
+
+Moving a key only stops this server from using it. The key still works anywhere else it was copied, including
+the daily backups in `/var/backups/pocketrocket`. **Rotate each key at its provider**; the rotate list says where.
+Integration tokens are revoked in the app's Integrations page or at the provider.
+
 ## Phone access over Tailscale Serve
 
 The hub still binds `127.0.0.1` only. To use PocketRocket from a phone, put

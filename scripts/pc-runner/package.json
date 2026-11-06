@@ -1,0 +1,7 @@
+{
+  "name": "pocketrocket-pc-runner",
+  "private": true,
+  "type": "module",
+  "description": "main points at the tests so `node --test scripts/pc-runner` runs them; runner.mjs is the program.",
+  "main": "lib.test.mjs"
+}
