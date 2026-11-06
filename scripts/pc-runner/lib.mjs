@@ -2,24 +2,50 @@
 import path from 'node:path';
 
 export const FOLDER_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,40}$/;
+/** An MCP server name as Claude Code accepts it in tool names (mcp__<name>__<tool>). */
+export const MCP_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /** An ssh config alias or user@host. Never starts with '-', so it can't be read as an ssh option. */
 export const SSH_ALIAS_RE = /^[A-Za-z0-9_][A-Za-z0-9._@-]{0,63}$/;
 /** One --allowedTools entry: `Read`, `mcp__server__tool`, or `Bash(git status:*)`. No commas (the list is comma-joined). */
-export const TOOL_RE = /^[A-Za-z0-9_]+(\([^(),\r\n]{1,200}\))?$/;
+export const TOOL_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*(\([^(),\r\n]{1,200}\))?$/;
 export const HUB_PORT = 7788;
 export const OUTPUT_CAP_BYTES = 20 * 1024;
 export const PROMPT_LOG_CHARS = 200;
 export const JOB_TIMEOUT_MS = 15 * 60 * 1000;
 export const CONFIRM_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * Read, edit, and look at git history. No test runners: `pnpm test` / `npm test` run scripts from the repo, and
+ * with Edit/Write in the same list that is arbitrary code. Add them per folder only where you accept that.
+ */
 export const DEFAULT_ALLOWED_TOOLS = Object.freeze([
   'Read', 'Glob', 'Grep', 'Edit', 'Write',
   'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)',
-  'Bash(pnpm test:*)', 'Bash(npm test:*)',
 ]);
+
+/**
+ * Always denied, whatever the allow list says (deny wins in Claude Code). Each turns a read-only git command into
+ * a file write or a program run: `--output=<file>` writes anywhere, `--ext-diff` runs a configured diff driver,
+ * `-c` sets any config (core.pager, diff.external, ...) for one command.
+ */
+export const DISALLOWED_TOOLS = Object.freeze([
+  'Bash(git * --output*)', 'Bash(git diff --output*)', 'Bash(git * --ext-diff*)', 'Bash(git -c *)',
+]);
+
+/**
+ * The only settings a job sees (passed with --settings; user, project and local settings files are not loaded).
+ * Nothing pre-approved beyond --allowedTools, anything else denied, no hooks.
+ */
+export const RUNNER_SETTINGS = Object.freeze({
+  permissions: { defaultMode: 'dontAsk', allow: [], deny: [...DISALLOWED_TOOLS] },
+  disableAllHooks: true,
+});
 
 /** Flags that would turn off Claude's permission checks. Never passed, never accepted from config or a job. */
 const FORBIDDEN = /dangerously|bypasspermissions|skip-permissions|permission-mode/i;
+const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+/** Bash patterns that only read. Any other Bash entry is treated as able to run code from the folder. */
+const READ_ONLY_BASH = /^Bash\(git (status|diff|log|show)(:\*|\s\*)?\)$/;
 
 /** Returns an error string for a bad tool entry, or null. */
 export function toolError(t) {
@@ -28,7 +54,34 @@ export function toolError(t) {
   if (!TOOL_RE.test(t)) return 'must look like Read, mcp__server__tool or Bash(git status:*)';
   // Bash with no pattern, or a pattern that matches every command, is a shell on this PC.
   if (t === 'Bash' || /^Bash\(\s*(:?\*|\*:\*)?\s*\)$/.test(t)) return 'unrestricted Bash is not allowed; list exact commands like Bash(git status:*)';
+  if (t === 'PowerShell' || /^PowerShell\(\s*(:?\*|\*:\*)?\s*\)$/.test(t)) return 'unrestricted PowerShell is not allowed';
   return null;
+}
+
+/** True when the list can both change files and run something from the folder (so: run code). */
+export function canRunCode(tools) {
+  const list = Array.isArray(tools) ? tools : [];
+  const writes = list.some((t) => WRITE_TOOLS.has(t));
+  const runs = list.some((t) => /^(Bash|PowerShell)\b/.test(t) && !READ_ONLY_BASH.test(t));
+  return writes && runs;
+}
+
+/** Built-in tool names for --tools: `Bash(git status:*)` -> `Bash`; MCP tools are not built-in. */
+export function builtinToolsOf(tools) {
+  const out = [];
+  for (const t of tools) {
+    if (t.startsWith('mcp__')) continue;
+    const base = t.replace(/\(.*$/, '');
+    if (!out.includes(base)) out.push(base);
+  }
+  return out;
+}
+
+/** True when `child` is `parent` or inside it (Windows paths, case-insensitive). */
+export function isInside(child, parent) {
+  const c = path.win32.resolve(child).toLowerCase();
+  const p = path.win32.resolve(parent).toLowerCase().replace(/\\+$/, '');
+  return c === p || c.startsWith(p + '\\');
 }
 
 /**
@@ -42,6 +95,20 @@ export function validateConfig(raw) {
   if (typeof sshAlias !== 'string' || !SSH_ALIAS_RE.test(sshAlias)) errors.push('sshAlias must be an ssh config alias (letters, digits, . _ @ -; not starting with -)');
   const localPort = raw.localPort ?? 7789;
   if (!Number.isInteger(localPort) || localPort < 1024 || localPort > 65535) errors.push('localPort must be an integer 1024-65535');
+  const claudePath = raw.claudePath ?? null;
+  if (claudePath !== null && (typeof claudePath !== 'string' || !path.win32.isAbsolute(claudePath) || /^\\\\/.test(claudePath) || !/\.exe$/i.test(claudePath))) {
+    errors.push('claudePath must be an absolute local path to claude.exe');
+  }
+
+  const mcpServers = {};
+  if (raw.mcpServers !== undefined) {
+    if (!raw.mcpServers || typeof raw.mcpServers !== 'object' || Array.isArray(raw.mcpServers)) errors.push('mcpServers must be an object of { name: definition }');
+    else for (const [n, d] of Object.entries(raw.mcpServers)) {
+      if (!MCP_NAME_RE.test(n)) errors.push(`mcpServers name ${JSON.stringify(n)} must match ${MCP_NAME_RE}`);
+      else if (!d || typeof d !== 'object' || Array.isArray(d)) errors.push(`mcpServers.${n} must be an object`);
+      else mcpServers[n] = d;
+    }
+  }
 
   let defaultAllowedTools = [...DEFAULT_ALLOWED_TOOLS];
   if (raw.defaultAllowedTools !== undefined) {
@@ -53,7 +120,7 @@ export function validateConfig(raw) {
   }
 
   const folders = {};
-  if (!raw.folders || typeof raw.folders !== 'object' || Array.isArray(raw.folders)) errors.push('folders must be an object of { name: { path, allowedTools? } }');
+  if (!raw.folders || typeof raw.folders !== 'object' || Array.isArray(raw.folders)) errors.push('folders must be an object of { name: { path, allowedTools?, mcpServers? } }');
   else {
     for (const [name, f] of Object.entries(raw.folders)) {
       if (!FOLDER_NAME_RE.test(name)) { errors.push(`folder name ${JSON.stringify(name)} must match ${FOLDER_NAME_RE}`); continue; }
@@ -68,11 +135,56 @@ export function validateConfig(raw) {
         if (bad.length) { for (const [t, e] of bad) errors.push(`folders.${name}.allowedTools: ${JSON.stringify(t)}: ${e}`); continue; }
         tools = [...f.allowedTools];
       }
-      folders[name] = { path: path.win32.normalize(f.path), allowedTools: tools };
+      let servers = [];
+      if (f.mcpServers !== undefined) {
+        if (!Array.isArray(f.mcpServers) || f.mcpServers.some((n) => typeof n !== 'string' || !MCP_NAME_RE.test(n))) {
+          errors.push(`folders.${name}.mcpServers must be a list of MCP server names`); continue;
+        }
+        servers = [...new Set(f.mcpServers)];
+      }
+      folders[name] = { path: path.win32.normalize(f.path), allowedTools: tools, mcpServers: servers };
     }
   }
+  if (claudePath && Object.values(folders).some((f) => isInside(claudePath, f.path))) errors.push('claudePath must not be inside an allowlisted folder');
   if (errors.length) return { ok: false, errors };
-  return { ok: true, config: { sshAlias, localPort, folders, defaultAllowedTools } };
+  return { ok: true, config: { sshAlias, localPort, claudePath, mcpServers, folders, defaultAllowedTools } };
+}
+
+/**
+ * Picks the claude binary: config claudePath, else %USERPROFILE%\.local\bin\claude.exe, else claude.exe on PATH,
+ * looking only in absolute PATH entries (never the current folder). Refuses anything inside an allowlisted
+ * folder, since a job may edit files there. `exists(p)` is injected so this stays pure.
+ * Returns { path } or { error }.
+ */
+export function resolveClaudePath({ claudePath, home, pathEnv, folders, exists }) {
+  const inFolder = (p) => Object.values(folders ?? {}).some((f) => isInside(p, f.path));
+  const candidates = [];
+  if (claudePath) candidates.push(claudePath);
+  else {
+    if (home) candidates.push(path.win32.join(home, '.local', 'bin', 'claude.exe'));
+    for (const dir of String(pathEnv ?? '').split(';')) {
+      const d = dir.trim().replace(/^"(.*)"$/, '$1');
+      if (!d || !path.win32.isAbsolute(d) || /^\\\\/.test(d)) continue;
+      candidates.push(path.win32.join(d, 'claude.exe'));
+    }
+  }
+  for (const c of candidates) {
+    if (!exists(c)) continue;
+    if (inFolder(c)) return { error: `claude at ${c} is inside an allowlisted folder; set claudePath to a copy outside them` };
+    return { path: path.win32.normalize(c) };
+  }
+  return { error: claudePath ? `claudePath ${claudePath} does not exist` : 'claude.exe not found (install Claude Code, or set claudePath)' };
+}
+
+/** The --mcp-config document for a folder: only the servers it names, from the given definitions. */
+export function buildMcpConfig(names, defs) {
+  const mcpServers = {};
+  const missing = [];
+  for (const n of names ?? []) {
+    if (defs && Object.hasOwn(defs, n)) mcpServers[n] = defs[n];
+    else missing.push(n);
+  }
+  return { config: { mcpServers }, missing };
 }
 
 /** The local allowlist entry for a job's folder, or null. Only own, valid names count (no prototype keys). */
@@ -95,11 +207,39 @@ export function parseJob(j) {
   return { id, bot: { handle }, room, folder: j.folder, prompt: j.prompt, createdAt: j.createdAt ?? null };
 }
 
-/** Arguments for `claude`. The prompt goes on stdin, never in argv. */
-export function buildClaudeArgs(allowedTools) {
+/**
+ * Arguments for `claude`. The prompt goes on stdin, never in argv. Every flag here exists in Claude Code 2.1.x
+ * (checked against `claude --help`):
+ *   --restricted              ignore user/project/local settings files, refuse bypassPermissions, confine the
+ *                             file tools to the working folder, drop code-running tools unless --tools names them
+ *   --setting-sources ""      load no settings files at all (belt and braces with --restricted)
+ *   --settings <file>         the runner's own settings (RUNNER_SETTINGS): dontAsk, empty allow, no hooks
+ *   --permission-mode dontAsk anything not pre-approved is denied (there is nobody to ask in -p mode)
+ *   --permission-prompts none and nothing is ever routed to a prompt
+ *   --strict-mcp-config --mcp-config <file>  only the MCP servers this folder names; .mcp.json and
+ *                             ~/.claude.json servers are ignored
+ *   --tools                   only these built-in tools exist
+ *   --allowedTools / --disallowedTools       the per-folder allow list, and the git escapes that are always denied
+ *   --no-session-persistence  no transcript left on disk
+ */
+export function buildClaudeArgs({ allowedTools, settingsPath, mcpConfigPath } = {}) {
   if (!Array.isArray(allowedTools) || allowedTools.length === 0) throw new Error('allowedTools must be a non-empty array');
   for (const t of allowedTools) { const e = toolError(t); if (e) throw new Error(`bad tool ${JSON.stringify(t)}: ${e}`); }
-  const args = ['-p', '--output-format', 'json', '--permission-mode', 'default', '--allowedTools', allowedTools.join(',')];
+  if (typeof settingsPath !== 'string' || !settingsPath) throw new Error('settingsPath is required');
+  if (typeof mcpConfigPath !== 'string' || !mcpConfigPath) throw new Error('mcpConfigPath is required');
+  const args = [
+    '-p', '--output-format', 'json',
+    '--restricted',
+    '--setting-sources', '',
+    '--settings', settingsPath,
+    '--permission-mode', 'dontAsk',
+    '--permission-prompts', 'none',
+    '--strict-mcp-config', '--mcp-config', mcpConfigPath,
+    '--tools', builtinToolsOf(allowedTools).join(','),
+    '--allowedTools', allowedTools.join(','),
+    '--disallowedTools', DISALLOWED_TOOLS.join(','),
+    '--no-session-persistence',
+  ];
   // Belt and braces: whatever changes above, these never leave this function.
   if (args.some((a) => /dangerously|bypassPermissions/i.test(a))) throw new Error('refusing to build a permission-bypass command');
   return args;
@@ -131,6 +271,15 @@ export function parseClaudeResult(stdout, exitCode) {
   if (typeof j.total_cost_usd === 'number' && Number.isFinite(j.total_cost_usd)) out.costUsd = j.total_cost_usd;
   if (typeof j.duration_ms === 'number' && Number.isFinite(j.duration_ms)) out.durationMs = Math.round(j.duration_ms);
   return out;
+}
+
+/**
+ * Port-squatting check. `listeners` are rows from Get-NetTCPConnection -State Listen for the local port:
+ * { address, pid }. The port is ours only when at least one listener exists and every one of them is the ssh child.
+ */
+export function listenerIsOurs(listeners, sshPid) {
+  if (!Array.isArray(listeners) || listeners.length === 0 || !Number.isInteger(sshPid)) return false;
+  return listeners.every((l) => Number(l.pid) === sshPid);
 }
 
 /** The first 200 characters of a prompt, on one line, for the log. */

@@ -51,12 +51,32 @@ $info.Text = 'Bot: @' + [string]$job.handle + "`r`n" +
   'Claude may use: ' + $tools
 $layout.Controls.Add($info)
 
+if ($job.mcpServers -and @($job.mcpServers).Count -gt 0) {
+  $info.Text = $info.Text + "`r`n" + 'MCP servers: ' + (@($job.mcpServers) -join ', ')
+}
+
+# The hint row is a small stack: an optional red warning, then the prompt label.
+$hintPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$hintPanel.FlowDirection = 'TopDown'
+$hintPanel.AutoSize = $true
+$hintPanel.WrapContents = $false
+if ($job.runsCode -eq $true) {
+  $warn = New-Object System.Windows.Forms.Label
+  $warn.AutoSize = $true
+  $warn.MaximumSize = New-Object System.Drawing.Size(720, 0)
+  $warn.Padding = New-Object System.Windows.Forms.Padding(0, 8, 0, 0)
+  $warn.ForeColor = [System.Drawing.Color]::FromArgb(200, 0, 0)
+  $warn.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+  $warn.Text = 'This job can run code in this folder.'
+  $hintPanel.Controls.Add($warn)
+}
 $hint = New-Object System.Windows.Forms.Label
 $hint.AutoSize = $true
 $hint.MaximumSize = New-Object System.Drawing.Size(720, 0)
 $hint.Padding = New-Object System.Windows.Forms.Padding(0, 8, 0, 4)
 $hint.Text = 'Full prompt. Read it all: Run lets Claude act in this folder with the tools above.'
-$layout.Controls.Add($hint)
+$hintPanel.Controls.Add($hint)
+$layout.Controls.Add($hintPanel)
 
 $box = New-Object System.Windows.Forms.TextBox
 $box.Multiline = $true

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_ALLOWED_TOOLS, validateConfig, folderFor, parseJob, buildClaudeArgs, capOutput, parseClaudeResult,
   promptPreview, cleanToken, toolError, backoffMs, logFileName,
+  DISALLOWED_TOOLS, RUNNER_SETTINGS, canRunCode, resolveClaudePath, isInside, buildMcpConfig, listenerIsOurs,
 } from './lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -75,17 +76,90 @@ test('parseJob checks the job shape', () => {
   assert.equal(parseJob(null), null);
 });
 
+const files = { settingsPath: 'C:\\Temp\\job\\settings.json', mcpConfigPath: 'C:\\Temp\\job\\mcp.json' };
+const valueOf = (args, flag) => args[args.indexOf(flag) + 1];
+
 test('buildClaudeArgs never contains a permission bypass', () => {
-  const args = buildClaudeArgs([...DEFAULT_ALLOWED_TOOLS]);
-  assert.deepEqual(args.slice(0, 5), ['-p', '--output-format', 'json', '--permission-mode', 'default']);
-  assert.equal(args[5], '--allowedTools');
-  assert.equal(args[6], DEFAULT_ALLOWED_TOOLS.join(','));
-  const joined = args.join(' ');
-  assert.doesNotMatch(joined, /dangerously|skip-permissions|bypassPermissions/i);
+  const args = buildClaudeArgs({ allowedTools: [...DEFAULT_ALLOWED_TOOLS], ...files });
+  assert.deepEqual(args.slice(0, 3), ['-p', '--output-format', 'json']);
+  assert.equal(valueOf(args, '--allowedTools'), DEFAULT_ALLOWED_TOOLS.join(','));
+  assert.doesNotMatch(args.join(' '), /dangerously|skip-permissions|bypassPermissions/i);
   assert.equal(args.filter((a) => a === '--permission-mode').length, 1);
   for (const bad of [['--dangerously-skip-permissions'], ['bypassPermissions'], ['Read', 'Bash'], [], 'Read']) {
-    assert.throws(() => buildClaudeArgs(bad), undefined, JSON.stringify(bad));
+    assert.throws(() => buildClaudeArgs({ allowedTools: bad, ...files }), undefined, JSON.stringify(bad));
   }
+  assert.throws(() => buildClaudeArgs({ allowedTools: ['Read'] }), /settingsPath/);
+  assert.throws(() => buildClaudeArgs({ allowedTools: ['Read'], settingsPath: files.settingsPath }), /mcpConfigPath/);
+});
+
+test('buildClaudeArgs always isolates the job from the folder and the user config', () => {
+  for (const tools of [[...DEFAULT_ALLOWED_TOOLS], ['Read'], ['Read', 'mcp__wika__list_routes'], ['Edit', 'Bash(pnpm test:*)']]) {
+    const args = buildClaudeArgs({ allowedTools: tools, ...files });
+    assert.ok(args.includes('--restricted'), 'restricted');
+    assert.equal(valueOf(args, '--setting-sources'), '', 'no settings files');
+    assert.equal(valueOf(args, '--settings'), files.settingsPath, 'runner-owned settings');
+    assert.equal(valueOf(args, '--permission-mode'), 'dontAsk');
+    assert.equal(valueOf(args, '--permission-prompts'), 'none');
+    assert.ok(args.includes('--strict-mcp-config'), 'strict mcp');
+    assert.equal(valueOf(args, '--mcp-config'), files.mcpConfigPath, 'runner-owned mcp config');
+    assert.equal(valueOf(args, '--disallowedTools'), DISALLOWED_TOOLS.join(','));
+    assert.ok(args.includes('--no-session-persistence'));
+    assert.ok(!valueOf(args, '--tools').includes('mcp__'), 'only built-in names in --tools');
+    // Every variadic flag is followed by another flag, so none can swallow the next value.
+    for (const f of ['--mcp-config', '--tools', '--allowedTools', '--disallowedTools']) assert.match(args[args.indexOf(f) + 2], /^--/, f);
+  }
+  assert.equal(valueOf(buildClaudeArgs({ allowedTools: [...DEFAULT_ALLOWED_TOOLS], ...files }), '--tools'), 'Read,Glob,Grep,Edit,Write,Bash');
+});
+
+test('runner settings deny the git escapes, allow nothing, and turn hooks off', () => {
+  assert.equal(RUNNER_SETTINGS.permissions.defaultMode, 'dontAsk');
+  assert.deepEqual(RUNNER_SETTINGS.permissions.allow, []);
+  assert.equal(RUNNER_SETTINGS.disableAllHooks, true);
+  for (const d of ['Bash(git diff --output*)', 'Bash(git * --ext-diff*)', 'Bash(git -c *)']) assert.ok(DISALLOWED_TOOLS.includes(d), d);
+  assert.deepEqual(RUNNER_SETTINGS.permissions.deny, [...DISALLOWED_TOOLS]);
+});
+
+test('defaults have no test runners; canRunCode flags write + script runner', () => {
+  assert.ok(!DEFAULT_ALLOWED_TOOLS.some((t) => /test/.test(t)));
+  assert.equal(canRunCode([...DEFAULT_ALLOWED_TOOLS]), false);
+  assert.equal(canRunCode([...DEFAULT_ALLOWED_TOOLS, 'Bash(pnpm test:*)']), true);
+  assert.equal(canRunCode(['Read', 'Bash(pnpm test:*)']), false);
+  assert.equal(canRunCode(['Write', 'Bash(node scripts/x.mjs)']), true);
+  assert.equal(canRunCode(['Edit', 'Bash(git diff:*)']), false);
+});
+
+test('resolveClaudePath: config, then ~/.local/bin, then absolute PATH entries; never inside a folder', () => {
+  const folders = { repo: { path: 'C:\\work\\repo' } };
+  const have = (...ps) => (p) => ps.map((x) => x.toLowerCase()).includes(p.toLowerCase());
+  assert.deepEqual(resolveClaudePath({ claudePath: 'D:\\tools\\claude.exe', home: 'C:\\Users\\a', pathEnv: '', folders, exists: have('D:\\tools\\claude.exe') }), { path: 'D:\\tools\\claude.exe' });
+  assert.deepEqual(resolveClaudePath({ home: 'C:\\Users\\a', pathEnv: 'C:\\bin', folders, exists: have('C:\\Users\\a\\.local\\bin\\claude.exe', 'C:\\bin\\claude.exe') }), { path: 'C:\\Users\\a\\.local\\bin\\claude.exe' });
+  assert.deepEqual(resolveClaudePath({ home: 'C:\\Users\\a', pathEnv: '.;bin;C:\\bin', folders, exists: have('C:\\bin\\claude.exe', '.\\claude.exe', 'bin\\claude.exe') }), { path: 'C:\\bin\\claude.exe' });
+  assert.match(resolveClaudePath({ home: null, pathEnv: 'C:\\work\\repo\\node_modules\\.bin', folders, exists: () => true }).error, /inside an allowlisted folder/);
+  assert.match(resolveClaudePath({ claudePath: 'C:\\WORK\\Repo\\claude.exe', folders, exists: () => true }).error, /inside/);
+  assert.match(resolveClaudePath({ home: 'C:\\Users\\a', pathEnv: '', folders, exists: () => false }).error, /not found/);
+  assert.equal(isInside('C:\\work\\repo2\\x', 'C:\\work\\repo'), false);
+  const c = good(); c.claudePath = 'C:\\Users\\alex\\Desktop\\claude-grokbot\\claude.exe';
+  assert.equal(validateConfig(c).ok, false);
+  assert.equal(validateConfig({ ...good(), claudePath: 'claude' }).ok, false);
+});
+
+test('buildMcpConfig takes only the named servers', () => {
+  const defs = { wika: { type: 'http', url: 'https://x' }, evil: { command: 'node' } };
+  assert.deepEqual(buildMcpConfig(['wika'], defs), { config: { mcpServers: { wika: defs.wika } }, missing: [] });
+  assert.deepEqual(buildMcpConfig([], defs).config, { mcpServers: {} });
+  assert.deepEqual(buildMcpConfig(['nope', 'toString'], defs).missing, ['nope', 'toString']);
+  const c = good(); c.folders.notes.mcpServers = ['wika', 'bad name'];
+  assert.equal(validateConfig(c).ok, false);
+  c.folders.notes.mcpServers = ['wika'];
+  assert.deepEqual(validateConfig(c).config.folders.notes.mcpServers, ['wika']);
+});
+
+test('listenerIsOurs: every listener on the port must be the ssh child', () => {
+  assert.equal(listenerIsOurs([{ address: '127.0.0.1', pid: 42 }], 42), true);
+  assert.equal(listenerIsOurs([], 42), false);
+  assert.equal(listenerIsOurs([{ address: '127.0.0.1', pid: 7 }], 42), false);
+  assert.equal(listenerIsOurs([{ address: '127.0.0.1', pid: 42 }, { address: '0.0.0.0', pid: 7 }], 42), false);
+  assert.equal(listenerIsOurs([{ address: '127.0.0.1', pid: 42 }], undefined), false);
 });
 
 test('capOutput caps at 20 KB on a character boundary', () => {

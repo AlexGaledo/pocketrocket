@@ -279,7 +279,32 @@ start_again() {
 stop_svc() { svc stop; STOPPED=1; trap start_again EXIT; }
 
 owner_of() { stat -c '%U:%G:%a' "$1"; }
-chown_to() { [ "$TEST_MODE" = 1 ] && return 0; chown "$1" "$2"; }
+# -h: never follow a symlink. Only ever called on paths inside a root-only folder (see restore / install_new).
+chown_to() { [ "$TEST_MODE" = 1 ] && return 0; chown -h -- "$1" "$2"; }
+
+# Is the folder that will receive $1 a real directory, not a symlink, with no symlink in its chain?
+dest_parent_ok() {
+  local d
+  d="$(dirname "$1")"
+  [ -d "$d" ] && [ ! -L "$d" ] && [ "$(cd -P "$d" && pwd -P)" = "$d" ]
+}
+
+# Writes stdin to $1 as a NEW file owned by the service user, mode 600. The content is first written to a
+# root-only temp folder, then `install` creates the destination with owner and mode already set, so nothing is
+# ever chowned or chmodded inside the service user's writable folder. A symlink standing at $1 is removed first
+# (rm removes the link, never its target).
+install_new() {
+  local dest="$1" work
+  dest_parent_ok "$dest" || die "refusing to write $dest: its folder is missing or a symlink"
+  work="$(mktemp -d)"
+  chmod 700 "$work"
+  cat > "$work/f"
+  if [ -L "$dest" ]; then rm -f -- "$dest"; fi
+  if [ "$TEST_MODE" = 1 ]; then install -m 600 -- "$work/f" "$dest"
+  else install -o "$SERVICE_USER" -g "$SERVICE_USER" -m 600 -- "$work/f" "$dest"; fi
+  shred -u -- "$work/f" 2>/dev/null || rm -f -- "$work/f"
+  rmdir -- "$work"
+}
 
 new_ts() { date +%Y%m%d-%H%M%S; }
 
@@ -298,22 +323,13 @@ move_out() {
 }
 
 write_empty_mcp() {
-  local tmp="$DATA/.mcp-servers.json.keys-tmp"
-  rm -f -- "$tmp"
-  printf '{}\n' > "$tmp"
-  chmod 600 "$tmp"
-  chown_to "$SERVICE_USER:$SERVICE_USER" "$tmp"
-  mv -f -- "$tmp" "$DATA/mcp-servers.json"
+  printf '{}\n' | install_new "$DATA/mcp-servers.json"
 }
 
 # Same shape the hub mints (config.ts): 16 random bytes as 32 hex chars, 0600, owned by the service user.
+# The value goes straight from python into install_new's root-only temp file; it is never echoed.
 new_hub_token() {
-  local tmp="$DATA/.hub-token.keys-tmp"
-  rm -f -- "$tmp"
-  "$PY" -c 'import secrets,sys; open(sys.argv[1],"w").write(secrets.token_hex(16))' "$tmp"
-  chmod 600 "$tmp"
-  chown_to "$SERVICE_USER:$SERVICE_USER" "$tmp"
-  mv -f -- "$tmp" "$DATA/hub-token"
+  "$PY" -c 'import secrets,sys; sys.stdout.write(secrets.token_hex(16))' | install_new "$DATA/hub-token"
 }
 
 report_skipped() {
@@ -358,18 +374,25 @@ cmd_restore() {
     src="$OUT/files/$rel"
     dest="$(abs_of "$rel")" || { warn "skipping odd entry"; continue; }
     [ -f "$src" ] && [ ! -L "$src" ] || { warn "missing in the disabled set: $rel"; continue; }
-    if [ ! -d "$(dirname "$dest")" ] || [ "$(cd -P "$(dirname "$dest")" && pwd -P)" != "$(dirname "$dest")" ]; then
+    IFS=: read -r user group mode <<< "$own"
+    if ! [[ "$mode" =~ ^[0-7]{3,4}$ && "$user" =~ ^[A-Za-z0-9_.][A-Za-z0-9_.-]*\$?$ && "$group" =~ ^[A-Za-z0-9_.][A-Za-z0-9_.-]*\$?$ ]]; then
+      warn "not restoring $rel: odd owner or mode in the manifest (file stays in $OUT)"; continue
+    fi
+    if ! dest_parent_ok "$dest"; then
       warn "not restoring $rel: its folder is gone or is a symlink (file stays in $OUT)"; continue
     fi
+    # Owner and mode are set while the file is still in the root-only folder, never after it lands in a folder
+    # the service user can write (where it could have been swapped for a symlink by then).
+    chown_to "$user:$group" "$src"
+    chmod -- "$mode" "$src"
     if [ -e "$dest" ] || [ -L "$dest" ]; then
       # Whatever stands there now (the empty mcp-servers.json, a freshly minted vapid.json) is kept aside, not lost.
       mkdir -p -m 700 "$OUT/replaced/$(dirname "$rel")"
-      mv -f -- "$dest" "$OUT/replaced/$rel"
+      mv -f -T -- "$dest" "$OUT/replaced/$rel"
     fi
-    IFS=: read -r user group mode <<< "$own"
-    mv -- "$src" "$dest"
-    chown_to "$user:$group" "$dest"
-    chmod "$mode" "$dest"
+    dest_parent_ok "$dest" || { warn "not restoring $rel: its folder changed under us (file stays in $OUT)"; continue; }
+    # -T: treat $dest as the file name itself; if a folder appeared there, fail instead of moving into it.
+    mv -T -- "$src" "$dest"
     n=$((n + 1))
   done < "$OUT/manifest.tsv"
   start_again

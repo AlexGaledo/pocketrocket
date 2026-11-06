@@ -3,8 +3,7 @@
   "localPort": 7789,
   "defaultAllowedTools": [
     "Read", "Glob", "Grep", "Edit", "Write",
-    "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-    "Bash(pnpm test:*)", "Bash(npm test:*)"
+    "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"
   ],
   "folders": {
     "pocketrocket": {
@@ -12,9 +11,10 @@
     },
     "wika-notes": {
       "path": "C:\\Users\\you\\Documents\\wika-notes",
+      "mcpServers": ["wika-dashboard"],
       "allowedTools": [
         "Read", "Glob", "Grep",
-        "mcp__wika__list_routes", "mcp__wika__describe_route"
+        "mcp__wika-dashboard__list_routes", "mcp__wika-dashboard__describe_route"
       ]
     }
   }

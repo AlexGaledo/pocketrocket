@@ -8,7 +8,7 @@ Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no aut
 
 ## How it works
 
-1. The runner opens an outbound SSH tunnel: `ssh -N -L 7789:127.0.0.1:7788 crm-agency`. The PC opens no port
+1. The runner opens an outbound SSH tunnel: `ssh -N -L 127.0.0.1:7789:127.0.0.1:7788 crm-agency`. The PC opens no port
    and listens on loopback only. If ssh drops, the runner restarts it, waiting 2 s and then up to 60 s between
    tries. It uses BatchMode, so ssh logs in with your key and never asks for a password.
 2. Through the tunnel it sends a heartbeat every 15 s with the names of the folders you allow, and asks for the
@@ -16,9 +16,14 @@ Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no aut
 3. For each job it checks the folder against your `config.json` again, read fresh from disk, then shows a
    **Run / Refuse** dialog with the bot, room, folder path, tools, and the full prompt in a scrollable box.
    If you press nothing for 10 minutes, the job is refused. So are Esc and closing the window.
-4. If you press Run, it runs `claude -p --output-format json --permission-mode default --allowedTools <list>` in
-   that folder, with the prompt on stdin. It stops the job after 15 minutes and sends back the result, capped
-   at 20 KB, with its cost and duration.
+4. If you press Run, it runs `claude -p` in that folder, with the prompt on stdin and isolated from the folder's
+   own config (see "Isolation"). It stops the job after 15 minutes and sends back the result, capped at 20 KB,
+   with its cost and duration.
+
+Before the runner sends its token anywhere, it checks that whatever listens on `127.0.0.1:<localPort>` is its
+own ssh process (`Get-NetTCPConnection`, owner pid = ssh pid). It does this when the tunnel starts and after every
+restart. If another program holds the port, the runner sends nothing, logs `port_squatted`, kills its ssh and
+backs off.
 
 ## Setup
 
@@ -33,18 +38,22 @@ Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no aut
      "sshAlias": "crm-agency",
      "localPort": 7789,
      "defaultAllowedTools": ["Read", "Glob", "Grep", "Edit", "Write",
-       "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
-       "Bash(pnpm test:*)", "Bash(npm test:*)"],
+       "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
      "folders": {
        "pocketrocket": { "path": "C:\\Users\\you\\Desktop\\claude-grokbot" },
        "wika-notes": { "path": "C:\\Users\\you\\Documents\\wika-notes",
-                       "allowedTools": ["Read", "Glob", "Grep", "mcp__wika__list_routes"] }
+                       "mcpServers": ["wika-dashboard"],
+                       "allowedTools": ["Read", "Glob", "Grep", "mcp__wika-dashboard__list_routes"] }
      }
    }
    ```
    - Folder names must match `^[a-z0-9][a-z0-9_-]{0,40}$`. The hub only knows the names; the paths stay on this PC.
    - A folder's `allowedTools`, when set, **replaces** `defaultAllowedTools` for that folder.
-   - Check it: `node "%LOCALAPPDATA%\PocketRocketRunner\runner.mjs" check`
+   - `claudePath` (optional) is the absolute path to `claude.exe`. Without it, the runner uses
+     `%USERPROFILE%\.local\bin\claude.exe`, then `claude.exe` in an absolute `PATH` folder (never the current
+     folder). It is resolved once at start, and the runner refuses to start if it sits inside an allowlisted folder.
+   - Check it: `node "%LOCALAPPDATA%\PocketRocketRunner\runner.mjs" check`. This also resolves claude and copies
+     the MCP servers your folders name (see below).
 4. Pair. Copy the runner token from the hub, then run:
    ```powershell
    node "$env:LOCALAPPDATA\PocketRocketRunner\runner.mjs" pair
@@ -56,15 +65,62 @@ Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no aut
 
 ## Tools
 
-The default list lets Claude read files, edit them, and run a few git and test commands, nothing else. A tool
-that isn't on the list is denied without a prompt, because `-p` mode has nobody to ask.
+The default list lets Claude read and edit files and run `git status`, `git diff`, `git log` and `git show`, nothing
+else. A tool that isn't on the list is denied without a prompt, because `-p` mode has nobody to ask.
 
-- You can add MCP **read** tools per folder, named `mcp__<server>__<tool>`, for example
-  `mcp__wika__list_routes`.
+- **Test runners are opt-in per folder.** `Bash(pnpm test:*)` and `Bash(npm test:*)` run scripts from the repo, and
+  together with Edit/Write that means a job can run any code it writes. Add them only to folders where you accept
+  that. When a folder's tools can both write files and run something, the dialog shows a red line: **"This job can
+  run code in this folder."** `check` warns too.
+- These are always denied: `git ... --output=<file>` (writes a file anywhere), `git ... --ext-diff` (runs a
+  configured diff program) and `git -c ...` (sets any config for one command).
+- Claude Code itself auto-approves some read-only shell commands such as `whoami`, even when they aren't on the
+  list. Anything that writes or runs a program is denied.
+- **MCP servers.** A job sees only the servers its folder names in `mcpServers`, and only the tools of theirs you
+  list in `allowedTools` as `mcp__<server>__<tool>` (for example `mcp__wika-dashboard__list_routes`). Define a server
+  in `config.json` under a top-level `"mcpServers": { "<name>": { ...definition... } }`. Or leave it out, and
+  `check` copies its definition from your `~/.claude.json` into `mcp-snapshot.json`. Run `check` again after you
+  change it there.
+  - Servers authenticated with a header token in their definition (like `wika-dashboard`) work as copied.
+  - OAuth-backed servers (supabase, figma): on the PC this was tested on, neither had a stored OAuth login, so
+    they reported "needs authorization" with and without strict config. Whether an OAuth login made with
+    `claude mcp` / `/mcp` carries over to the runner's `--strict-mcp-config` run is **not verified**. Run a test
+    job before relying on one.
 - **Never add tools that send, delete or deploy**: email or message senders, `*_delete`, deploy, publish, payment,
   `Bash(git push:*)`, `Bash(curl:*)` and the like. If a prompt was injected, those are exactly what it would reach for.
-- The runner refuses a config with plain `Bash`, `Bash(*)`, or anything that turns off permission checks.
-  It never passes `--dangerously-skip-permissions` or `bypassPermissions`, and a unit test checks that.
+- The runner refuses a config with plain `Bash`, `Bash(*)`, plain `PowerShell`, or anything that turns off
+  permission checks. It never passes `--dangerously-skip-permissions` or `bypassPermissions`, and a unit test
+  checks that.
+
+## Isolation
+
+A job folder is a repo that bots can push to, so its own `.claude/settings.json`, `.claude/settings.local.json`
+(allow rules, hooks) and `.mcp.json` (an MCP server is a program) are treated as hostile. Every job runs with:
+
+| Flag | Effect |
+|---|---|
+| `--restricted` | ignores user, project and local settings files, refuses bypassPermissions, keeps the file tools inside the folder |
+| `--setting-sources ""` | loads no settings files |
+| `--settings <runner temp file>` | the only settings: `defaultMode: dontAsk`, an empty allow list, the git denials above, `disableAllHooks: true` |
+| `--permission-mode dontAsk` + `--permission-prompts none` | anything not pre-approved is denied |
+| `--strict-mcp-config --mcp-config <runner temp file>` | only the folder's `mcpServers`; `.mcp.json` and `~/.claude.json` servers are ignored |
+| `--tools <built-ins>` | only the built-in tools the list names exist |
+| `--allowedTools` / `--disallowedTools` | the folder's list, and the always-denied git commands |
+| `--no-session-persistence` | no transcript is left on disk |
+
+Every flag was checked against `claude --help` (Claude Code 2.1.319). `--permission-mode default` is not one of
+that version's listed choices, so the runner uses `dontAsk`, which denies anything not pre-approved.
+
+The isolation was tested on Windows 11 in a throwaway git repo that had:
+- `.claude/settings.json` and `settings.local.json` allowing `Bash(*)`, with `defaultMode: bypassPermissions` and
+  hooks on SessionStart, UserPromptSubmit and PreToolUse that each write a marker file
+- a `.mcp.json` stdio server that writes a marker file when it starts
+
+The owner's own user settings also had `defaultMode: bypassPermissions`. Results:
+- `node -e "...writeFileSync..."` was denied.
+- `git diff --output=OUT.txt` and `git -c core.pager=cat diff` were denied.
+- No hook or MCP marker file appeared, and no `mcp__` tools were loaded.
+- Only `whoami` ran, because Claude Code auto-approves read-only commands.
 
 ## Threat model, in plain words
 
@@ -78,6 +134,10 @@ that isn't on the list is denied without a prompt, because `-p` mode has nobody 
 - **allowedTools limits the damage of an injected prompt.** If a prompt contains hidden instructions (from a web
   page, an email, a file), Claude can still only use the listed tools, in that one folder, for at most 15 minutes.
   Edits in the folder are possible, so keep folders under git and review the diff.
+- **The folder can't widen its own job.** Settings, hooks and MCP servers that a bot commits to the repo are not
+  loaded (see "Isolation"). The claude binary may not live inside an allowlisted folder.
+- **No token to a stranger.** The token is sent only after the local port is confirmed to belong to the runner's own
+  ssh process, so another program grabbing 127.0.0.1:7789 first gets nothing.
 - **No inbound port.** The PC dials out over SSH; the hub stays on the VPS's loopback.
 - **Logs** in `%LOCALAPPDATA%\PocketRocketRunner\logs\runner-YYYY-MM-DD.log` hold each job's id, bot, room,
   folder, the first 200 characters of the prompt, your decision, cost and duration. They never hold the
