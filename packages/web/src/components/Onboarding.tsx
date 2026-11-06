@@ -130,7 +130,7 @@ export function Onboarding() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex overflow-y-auto bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
+    <div className="fixed inset-0 z-[60] flex overflow-y-auto overscroll-contain bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
       {/* m-auto rather than centring from the overlay: a card taller than a small window can still scroll to its top. */}
       <div className="panel m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8">
         {step === 'welcome' && (

@@ -3,7 +3,7 @@ import { PanelLeftOpen, X } from 'lucide-react';
 import { useStore } from '../store';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { reconnectWsNow } from '../lib/ws';
-import { CHAT_RAIL_W, PANEL_INLINE_MIN, SIDEBAR_INLINE_MIN, applyPaneVars, paneLayout } from '../lib/panes';
+import { CHAT_RAIL_W, PANEL_INLINE_MIN, PANEL_SOLO_MIN, SIDEBAR_INLINE_MIN, applyPaneVars, paneLayout } from '../lib/panes';
 import { selectScreenSize } from '../lib/screenView';
 import { PaneSeparator } from './PaneSeparator';
 import { Sidebar } from './Sidebar';
@@ -19,11 +19,12 @@ import { ProfileDialog } from './dialogs/ProfileDialog';
 import { SettingsDialog } from './dialogs/SettingsDialog';
 import { Onboarding } from './Onboarding';
 import { TokenPrompt } from './TokenPrompt';
-import { Button, cn } from './ui';
+import { Button, ConfirmHost, cn } from './ui';
 
 /** Below these the sidebar becomes a drawer over the chat, and a screen the user opens covers the window. */
 const SIDEBAR_QUERY = '(min-width: ' + SIDEBAR_INLINE_MIN + 'px)';
 const PANEL_QUERY = '(min-width: ' + PANEL_INLINE_MIN + 'px)';
+const PANEL_SOLO_QUERY = '(min-width: ' + PANEL_SOLO_MIN + 'px)';
 
 /** How long "Connecting to the hub" may show before it turns into a card that says what is wrong. */
 const CONNECT_GRACE_MS = 5000;
@@ -35,6 +36,7 @@ export function App() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const closePanel = useStore((s) => s.closePanel);
+  const panelOpen = useStore((s) => s.panelOpen);
   const dialog = useStore((s) => s.dialog);
   const openDialog = useStore((s) => s.openDialog);
   const settings = useStore((s) => s.settings);
@@ -44,8 +46,13 @@ export function App() {
   const showOnboarding = helloReceived && settings.onboarded === false && !device;
   // Side by side needs room: the panes' minimums plus the chat's must fit, or the panel's close button ends
   // up off-screen.
-  const sidebarInline = useMediaQuery(SIDEBAR_QUERY);
-  const panelInline = useMediaQuery(PANEL_QUERY);
+  const sidebarFits = useMediaQuery(SIDEBAR_QUERY);
+  const panelFits = useMediaQuery(PANEL_QUERY);
+  const panelFitsAlone = useMediaQuery(PANEL_SOLO_QUERY);
+  // Between the two, an open panel folds the sidebar away instead of covering the window (lib/panes.ts).
+  const squeezed = panelOpen && panelFitsAlone && !panelFits;
+  const sidebarInline = sidebarFits && !squeezed;
+  const panelInline = panelFits || squeezed;
   const focus = screenSize === 'focus';
   const covering = !panelInline && screenSize !== 'glance';
 
@@ -78,11 +85,23 @@ export function App() {
         useStore.getState().toggleSidebar();
         return;
       }
-      if (e.key === 'Escape' && dialog) openDialog(null);
+      // A Radix layer that already took this Escape (a confirm over the dialog, an open menu) marks it handled;
+      // closing the dialog as well would take two steps back for one key.
+      if (e.key === 'Escape' && dialog && !e.defaultPrevented) openDialog(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [dialog, openDialog]);
+
+  // Declared before the breakpoint effect below, so the sidebar is already closed when that one looks. Written to
+  // the store directly, like the focus effect further down, so it isn't saved as the user's preference.
+  useEffect(() => {
+    if (!squeezed) return;
+    const was = useStore.getState().sidebarOpen;
+    useStore.setState({ sidebarOpen: false });
+    // A window shrunk to phone width in the meantime starts with the drawer closed, as it would on load.
+    return () => useStore.setState({ sidebarOpen: was && window.innerWidth >= SIDEBAR_INLINE_MIN });
+  }, [squeezed]);
 
   // Shrinking the window past a breakpoint closes that side rather than dropping an open drawer over the
   // chat. Only on the change itself; the store already starts both closed on a narrow window.
@@ -116,11 +135,12 @@ export function App() {
   }, [takesFocus]);
 
   return (
-    <div className="flex h-full w-full overflow-hidden pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
+    <div className="flex h-dvh w-full overflow-clip pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
       {!(sidebarOpen && sidebarInline) && (
-        // Collapsed: a single button rather than a rail, so the chat gets the whole width back.
+        // Collapsed: a single button rather than a rail, so the chat gets the whole width back. On a phone it sits
+        // in the page header's left corner (the headers leave room with max-md:pl-14) instead of taking a column.
         <button
-          className="ml-2 mt-3 flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-md text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="ml-2 mt-3 flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-md text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent pointer-coarse:h-10 pointer-coarse:w-10 max-md:fixed max-md:left-[calc(env(safe-area-inset-left)+0.75rem)] max-md:top-[calc(env(safe-area-inset-top)+0.75rem)] max-md:z-20 max-md:m-0 max-md:pointer-coarse:left-[calc(env(safe-area-inset-left)+0.5rem)] max-md:pointer-coarse:top-[calc(env(safe-area-inset-top)+0.5rem)]"
           title="Show bots (Ctrl+B)"
           aria-label="Show bots"
           aria-expanded={sidebarOpen}
@@ -134,7 +154,7 @@ export function App() {
         {sidebarOpen && sidebarInline && <Sidebar />}
       </div>
       {sidebarInline && <PaneSeparator pane="sidebar" label="Resize sidebar" controls="pane-sidebar" />}
-      <main className={cn('@container panel relative flex min-w-0 flex-col overflow-hidden', focus && panelInline ? 'shrink-0 border-r border-line' : 'flex-1')} style={focus && panelInline ? { width: CHAT_RAIL_W } : undefined}>
+      <main className={cn('@container panel relative flex min-w-0 flex-col overflow-clip', focus && panelInline ? 'shrink-0 border-r border-line' : 'flex-1')} style={focus && panelInline ? { width: CHAT_RAIL_W } : undefined}>
         {/* Pages lie over the chat rather than replace it, so its draft and scroll position wait underneath. */}
         <div inert={!!page} className="flex min-h-0 flex-1 flex-col"><ChatPane /></div>
         {page && (
@@ -180,6 +200,8 @@ export function App() {
       {dialog?.kind === 'search' && <SearchDialog onClose={() => openDialog(null)} />}
       {dialog?.kind === 'profile' && <ProfileDialog onClose={() => openDialog(null)} />}
       {dialog?.kind === 'settings' && <SettingsDialog section={dialog.section} onClose={() => openDialog(null)} />}
+
+      <ConfirmHost />
 
       {showOnboarding && <Onboarding />}
       <TokenPrompt />
@@ -276,7 +298,7 @@ function Toasts() {
   // Hand back and Done are at the bottom right while the user drives, and an error toast stays until dismissed.
   const driving = useStore(selectScreenSize) === 'focus';
   return (
-    <div role="status" aria-live="polite" className={cn('pointer-events-none fixed right-5 z-[100] flex max-w-[calc(100vw-2.5rem)] flex-col items-end gap-2', driving ? 'bottom-24' : 'bottom-5')}>
+    <div role="status" aria-live="polite" className={cn('pointer-events-none fixed right-5 z-[100] flex max-w-[calc(100vw-2.5rem)] flex-col items-end gap-2', driving ? 'bottom-24' : 'bottom-5 max-sm:bottom-[calc(10rem+env(safe-area-inset-bottom))]')}>
       {toasts.map((t) => (
         <div
           key={t.id}

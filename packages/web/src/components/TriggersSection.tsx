@@ -6,7 +6,7 @@ import {
 } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
-import { Button, Input, Label, Select, Textarea, cn, fmtUsd } from './ui';
+import { Button, Input, Label, Select, Textarea, cn, confirmAction, fmtUsd } from './ui';
 
 /**
  * P5: the Triggers half of Automations (the fleet page, and the Bot page filtered to one bot). A trigger wakes a bot in a room when an outside event arrives
@@ -99,7 +99,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
     await load();
   };
   const remove = async (t: Trigger) => {
-    if (!confirm('Delete trigger "' + t.name + '"?')) return;
+    if (!(await confirmAction({ title: 'Delete trigger "' + t.name + '"?', confirmLabel: 'Delete', danger: true }))) return;
     try { await api.triggers.remove(t.id); } catch (e) { toast((e as Error).message, true); }
     await load();
   };

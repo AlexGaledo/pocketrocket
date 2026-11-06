@@ -55,7 +55,12 @@ export type ServerEvent =
   /** The skill pool or a skill's versions changed; clients refetch GET /api/skills (and the open versions list). */
   | { type: 'skills.changed'; skillId?: string }
   /** A bot's training setting or proposals changed; clients refetch GET /api/bots/:id/training. */
-  | { type: 'training.changed'; botId: string };
+  | { type: 'training.changed'; botId: string }
+  /**
+   * Something in a room's folder changed through /api/rooms/:id/files. `path` is the folder whose listing changed
+   * ('' for the room's folder itself); a move sends one event per folder. An open Files panel showing it refetches.
+   */
+  | { type: 'files.changed'; roomId: string; path: string };
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [

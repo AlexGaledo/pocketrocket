@@ -4,7 +4,7 @@ import path from 'node:path';
 import httpProxy from 'http-proxy';
 import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, BOTS_DIR, ENABLED_PROVIDERS, MEDIA_DIR,
-  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH, PROJECTS_DIR, setProjectRootsResolver,
+  ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH, PROJECTS_DIR, ROOMS_DIR, botFilesDir, setRoomRootsResolver,
 } from './config.js';
 import { Db } from './db/db.js';
 import { reportOrphanBotDirs } from './services/orphanBotDirs.js';
@@ -71,6 +71,8 @@ import { Training, type TrainingDeps } from './services/Training.js';
 import { createTeachApi } from './api/teach.js';
 import { MEDIA_SWEEP_MS, MediaStore, referencedMedia } from './services/MediaStore.js';
 import { createMediaApi } from './api/media.js';
+import { createFilesApi } from './api/files.js';
+import { RoomFiles } from './rooms/roomFiles.js';
 
 export interface HubOptions {
   port?: number;
@@ -82,6 +84,10 @@ export interface HubOptions {
   skipBootstrap?: boolean;
   /** Where project folders live; tests hand in a temp directory. Defaults to data/projects. */
   projectsDir?: string;
+  /** Where group rooms without a project keep their files; tests hand in a temp directory. Defaults to data/rooms. */
+  roomsDir?: string;
+  /** A direct chat's file folder; tests hand in one under a temp directory. Defaults to data/bots/<id>/files. */
+  dmFilesDir?: (botId: string) => string;
   /** The owner's routing rules; tests hand in a temp file. Defaults to data/routing.md. */
   routingFile?: string;
   /** Account service; tests hand in one over a fake Supabase client. */
@@ -328,7 +334,15 @@ export function createHub(opts: HubOptions = {}): Hub {
   const contextRepo = new ContextRepo(db);
   const projects = new ProjectService({ db, repos, memory, root: opts.projectsDir ?? PROJECTS_DIR });
   runner.projects = projects;
-  setProjectRootsResolver((botId) => projects.dirsFor(botId));
+  const roomFiles = new RoomFiles({ projects, roomsDir: opts.roomsDir ?? ROOMS_DIR, dmDir: opts.dmFilesDir ?? botFilesDir });
+  runner.roomFiles = roomFiles;
+  // A bot works without a card only in the folder of the room it is replying in.
+  setRoomRootsResolver((botId, roomId) => {
+    const room = repos.getRoom(roomId);
+    const folder = room ? roomFiles.forBot(room, botId) : null;
+    return folder ? [folder.dir] : [];
+  });
+  const filesApi = createFilesApi({ repos, roomFiles });
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
   const projectsApi = createProjectsApi({ projects, repos });
@@ -557,6 +571,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await triggersApi(req, res)) return;
       if (await contextApi(req, res)) return;
       if (await projectsApi(req, res)) return;
+      if (await filesApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
       if (await teachApi(req, res)) return;
       if (await rest(req, res)) return;

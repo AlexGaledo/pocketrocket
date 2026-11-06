@@ -5,7 +5,7 @@ import type { Bot, Room } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { isWorking, useBotStatus } from '../../lib/botStatus';
 import { useStore } from '../../store';
-import { Avatar, Button, Dialog, Field, Input, Label, Select } from '../ui';
+import { Avatar, Button, Dialog, Field, Input, Label, Select, confirmAction } from '../ui';
 import { BotIconPicker } from './BotIconPicker';
 
 /** Starting a group chat, and everything about one later: its name, its picture and its bots. */
@@ -41,7 +41,7 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   };
   const remove = async () => {
-    if (!room || !confirm('Delete ' + room.name + ' and its history?')) return;
+    if (!room || !(await confirmAction({ title: 'Delete ' + room.name + '?', body: 'Its chat history is deleted too.', confirmLabel: 'Delete', danger: true }))) return;
     setBusy(true);
     try {
       await api.rooms.remove(room.id);

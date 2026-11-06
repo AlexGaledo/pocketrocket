@@ -1,4 +1,4 @@
-# Project folders and team templates
+# Project folders, room folders and team templates
 
 A project is a folder under `data/projects/<slug>/`, outside the workspace every bot shares, plus a list of the bots that may work in it. The owner manages that list in Settings, Projects. No bot tool can change it.
 
@@ -9,11 +9,23 @@ data/projects/wika/
   imports/       what came from Claude, one file per item
 ```
 
+## Room folders
+
+Every chat has one file folder (`rooms/roomFiles.ts`):
+
+- A chat linked to a project (its team chat) uses the project's folder.
+- Any other group chat uses `data/rooms/<roomId>/`, made the first time it is needed.
+- A direct chat uses the bot's `files/` subfolder (`data/bots/<id>/files/`), so its memory, identity and notes stay out of view.
+
+The owner browses these in the Files panel through `/api/rooms/:id/files` (hub token only; paired phones are refused). Every change there sends a `files.changed` event and writes an audit row.
+
 ## Access
 
-- A member can read and write the folder, and gets `search_project_context`.
-- Anyone else is refused, including with approvals bypassed, by a check on Claude tool calls (`projectGuard.ts`).
-- **This is a permission rule, not a wall.** Every bot is the same Linux user, so a shell command that hides the path, or reading the database, gets through. Codex and Grok turns do not run the check. Real isolation needs one Linux user per project.
+- A bot can use only the folder of the chat it is replying in. That folder is a working root for the turn (no approval card), and the system prompt names it.
+- A project's folder also needs the bot to be on the project. Adding a bot to the project's chat does not open the folder by itself.
+- Every other project's folder and every other chat's folder under `data/rooms/` is refused, including with approvals bypassed, by a check on Claude tool calls (`projectGuard.ts`). This holds for a member too: asked about a project from a direct chat or another room, a bot cannot open or search that project's folder.
+- `search_project_context` searches only the current chat's project.
+- **This is a permission rule, not a wall.** Every bot is the same Linux user, so a shell command that hides the path, or reading the database, gets through. Codex and Grok turns do not run the check. Another bot's home (including its `files/`) is only behind the approval card, not this check. Real isolation needs one Linux user per project.
 
 ## Keeping context true
 

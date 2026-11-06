@@ -5,7 +5,7 @@ import { Circle, Trash2 } from 'lucide-react';
 import type { Bot, RecorderStatus, RecordingInfo } from '@pocketrocket/shared';
 import { useStore } from '../store';
 import { api } from '../lib/api';
-import { Badge, Button, Input } from './ui';
+import { Badge, Button, Input, confirmAction } from './ui';
 
 const fmtWhen = (t: number) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
@@ -133,7 +133,7 @@ function RecordingList({ bot, recordingId }: { bot: Bot; recordingId: string | n
     }
   };
   const remove = async (r: RecordingInfo) => {
-    if (!confirm('Delete this recording and its screenshots?')) return;
+    if (!(await confirmAction({ title: 'Delete this recording?', body: 'Its screenshots are deleted too.', confirmLabel: 'Delete', danger: true }))) return;
     try { await api.teach.remove(bot.id, r.id); } catch (e) { toast((e as Error).message, true); }
     void load();
   };
