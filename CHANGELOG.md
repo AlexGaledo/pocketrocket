@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Outside MCP servers for named bots
+
+- The owner can give named bots an outside MCP server (for example the Wika dashboard) in `data/mcp-servers.json`: a name, an `https` address, an optional key and a list of bot handles. It is read on every turn, so no restart is needed.
+- These tools are never pre-approved: outside bypass mode each call asks. The key is scrubbed from room messages. Claude provider only.
+
 ### A smaller development team template
 
 - A project's development team is now three bots: a lead, an engineer and a quality engineer. Each gets the `safe-shipping` skill, so it cannot push to the default branch.

@@ -223,6 +223,12 @@ export class ClaudeProvider implements AgentProvider {
       };
     }
 
+    // Owner-configured outside servers (data/mcp-servers.json). Left out of allowedTools on purpose, so
+    // outside bypass mode each call reaches canUseTool and the approval broker.
+    for (const s of ctx.outsideMcp ?? []) {
+      mcpServers[s.name] = { type: 'http', url: s.url, ...(s.token ? { headers: { Authorization: 'Bearer ' + s.token } } : {}) };
+    }
+
     let resolveDone: () => void = () => undefined;
     const done = new Promise<void>((r) => (resolveDone = r));
     const input = ctx.input;
