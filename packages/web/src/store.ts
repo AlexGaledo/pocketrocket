@@ -41,6 +41,8 @@ const FALLBACK_PROVIDERS: ProvidersResponse = {
 const recentReceive = new Map<string, number>();
 // roomId -> when loadOlder may try again after a failed page fetch.
 const olderRetryAt = new Map<string, number>();
+/** Approvals this page answered, so a WS `error` about one (context = approval id) lands on its card. */
+const decided = new Set<string>();
 
 /** True when a response body is a full AccountState rather than a bare `{ ok }`. */
 function isAccountState(v: unknown): v is AccountState {
@@ -164,6 +166,10 @@ interface State {
    * The one flag the UI reads to hide what a device cannot do.
    */
   device: boolean;
+  /** This socket carries a password session (hello `signedIn`), so it may allow a sign-in-required card (run_on_pc). */
+  signedIn: boolean;
+  /** The hub's refusal of an answer, by approval id ("Only a browser signed in…"), shown on that card. */
+  approvalErrors: Record<string, string>;
   _playedConnectedSound: boolean;
   // ---- P7 ----
   /** Latest knowledge repo status from the `knowledge.status` event; null until one arrives. */
@@ -263,6 +269,8 @@ export const useStore = create<State>((set, get) => ({
   account: SIGNED_OUT,
   helloReceived: false,
   device: isDevice(),
+  signedIn: false,
+  approvalErrors: {},
   _playedConnectedSound: false,
   knowledge: null,
   voiceRev: {},
@@ -288,7 +296,7 @@ export const useStore = create<State>((set, get) => ({
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
-        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, openApprovals: ev.openApprovals ?? [] });
+        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, openApprovals: ev.openApprovals ?? [] });
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
@@ -420,6 +428,12 @@ export const useStore = create<State>((set, get) => ({
         set({ routinesRev: s.routinesRev + 1 });
         return;
       case 'error':
+        // A refused answer belongs on its card, next to the button that was refused, not in a passing toast.
+        if (ev.context && decided.has(ev.context)) {
+          decided.delete(ev.context);
+          set({ approvalErrors: { ...s.approvalErrors, [ev.context]: ev.message } });
+          return;
+        }
         get().toast(ev.message, true);
         return;
       // ---- P7 ----
@@ -532,6 +546,9 @@ export const useStore = create<State>((set, get) => ({
     else get().toast('Not connected', true);
   },
   decide: (approvalId, decision) => {
+    decided.add(approvalId);
+    const { [approvalId]: _cleared, ...approvalErrors } = get().approvalErrors;
+    set({ approvalErrors });
     wsSend({ type: 'approval.decide', approvalId, decision });
     play(decision === 'deny' ? 'deny' : 'approve');
   },
