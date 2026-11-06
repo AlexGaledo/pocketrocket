@@ -33,7 +33,12 @@ function hideVncChrome(e: SyntheticEvent<HTMLIFrameElement>) {
   } catch { /* not the viewer: nothing to hide */ }
 }
 
-export function RightPanel({ inline }: { inline: boolean }) {
+/**
+ * `parked`: Files is showing over a screen the user was watching, which stays mounted (hidden unless the bot is
+ * using it) so the viewer keeps its connection. `beside`: Files is open, so a thumbnail moves clear of it, or out
+ * of sight when Files covers the window.
+ */
+export function RightPanel({ inline, parked = false, beside = null }: { inline: boolean; parked?: boolean; beside?: 'inline' | 'cover' | null }) {
   const botId = useStore(selectScreenBotId);
   const size = useStore(selectScreenSize);
   const use = useStore((s) => (botId ? computerUse(botId, s) : null));
@@ -43,8 +48,9 @@ export function RightPanel({ inline }: { inline: boolean }) {
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => { if (!use) setDismissed(false); }, [use]);
 
-  if (size === 'glance' && !use) return null;
+  if (size === 'glance' && !use && !parked) return null;
   if (!bot) {
+    if (size === 'glance') return null;
     return (
       <aside className="panel flex w-full flex-col items-center justify-center gap-3 p-6 text-ui text-muted">
         No bot yet.
@@ -52,10 +58,10 @@ export function RightPanel({ inline }: { inline: boolean }) {
       </aside>
     );
   }
-  return <ScreenPane bot={bot} size={size} use={use} inline={inline} dismissed={dismissed} onDismiss={() => setDismissed(true)} />;
+  return <ScreenPane bot={bot} size={size} use={use} inline={inline} dismissed={dismissed} onDismiss={() => setDismissed(true)} parked={parked} beside={beside} />;
 }
 
-interface PaneProps { bot: Bot; size: ScreenSize; use: string | null; inline: boolean; dismissed: boolean; onDismiss: () => void }
+interface PaneProps { bot: Bot; size: ScreenSize; use: string | null; inline: boolean; dismissed: boolean; onDismiss: () => void; parked: boolean; beside: 'inline' | 'cover' | null }
 
 /** Whether this hub has per-bot computers. A hub-wide fact, so it is asked once per page load. */
 let perBotHub: boolean | null = null;
@@ -76,7 +82,7 @@ function ScreenPane(props: PaneProps) {
   return <Viewer key={perBot ? bot.id : 'shared'} perBot={perBot} {...props} />;
 }
 
-function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PaneProps & { perBot: boolean }) {
+function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot, parked, beside }: PaneProps & { perBot: boolean }) {
   const room = useStore(selectActiveRoom);
   const rooms = useStore((s) => s.rooms);
   const page = useStore((s) => !!s.page);
@@ -201,7 +207,8 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot }: PanePr
   return (
     <aside
       aria-label={bot.name + "'s screen"}
-      hidden={glance && (dismissed || page || !live)}
+      hidden={glance && (dismissed || page || !live || (parked && !use) || beside === 'cover')}
+      style={glance && beside === 'inline' ? { right: 'calc(var(--panel-w) + 20px)' } : undefined}
       className={cn('@container flex min-w-0 flex-col overflow-hidden', glance
         ? 'fixed right-5 top-[60px] z-20 aspect-[16/10] w-[240px] rounded-lg bg-black shadow-[var(--shadow-overlay)] ring-1 ring-line max-sm:right-3 max-sm:w-[136px]'
         : 'panel w-full')}

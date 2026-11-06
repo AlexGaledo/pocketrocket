@@ -9,6 +9,7 @@ import { PaneSeparator } from './PaneSeparator';
 import { Sidebar } from './Sidebar';
 import { ChatPane } from './ChatPane';
 import { RightPanel } from './RightPanel';
+import { FilesPanel } from './files/FilesPanel';
 import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
 import { BotDialog } from './dialogs/BotDialog';
@@ -35,6 +36,8 @@ export function App() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const closePanel = useStore((s) => s.closePanel);
+  const filesOpen = useStore((s) => s.panelOpen && s.panelKind === 'files');
+  const screenParked = useStore((s) => s.screenParked);
   const dialog = useStore((s) => s.dialog);
   const openDialog = useStore((s) => s.openDialog);
   const settings = useStore((s) => s.settings);
@@ -47,7 +50,9 @@ export function App() {
   const sidebarInline = useMediaQuery(SIDEBAR_QUERY);
   const panelInline = useMediaQuery(PANEL_QUERY);
   const focus = screenSize === 'focus';
-  const covering = !panelInline && screenSize !== 'glance';
+  // Files takes the panel unless the user is driving a screen, which always wins the room.
+  const filesShown = filesOpen && !focus;
+  const covering = !panelInline && (screenSize !== 'glance' || filesShown);
 
   // Pane widths are CSS variables, so a resize never re-renders the chat. A drag paints them itself until
   // release, so a store change arriving mid-drag (any streaming message) must not paint over it.
@@ -143,7 +148,7 @@ export function App() {
           </div>
         )}
       </main>
-      {panelInline && !focus && <PaneSeparator pane="panel" label="Resize screen" controls="pane-panel" />}
+      {panelInline && !focus && <PaneSeparator pane="panel" label={filesShown ? 'Resize files' : 'Resize screen'} controls="pane-panel" />}
       {/* One element at every size, thumbnail included, with only its CSS changing. Moving an iframe in the DOM
           reloads it, which would spend a ticket and drop the noVNC connection on every change of size. */}
       <div
@@ -152,9 +157,11 @@ export function App() {
         tabIndex={-1}
         role={covering ? 'dialog' : undefined}
         aria-modal={covering || undefined}
-        aria-label={covering ? 'Screen' : undefined}
+        aria-label={covering ? (filesShown ? 'Files' : 'Screen') : undefined}
         onKeyDown={(e) => {
-          if (e.key === 'Escape' && covering && !focus) {
+          // The DOM check: Escape in a dialog opened from in here (a file preview) bubbles through its portal to
+          // this handler, and must close that dialog only.
+          if (e.key === 'Escape' && covering && !focus && e.currentTarget.contains(e.target as Node)) {
             e.stopPropagation();
             closePanel();
           }
@@ -162,7 +169,9 @@ export function App() {
         className={cn('flex focus:outline-none', covering ? 'fixed inset-0 z-30 bg-bg pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]' : focus ? 'min-w-0 flex-1' : 'shrink-0')}
         style={covering || focus ? undefined : { width: 'var(--panel-w)' }}
       >
-        <RightPanel inline={panelInline} />
+        {/* Under Files the screen stays mounted: a thumbnail while the bot uses it, else hidden but connected. */}
+        <RightPanel inline={panelInline} parked={filesShown && screenParked} beside={filesShown ? (covering ? 'cover' : 'inline') : null} />
+        {filesOpen && <div className={focus ? 'hidden' : 'flex min-w-0 flex-1'}><FilesPanel inline={panelInline} /></div>}
       </div>
 
       {sidebarOpen && !sidebarInline && (

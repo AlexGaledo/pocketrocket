@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Info, Monitor, Send, Settings2, ShieldAlert, Square, Users, Zap } from 'lucide-react';
+import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, FolderOpen, Info, Monitor, Send, Settings2, ShieldAlert, Square, Users, Zap } from 'lucide-react';
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
 import { RocketMark } from './RocketMark';
 import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload } from '@pocketrocket/shared';
@@ -19,6 +19,8 @@ export function ChatPane() {
   const bots = useStore((s) => s.bots);
   const { statusOf } = useBotStatus();
   const panelOpen = useStore((s) => s.panelOpen);
+  const panelKind = useStore((s) => s.panelKind);
+  const openFiles = useStore((s) => s.openFiles);
   const openScreen = useStore((s) => s.openScreen);
   const closePanel = useStore((s) => s.closePanel);
   const openPage = useStore((s) => s.openPage);
@@ -83,6 +85,8 @@ export function ChatPane() {
   const working = members.filter((m) => isWorking(statusOf(m.id)));
   const needs = members.filter((m) => statusOf(m.id) === 'needs_you').length;
   // P2: in a group, say which bots' screens the user holds or paused.
+  const filesShown = panelOpen && panelKind === 'files';
+  const screenShown = panelOpen && panelKind === 'screen';
   const held = room.kind === 'group' ? members.filter((m) => (control[m.id]?.control ?? 'agent') !== 'agent') : [];
 
   return (
@@ -125,7 +129,10 @@ export function ChatPane() {
           <Button variant="ghost" size="icon" title="Memory, skills and automations" aria-label={'Open ' + members[0].name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: members[0].id, tab: 'memory' })}><Settings2 size={16} /></Button>
         )}
         {screenSize !== 'focus' && (
-          <Button variant="ghost" size="icon" title={panelOpen ? 'Hide screen' : 'Watch screen'} aria-label="Screen" aria-pressed={panelOpen} onClick={() => (panelOpen ? closePanel() : openScreen())}><Monitor size={16} /></Button>
+          <>
+            <Button data-files-toggle variant="ghost" size="icon" className="aria-pressed:bg-active aria-pressed:text-fg" title={filesShown ? 'Hide files' : 'Files'} aria-label="Files" aria-pressed={filesShown} onClick={() => (filesShown ? closePanel() : openFiles())}><FolderOpen size={16} /></Button>
+            <Button variant="ghost" size="icon" className="aria-pressed:bg-active aria-pressed:text-fg" title={screenShown ? 'Hide screen' : 'Watch screen'} aria-label="Screen" aria-pressed={screenShown} onClick={() => (screenShown ? closePanel() : openScreen())}><Monitor size={16} /></Button>
+          </>
         )}
       </header>
       {/* Keyed so scroll state and the paging bookkeeping start fresh in every room. */}
