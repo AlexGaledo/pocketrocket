@@ -22,7 +22,7 @@
     "http-proxy": "^1.18.1",
     "nanoid": "^5.0.9",
     "ws": "^8.18.0",
-    "zod": "^4.1.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/http-proxy": "^1.17.17",
