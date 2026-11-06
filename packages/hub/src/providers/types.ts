@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type { Bot, ModelInfo, ProviderCheck, ProviderId, ProviderInfo, Room } from '@pocketrocket/shared';
 import type { TurnUsage } from '../services/UsageTracker.js';
+import type { OutsideMcpServer } from '../services/outsideMcp.js';
 
 /**
  * A hub tool, independent of any provider SDK. `providers/claude.ts` wraps these with the Agent SDK's
@@ -80,7 +81,12 @@ export interface TurnContext {
   /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
   cdpUrl?: string;
   /** Owner-configured outside MCP servers for this bot (data/mcp-servers.json). Claude only; never pre-approved. */
-  outsideMcp?: { name: string; url: string; token: string | null }[];
+  outsideMcp?: OutsideMcpServer[];
+  /**
+   * Runs before each call to an outside server whose `approve` asks for a card (services/outsideMcp.ts):
+   * raises the owner's card, under bypass too. A string refuses the call; null means the owner allowed it.
+   */
+  outsideMcpGate?: (toolName: string, input: Record<string, unknown>) => Promise<string | null>;
   /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */
   computerFilesDir?: string;
   // ---- P2 ----
