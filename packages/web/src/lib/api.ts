@@ -111,6 +111,8 @@ export const api = {
   },
   auth: {
     status: () => req<{ passwordSet: boolean; signedIn: boolean }>('GET', '/api/auth/status'),
+    /** Sets the session cookie. 403 wrong password, 429 too many tries. Reconnect the socket after, so it carries it. */
+    login: (password: string) => req<{ ok: boolean }>('POST', '/api/auth/login', { password }),
     sessions: () => req<{ sessions: UserSessionInfo[]; current: string | null; passwordSet: boolean }>('GET', '/api/auth/sessions'),
     setPassword: (password: string, currentPassword?: string) => req<{ ok: boolean }>('POST', '/api/auth/password', { password, currentPassword }),
     logout: () => req<{ ok: boolean }>('POST', '/api/auth/logout', {}),

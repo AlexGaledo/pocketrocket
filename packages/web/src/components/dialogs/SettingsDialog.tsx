@@ -148,7 +148,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             {/* P9 */}
             <TabsPrimitive.Content value="projects" tabIndex={-1} className={PANEL}><ProjectsSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="devices" tabIndex={-1} className={PANEL}><DevicesSection /></TabsPrimitive.Content>
-            <TabsPrimitive.Content value="pc-runner" tabIndex={-1} className={PANEL}><PcRunnerSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="pc-runner" tabIndex={-1} className={PANEL}><PcRunnerSection onOpenSecurity={() => select('security')} /></TabsPrimitive.Content>
           </div>
         </div>
       </TabsPrimitive.Root>

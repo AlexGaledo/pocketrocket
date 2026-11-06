@@ -241,6 +241,71 @@ Moving a key only stops this server from using it. The key still works anywhere 
 the daily backups in `/var/backups/pocketrocket`. **Rotate each key at its provider**; the rotate list says where.
 Integration tokens are revoked in the app's Integrations page or at the provider.
 
+## Key registry: which keys run where
+
+`data/key-registry.json` tells the hub which of your keys live on this server ("vps", meaning the machine the
+hub runs on) and which only on your PC ("pc", reached through the PC runner). It holds **key names only, never
+values**. The hub reads it on every turn, so an edit applies to the next turn without a restart. Bots cannot
+read or write it. Start from `docs/key-registry.example.json`:
+
+```sh
+sudo install -m 600 -o pocketrocket -g pocketrocket docs/key-registry.example.json /home/pocketrocket/pocketrocket/data/key-registry.json
+```
+
+```json
+{ "keys": { "firecrawl": { "tier": 1, "where": ["vps", "pc"] }, "app-store-p8": { "tier": 3, "where": ["pc"] } } }
+```
+
+| Tier | Meaning | Examples |
+| --- | --- | --- |
+| 0 | None or public | public APIs |
+| 1 | Low: read-only, scoped | Firecrawl, Figma read, Supabase read-only |
+| 2 | Medium: write-scoped, limited | GitHub fine-grained repo token, RunPod with a spend limit, Composio with no send |
+| 3 | Critical: **PC only, always** | store keys (.p8, Play service account, RevenueCat), prod DB writes, GitHub admin, deploys, payments, email send |
+
+A tier 3 entry that lists `"vps"` is rejected when the file is read: it is logged once and ignored, never trusted.
+`service` and `notes` are optional labels.
+
+**The model never picks the place.** Bots get the key names and tiers in their prompt and call
+`where_to_run({ needs: [names] })`, which answers by a fixed rule:
+
+1. A name the registry does not list: **blocked** (never guessed).
+2. Any tier 3 need: **pc**, if the PC holds every need and a PC runner is paired; otherwise blocked.
+3. Every need on the VPS: **vps**.
+4. Every need on the PC and a runner paired: **pc**.
+5. Otherwise **blocked**, with the keys the PC lacks in `missing`.
+
+Enforcement:
+
+- `run_on_pc` takes the same `needs` and refuses any key the registry does not put on the PC, before a card is
+  shown. The card lists the keys.
+- An entry in `data/mcp-servers.json` may declare `"needs": ["key-name"]`. If those needs do not all route to
+  the VPS (a tier 3 key, a PC-only key, or an unknown name), the server is not mounted on this hub and the
+  journal says why. Entries without `needs` are unchanged.
+
+### Approving a job on the PC needs your password
+
+A `run_on_pc` card can only be **allowed** from a browser signed in with your owner password. The server token
+alone (the desktop app, a script, or a bot that read `data/hub-token`) can deny it but not allow it; the app
+shows "Only a browser signed in with your password can approve this." Set a password in Settings › Security
+before you pair a PC runner, then sign in with it in the browser you approve from. Signing out takes effect at
+once, even on an open tab. A paired phone cannot allow these cards either.
+
+What this does and does not stop: sessions live in the hub database, which stores only a hash of each session
+cookie, so a copy of the database cannot be replayed as a login. A bot's own file and shell tools are refused the
+database (`pocketrocket.db` and its `-wal`/`-shm`/`-journal` files, the legacy `claudebot.db`, and any `.db` or
+`.sqlite` file at the top of `data/`), just like `hub-token`. That guard reads the command line, though. Bots run
+as the same OS user as the hub, so a command that builds the path at run time (`python -c` with string
+concatenation, a script written to disk first) can still open the database and write a session row. It also
+applies to the Claude provider only. **The real lock on a PC job is the Run / Refuse dialog on your PC**, which
+shows the full prompt. Keep it on.
+
+For the same reason, changing the password now needs the current one, even with the server token. If you forget
+it, start the hub once with `POCKETROCKET_RESET_PASSWORD=1` (for example
+`sudo systemctl set-environment POCKETROCKET_RESET_PASSWORD=1 && sudo systemctl restart pocketrocket`, then
+`sudo systemctl unset-environment POCKETROCKET_RESET_PASSWORD`). That clears the password and signs every
+browser out; set a new one in Settings.
+
 ## Phone access over Tailscale Serve
 
 The hub still binds `127.0.0.1` only. To use PocketRocket from a phone, put

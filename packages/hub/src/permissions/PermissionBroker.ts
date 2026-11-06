@@ -93,6 +93,8 @@ const SILENT_HUB_TOOLS = new Set([
   'list_rooms', 'request_approval', 'use_stronger_model', ...DESKTOP_TOOL_NAMES,
   // P3
   'list_routines',
+  // Key routing: reads key-registry.json, names only.
+  'where_to_run',
   // P7: notes live in the bot's own home.
   'search_notes', 'write_note',
   // P4: integration reads (granted per bot; untrusted output is labelled as such).
@@ -118,6 +120,15 @@ const GATED_HUB_TOOLS = new Set([
 
 /** Answered once per card: no "for this session", and no rule can pre-approve it. */
 const ASK_EVERY_TIME = new Set(['propose_routing_change', 'run_on_pc']);
+
+/**
+ * Cards only a browser signed in with the owner's password may allow. The hub token is not enough: it sits in
+ * DATA_DIR, where a bot under bypass can read it and answer its own card over the socket. Anyone may deny.
+ * Keyed by tool name, so a parked card keeps the rule across a restart.
+ */
+export const SIGN_IN_TOOLS: ReadonlySet<string> = new Set(['run_on_pc']);
+export const SIGN_IN_MESSAGE =
+  'Only a browser signed in with your password can approve this. The server token is not enough. Sign in, then approve it.';
 
 /** The largest outside MCP call input (as JSON) a card shows; anything bigger is refused, never truncated. */
 const OUTSIDE_INPUT_CAP = 8000;
@@ -583,7 +594,10 @@ export class PermissionBroker {
       if (grant > this.now()) return { decision: 'allow', approvalId: 'parked-' + nanoid(8) };
     }
     const approvalId = nanoid(10);
-    const payload: ApprovalPayload = { approvalId, toolName, toolInput: input, reason, danger, status: 'pending' };
+    const payload: ApprovalPayload = {
+      approvalId, toolName, toolInput: input, reason, danger, status: 'pending',
+      ...(SIGN_IN_TOOLS.has(toolName) ? { signInRequired: true } : {}),
+    };
     // Tells the card to offer no "for this session": this answer is never remembered.
     if (opts.once || ASK_EVERY_TIME.has(toolName)) payload.once = true;
     const msg = this.repos.insertMessage({
@@ -639,7 +653,18 @@ export class PermissionBroker {
     return { decision, approvalId };
   }
 
-  resolve(approvalId: string, decision: 'allow' | 'always' | 'deny', opts: { device?: boolean } = {}): boolean {
+  /** Whether allowing this card needs a signed-in browser (SIGN_IN_TOOLS). Reads the card's row, so parked cards count. */
+  needsSignIn(approvalId: string): boolean {
+    const row = this.repos.db.get('SELECT tool_name FROM approvals WHERE id=?', approvalId);
+    return !!row && SIGN_IN_TOOLS.has(String(row.tool_name));
+  }
+
+  /**
+   * An answer to a card. `signedIn`: the answer came from a browser signed in with the owner's password, not
+   * only the hub token. Without it an allow on a SIGN_IN_TOOLS card is refused (false) and the card stays open.
+   */
+  resolve(approvalId: string, decision: 'allow' | 'always' | 'deny', opts: { device?: boolean; signedIn?: boolean } = {}): boolean {
+    if (decision !== 'deny' && !opts.signedIn && this.needsSignIn(approvalId)) return false;
     const p = this.pending.get(approvalId);
     // P2: no turn is waiting in memory, but a parked one may be.
     if (!p) return this.resolveParked(approvalId, decision);

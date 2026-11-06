@@ -1,0 +1,18 @@
+{
+  "keys": {
+    "firecrawl": { "tier": 1, "where": ["vps", "pc"], "service": "Firecrawl", "notes": "scrape and search only" },
+    "figma-read": { "tier": 1, "where": ["vps"], "service": "Figma", "notes": "read-only personal token" },
+    "supabase-ro": { "tier": 1, "where": ["vps"], "service": "Supabase", "notes": "read-only role, prod" },
+    "github-repo": { "tier": 2, "where": ["vps", "pc"], "service": "GitHub", "notes": "fine-grained, one repo, contents write" },
+    "runpod": { "tier": 2, "where": ["vps"], "service": "RunPod", "notes": "spend limit set on the account" },
+    "composio": { "tier": 2, "where": ["vps"], "service": "Composio", "notes": "no send actions enabled" },
+    "app-store-p8": { "tier": 3, "where": ["pc"], "service": "App Store Connect" },
+    "play-service-account": { "tier": 3, "where": ["pc"], "service": "Google Play" },
+    "revenuecat": { "tier": 3, "where": ["pc"], "service": "RevenueCat" },
+    "supabase-prod-write": { "tier": 3, "where": ["pc"], "service": "Supabase", "notes": "service role" },
+    "github-admin": { "tier": 3, "where": ["pc"], "service": "GitHub" },
+    "vercel-deploy": { "tier": 3, "where": ["pc"], "service": "Vercel" },
+    "stripe-live": { "tier": 3, "where": ["pc"], "service": "Stripe" },
+    "resend-send": { "tier": 3, "where": ["pc"], "service": "Resend", "notes": "email send" }
+  }
+}

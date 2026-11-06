@@ -138,6 +138,8 @@ export interface ApprovalPayload {
   parked?: boolean;
   /** Answered once only (run_on_pc, outside MCP tools): "always" is never remembered, so the card does not offer it. */
   once?: boolean;
+  /** Only a browser signed in with the owner's password may allow it (a job on the PC); the hub token may only deny. */
+  signInRequired?: boolean;
 }
 export interface HandoffPayload {
   fromBotId: string;

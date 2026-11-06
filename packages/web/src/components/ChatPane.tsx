@@ -8,6 +8,7 @@ import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
 import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, UserAvatar, cn, fmtTime } from './ui';
 import { Markdown } from './Markdown';
+import { SignInToApprove } from './SignInToApprove';
 import { RuleOffer, TakeoverCard } from './ComputerControl';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
 import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
@@ -480,6 +481,10 @@ function ApprovalCard({ m }: { m: Message }) {
   const [answered, setAnswered] = useState(false);
   const pending = p.status === 'pending';
   const device = useStore((s) => s.device);
+  // A job on the PC: only a browser signed in with the owner's password may allow it; anyone may deny it.
+  const signedIn = useStore((s) => s.signedIn);
+  const needsSignIn = !!p.signInRequired && !signedIn;
+  const refused = useStore((s) => s.approvalErrors[p.approvalId]);
   // These two are yes or no, once. A "yes" to a hand-off covers the pair, as a rule the hub records and Settings lists.
   const handoff = p.toolName === 'handoff';
   const proposal = p.toolName === 'propose_routing_change';
@@ -516,12 +521,15 @@ function ApprovalCard({ m }: { m: Message }) {
       {pending && (
         // P9: wraps on a phone, and touch targets grow to 44px (`.touch-target` in index.css).
         <div className="flex flex-wrap gap-2 px-4 pb-4">
-          <Button size="sm" variant="primary" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'allow'); }}>{handoff ? 'Send it' : proposal ? 'Add it' : 'Allow once'}</Button>
+          {needsSignIn
+            ? <SignInToApprove />
+            : <Button size="sm" variant="primary" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'allow'); }}>{handoff ? 'Send it' : proposal ? 'Add it' : 'Allow once'}</Button>}
           {/* A paired device answers once; the hub refuses a standing grant from one (and approval rules). */}
           {!device && !yesOrNo && !once && <Button size="sm" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'always'); }}>Allow for this session</Button>}
           <Button size="sm" variant={yesOrNo ? 'outline' : 'danger'} className="touch-target" onClick={() => decide(p.approvalId, 'deny')}>{handoff ? 'Keep it here' : proposal ? 'Leave it out' : 'Deny'}</Button>
           {device && !yesOrNo && !once && <span className="basis-full text-hint text-muted">Session-wide allow is desktop only.</span>}
-          {once && <span className="basis-full text-hint text-muted">Asked every time.</span>}
+          {once && !needsSignIn && <span className="basis-full text-hint text-muted">Asked every time.</span>}
+          {refused && <p role="alert" className="basis-full text-hint leading-snug text-bad">{refused}</p>}
         </div>
       )}
       {answered && !device && !yesOrNo && !once && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}

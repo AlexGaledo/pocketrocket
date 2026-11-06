@@ -7,7 +7,7 @@
  * Desktop only: the hub refuses a paired phone on every /api/pc-runner route, and the dialog hides the section.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronRight, KeyRound, Power, RefreshCw } from 'lucide-react';
+import { ChevronRight, KeyRound, Power, RefreshCw, TriangleAlert } from 'lucide-react';
 import type { PcJobStatus, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
@@ -44,12 +44,17 @@ const STATUS: Record<PcJobStatus, { label: string; tone: 'muted' | 'ok' | 'warn'
   cancelled: { label: 'Cancelled', tone: 'muted' },
 };
 
-export function PcRunnerSection() {
+export function PcRunnerSection({ onOpenSecurity }: { onOpenSecurity: () => void }) {
   const rev = useStore((s) => s.pcRunnerRev);
   const [status, setStatus] = useState<PcRunnerStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<PcRunnerJob[] | null>(null);
   const [jobsError, setJobsError] = useState<string | null>(null);
+  // Jobs can only be allowed from a password-signed-in browser, so with no password nothing can ever run.
+  const [passwordSet, setPasswordSet] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.auth.status().then((r) => setPasswordSet(r.passwordSet), () => undefined);
+  }, []);
 
   const load = useCallback(() => {
     api.pcRunner.status().then((s) => { setStatus(s); setStatusError(null); }, (e: Error) => setStatusError(e.message));
@@ -66,6 +71,13 @@ export function PcRunnerSection() {
   return (
     <>
       <SectionHeader title="PC runner" description="Bots can ask your PC to run Claude Code in folders it allows. Every job needs your OK." />
+      {passwordSet === false && (
+        <div role="note" className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-warn/10 p-3.5 text-ui ring-1 ring-warn/30">
+          <TriangleAlert size={15} aria-hidden className="shrink-0 text-warn" />
+          <p className="min-w-[12rem] flex-1 leading-snug">Set a password before using the PC runner. Jobs can only be approved from a signed-in browser.</p>
+          <Button size="sm" onClick={onOpenSecurity}>Open Security</Button>
+        </div>
+      )}
       <StatusGroup status={status} error={statusError} onChanged={load} />
       <JobsGroup jobs={jobs} error={jobsError} onRefresh={load} />
     </>

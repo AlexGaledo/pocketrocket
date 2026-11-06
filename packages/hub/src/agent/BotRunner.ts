@@ -30,7 +30,8 @@ import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGu
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
 import { turnFailureNote } from './turnFailure.js';
-import { outsideMcpFor, registerOutsideMcpSecrets } from '../services/outsideMcp.js';
+import { outsideMcpFor, registerOutsideMcpSecrets, vpsMountable } from '../services/outsideMcp.js';
+import { loadKeyRegistry } from '../services/keyRegistry.js';
 import { computerToolGuard } from '../permissions/controlInterlock.js';
 import type { MediaStore } from '../services/MediaStore.js';
 
@@ -243,6 +244,8 @@ export class BotRunner {
       runId: req.runId, park, controlBlocked,
     };
 
+    // key-registry.json, read once per turn (an edit applies to the next turn), names only.
+    const keyRegistry = loadKeyRegistry();
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
       repos: this.repos, memory: this.memory, skills: this.skills, media: this.media, projects: this.projects,
@@ -284,6 +287,7 @@ export class BotRunner {
       routinesChanged: this.hooks.routinesChanged,
       pcRunner: this.pcRunner,
       signal: ac.signal,
+      keyRegistry: () => keyRegistry,
     });
 
     if (desktopOn && computer) {
@@ -335,7 +339,8 @@ export class BotRunner {
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
     addSecret(mcpToken);
-    const outsideMcp = outsideMcpFor(bot.handle, room);
+    // A server whose declared needs do not all route to this machine (a tier 3 key, say) is not mounted here.
+    const outsideMcp = vpsMountable(outsideMcpFor(bot.handle, room), keyRegistry);
     // Bearer tokens and stdio env values (the owner's API keys): scrubbed from tool output, chat and logs.
     registerOutsideMcpSecrets(outsideMcp);
     const ctx: TurnContext = {
@@ -358,6 +363,7 @@ export class BotRunner {
           : undefined,
         computerUnavailable: computerDown,
         routing: routing?.promptText(),
+        keyRegistry,
         canMoveUp: mayMoveUp,
         canProposeRouting: mayPropose,
       }),

@@ -1,10 +1,12 @@
 /**
  * Settings › Security: the owner's password, which browsers are signed in, and the activity log. The server
- * token keeps working for the desktop app and scripts, and resets a forgotten password.
+ * token keeps working for the desktop app and scripts, but cannot change a password: changing one always needs the
+ * current one (a signed-in browser is what approves jobs on the PC). A forgotten one is cleared by restarting the hub
+ * with POCKETROCKET_RESET_PASSWORD=1.
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { AuditEntry, UserSessionInfo } from '@pocketrocket/shared';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { reconnectWsNow } from '../../lib/ws';
 import { useStore } from '../../store';
 import { Badge, Button, Field, Input, Label } from '../ui';
@@ -62,13 +64,19 @@ export function SecuritySection() {
     setSaving(true);
     setError(null);
     try {
-      await api.auth.setPassword(password, current ? oldPassword : undefined);
+      await api.auth.setPassword(password, passwordSet ? oldPassword : undefined);
       setPassword('');
       setOldPassword('');
       toast(passwordSet ? 'Password changed.' : 'Password set.');
       await load();
     } catch (e) {
-      setError((e as Error).message);
+      const status = e instanceof ApiError ? e.status : 0;
+      // 403: the current password was wrong (asked from every client now, the server token included).
+      if (status === 403) {
+        setOldPassword('');
+        setError('Your current password is wrong. Nothing was changed.');
+      } else if (status === 429) setError('Too many tries. Wait a minute, then try again.');
+      else setError((e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -97,7 +105,7 @@ export function SecuritySection() {
     setMore(a.entries.length === 50);
   };
 
-  const needsCurrent = passwordSet && !!current;
+  const needsCurrent = passwordSet;
   return (
     <>
       <SectionHeader title="Security" description="Sign-in and a record of changes." />
@@ -119,7 +127,7 @@ export function SecuritySection() {
           <Field>
             <Label htmlFor="security-new">New password</Label>
             <Input id="security-new" type="password" autoComplete="new-password" aria-describedby="security-hint" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <p id="security-hint" className="mt-1 text-hint text-muted">At least 10 characters. Forgot it? The server token can set a new one.</p>
+            <p id="security-hint" className="mt-1 text-hint text-muted">At least 10 characters. Forgot it? Restart the hub with POCKETROCKET_RESET_PASSWORD=1, then set a new one.</p>
           </Field>
           {error && <InlineError>{error}</InlineError>}
           <div>

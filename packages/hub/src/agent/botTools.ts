@@ -21,6 +21,7 @@ import type { Routine } from '@pocketrocket/shared';
 import { isInside } from '../permissions/pathRules.js';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
 import { MAX_PC_PROMPT_BYTES, PC_EXPIRED_MESSAGE, PC_FOLDER_RE, PcRunnerError, type PcRunner } from '../services/PcRunner.js';
+import { KEY_NAME_RE, loadKeyRegistry, routeByNeeds, type KeyRegistry } from '../services/keyRegistry.js';
 
 export interface ToolCtx {
   bot: Bot;
@@ -75,6 +76,8 @@ export interface ToolCtx {
   pcRunner?: PcRunner;
   /** The turn's abort signal; run_on_pc cancels its job when the turn is stopped. */
   signal?: AbortSignal;
+  /** key-registry.json, read on every call. Defaults to the file in DATA_DIR; tests hand in their own. */
+  keyRegistry?: () => KeyRegistry;
 }
 
 export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
@@ -711,6 +714,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
   if (ctx.pcRunner?.isPaired()) tools.push(runOnPcTool(ctx, ctx.pcRunner));
+  tools.push(whereToRunTool(ctx));
   // ---- P7 (7.2): notes/, searched on demand so memory.md can stay small ----
   tools.push(
     hubTool(
@@ -1048,9 +1052,17 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
     {
       folder: z.string().regex(PC_FOLDER_RE).describe('One of the folder names the PC allows'),
       prompt: z.string().min(1).describe('What Claude Code on the PC should do, self-contained (max 8 KB)'),
+      needs: needsArg().optional().describe('Key names from the key registry this job uses, as you passed them to where_to_run'),
     },
     async (a) => {
       if (!pc.isPaired()) return err('No PC is paired with this hub. ' + userName + ' can pair one in Settings.');
+      const needs = [...new Set(a.needs ?? [])];
+      // Only keys the registry says the PC holds. An unknown name is refused, never guessed.
+      if (needs.length) {
+        const reg = (ctx.keyRegistry ?? loadKeyRegistry)();
+        const notOnPc = needs.filter((k) => !reg.get(k)?.where.includes('pc'));
+        if (notOnPc.length) return err('The PC does not hold: ' + notOnPc.join(', ') + '. Call where_to_run with these needs and follow its answer.');
+      }
       const allowed = pc.folders();
       if (!allowed.includes(a.folder)) {
         return err('"' + a.folder + '" is not a folder the PC allows. ' + (allowed.length ? 'Allowed: ' + allowed.join(', ') + '.' : 'The PC has not reported any folders.'));
@@ -1069,16 +1081,17 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
       const r = await ctx.confirmFleetChange({
         tool: 'run_on_pc',
         evenUnderBypass: true,
-        reason: 'Run Claude Code on your PC in "' + a.folder + '". Your PC asks you again before it starts.' +
+        reason: 'Run Claude Code on your PC in "' + a.folder + '"' + (needs.length ? ' using keys: ' + needs.join(', ') : '') +
+          '. Your PC asks you again before it starts. Only a browser signed in with your password can approve this.' +
           (offline ? ' Your PC looks offline: the job waits up to 30 minutes for it.' : ''),
-        input: { folder: a.folder, prompt: a.prompt },
+        input: needs.length ? { folder: a.folder, prompt: a.prompt, needs } : { folder: a.folder, prompt: a.prompt },
       });
       if (!r.allowed) {
         pc.cancel(jobId, 'Not approved');
         return err(r.message);
       }
       if (!pc.approve(jobId)) return err('The job was cancelled before it was queued: ' + (pc.get(jobId)?.result ?? 'unknown reason') + '.');
-      recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'pc-runner.job.approved', jobId, a.folder + ' (room ' + ctx.room.id + ')');
+      recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'pc-runner.job.approved', jobId, a.folder + ' (room ' + ctx.room.id + ')' + (needs.length ? ' needs ' + needs.join(',') : ''));
       ctx.setState('waiting');
       let j;
       try {
@@ -1100,5 +1113,27 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
           return err('The job was cancelled: ' + (out || 'no reason given') + '.' + (offline ? ' The PC was offline when you asked.' : ''));
       }
     },
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Key routing: where a job that needs the owner's keys runs. Deterministic (services/keyRegistry.ts); the
+// model asks, it does not choose.
+
+function needsArg() {
+  return z.array(z.string().regex(KEY_NAME_RE)).max(20);
+}
+
+export function whereToRunTool(ctx: ToolCtx): HubTool {
+  return hubTool(
+    'where_to_run',
+    "Before work that needs any of the owner's keys, ask where it must run. Pass the key names from the key registry. " +
+      'Answers place "vps" (do it here), "pc" (use run_on_pc with the same needs) or "blocked" (tell the owner what is missing). Never pick the place yourself.',
+    { needs: needsArg().describe('Key names from the key registry, e.g. ["firecrawl"]') },
+    async (a) => {
+      const r = routeByNeeds((ctx.keyRegistry ?? loadKeyRegistry)(), a.needs, !!ctx.pcRunner?.isPaired());
+      return text(JSON.stringify(r));
+    },
+    { readOnly: true },
   );
 }

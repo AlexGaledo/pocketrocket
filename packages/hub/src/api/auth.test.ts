@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import WebSocket from 'ws';
 import { createHub, type Hub } from '../hub.js';
 import { auditAction } from '../services/AuditLog.js';
@@ -181,11 +184,45 @@ describe('sessions', () => {
     expect((await req('POST', '/api/auth/login', { body: { password: next } })).status).toBe(200);
   });
 
-  it('lets the hub token reset a forgotten password', async () => {
+  it('the hub token alone cannot change an existing password (a bot holding it would sign itself in)', async () => {
     await setPassword();
-    const next = 'recovered long password';
-    expect((await req('POST', '/api/auth/password', { token: TOKEN, body: { password: next } })).status).toBe(200);
+    const next = 'stolen token long password';
+    expect((await req('POST', '/api/auth/password', { token: TOKEN, body: { password: next } })).status).toBe(403);
+    expect((await req('POST', '/api/auth/password', { token: TOKEN, body: { password: next, currentPassword: 'a wrong guess here' } })).status).toBe(403);
+    expect((await req('POST', '/api/auth/login', { body: { password: next } })).status).toBe(403);
+    // With the current password the token may change it, and it still sets the first one (see setPassword()).
+    expect((await req('POST', '/api/auth/password', { token: TOKEN, body: { password: next, currentPassword: PASSWORD } })).status).toBe(200);
     expect((await req('POST', '/api/auth/login', { body: { password: next } })).status).toBe(200);
+  });
+
+  it('POCKETROCKET_RESET_PASSWORD=1 at start clears a forgotten password and signs everyone out', async () => {
+    const auth = new AuthService(hub.repos.db);
+    const owner = hub.repos.owner().id;
+    await auth.setPassword(owner, PASSWORD);
+    const s = auth.createSession(owner);
+    expect(auth.clearPassword(owner)).toBe(true);
+    expect(auth.hasPassword(owner)).toBe(false);
+    expect(auth.authenticate(s.token)).toBeNull();
+    expect(auth.clearPassword(owner)).toBe(false);
+    // Wired at hub start: a second hub on the same database file finds the password gone.
+    const dbFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pr-reset-')), 'hub.db');
+    const first = createHub({ port: 0, dbFile, skipBootstrap: true, token: TOKEN });
+    await new AuthService(first.repos.db).setPassword(first.repos.owner().id, PASSWORD);
+    expect(new AuthService(first.repos.db).hasPassword(first.repos.owner().id)).toBe(true);
+    await first.shutdown();
+    const before = process.env.POCKETROCKET_RESET_PASSWORD;
+    process.env.POCKETROCKET_RESET_PASSWORD = '1';
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const second = createHub({ port: 0, dbFile, skipBootstrap: true, token: TOKEN });
+      expect(new AuthService(second.repos.db).hasPassword(second.repos.owner().id)).toBe(false);
+      expect(log.mock.calls.some((c) => String(c[0]).includes('POCKETROCKET_RESET_PASSWORD'))).toBe(true);
+      await second.shutdown();
+    } finally {
+      if (before === undefined) delete process.env.POCKETROCKET_RESET_PASSWORD;
+      else process.env.POCKETROCKET_RESET_PASSWORD = before;
+      log.mockRestore();
+    }
   });
 
   it('keeps a paired device out of sign-in management', async () => {
