@@ -237,8 +237,9 @@ async function api(cfg, token, method, p, body) {
   if (!tunnelVerified) throw new Error('tunnel not verified; nothing sent');
   const res = await fetch(`http://127.0.0.1:${cfg.localPort}/api/pc-runner${p}`, {
     method,
-    headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
+    // The hub refuses any POST that isn't JSON (CSRF guard in api/guard.ts), so a POST always sends a JSON body.
+    headers: { authorization: `Bearer ${token}`, ...(method === 'POST' || body ? { 'content-type': 'application/json' } : {}) },
+    body: method === 'POST' || body ? JSON.stringify(body ?? {}) : undefined,
     signal: AbortSignal.timeout(20_000),
   });
   if (res.status === 204) return null;
