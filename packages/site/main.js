@@ -1,18 +1,13 @@
 // PocketRocket site: no framework, no build step. Shared by index.html and 404.html, so every section
 // no-ops when its elements are missing. Jobs:
-// 1. theme toggle (system / light / dark), incl. the hero screenshot that follows it
+// 1. theme toggle (system / light / dark)
 // 2. fill in the download button with the latest Windows release
-// 3. shimmer placeholder while the hero screenshot downloads
-// 4. copy-to-clipboard buttons on every code block
-// 5. reveal sections as they scroll into view
-// 6. the mobile nav toggle
-// 7. scroll effects: nav hairline, progress bar, back-to-top button
-// 8. newsletter signup (Supabase insert)
-// 9. print prep: open every FAQ answer and use the light screenshot
-
-// Honoured in JS as well as CSS: with reduced motion we skip the observer entirely and just
-// show everything, rather than running a 0.01ms transition on every element.
-var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// 3. copy-to-clipboard buttons on every code block
+// 4. the mobile nav toggle
+// 5. the nav hairline once the page has scrolled
+// 6. newsletter signup (POST /api/subscribe)
+// 7. print prep: open every FAQ answer
+// The hero's chat illustration plays in pure CSS (styles.css, .room .b1 to .b5); nothing here drives it.
 
 // One polite live region for short status messages (copy results), created up front so screen readers
 // already track it when the first message lands.
@@ -35,16 +30,6 @@ function currentTheme() {
   return t === "light" || t === "dark" ? t : "system";
 }
 
-// <source media> only understands the system preference, so a forced theme rewrites it:
-// "all" always picks the dark shot, "not all" never does, and system puts the original query back.
-function setHeroMedia(mode) {
-  var source = document.querySelector(".hero-visual picture source");
-  if (!source) return;
-  if (!source.hasAttribute("data-media")) source.setAttribute("data-media", source.getAttribute("media") || "");
-  var media = mode === "dark" ? "all" : mode === "light" ? "not all" : source.getAttribute("data-media");
-  if (source.getAttribute("media") !== media) source.setAttribute("media", media);
-}
-
 (function themeToggle() {
   var root = document.documentElement;
   var btn = document.querySelector(".theme-toggle");
@@ -56,7 +41,6 @@ function setHeroMedia(mode) {
   var apply = function (mode) {
     if (mode === "system") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", mode);
-    setHeroMedia(mode);
     if (btn) {
       btn.setAttribute("aria-label", "Theme: " + NAME[mode] + ". Switch to " + NAME[NEXT[mode]] + ".");
       btn.setAttribute("title", "Theme: " + NAME[mode]);
@@ -77,8 +61,8 @@ function setHeroMedia(mode) {
     }
   });
 
-  // Another tab changed the theme: follow it. (System changes need nothing here: CSS media queries and
-  // the original <source media> already track them while the mode is "system".)
+  // Another tab changed the theme: follow it. (System changes need nothing here: CSS media queries
+  // already track them while the mode is "system".)
   window.addEventListener("storage", function (e) {
     if (e.key !== KEY) return;
     apply(e.newValue === "light" || e.newValue === "dark" ? e.newValue : "system");
@@ -108,18 +92,6 @@ function setHeroMedia(mode) {
     .catch(function () {
       // graceful fallback: button already points at the Releases page
     });
-})();
-
-(function heroLoading() {
-  var visual = document.querySelector(".hero-visual");
-  var img = visual && visual.querySelector("img");
-  // A cached (or already failed) image is complete by now, so it never flashes a placeholder.
-  if (!img || REDUCED || img.complete) return;
-
-  visual.classList.add("is-loading");
-  var done = function () { visual.classList.remove("is-loading"); };
-  img.addEventListener("load", done, { once: true });
-  img.addEventListener("error", done, { once: true });
 })();
 
 (function codeCopy() {
@@ -199,41 +171,6 @@ function setHeroMedia(mode) {
   });
 })();
 
-(function scrollReveal() {
-  // A group reveals its own children with a stagger; a plain [data-reveal] reveals itself.
-  var groups = document.querySelectorAll("[data-reveal-group]");
-  groups.forEach(function (group) {
-    Array.prototype.forEach.call(group.children, function (child, i) {
-      child.setAttribute("data-reveal", "");
-      child.style.setProperty("--i", String(i));
-    });
-  });
-
-  var targets = document.querySelectorAll("[data-reveal]");
-  if (!targets.length) return;
-
-  var show = function (el) { el.classList.add("is-in"); };
-
-  // No observer support, or the visitor asked for less motion: show everything now.
-  if (REDUCED || !("IntersectionObserver" in window)) {
-    targets.forEach(show);
-    return;
-  }
-
-  var io = new IntersectionObserver(
-    function (entries) {
-      entries.forEach(function (entry) {
-        if (!entry.isIntersecting) return;
-        show(entry.target);
-        io.unobserve(entry.target); // reveal once; re-animating on scroll-back is noise
-      });
-    },
-    // Fire slightly before the element is fully on screen, so it is settled by the time it is read.
-    { rootMargin: "0px 0px -12% 0px", threshold: 0.05 }
-  );
-  targets.forEach(function (el) { io.observe(el); });
-})();
-
 (function navMenu() {
   var nav = document.querySelector("header.site-nav");
   var toggle = document.querySelector(".nav-toggle");
@@ -265,43 +202,23 @@ function setHeroMedia(mode) {
   });
 })();
 
-(function scrollEffects() {
+(function navHairline() {
   var nav = document.querySelector("header.site-nav");
-  var bar = document.querySelector(".scroll-progress");
-  var toTop = document.querySelector(".to-top");
-  if (!nav && !bar && !toTop) return;
+  if (!nav) return;
 
   // Scroll events can fire many times per frame; do the work at most once per frame.
   var queued = false;
   var update = function () {
     queued = false;
-    var y = window.scrollY || window.pageYOffset || 0;
     // Hairline under the bar, only once there is content behind it.
-    if (nav) nav.classList.toggle("is-scrolled", y > 8);
-    if (bar) {
-      var max = document.documentElement.scrollHeight - window.innerHeight;
-      var progress = max > 0 ? Math.min(1, Math.max(0, y / max)) : 0;
-      bar.style.transform = "scaleX(" + progress + ")";
-    }
-    if (toTop) toTop.classList.toggle("is-visible", y > window.innerHeight);
+    nav.classList.toggle("is-scrolled", (window.scrollY || window.pageYOffset || 0) > 8);
   };
-  var request = function () {
+  update();
+  window.addEventListener("scroll", function () {
     if (queued) return;
     queued = true;
     window.requestAnimationFrame(update);
-  };
-
-  update();
-  window.addEventListener("scroll", request, { passive: true });
-  window.addEventListener("resize", request);
-
-  if (!toTop) return;
-  toTop.addEventListener("click", function () {
-    window.scrollTo({ top: 0, behavior: REDUCED ? "auto" : "smooth" });
-    // Move focus back to the top as well, so keyboard users continue from there, not from the footer.
-    var brand = document.querySelector(".brand");
-    if (brand) brand.focus({ preventScroll: true });
-  });
+  }, { passive: true });
 })();
 
 (function newsletter() {
@@ -409,11 +326,9 @@ function setHeroMedia(mode) {
         opened.push(d);
       }
     });
-    setHeroMedia("light");
   });
   window.addEventListener("afterprint", function () {
     opened.forEach(function (d) { d.open = false; });
     opened = [];
-    setHeroMedia(currentTheme());
   });
 })();

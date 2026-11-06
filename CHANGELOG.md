@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Website
+
+- The marketing site (`packages/site`) is redesigned in the app's current warm colours and Google Sans. The hero is a drawn group chat that ends on an approval card. The page covers how rooms, bots and approvals fit together, a feature list that marks what is only in the next release, a safety section that states each guard's limits, local and server setup, and a FAQ. The newsletter form still posts to `/api/subscribe`.
+- Fonts are self-hosted, and the site now sends a Content-Security-Policy that allows only its own files, the GitHub releases API and `/api/subscribe`. A new test fails if the inline theme script and the policy's hash drift apart.
+
 ### No keys in the repo
 
 - The hub no longer ships a built-in Supabase project. Accounts are on only when `POCKETROCKET_SUPABASE_URL` and `POCKETROCKET_SUPABASE_KEY` are both set; otherwise the app runs signed out with accounts off. On a server, set them in a systemd drop-in (`docs/SERVER.md`, "Accounts").
