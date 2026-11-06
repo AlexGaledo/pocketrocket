@@ -25,6 +25,7 @@ if [ -r /etc/default/pocketrocket-backup ]; then . /etc/default/pocketrocket-bac
 ROOT="${POCKETROCKET_ROOT:-/home/pocketrocket/pocketrocket}"
 OUT="${POCKETROCKET_BACKUPS:-/var/backups/pocketrocket}"
 CLAUDE_HOME="${POCKETROCKET_CLAUDE_HOME:-/home/pocketrocket/.claude}"
+SERVICE_USER="${POCKETROCKET_USER:-pocketrocket}"
 DB="$ROOT/data/pocketrocket.db"
 # Relative to $ROOT. Caches rebuild themselves; logins, cookies and files are what matter.
 EXCLUDES=(
@@ -67,9 +68,21 @@ fi
 # Extra sources besides data/, each given as <dir to change into> <path inside it>.
 EXTRA=(-C "$SNAP" db-snapshot)
 EXTRA_PATHS=("$SNAP/db-snapshot")
-if [ -d "$CLAUDE_HOME/projects" ]; then
+# This runs as root, but the service user (and so every bot) can write under its own home. Only follow the
+# transcripts folder when neither it nor its parent is a symlink and both belong to the service user; otherwise a
+# bot could point it at /root or /etc and have root archive that.
+claude_ok() {
+  local d
+  for d in "$CLAUDE_HOME" "$CLAUDE_HOME/projects"; do
+    [ -d "$d" ] && [ ! -L "$d" ] || return 1
+    [ "$(stat -c %U "$d")" = "$SERVICE_USER" ] || return 1
+  done
+}
+if claude_ok; then
   EXTRA+=(-C "$(dirname "$CLAUDE_HOME")" "$(basename "$CLAUDE_HOME")/projects")
   EXTRA_PATHS+=("$CLAUDE_HOME/projects")
+elif [ -e "$CLAUDE_HOME/projects" ] || [ -L "$CLAUDE_HOME" ]; then
+  echo "backup: skipping $CLAUDE_HOME/projects (a symlink, or not owned by $SERVICE_USER)" >&2
 fi
 
 if [ -n "${RESTIC_REPOSITORY:-}" ] && [ -n "${RESTIC_PASSWORD_FILE:-}" ] && command -v restic >/dev/null 2>&1; then
