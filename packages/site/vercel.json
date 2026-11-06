@@ -5,6 +5,9 @@
   "buildCommand": null,
   "installCommand": null,
   "outputDirectory": ".",
+  "functions": {
+    "api/subscribe.js": { "maxDuration": 10 }
+  },
   "headers": [
     {
       "source": "/(.*)",

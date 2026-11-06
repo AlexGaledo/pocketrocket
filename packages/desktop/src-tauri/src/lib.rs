@@ -478,6 +478,19 @@ fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, Strin
     cmd.env("PORT", cfg.port.to_string());
     cmd.env("POCKETROCKET_TOKEN", token);
     cmd.env("NODE_NO_WARNINGS", "1");
+    // The optional account project is never in source: a release build bakes it in from CI secrets.
+    // A value already in the user's environment wins; with neither, the hub runs with accounts off.
+    for (name, baked) in [
+        ("POCKETROCKET_SUPABASE_URL", option_env!("POCKETROCKET_SUPABASE_URL")),
+        ("POCKETROCKET_SUPABASE_KEY", option_env!("POCKETROCKET_SUPABASE_KEY")),
+    ] {
+        let user_set = std::env::var_os(name).is_some_and(|v| !v.is_empty());
+        if let Some(v) = baked.map(str::trim).filter(|v| !v.is_empty()) {
+            if !user_set {
+                cmd.env(name, v);
+            }
+        }
+    }
     cmd.stdin(Stdio::null()).stdout(Stdio::from(log)).stderr(Stdio::from(log_err));
     no_window(&mut cmd);
     own_process_group(&mut cmd);

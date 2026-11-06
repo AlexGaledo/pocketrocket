@@ -95,6 +95,10 @@ jobs:
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional account project, baked into the desktop binary (option_env! in lib.rs). Unset secrets
+          # still build: the app then runs with accounts off. Build steps only, so `pnpm test` never sees them.
+          POCKETROCKET_SUPABASE_URL: ${{ secrets.POCKETROCKET_SUPABASE_URL }}
+          POCKETROCKET_SUPABASE_KEY: ${{ secrets.POCKETROCKET_SUPABASE_KEY }}
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
@@ -115,6 +119,9 @@ jobs:
 
       - name: Build only (no publish)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        env:
+          POCKETROCKET_SUPABASE_URL: ${{ secrets.POCKETROCKET_SUPABASE_URL }}
+          POCKETROCKET_SUPABASE_KEY: ${{ secrets.POCKETROCKET_SUPABASE_KEY }}
         run: pnpm --filter @pocketrocket/desktop build:app
 
       - name: Upload installer as workflow artifact
@@ -190,6 +197,8 @@ jobs:
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          POCKETROCKET_SUPABASE_URL: ${{ secrets.POCKETROCKET_SUPABASE_URL }}
+          POCKETROCKET_SUPABASE_KEY: ${{ secrets.POCKETROCKET_SUPABASE_KEY }}
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
@@ -209,6 +218,9 @@ jobs:
 
       - name: Build only (no publish)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        env:
+          POCKETROCKET_SUPABASE_URL: ${{ secrets.POCKETROCKET_SUPABASE_URL }}
+          POCKETROCKET_SUPABASE_KEY: ${{ secrets.POCKETROCKET_SUPABASE_KEY }}
         working-directory: packages/desktop
         run: cargo tauri build --bundles ${{ matrix.bundles }}
 
