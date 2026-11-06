@@ -19,6 +19,12 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - A chat shows grey placeholder messages while it loads, and the screen panel's empty message is centred.
 - Deleting a bot, chat, skill, schedule, trigger or recording, and resetting a chat's context, now ask in an in-app dialog instead of the browser's pop-up.
 
+### Room file folders
+
+- Every chat has a file folder. A project's chat uses the project folder, any other group chat gets its own folder under `data/rooms/`, and a direct chat uses the bot's `files/` folder.
+- A bot can now open only the folder of the chat it is replying in. A bot asked about a project from a direct chat or another room can no longer open or search that project's folder.
+- New owner-only Files API (`/api/rooms/:id/files`) to list, preview, download, upload (up to 25 MB), rename, move, delete and make folders. Paired phones cannot use it.
+
 ### Every group chat has a coordinator
 
 - A group chat with two or more bots always has a coordinator, so a message with no @mention always reaches someone. The hub prefers a bot whose handle or title reads as a lead (`wika-lead`, `chief`), else the first bot. An older chat with none gets one on its next unaddressed message, with a line in the chat saying who.

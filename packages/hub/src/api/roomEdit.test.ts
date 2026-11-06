@@ -120,7 +120,9 @@ describe('PATCH /api/rooms/:id', () => {
     expect(made.json.coordinatorBotId).toBe(lead.id);
     const room = group([a.id, b.id], a.id);
     expect([a.id, b.id]).toContain((await req('PATCH', '/api/rooms/' + room.id, { coordinatorBotId: null })).json.coordinatorBotId);
-    const swapped = await req('PATCH', '/api/rooms/' + room.id, { memberIds: [b.id, lead.id] });
+    // The coordinator leaving makes the hub pick again, and it prefers the lead.
+    const other = group([a.id, b.id], a.id);
+    const swapped = await req('PATCH', '/api/rooms/' + other.id, { memberIds: [b.id, lead.id] });
     expect(swapped.json.coordinatorBotId).toBe(lead.id);
   });
 
