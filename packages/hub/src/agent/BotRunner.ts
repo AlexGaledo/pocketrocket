@@ -14,6 +14,7 @@ import { EMPTY_USAGE, type ProviderInit, type TurnContext, type TurnOutcome, typ
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
+import type { PcRunner } from '../services/PcRunner.js';
 import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, canUpgrade, type RouteChoice, type RouteRequest } from './ModelRouter.js';
@@ -114,6 +115,8 @@ export class BotRunner {
   roomFiles?: RoomFiles;
   /** P2: computer control (take over / hand back / pause). Set by createHub; absent in most unit tests. */
   control?: ComputerControlService;
+  /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
+  pcRunner?: PcRunner;
 
   constructor(
     private repos: Repos,
@@ -279,6 +282,8 @@ export class BotRunner {
         }
       } : undefined,
       routinesChanged: this.hooks.routinesChanged,
+      pcRunner: this.pcRunner,
+      signal: ac.signal,
     });
 
     if (desktopOn && computer) {

@@ -112,10 +112,12 @@ const GATED_HUB_TOOLS = new Set([
   'propose_routing_change',
   // P4: integration writes; their handlers call askIntegrationWrite.
   ...INTEGRATION_WRITE_TOOLS,
+  // A Claude Code job on the owner's PC; its handler calls askFleetChange with evenUnderBypass.
+  'run_on_pc',
 ]);
 
 /** Answered once per card: no "for this session", and no rule can pre-approve it. */
-const ASK_EVERY_TIME = new Set(['propose_routing_change']);
+const ASK_EVERY_TIME = new Set(['propose_routing_change', 'run_on_pc']);
 
 /** The largest outside MCP call input (as JSON) a card shows; anything bigger is refused, never truncated. */
 const OUTSIDE_INPUT_CAP = 8000;
@@ -267,6 +269,8 @@ export class PermissionBroker {
    */
   matchPolicy(botId: string, tool: string, subject: string, danger = false): 'allow' | 'deny' | null {
     if (INTEGRATION_WRITES.has(tool)) return null;
+    // Asked on every call: a deny rule still refuses, but no allow rule or "always" pre-approves it.
+    if (ASK_EVERY_TIME.has(tool)) danger = true;
     const store = this.opts.store;
     if (!store) return !danger && this.alwaysAllowed.has(botId + ':' + tool) ? 'allow' : null;
     const rules = store.listPolicies(botId, 'all').filter((p) => p.tool === tool && patternMatches(p.pattern, subject));

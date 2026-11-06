@@ -73,6 +73,9 @@ import { MEDIA_SWEEP_MS, MediaStore, referencedMedia } from './services/MediaSto
 import { createMediaApi } from './api/media.js';
 import { createFilesApi } from './api/files.js';
 import { RoomFiles } from './rooms/roomFiles.js';
+import { PcRunner, type PcRunnerOptions } from './services/PcRunner.js';
+import { createPcRunnerApi } from './api/pcRunner.js';
+import { runnerMayAccess } from './api/guard.js';
 
 export interface HubOptions {
   port?: number;
@@ -114,6 +117,8 @@ export interface HubOptions {
   training?: Partial<Pick<TrainingDeps, 'run' | 'exeExists' | 'now' | 'timezone'>>;
   /** Uploaded pictures; tests hand in a temp folder. Defaults to data/media. */
   mediaDir?: string;
+  /** PC runner overrides (tests: a temp pc-runner.json, short timeouts, a fixed clock). */
+  pcRunner?: Partial<Omit<PcRunnerOptions, 'db'>>;
 }
 
 export interface Hub {
@@ -143,6 +148,8 @@ export interface Hub {
   recorder: Recorder;
   distiller: SkillDistiller;
   media: MediaStore;
+  /** The owner's PC as a Claude Code job runner. */
+  pcRunner: PcRunner;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
 }
@@ -343,6 +350,10 @@ export function createHub(opts: HubOptions = {}): Hub {
     return folder ? [folder.dir] : [];
   });
   const filesApi = createFilesApi({ repos, roomFiles });
+  // The owner's PC: run_on_pc jobs, owner-approved on a card, picked up by the helper on the PC.
+  const pcRunner = new PcRunner({ db, file: path.join(DATA_DIR, 'pc-runner.json'), ...opts.pcRunner });
+  runner.pcRunner = pcRunner;
+  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db });
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
   const projectsApi = createProjectsApi({ projects, repos });
@@ -463,8 +474,9 @@ export function createHub(opts: HubOptions = {}): Hub {
       }
       let deviceId: string | null = null;
       const deviceToken = (t: string) => (deviceId = devices.authenticate(t)) !== null;
+      const runnerToken = (t: string) => pcRunner.authenticate(t);
       const session = sessionOf(req);
-      if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken, session: () => !!session })) {
+      if (!checkToken(req, url, token, { isPublicAsset, screenAuth, deviceToken, runnerToken, session: () => !!session })) {
         limiter.fail(ip);
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Missing or invalid hub token' }));
@@ -481,6 +493,15 @@ export function createHub(opts: HubOptions = {}): Hub {
         if (!deviceMayAccess(req.method ?? 'GET', url.pathname)) {
           res.writeHead(403, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'Not available from a paired device; use the desktop app' }));
+          return;
+        }
+      } else if (runnerToken(bearerToken(req) ?? '')) {
+        // The PC runner reaches its own routes and nothing else (403, like a device).
+        setPrincipal(req, { kind: 'runner' });
+        limiter.succeed(ip);
+        if (!runnerMayAccess(req.method ?? 'GET', url.pathname)) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Not available to the PC runner' }));
           return;
         }
       }
@@ -572,6 +593,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await contextApi(req, res)) return;
       if (await projectsApi(req, res)) return;
       if (await filesApi(req, res)) return;
+      if (await pcRunnerApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
       if (await teachApi(req, res)) return;
       if (await rest(req, res)) return;
@@ -659,7 +681,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   });
 
   return {
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner,
     control, broker, approvals: approvalStore,
     skills, recorder, distiller, media,
     listen: () =>

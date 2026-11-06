@@ -149,6 +149,11 @@ export interface TokenOptions {
   deviceToken?: (supplied: string) => boolean;
   /** True when the request carries a live browser session cookie. */
   session?: (req: IncomingMessage) => boolean;
+  /**
+   * PC runner: true when `supplied` is the paired runner's token. Only ever offered the Authorization header,
+   * never `?token=`, and left out of the websocket upgrade so the runner token cannot open /ws or a Screen.
+   */
+  runnerToken?: (supplied: string) => boolean;
 }
 
 /**
@@ -196,6 +201,9 @@ export function checkToken(req: IncomingMessage, url: URL, token: string | null,
   if (opts.session?.(req)) return true;
   const supplied = bearerToken(req) ?? url.searchParams.get('token');
   if (tokenMatches(supplied, token)) return true;
+  // The PC runner, header only. What it may then reach is runnerMayAccess: its own four routes.
+  const bearer = bearerToken(req);
+  if (bearer !== null && (opts.runnerToken?.(bearer) ?? false)) return true;
   // P9: or a paired, non-revoked device. What it may then reach is narrower: see deviceMayAccess.
   return supplied !== null && (opts.deviceToken?.(supplied) ?? false);
 }
@@ -273,7 +281,9 @@ export const DEVICE_PAIR_PATH = '/api/devices/pair';
 export type Principal =
   // Full access: the hub token, or a browser signed in with the owner's password (sessionId set).
   | { kind: 'hub'; sessionId?: string; userId?: string }
-  | { kind: 'device'; deviceId: string };
+  | { kind: 'device'; deviceId: string }
+  // The helper on the owner's PC that runs approved Claude Code jobs. Reaches runnerMayAccess and nothing else.
+  | { kind: 'runner' };
 
 const principals = new WeakMap<IncomingMessage, Principal>();
 /** Set once per request by hub.ts, right after the token check. */
@@ -287,7 +297,7 @@ export function principalOf(req: IncomingMessage): Principal | null {
 export function screenOwnerOf(req: IncomingMessage): string | null {
   const p = principals.get(req);
   if (p?.kind === 'device') return p.deviceId;
-  return p?.sessionId ? 'session:' + p.sessionId : null;
+  return p?.kind === 'hub' && p.sessionId ? 'session:' + p.sessionId : null;
 }
 /** The device id behind a request, or null for the hub token / no principal. */
 export function deviceIdOf(req: IncomingMessage): string | null {
@@ -383,4 +393,21 @@ export function deviceMayAccess(method: string, pathname: string): boolean {
   const p = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   if (!p.startsWith('/api/')) return method === 'GET' && !p.startsWith('/oauth/') && p !== '/mcp' && !p.startsWith('/mcp/');
   return DEVICE_ALLOW.some(([m, re]) => m === method && re.test(p));
+}
+
+// ---------------------------------------------------------------------------------------------------
+// PC runner. Its token is an allowlist of exactly the routes the helper on the PC polls, and those routes
+// answer nobody else (api/pcRunner.ts checks the principal). The hub token cannot pose as the runner and the
+// runner token cannot read or change anything else: no bots, rooms, settings, approvals, /ws or Screen.
+
+const RUNNER_ALLOW: readonly [method: string, path: RegExp][] = [
+  ['POST', /^\/api\/pc-runner\/heartbeat$/],
+  ['GET', /^\/api\/pc-runner\/jobs\/next$/],
+  ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(start|result)$/],
+];
+
+/** True when the PC runner's token may make this request. */
+export function runnerMayAccess(method: string, pathname: string): boolean {
+  const p = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  return RUNNER_ALLOW.some(([m, re]) => m === method && re.test(p));
 }
