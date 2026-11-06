@@ -56,6 +56,8 @@ export function actorOf(req: IncomingMessage): AuditActor | null {
   if (!p) return null;
   const ip = clientIp(req);
   if (p.kind === 'device') return { kind: 'device', id: p.deviceId, ip };
+  // The PC runner's own requests are logged by api/pcRunner.ts under the bot whose job it is.
+  if (p.kind === 'runner') return null;
   return p.sessionId ? { kind: 'session', id: p.userId ?? null, ip } : { kind: 'hub-token', id: p.userId ?? null, ip };
 }
 
@@ -75,6 +77,8 @@ const NOT_AUDITED = [
   /^\/api\/settings$/,
   // The files API writes its own rows, with the path that changed.
   /^\/api\/rooms\/[^/]+\/files(\/|$)/,
+  // The PC runner polls every few seconds; api/pcRunner.ts writes the rows that matter (mint, off, approve, result).
+  /^\/api\/pc-runner(\/|$)/,
 ];
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);

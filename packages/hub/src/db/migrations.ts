@@ -442,3 +442,21 @@ registerMigrations([130, 139], [
 registerMigrations([150, 159], [
   { version: 150, name: 'auto_memory.saved_at', up: (db) => addColumnIfMissing(db, 'auto_memory', 'saved_at', 'INTEGER') },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+// PC runner: Claude Code jobs a bot asks the owner's PC to run (services/PcRunner.ts). Only `queued` rows
+// (the owner approved the card) are ever served to the PC.
+registerMigrations([160, 169], [
+  {
+    version: 160,
+    name: 'pc_jobs',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS pc_jobs (' +
+          'id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, room_id TEXT NOT NULL, folder TEXT NOT NULL, prompt TEXT NOT NULL, ' +
+          "status TEXT NOT NULL CHECK(status IN ('pending_approval','queued','claimed','running','done','failed','refused','expired','cancelled')), " +
+          'result TEXT, cost_usd REAL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);' +
+          'CREATE INDEX IF NOT EXISTS idx_pc_jobs_status ON pc_jobs(status, updated_at)',
+      ),
+  },
+]);

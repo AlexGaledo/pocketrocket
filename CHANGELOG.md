@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### PC runner (hub)
+
+- Bots can ask your own PC to run a Claude Code job with the new `run_on_pc` tool, in a folder the PC allows. You approve every job on a card, even with approvals bypassed (no "always" and no approval rule covers it), and the PC asks you again before it starts. One job runs at a time, at most five wait, a job nobody picks up within 30 minutes expires, and the bot gets back at most 20 KB of redacted output.
+- The PC's helper signs in with its own token from `POST /api/pc-runner/token`, shown once. The hub keeps only its sha256 in `pc-runner.json`, and the token reaches only the runner's own routes. `DELETE /api/pc-runner` turns it off and cancels every open job.
+
 ### Memory fixes
 
 - A bot whose chat context was reset, or that joins a busy chat, is shown at most the last 60 unread messages (or 30 KB). A line says how many earlier ones were left out, and the bot can read them with `read_room`.
