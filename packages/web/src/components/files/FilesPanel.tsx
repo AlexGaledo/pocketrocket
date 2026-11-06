@@ -2,13 +2,17 @@
 // or a direct chat's bot's files/ folder). Browse, preview, download, upload, new folder, rename, delete.
 // The hub's api/files.ts is the authority on paths and names; this checks names only to say what is wrong sooner.
 import { memo, startTransition, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, ChevronRight, Download, Eye, FolderOpen, FolderPlus, LayoutGrid, List, Lock, MoreHorizontal, Pencil, Trash2, Upload, X } from 'lucide-react';
-import { MAX_FILE_LIST_ENTRIES, MAX_FILE_UPLOAD_BYTES, isValidFileName, type FileEntry, type FileListing, type Room } from '@pocketrocket/shared';
+import { ArrowDown, ArrowUp, ChevronRight, Download, Eye, FolderOpen, FolderPlus, FolderUp, LayoutGrid, List, Lock, MoreHorizontal, Pencil, Trash2, Upload, X } from 'lucide-react';
+import {
+  FOLDER_UPLOAD_CONFIRM_FILES, MAX_FILE_LIST_ENTRIES, MAX_FILE_UPLOAD_BYTES, MAX_FOLDER_UPLOAD_BYTES, MAX_FOLDER_UPLOAD_FILES, isValidFileName,
+  type FileEntry, type FileListing, type Room,
+} from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById, filesRevKey } from '../../store';
 import { api, ApiError } from '../../lib/api';
-import { Button, Dialog, Input, Menu, MenuContent, MenuItem, MenuSeparator, cn, confirmAction } from '../ui';
+import { Button, Dialog, DialogDescription, DialogShell, DialogTitle, Input, Menu, MenuContent, MenuItem, MenuSeparator, cn, confirmAction } from '../ui';
 import { RowIcon, TileIcon } from './FileIcon';
 import { FilePreview } from './FilePreview';
+import { canPickFolder, emptyDirs, gatherFromDrop, gatherFromInput, splitRel, tooBig, type Gathered } from './folderUpload';
 import { KIND_LABEL, baseName, fileKind, fmtBytes, fmtModified, fmtModifiedFull, joinPath, parentPath, resolveFileLink } from './fileKinds';
 
 type View = 'grid' | 'list';
@@ -178,11 +182,23 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
   const shownMenu = menu ?? lastMenu.current;
   const afterMenu = useRef<(() => void) | null>(null);
   const [naming, setNaming] = useState<Naming | null>(null);
-  const [uploading, setUploading] = useState<{ i: number; n: number; name: string } | null>(null);
+  const [uploading, setUploading] = useState<{ i: number; n: number; name: string; cancellable?: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const cancelled = useRef(false);
+  const [report, setReport] = useState<{ where: string; skipped: Skipped[]; sent: number } | null>(null);
+  const [asking, setAsking] = useState<{ clash: string[]; where: string; answer: (c: ExistingChoice) => void } | null>(null);
+  const askExisting = useCallback((clash: string[], where: string) => new Promise<ExistingChoice>((resolve) => {
+    setAsking({ clash, where, answer: (c) => { setAsking(null); resolve(c); } });
+  }), []);
 
   const listRef = useRef<HTMLUListElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
+  // React has no prop for it; set once the input is there.
+  const folderInputRef = useCallback((el: HTMLInputElement | null) => {
+    folderInput.current = el;
+    if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', ''); }
+  }, []);
   /** What to focus once the next listing is in: a name, the first entry, or nothing (a background refresh). */
   const focusNext = useRef<string | null>('\u0000first');
   /** A file to preview (or an absolute path to place) once its folder has loaded, from a link. */
@@ -379,6 +395,96 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
     reload();
   }, [roomId, path, toast, reload]);
 
+  /**
+   * A folder (or a drop with folders in it): one question up front for anything already there, then each file in
+   * turn with its folders made on the way, then the empty folders. Cancel stops before the next file.
+   */
+  const uploadTree = useCallback(async (gather: () => Gathered | Promise<Gathered>) => {
+    if (busy.current) return toast('Wait for the upload in progress to finish.');
+    busy.current = true;
+    cancelled.current = false;
+    const into = path;
+    const where = into ? baseName(into) : "this chat's folder";
+    const skipped: Skipped[] = [];
+    let sent = 0;
+    let made = 0;
+    let top: string | null = null;
+    try {
+      setUploading({ i: 0, n: 0, name: 'Reading the folder', cancellable: true });
+      let g: Gathered;
+      try { g = await gather(); } catch (err) { return toast("Couldn't read that folder: " + message(err), true); }
+      if (cancelled.current) return;
+      if (g.secrets.length) {
+        toast('Left out ' + g.secrets.length + (g.secrets.length === 1 ? ' file that looks' : ' files that look') + ' like keys or secrets: ' + listSome(g.secrets.map((s) => baseName(s)), 6) + '. Upload one on its own if the bots need it.', false, { warn: true, sticky: true, key: 'files:secrets-left-out' });
+      }
+      const empty = emptyDirs(g);
+      for (const b of g.badNames) skipped.push({ rel: b, why: "the hub can't store a name like that" });
+      if (g.overCap) return toast('That folder has more than ' + MAX_FOLDER_UPLOAD_FILES.toLocaleString() + " files to upload, so nothing was sent. Zip it, or upload the parts you need.", true);
+      let fits = g.files.filter((f) => !tooBig(f));
+      for (const f of g.files) if (tooBig(f)) skipped.push({ rel: f.rel, why: 'over 25 MB' });
+      const bytes = fits.reduce((s, f) => s + f.file.size, 0);
+      if (bytes > MAX_FOLDER_UPLOAD_BYTES) return toast('That folder is ' + fmtBytes(bytes) + ', over the 500 MB a folder upload can carry, so nothing was sent.', true);
+      if (!fits.length && !empty.length) {
+        if (skipped.length) setReport({ where, skipped, sent: 0 });
+        else toast(g.secrets.length || g.junk ? 'Nothing left to upload once secrets and clutter were left out.' : 'Nothing to upload: the folder is empty.');
+        return;
+      }
+      top = [...fits.map((f) => f.rel), ...empty][0].split('/')[0];
+      if (fits.length > FOLDER_UPLOAD_CONFIRM_FILES) {
+        const ok = await confirmAction({ title: 'Upload ' + fits.length.toLocaleString() + ' files?', body: fmtBytes(bytes) + ' into ' + where + '. You can cancel part way; what is sent by then stays.', confirmLabel: 'Upload' });
+        if (!ok) return;
+      }
+
+      setUploading({ i: 0, n: fits.length, name: 'Checking what is already there', cancellable: true });
+      const clash = await existingIn(roomId, into, fits.map((f) => f.rel), () => cancelled.current);
+      if (cancelled.current) return;
+      let replace = false;
+      let kept = 0;
+      if (clash.length) {
+        const choice = await askExisting(clash, where);
+        if (choice === 'cancel') return;
+        replace = choice === 'replace';
+        if (!replace) {
+          const there = new Set(clash);
+          fits = fits.filter((f) => !there.has(f.rel));
+          kept = clash.length;
+        }
+      }
+
+      for (let i = 0; i < fits.length; i++) {
+        if (cancelled.current) break;
+        const f = fits[i];
+        setUploading({ i: i + 1, n: fits.length, name: f.rel, cancellable: true });
+        const [dir, name] = splitRel(f.rel);
+        try {
+          await api.files.uploadFile(roomId, joinPath(into, dir), f.file, replace, true, name);
+          sent++;
+        } catch (err) {
+          // Already there though the check missed it (another case, a race): what "skip" would have done.
+          skipped.push({ rel: f.rel, why: statusOf(err) === 409 ? 'already there' : message(err) });
+        }
+      }
+      for (const d of empty) {
+        if (cancelled.current) break;
+        const [parent, name] = splitRel(d);
+        try { await api.files.mkdir(roomId, joinPath(into, parent), name, true); made++; } catch (err) { skipped.push({ rel: d + '/', why: message(err) }); }
+      }
+      const what = sent + ' of ' + fits.length + (fits.length === 1 ? ' file' : ' files');
+      if (cancelled.current) toast('Upload cancelled. ' + what + ' went up before it stopped.');
+      else if (sent || made) toast('Uploaded ' + (sent ? sent + (sent === 1 ? ' file' : ' files') : made + (made === 1 ? ' empty folder' : ' empty folders')) + ' to ' + where + (kept ? ', kept ' + kept + ' already there' : '') + '.');
+      else if (kept) toast('Nothing uploaded: all ' + kept + ' files were already there.');
+      if (skipped.length) setReport({ where, skipped, sent });
+    } finally {
+      busy.current = false;
+      cancelled.current = false;
+      setUploading(null);
+      if (sent || made) {
+        focusNext.current = top;
+        reload();
+      }
+    }
+  }, [roomId, path, toast, reload, askExisting]);
+
   // ---- keyboard ----
   const cols = () => {
     const items = listRef.current?.children;
@@ -443,10 +549,12 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
     e.preventDefault();
     setDragging(false);
     if (shownError) return;
-    const items = Array.from(e.dataTransfer.items);
-    const folders = new Set(items.map((it) => it.webkitGetAsEntry?.()).filter((en) => en?.isDirectory).map((en) => en!.name));
-    if (folders.size) toast("Folders can't be uploaded yet. Drop the files inside them instead.", true);
-    void upload(Array.from(e.dataTransfer.files).filter((f) => !folders.has(f.name)));
+    // The entries have to be taken now: the drop's data is gone once this handler returns.
+    const entries = Array.from(e.dataTransfer.items).filter((it) => it.kind === 'file').map((it) => it.webkitGetAsEntry?.() ?? null);
+    if (entries.some((en) => en?.isDirectory)) {
+      const all = entries.filter((en): en is FileSystemEntry => !!en);
+      void uploadTree(() => gatherFromDrop(all));
+    } else void upload(Array.from(e.dataTransfer.files));
   };
 
   // ---- view ----
@@ -482,10 +590,18 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
         <Button size="sm" variant="ghost" className="shrink-0 text-fg" title="New folder" aria-label="New folder" disabled={!!shownError} onClick={() => setNaming({ mode: 'mkdir' })}>
           <FolderPlus size={15} aria-hidden /><span className="@max-[440px]:sr-only">New folder</span>
         </Button>
+        {canPickFolder && (
+          <Button size="sm" variant="ghost" className="shrink-0 text-fg" title={'Upload a folder to ' + here + ' (or drop one here)'} aria-label="Upload folder" disabled={!!shownError || !!uploading} onClick={() => folderInput.current?.click()}>
+            <FolderUp size={15} aria-hidden /><span className="@max-[520px]:sr-only">Upload folder</span>
+          </Button>
+        )}
         <Button size="sm" className="shrink-0" title={'Upload to ' + here + ' (or drop files here)'} aria-label="Upload files" disabled={!!shownError || !!uploading} onClick={() => fileInput.current?.click()}>
           <Upload size={15} aria-hidden /><span className="@max-[440px]:sr-only">Upload</span>
         </Button>
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { void upload(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
+        {canPickFolder && (
+          <input ref={folderInputRef} type="file" multiple hidden onChange={(e) => { const picked = Array.from(e.target.files ?? []); e.target.value = ''; void uploadTree(() => gatherFromInput(picked)); }} />
+        )}
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -505,9 +621,12 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
           <Notice
             icon={<FolderOpen size={28} aria-hidden />}
             title={path ? 'This folder is empty' : 'No files yet'}
-            action={<Button data-empty-action onClick={() => fileInput.current?.click()}><Upload size={14} aria-hidden />Upload files</Button>}
+            action={<>
+              <Button data-empty-action onClick={() => fileInput.current?.click()}><Upload size={14} aria-hidden />Upload files</Button>
+              {canPickFolder && <Button onClick={() => folderInput.current?.click()}><FolderUp size={14} aria-hidden />Upload folder</Button>}
+            </>}
           >
-            {path ? 'Drop files here, or upload them.' : "Files the bots in this chat make show up here. Drop files here to share them with the bots."}
+            {path ? 'Drop files or folders here, or upload them.' : "Files the bots in this chat make show up here. Drop files or folders here to share them with the bots."}
           </Notice>
         ) : (
           <>
@@ -530,10 +649,21 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
       </div>
 
       {(listing || uploading) && (
-        <div role="status" aria-live="polite" className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-1.5 text-hint text-muted">
-          {uploading
-            ? <span className="min-w-0 truncate">Uploading {uploading.n > 1 ? uploading.i + ' of ' + uploading.n + ': ' : ''}{uploading.name}…</span>
-            : listing && <span className="min-w-0 truncate">{countLabel(listing)}</span>}
+        <div className="relative flex shrink-0 items-center gap-2 border-t border-line px-4 py-1.5 text-hint text-muted">
+          {/* Still, no transition: it moves one file at a time. */}
+          {uploading?.cancellable && uploading.n > 0 && (
+            <span aria-hidden className="absolute left-0 top-[-1px] h-0.5 bg-accent" style={{ width: (uploading.i / uploading.n) * 100 + '%' }} />
+          )}
+          <span role="status" aria-live="polite" className="min-w-0 flex-1 truncate">
+            {uploading
+              ? uploading.n === 0 ? uploading.name + '…' : 'Uploading ' + (uploading.n > 1 ? uploading.i + ' of ' + uploading.n + ': ' : '') + uploading.name + '…'
+              : listing && countLabel(listing)}
+          </span>
+          {uploading?.cancellable && (
+            <Button size="sm" variant="ghost" className="-my-1 -mr-2 h-6 shrink-0 text-fg" onClick={() => { cancelled.current = true; setUploading((u) => u && { ...u, name: 'Stopping after this file', n: 0, cancellable: false }); }}>
+              Cancel
+            </Button>
+          )}
         </div>
       )}
 
@@ -593,7 +723,97 @@ function Browser({ room, inline }: { room: Room; inline: boolean }) {
           onDownload={download}
         />
       )}
+      {asking && <ExistingDialog clash={asking.clash} where={asking.where} onAnswer={asking.answer} />}
+      {report && <SkippedDialog {...report} onClose={() => setReport(null)} />}
     </div>
+  );
+}
+
+type ExistingChoice = 'replace' | 'skip' | 'cancel';
+interface Skipped { rel: string; why: string }
+
+/** "a, b, c and 4 more" */
+function listSome(names: string[], n: number): string {
+  return names.length <= n ? names.join(', ') : names.slice(0, n).join(', ') + ' and ' + (names.length - n) + ' more';
+}
+
+/**
+ * Which of `rels` (relative to `into`) are already files there. Walks only the folders the upload shares with what
+ * is on the hub: a folder that isn't there yet has nothing in it to clash with. A listing that fails counts as no
+ * clash; the upload's own 409 is the backstop.
+ */
+async function existingIn(roomId: string, into: string, rels: string[], stop: () => boolean): Promise<string[]> {
+  const tree = new Map<string, { files: Set<string>; dirs: Set<string> }>();
+  const node = (d: string) => {
+    let n = tree.get(d);
+    if (!n) tree.set(d, (n = { files: new Set(), dirs: new Set() }));
+    return n;
+  };
+  for (const rel of rels) {
+    const parts = rel.split('/');
+    for (let i = 0; i < parts.length - 1; i++) node(parts.slice(0, i).join('/')).dirs.add(parts[i]);
+    node(parts.slice(0, -1).join('/')).files.add(parts[parts.length - 1]);
+  }
+  const out: string[] = [];
+  const queue = [''];
+  while (queue.length && !stop()) {
+    const d = queue.shift()!;
+    const n = tree.get(d);
+    if (!n) continue;
+    let listing: FileListing;
+    try { listing = await api.files.list(roomId, d ? joinPath(into, d) : into); } catch { continue; }
+    for (const e of listing.entries) {
+      const rel = d ? d + '/' + e.name : e.name;
+      if (e.kind === 'file' && n.files.has(e.name)) out.push(rel);
+      else if (e.kind === 'dir' && n.dirs.has(e.name)) queue.push(rel);
+    }
+  }
+  return out;
+}
+
+/** Asked once for a whole folder upload, not once per file. Cancel comes first, so a stray Enter sends nothing. */
+function ExistingDialog({ clash, where, onAnswer }: { clash: string[]; where: string; onAnswer: (c: ExistingChoice) => void }) {
+  const one = clash.length === 1;
+  return (
+    <DialogShell open onOpenChange={(o) => { if (!o) onAnswer('cancel'); }} hasDescription role="alertdialog" className="w-[440px] p-6">
+      <DialogTitle>{one ? '1 file is already there' : clash.length.toLocaleString() + ' files are already there'}</DialogTitle>
+      <DialogDescription className="mt-2 text-ui leading-relaxed text-muted">
+        {one ? clash[0] + ' is' : 'Files with the same names are'} already in {where}. Replace {one ? 'it' : 'them all'} with the uploaded {one ? 'copy' : 'copies'}, or keep what's there and upload the rest.
+      </DialogDescription>
+      {!one && (
+        <ul className="mt-3 max-h-32 overflow-y-auto rounded-md bg-card2 px-3 py-2 font-mono text-hint text-muted">
+          {clash.slice(0, 50).map((c) => <li key={c} className="truncate" title={c}>{c}</li>)}
+          {clash.length > 50 && <li>and {clash.length - 50} more</li>}
+        </ul>
+      )}
+      <div className="mt-6 flex flex-wrap justify-end gap-2">
+        <Button onClick={() => onAnswer('cancel')}>Cancel</Button>
+        <Button onClick={() => onAnswer('skip')}>Skip existing</Button>
+        <Button variant="danger" onClick={() => onAnswer('replace')}>{one ? 'Replace' : 'Replace all'}</Button>
+      </div>
+    </DialogShell>
+  );
+}
+
+/** What a folder upload left behind, and why: over 25 MB, a name the hub can't store, a failure. */
+function SkippedDialog({ where, skipped, sent, onClose }: { where: string; skipped: Skipped[]; sent: number; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={skipped.length === 1 ? "1 item wasn't uploaded" : skipped.length.toLocaleString() + " items weren't uploaded"}>
+      <p className="text-ui leading-relaxed text-muted">
+        {sent ? sent.toLocaleString() + (sent === 1 ? ' file' : ' files') + ' went up to ' + where + '. ' : ''}These were left out:
+      </p>
+      <ul className="mt-3 max-h-64 overflow-y-auto rounded-md bg-card2 px-3 py-2">
+        {skipped.map((s) => (
+          <li key={s.rel} className="flex items-baseline gap-3 py-0.5 text-hint">
+            <span className="min-w-0 flex-1 truncate font-mono text-fg" title={s.rel}>{s.rel}</span>
+            <span className="shrink-0 text-muted">{s.why}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-5 flex justify-end">
+        <Button variant="primary" autoFocus onClick={onClose}>Done</Button>
+      </div>
+    </Dialog>
   );
 }
 

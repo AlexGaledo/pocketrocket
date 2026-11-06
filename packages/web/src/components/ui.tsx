@@ -122,6 +122,11 @@ export function DialogTitle({ className, children }: { className?: string; child
   return <DialogPrimitive.Title className={cn('text-title-sm', className)}>{children}</DialogPrimitive.Title>;
 }
 
+/** The dialog's description, read out with its title. Pair it with `hasDescription` on DialogShell. */
+export function DialogDescription({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <DialogPrimitive.Description className={className}>{children}</DialogPrimitive.Description>;
+}
+
 export function DialogCloseButton() {
   return (
     <DialogPrimitive.Close asChild>

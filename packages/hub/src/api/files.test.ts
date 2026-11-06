@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { MAX_FILE_LIST_ENTRIES, type FileListing, type ServerEvent } from '@pocketrocket/shared';
+import { MAX_FILE_LIST_ENTRIES, folderUploadSkip, type FileListing, type ServerEvent } from '@pocketrocket/shared';
 import { createHub, type Hub } from '../hub.js';
 import { deviceMayAccess } from './guard.js';
-import { listFolder } from './files.js';
+import { listFolder, windowsNameProblem } from './files.js';
 import { events } from '../events.js';
 import { listAudit } from '../services/AuditLog.js';
 
@@ -239,6 +239,95 @@ describe('/api/rooms/:id/files', () => {
     expect((await request('GET', base(room.id))).json.entries.map((e: { name: string }) => e.name)).not.toContain('escape');
     expect(fs.existsSync(path.join(outside, 'planted.txt'))).toBe(false);
     expect(fs.existsSync(path.join(outside, 'secret.txt'))).toBe(true);
+  });
+
+  describe('folder uploads (parents)', () => {
+    const nested = (roomId: string, dir: string, name: string, text: string, extra: Record<string, unknown> = {}) =>
+      request('POST', base(roomId) + '/upload', { body: { path: dir, name, dataBase64: Buffer.from(text).toString('base64'), parents: true, ...extra } });
+
+    it('makes the missing folders on the way, and tells each new folder\'s parent', async () => {
+      const { room } = groupRoom();
+      const seen: string[] = [];
+      const off = events.onEvent((e) => { if (e.type === 'files.changed' && e.roomId === room.id) seen.push(e.path); });
+      const r = await nested(room.id, 'proj/src/lib', 'a.ts', 'export {}');
+      off();
+      expect(r.status).toBe(200);
+      expect(r.json).toEqual({ ok: true, path: 'proj/src/lib/a.ts' });
+      expect(fs.readFileSync(path.join(roomsDir, room.id, 'proj', 'src', 'lib', 'a.ts'), 'utf8')).toBe('export {}');
+      expect(new Set(seen)).toEqual(new Set(['', 'proj', 'proj/src', 'proj/src/lib']));
+      // Again into folders that are there now, and with the same name: 409 unless overwrite.
+      expect((await nested(room.id, 'proj/src', 'b.ts', 'b')).status).toBe(200);
+      expect((await nested(room.id, 'proj/src/lib', 'a.ts', 'again')).status).toBe(409);
+      expect((await nested(room.id, 'proj/src/lib', 'a.ts', 'again', { overwrite: true })).status).toBe(200);
+      expect(fs.readFileSync(path.join(roomsDir, room.id, 'proj', 'src', 'lib', 'a.ts'), 'utf8')).toBe('again');
+      // Without parents a missing folder is still a 404.
+      expect((await upload(room.id, 'c.ts', 'c', 'proj/missing')).status).toBe(404);
+    });
+
+    it('makes empty folders like mkdir -p, and a folder already there is fine', async () => {
+      const { room } = groupRoom();
+      const mk = (p: string, name: string) => request('POST', base(room.id) + '/folder', { body: { path: p, name, parents: true } });
+      expect((await mk('a/b', 'empty')).json).toEqual({ ok: true, path: 'a/b/empty' });
+      expect(fs.statSync(path.join(roomsDir, room.id, 'a', 'b', 'empty')).isDirectory()).toBe(true);
+      expect((await mk('a/b', 'empty')).status).toBe(200);
+      expect((await request('POST', base(room.id) + '/folder', { body: { path: 'a/b', name: 'empty' } })).status).toBe(409);
+      await upload(room.id, 'file.txt', 'x', 'a');
+      expect((await mk('a', 'file.txt')).status).toBe(409);
+      expect((await mk('a/file.txt', 'under')).status).toBe(409);
+      expect((await nested(room.id, 'a/file.txt/deeper', 'x.txt', 'x')).status).toBe(409);
+    });
+
+    it('refuses every way out of the folder, and bad folder names, making nothing', async () => {
+      const { room } = groupRoom();
+      const dir = path.join(roomsDir, room.id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.symlinkSync(outside, path.join(dir, 'escape'), 'junction');
+      const abs = path.join(outside, 'deep');
+      const bad = [
+        '..', '../x', 'a/../../x', 'a/..', '..\\x', 'a\\..\\..\\x', // climbing out, either separator
+        abs, abs.replaceAll('\\', '/'), '/etc/x', '\\\\server\\share\\x', '//server/share/x', // absolute and UNC
+        'C:/x', 'C:x', 'c:\\x', // drive letters
+        'a\u0000b/x', 'ok/nul\u0000/x', // NUL
+        'escape/x', 'escape/a/b', // through a link that leads out
+        'ok/ lead', 'ok/trail.', 'ok/trail ', 'a/' + 'x'.repeat(256) + '/y', 'ok/tab\there', // names a file couldn't have
+      ];
+      for (const p of bad) {
+        expect((await nested(room.id, p, 'x.txt', 'x')).status, 'upload into ' + JSON.stringify(p)).toBe(400);
+        expect((await request('POST', base(room.id) + '/folder', { body: { path: p, name: 'x', parents: true } })).status, 'folder in ' + JSON.stringify(p)).toBe(400);
+      }
+      for (const name of ['..', '.', 'a/b', 'a\\b', 'nul\u0000x', '', ' lead', 'trail.']) {
+        expect((await request('POST', base(room.id) + '/folder', { body: { path: 'ok', name, parents: true } })).status).toBe(400);
+      }
+      expect(fs.readdirSync(dir).sort()).toEqual(['escape']);
+      expect(fs.readdirSync(outside).sort()).toEqual(['secret.txt']);
+    });
+
+    it('refuses names Windows would take for a device or a data stream', async () => {
+      for (const n of ['nul', 'NUL.txt', 'con', 'com1', 'lpt9.log', 'aux', 'prn.md', 'conin$', 'a:b', 'a.txt:stream', 'a?b', 'a*b', 'a|b', 'a"b', 'a<b', 'a>b']) {
+        expect(windowsNameProblem(n), n).not.toBeNull();
+      }
+      for (const n of ['null', 'console.txt', 'com', 'com10', 'notes.md', '.env.example', 'a b', 'é.txt']) {
+        expect(windowsNameProblem(n), n).toBeNull();
+      }
+      if (process.platform !== 'win32') return;
+      const { room } = groupRoom();
+      expect((await nested(room.id, 'ok/nul', 'x.txt', 'x')).status).toBe(400);
+      expect((await nested(room.id, 'ok/a:b', 'x.txt', 'x')).status).toBe(400);
+      expect((await upload(room.id, 'a.txt:stream', 'x')).status).toBe(400);
+      expect((await request('POST', base(room.id) + '/folder', { body: { name: 'com1' } })).status).toBe(400);
+    });
+
+    it('sorts out junk and likely secrets for the app', () => {
+      for (const d of ['.git', 'node_modules', 'Node_Modules']) expect(folderUploadSkip(d, true)).toBe('junk');
+      for (const d of ['src', '.github', 'keys', '.env']) expect(folderUploadSkip(d, true)).toBeNull();
+      for (const f of ['.DS_Store', 'Thumbs.db', 'thumbs.db']) expect(folderUploadSkip(f, false)).toBe('junk');
+      for (const f of ['.env', '.env.local', '.ENV.production', '.envrc', 'server.pem', 'api.key', 'AuthKey_X.p8', 'cert.p12', 'cert.pfx', 'id_rsa', 'id_rsa.pub', 'id_ed25519', 'service-account.json', 'service-account-prod.json']) {
+        expect(folderUploadSkip(f, false), f).toBe('secret');
+      }
+      for (const f of ['.env.example', '.env.sample', '.env.template', 'README.md', 'keys.ts', 'monkey.txt', 'service-account.md', 'my.keynote', 'index.ts']) {
+        expect(folderUploadSkip(f, false), f).toBeNull();
+      }
+    });
   });
 
   it('caps an upload at 25 MB', async () => {
