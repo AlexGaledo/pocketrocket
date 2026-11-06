@@ -206,12 +206,12 @@ pnpm build &amp;&amp; pnpm test</pre>
         </li>
         <li>
           <h3>PC runner <span class="tag">Next release</span></h3>
-          <p>A bot on your server can ask your own Windows PC to run a job, only in folders you list. You approve it in PocketRocket, then again in a dialog on the PC. No answer in 10 minutes means no.</p>
+          <p>A bot on your server can ask your own Windows PC to run a job, only in folders you list. You approve it in PocketRocket with your owner password, then again in a dialog on the PC. No answer in 10 minutes means no.</p>
           <p class="limit"><span>Limit</span> Once you press Run, Claude edits files in that folder with the tools you allowed. Pick those folders with care.</p>
         </li>
         <li>
           <h3>Secret-file guard <span class="tag">Next release</span></h3>
-          <p>Bots can't read or write the hub's key files or a project's <code>.env</code> files with their file and shell tools, in any approvals mode.</p>
+          <p>Bots can't read or write the hub's key files, its database or a project's <code>.env</code> files with their file and shell tools, in any approvals mode.</p>
           <p class="limit"><span>Limit</span> It covers the ordinary ways to read those files. A command that builds the file name at run time can still get past it.</p>
         </li>
         <li>
