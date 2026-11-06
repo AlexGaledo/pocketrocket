@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  ACCOUNT_PATH, DATA_DIR, HUB_TOKEN_PATH, INTEGRATIONS_PATH, PROJECTS_DIR, SECRETS_PATH, VAPID_PATH, VAULT_KEY_PATH,
+  ACCOUNT_PATH, DATA_DIR, DB_PATH, HUB_TOKEN_PATH, INTEGRATIONS_PATH, PROJECTS_DIR, SECRETS_PATH, VAPID_PATH, VAULT_KEY_PATH,
 } from '../config.js';
 import { segments, tokenize } from './bashRules.js';
 
@@ -43,10 +43,17 @@ export const HUB_KEYS_MESSAGE = "That file holds the hub's keys. Bots don't read
 export const ENV_FILE_MESSAGE = "Env files hold the app's keys. Don't read or print them; run the app's own scripts instead.";
 
 const isWin = process.platform === 'win32';
+/** SQLite sidecars: the write-ahead log and shared memory hold recent rows too, the rollback journal old ones. */
+const DB_SIDECARS = ['', '-wal', '-shm', '-journal'];
 const HUB_FILES = [
   path.basename(HUB_TOKEN_PATH), path.basename(SECRETS_PATH), 'mcp-servers.json', 'pc-runner.json', 'key-registry.json',
   path.basename(ACCOUNT_PATH), path.basename(VAPID_PATH), path.basename(VAULT_KEY_PATH), path.basename(INTEGRATIONS_PATH),
+  // The hub database (and the pre-rename one): browser sessions, the password hash, approvals and PC jobs. A bot
+  // that could write it could forge a signed-in session and approve its own job on the PC.
+  ...[path.basename(DB_PATH), 'claudebot.db'].flatMap((db) => DB_SIDECARS.map((s) => db + s)),
 ];
+/** Any other SQLite file at the top of DATA_DIR (a copy, a backup): `x.db`, `x.db-wal`, `x.sqlite`, `x.db.bak`. */
+const DATA_DB_RE = /\.(db|sqlite3?)([.-][^/]*)?$/i;
 const KEYS_DIR = 'keys-disabled';
 const ENV_RE = /^\.env(\..+)?$/i;
 const ENV_OK_RE = /^\.env\.(example|sample|template)(\..*)?$/i;
@@ -117,6 +124,8 @@ const isEnvName = (base: string) => ENV_RE.test(base) && !ENV_OK_RE.test(base);
 function classifyPath(abs: string, l: Layout): Hit {
   for (const n of forms(abs)) {
     if (l.files.includes(n)) return 'hub';
+    const cut = n.lastIndexOf('/');
+    if (DATA_DB_RE.test(n.slice(cut + 1)) && l.dataDirs.includes(n.slice(0, cut))) return 'hub';
     if (l.keysDirs.some((k) => within(n, k))) return 'hub';
     if (l.projectsDirs.some((p) => n !== p && within(n, p)) && isEnvName(n.slice(n.lastIndexOf('/') + 1))) return 'env';
   }

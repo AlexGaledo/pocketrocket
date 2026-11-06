@@ -26,6 +26,7 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - `run_on_pc` takes `needs` and refuses keys the registry does not put on the PC. An outside MCP server may declare `needs`; one that needs a tier 3, PC-only or unknown key is not mounted on the server.
 - Only a browser signed in with your owner password can allow a `run_on_pc` card. The server token alone can only deny it, so a bot that read `hub-token` cannot approve its own job.
 - Changing the owner password now needs the current one, even with the server token. A forgotten password is cleared by starting the hub with `POCKETROCKET_RESET_PASSWORD=1`.
+- Bots' file and shell tools are now refused the hub database (`pocketrocket.db` and its `-wal`/`-shm`/`-journal` files), the legacy `claudebot.db`, and any `.db` or `.sqlite` file at the top of `data/`, just like `hub-token`. This guard reads the command line and is not a wall; the PC's own Run / Refuse dialog stays the final check on a PC job.
 
 ### PC runner (hub)
 

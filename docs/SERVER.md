@@ -291,6 +291,15 @@ shows "Only a browser signed in with your password can approve this." Set a pass
 before you pair a PC runner, then sign in with it in the browser you approve from. Signing out takes effect at
 once, even on an open tab. A paired phone cannot allow these cards either.
 
+What this does and does not stop: sessions live in the hub database, which stores only a hash of each session
+cookie, so a copy of the database cannot be replayed as a login. A bot's own file and shell tools are refused the
+database (`pocketrocket.db` and its `-wal`/`-shm`/`-journal` files, the legacy `claudebot.db`, and any `.db` or
+`.sqlite` file at the top of `data/`), just like `hub-token`. That guard reads the command line, though. Bots run
+as the same OS user as the hub, so a command that builds the path at run time (`python -c` with string
+concatenation, a script written to disk first) can still open the database and write a session row. It also
+applies to the Claude provider only. **The real lock on a PC job is the Run / Refuse dialog on your PC**, which
+shows the full prompt. Keep it on.
+
 For the same reason, changing the password now needs the current one, even with the server token. If you forget
 it, start the hub once with `POCKETROCKET_RESET_PASSWORD=1` (for example
 `sudo systemctl set-environment POCKETROCKET_RESET_PASSWORD=1 && sudo systemctl restart pocketrocket`, then

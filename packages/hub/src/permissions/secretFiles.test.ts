@@ -38,6 +38,25 @@ describe('secretFileAccess: file tools', () => {
     expect(check('Read', { file_path: path.join(data, 'keys-disabled', 'old.json') })).toBe(HUB_KEYS_MESSAGE);
   });
 
+  it('refuses the hub database, its sidecars, the legacy one and any SQLite copy at the top of DATA_DIR', () => {
+    const { data, check } = setup();
+    for (const f of ['pocketrocket.db', 'pocketrocket.db-wal', 'pocketrocket.db-shm', 'pocketrocket.db-journal', 'claudebot.db', 'claudebot.db-wal', 'copy.db', 'hub.db.bak', 'old.sqlite', 'x.sqlite3']) {
+      expect([f, check('Read', { file_path: path.join(data, f) })]).toEqual([f, HUB_KEYS_MESSAGE]);
+    }
+    expect(check('Write', { file_path: path.join(data, 'pocketrocket.db'), content: 'x' })).toBe(HUB_KEYS_MESSAGE);
+    // The shell: a sqlite3 session that could forge a signed-in browser, a python one-liner, a glob.
+    expect(check('Bash', { command: "sqlite3 ../pocketrocket.db \"INSERT INTO user_sessions VALUES ('x')\"" })).toBe(HUB_KEYS_MESSAGE);
+    expect(check('Bash', { command: "python3 -c \"import sqlite3; sqlite3.connect('../pocketrocket.db')\"" })).toBe(HUB_KEYS_MESSAGE);
+    expect(check('Bash', { command: 'cp ../*.db /tmp/' })).toBe(HUB_KEYS_MESSAGE);
+    expect(check('Bash', { command: 'cat ' + path.join(data, 'backup.db') })).toBe(HUB_KEYS_MESSAGE);
+  });
+
+  it('leaves a project\'s own database alone', () => {
+    const { app, check } = setup();
+    expect(check('Read', { file_path: path.join(app, 'dev.db') })).toBeNull();
+    expect(check('Bash', { command: 'sqlite3 dev.db ".tables"' }, app)).toBeNull();
+  });
+
   it('refuses a relative path resolved against the cwd', () => {
     const { check } = setup();
     expect(check('Read', { file_path: '../secrets.json' })).toBe(HUB_KEYS_MESSAGE);
