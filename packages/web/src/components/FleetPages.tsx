@@ -7,13 +7,13 @@ import { MODELS, type CauseKind, type Routine, type RoutineRun, type UsageGroup,
 import { MONTHS, SCHEDULE_PRESETS, WEEKDAYS, cronToPreset, describeCron, presetToCron, zonedParts, type SchedulePreset, type ScheduleParts } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Button, Input, Label, Select, Textarea, cn, fmtUsd } from './ui';
+import { Avatar, Button, Input, Label, Select, Textarea, cn, confirmAction, fmtUsd } from './ui';
 import { TriggersSection } from './TriggersSection';
 
 /** The scrolling column under a page's header, as wide as the chat column. */
 export function PageBody({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-6">
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-6">
       <div className="mx-auto w-full max-w-[var(--page-max)]">{children}</div>
     </div>
   );
@@ -22,7 +22,7 @@ export function PageBody({ children }: { children: ReactNode }) {
 function FleetHeader({ title, sub }: { title: string; sub: string }) {
   const closePage = useStore((s) => s.closePage);
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 px-5">
+    <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
       <Button variant="ghost" size="icon" title="Back to chat" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button>
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-body font-semibold">{title}</h1>
@@ -117,7 +117,7 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
     try { await api.routines.update(r.id, { enabled: !r.enabled }); } catch (e) { toast((e as Error).message, true); }
     await load();
   };
-  const remove = async (r: Routine) => { if (confirm('Delete schedule "' + r.name + '"?')) { await api.routines.remove(r.id); await load(); } };
+  const remove = async (r: Routine) => { if (await confirmAction({ title: 'Delete schedule "' + r.name + '"?', confirmLabel: 'Delete', danger: true })) { await api.routines.remove(r.id); await load(); } };
   const run = async (r: Routine) => { await api.routines.run(r.id); toast('Schedule started'); };
   const toggleRuns = async (r: Routine) => {
     if (runs[r.id]) return setRuns((x) => ({ ...x, [r.id]: undefined }));

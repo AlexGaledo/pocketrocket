@@ -4,7 +4,7 @@ import { api } from '../../lib/api';
 import { useStore } from '../../store';
 import { iconGlyph } from '../../lib/botIcon';
 import { BotIconPicker } from './BotIconPicker';
-import { Button, Dialog, Field, Input, Label, Select, Textarea, cn } from '../ui';
+import { Button, Dialog, Field, Input, Label, Select, Textarea, cn, confirmAction } from '../ui';
 
 /** Starter bots. `userName` is settings.userName, so the coordinator reports to whoever runs this hub. */
 const presets = (userName: string): { label: string; v: Partial<BotInput> }[] => [
@@ -57,7 +57,7 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   };
   const remove = async () => {
-    if (!bot || !confirm('Delete ' + bot.name + '? Chat history stays.')) return;
+    if (!bot || !(await confirmAction({ title: 'Delete ' + bot.name + '?', body: 'Chat history stays.', confirmLabel: 'Delete', danger: true }))) return;
     setBusy(true);
     try {
       await api.bots.remove(bot.id);

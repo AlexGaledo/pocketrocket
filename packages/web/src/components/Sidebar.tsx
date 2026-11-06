@@ -194,7 +194,7 @@ export function Sidebar() {
         </button>
       )}
 
-      <div className="flex-1 overflow-y-auto px-1 pb-2">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
         {needsYou.length > 0 && (
           <section aria-label={'Needs you: ' + needsYou.length} className="mb-1">
             <div className="mb-0.5 flex items-center gap-1.5 px-3 pt-2 text-label text-warn">
@@ -311,7 +311,7 @@ function BotRow({ bot, status, activity, preview, active, unread, onOpen, onSett
             {sub}
           </span>
         </span>
-        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-[#4aa3ff]"><span className="sr-only">{unread} unread</span></span>}
+        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-accent"><span className="sr-only">{unread} unread</span></span>}
       </button>
       {/* A sibling of the row button, not inside it. Shown on hover, whenever focus is anywhere in the
           row (so Tab finds it), and always on touch screens, which have no hover to reveal it. */}
@@ -357,7 +357,7 @@ function SoloHeader({ collapsed, count, unread, onToggle }: { collapsed: boolean
       <span className="flex min-w-0 items-center gap-1.5 px-1 text-label text-dim">
         Bots
         <FoldedCount collapsed={collapsed} count={count} />
-        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-[#4aa3ff]"><span className="sr-only">{unread} unread</span></span>}
+        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-accent"><span className="sr-only">{unread} unread</span></span>}
       </span>
     </div>
   );
@@ -391,7 +391,7 @@ function GroupHeader({ room, statusOf, active, unread, collapsed, count, onToggl
         <span className={cn('truncate', active && 'text-fg')}>{room.name}</span>
         <FoldedCount collapsed={collapsed} count={count} />
         {needs > 0 ? <span className="shrink-0 text-hint text-warn">{needs} {needs === 1 ? 'needs' : 'need'} you</span> : busy > 0 && <span className="shrink-0 text-hint text-ok">{busy} working</span>}
-        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-[#4aa3ff]"><span className="sr-only">{unread} unread</span></span>}
+        {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-accent"><span className="sr-only">{unread} unread</span></span>}
       </button>
       {onSettings && <button
         className="mr-1.5 hidden shrink-0 rounded-sm p-1 text-muted hover:bg-hover hover:text-fg focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:block group-focus-within:block [@media(hover:none)]:block"
