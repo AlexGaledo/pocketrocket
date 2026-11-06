@@ -41,6 +41,17 @@
   --tint-3: #f2e8d9;
   --shadow: 0 2px 6px rgba(60, 35, 0, 0.03), 0 8px 12px rgba(60, 35, 0, 0.03);
   --shadow-lg: 0 24px 60px rgba(20, 16, 10, 0.14), 0 2px 8px rgba(20, 16, 10, 0.06);
+  --sky-wash: rgba(255, 190, 110, 0.26);
+  --sky-wash2: rgba(150, 185, 235, 0.18);
+  --limb-a: #e2e9f2;
+  --limb-b: #f8f8f6;
+  --limb-edge: rgba(31, 90, 198, 0.30);
+  --traj: #2b2b29;
+  --traj-ahead: rgba(43, 43, 41, 0.30);
+  --hud-fg: #62615d;
+  --hud-line: rgba(43, 43, 41, 0.12);
+  --plume: rgba(214, 128, 30, 0.7);
+  --stars: none;
   color-scheme: light;
 }
 
@@ -68,6 +79,17 @@
     --tint-3: #40362a;
     --shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 8px 12px rgba(0, 0, 0, 0.10);
     --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+    --sky-wash: rgba(70, 110, 200, 0.18);
+    --sky-wash2: rgba(134, 178, 255, 0.08);
+    --limb-a: #232831;
+    --limb-b: #1c1c1b;
+    --limb-edge: rgba(134, 178, 255, 0.6);
+    --traj: #e8e7e4;
+    --traj-ahead: rgba(232, 231, 228, 0.28);
+    --hud-fg: #a3a29c;
+    --hud-line: rgba(232, 231, 228, 0.1);
+    --plume: rgba(240, 169, 92, 0.85);
+    --stars: block;
     color-scheme: dark;
   }
 }
@@ -95,6 +117,17 @@
   --tint-3: #40362a;
   --shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 8px 12px rgba(0, 0, 0, 0.10);
   --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --sky-wash: rgba(70, 110, 200, 0.18);
+  --sky-wash2: rgba(134, 178, 255, 0.08);
+  --limb-a: #232831;
+  --limb-b: #1c1c1b;
+  --limb-edge: rgba(134, 178, 255, 0.6);
+  --traj: #e8e7e4;
+  --traj-ahead: rgba(232, 231, 228, 0.28);
+  --hud-fg: #a3a29c;
+  --hud-line: rgba(232, 231, 228, 0.1);
+  --plume: rgba(240, 169, 92, 0.85);
+  --stars: block;
   color-scheme: dark;
 }
 
@@ -110,6 +143,7 @@
   --r-lg: 14px;
   --r-xl: 20px;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-io: cubic-bezier(0.77, 0, 0.175, 1);
   --gutter: 20px;
   --max: 1120px;
 }
@@ -379,26 +413,216 @@ h3 { font-size: 1.125rem; line-height: 1.35; font-weight: var(--w-semibold); let
 }
 .fake-btn.primary { background: var(--ink); color: var(--ink-fg); box-shadow: none; }
 
-/* One orchestrated load sequence: the chat plays out beat by beat, ending on the approval card. */
-@media (prefers-reduced-motion: no-preference) {
-  .room .b1, .room .b2, .room .b3, .room .b4, .room .b5 {
-    animation: beat 520ms var(--ease-out) both;
-  }
-  .room .b1 { animation-delay: 300ms; }
-  .room .b2 { animation-delay: 1000ms; }
-  .room .b3 { animation-delay: 1700ms; }
-  .room .b4 { animation-delay: 2300ms; }
-  .room .b5 { animation-delay: 3300ms; }
-}
-@keyframes beat {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
 @media (max-width: 420px) {
   .room { font-size: 14px; }
   .room-body { padding: 14px; }
   .approval { margin-left: 0; }
   .msg.me { padding-left: 8%; }
+}
+
+/* ---- mission control (hero layer) ----
+   The space theme is a layer over the same page, not a rebrand: one trajectory, one small rocket, a strip
+   of telemetry. Daytime launch in light (sun wash, pale limb); night launch in dark (stars, lit limb).
+   The markup is the finished state. mission.js adds .mc-run, then .st-1 ... .st-9 as the flight plays. */
+.launch { position: relative; overflow: clip; isolation: isolate; }
+.launch .hero { position: relative; z-index: 1; }
+.sky { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.sky::before {
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(60rem 34rem at 92% -6%, var(--sky-wash), transparent 70%),
+    radial-gradient(40rem 30rem at 4% 100%, var(--sky-wash2), transparent 70%);
+}
+/* Night only: a still field of stars. No twinkle; the rocket is the one thing that moves. */
+.sky::after {
+  content: ""; position: absolute; inset: 0 0 30% 0; display: var(--stars);
+  opacity: 0.6;
+  background-image:
+    radial-gradient(1.2px 1.2px at 6% 12%, #fff, transparent), radial-gradient(1px 1px at 14% 38%, #fff, transparent),
+    radial-gradient(1px 1px at 23% 8%, #fff, transparent), radial-gradient(1.4px 1.4px at 31% 26%, #fff, transparent),
+    radial-gradient(1px 1px at 42% 5%, #fff, transparent), radial-gradient(1px 1px at 47% 31%, #fff, transparent),
+    radial-gradient(1.2px 1.2px at 55% 14%, #fff, transparent), radial-gradient(1px 1px at 63% 4%, #fff, transparent),
+    radial-gradient(1px 1px at 71% 22%, #fff, transparent), radial-gradient(1.4px 1.4px at 79% 9%, #fff, transparent),
+    radial-gradient(1px 1px at 86% 30%, #fff, transparent), radial-gradient(1.2px 1.2px at 94% 16%, #fff, transparent),
+    radial-gradient(1px 1px at 98% 44%, #fff, transparent), radial-gradient(1px 1px at 3% 52%, #fff, transparent),
+    radial-gradient(1px 1px at 37% 48%, #fff, transparent), radial-gradient(1px 1px at 67% 41%, #fff, transparent);
+  -webkit-mask-image: linear-gradient(#000 40%, transparent);
+  mask-image: linear-gradient(#000 40%, transparent);
+}
+.flight { position: absolute; inset: 0; width: 100%; height: 100%; }
+.limb-a { stop-color: var(--limb-a); }
+.limb-b { stop-color: var(--limb-b); }
+.limb-glow { fill: none; stroke: var(--limb-edge); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.traj-ahead, .traj-flown { fill: none; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.traj-ahead { stroke: var(--traj-ahead); stroke-width: 1.25; stroke-dasharray: 2 7; }
+.traj-flown { stroke: var(--traj); stroke-width: 1.5; opacity: 0.5; }
+.hold-ring { fill: none; stroke: var(--traj-ahead); stroke-width: 1; }
+.hold-dot { fill: var(--ok); }
+.hold-label { font: 500 11px/1 var(--mono); letter-spacing: 0.08em; fill: var(--hud-fg); }
+.hold-wait { opacity: 0; }
+.hold-go { fill: var(--ok); }
+.ship-body { fill: var(--traj); }
+.ship-port { fill: var(--bg); }
+.ship-plume { fill: var(--plume); opacity: 0; }
+
+/* Altitude ruler on the left edge, with a caret that tracks the rocket. Wide screens only. */
+.ruler {
+  position: absolute; left: 18px; top: 24px; bottom: 24px; width: 9px; display: none;
+  background: repeating-linear-gradient(to bottom, var(--hud-line) 0 1px, transparent 1px 12px);
+  -webkit-mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent);
+  mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent);
+}
+.ruler-mark {
+  position: absolute; left: -4px; top: 0; width: 17px; height: 1.5px; background: var(--traj); opacity: 0.6;
+  transform: translateY(40px);
+}
+@media (min-width: 1240px) { .ruler { display: block; } }
+
+/* Telemetry strip under the hero. Quiet type on one line; the data matches the demo room above. */
+.hud { position: relative; z-index: 1; border-top: 1px solid var(--hud-line); }
+.hud-row { display: flex; flex-wrap: wrap; gap: 6px 28px; padding-top: 12px; padding-bottom: 14px; }
+.hud-item {
+  display: flex; gap: 8px; align-items: baseline; white-space: nowrap;
+  font: 450 12px/1.5 var(--mono); letter-spacing: 0.04em; color: var(--hud-fg);
+  font-variant-numeric: tabular-nums;
+}
+.hud-k { color: var(--dim); }
+.hud-v { color: var(--fg); }
+.hud-status { margin-left: auto; }
+.hud-status .hud-v { color: var(--ok); }
+.hud-sim .hud-v { color: var(--hud-fg); }
+@media (max-width: 720px) {
+  .hud-wide { display: none; }
+  .hud-status { margin-left: 0; }
+  .hud-row { gap: 4px 20px; }
+}
+
+/* GO / NO-GO: three short checks on the approval card. Two are the hub's own gates; the last call is yours. */
+.poll {
+  display: grid; margin: 0 0 2px;
+  font: 450 12px/1.5 var(--mono); letter-spacing: 0.01em;
+}
+.poll li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 4px 2px; }
+.poll li + li { border-top: 1px dashed var(--line2); }
+.poll .p-note { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.poll .go { color: var(--ok); font-weight: 600; display: grid; justify-items: end; }
+.poll .go i { font-style: normal; grid-area: 1 / 1; }
+.poll .p-hold { color: var(--warn); opacity: 0; }
+.approval-title svg.ico-wait { display: none; }
+.approval-title svg.ico-go { color: var(--ok); }
+.t-swap { display: inline-grid; }
+.t-swap > span { grid-area: 1 / 1; }
+.t-wait { opacity: 0; }
+.room .approval {
+  transition: box-shadow 420ms ease, background-color 420ms ease;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ok) 45%, transparent);
+  background: color-mix(in oklab, var(--ok) 6%, var(--panel));
+}
+.approval-cmd { margin-bottom: 8px; }
+
+/* The flight, step by step. Each rule is the state BEFORE its step; reaching the step drops the rule and
+   the transition plays. Transitions, not keyframes, so a tab that skips ahead simply settles. */
+@media (prefers-reduced-motion: no-preference) {
+  .mc-run .room .b1, .mc-run .room .b2, .mc-run .room .b3, .mc-run .room .b4, .mc-run .room .b5,
+  .mc-run .poll li {
+    transition: opacity 480ms var(--ease-out), transform 480ms var(--ease-out);
+  }
+  .mc-run:not(.st-1) .room .b1, .mc-run:not(.st-2) .room .b2, .mc-run:not(.st-3) .room .b3,
+  .mc-run:not(.st-4) .room .b4, .mc-run:not(.st-9) .room .b5 { opacity: 0; transform: translateY(10px); }
+  .mc-run:not(.st-5) .poll .p1, .mc-run:not(.st-6) .poll .p2, .mc-run:not(.st-7) .poll .p3 {
+    opacity: 0; transform: translateX(-6px);
+  }
+  .mc-run .poll .go i, .mc-run .t-swap > span, .mc-run .hold-label {
+    transition: opacity 260ms ease, filter 260ms ease;
+  }
+  .mc-run:not(.st-8) .poll .p-hold, .mc-run:not(.st-8) .t-wait, .mc-run:not(.st-8) .hold-wait { opacity: 1; filter: none; }
+  .mc-run:not(.st-8) .poll .p-go, .mc-run:not(.st-8) .t-go, .mc-run:not(.st-8) .hold-go { opacity: 0; filter: blur(2px); }
+  .mc-run:not(.st-8) .approval-title svg.ico-wait { display: block; }
+  .mc-run:not(.st-8) .approval-title svg.ico-go { display: none; }
+  .mc-run:not(.st-8) .room .approval {
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--warn) 45%, transparent);
+    background: color-mix(in oklab, var(--warn-soft) 55%, var(--panel));
+  }
+  .mc-run:not(.st-8) .hold-dot { fill: var(--warn); }
+  .mc-run:not(.st-8) .hud-status .hud-v { color: var(--warn); }
+  /* The press: the one "button" moment, so it gets the press scale and a brief ring. */
+  .mc-run .press { transition: transform 160ms var(--ease-out), box-shadow 600ms ease; }
+  .mc-run.st-press .press { transform: scale(0.95); box-shadow: 0 0 0 4px color-mix(in oklab, var(--ok) 30%, transparent); }
+  .mc-run .hold-ring { transform-box: fill-box; transform-origin: center; transition: transform 800ms var(--ease-out), opacity 800ms ease; }
+  .mc-run.st-8 .hold-ring { transform: scale(2.6); opacity: 0; }
+  .mc-run .ship-plume { transition: opacity 300ms ease; }
+  .mc-run.is-burning .ship-plume { opacity: 1; }
+}
+
+/* Until mission.js rewinds the hero, keep the moving parts hidden for a moment so the finished state
+   never flashes first. If the script never arrives, they appear on their own after 1.2s. */
+@media (prefers-reduced-motion: no-preference) {
+  .js .launch:not(.mc-run):not(.mc-done) :is(.room-body, .ship, .traj-flown, .hold, .hud-row) {
+    animation: mc-wait 1.2s step-end both;
+  }
+}
+@keyframes mc-wait { from { visibility: hidden; } to { visibility: visible; } }
+
+/* Small screens: the trajectory becomes a short arc through the gap between the words and the chat. */
+@media (max-width: 979px) {
+  .js .launch .hero { gap: 96px; }
+}
+
+/* How it works, as a countdown. T-3, T-2, T-1, then the line to T-0 fills in as it scrolls into view. */
+.steps.countdown { counter-reset: step 4; }
+.steps.countdown li { counter-increment: step -1; }
+.steps.countdown li::before {
+  content: "T-" counter(step);
+  content: "T−" counter(step) / "";
+  width: auto; min-width: 56px; padding: 0 12px; border-radius: 999px;
+  font: 500 14px/1 var(--mono); letter-spacing: 0.02em;
+  transition: background-color 300ms ease, color 300ms ease, box-shadow 300ms ease;
+}
+@media (min-width: 820px) {
+  .steps.countdown li:not(:last-child)::after { left: 76px; transform-origin: left center; }
+  .steps.countdown li:last-child::after {
+    content: ""; position: absolute; top: 18px; left: 76px; right: 0; height: 1px;
+    background: linear-gradient(to right, var(--line2), transparent);
+  }
+}
+.liftoff {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 48px; font-size: 1.125rem; font-weight: var(--w-medium);
+}
+.liftoff-t {
+  display: inline-grid; place-items: center; height: 36px; padding: 0 14px; border-radius: 999px;
+  font: 500 14px/1 var(--mono); background: var(--ink); color: var(--ink-fg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .steps.countdown.is-armed li::after { transition: transform 700ms var(--ease-io); }
+  .steps.countdown.is-armed li:not(.is-lit)::before { background: transparent; color: var(--dim); box-shadow: inset 0 0 0 1px var(--line); }
+  .steps.countdown.is-armed li:not(.is-lit)::after { transform: scaleX(0); }
+  .liftoff.is-armed .liftoff-t { transition: transform 420ms var(--ease-out), opacity 300ms ease; }
+  .liftoff.is-armed:not(.is-lit) .liftoff-t { transform: scale(0.9); opacity: 0; }
+}
+
+/* Safety, as a pre-flight checklist. Guards you can use today get a tick; next-release guards get an open
+   dashed circle, never a tick. The ticks draw once, in order, when the list scrolls into view. */
+.checklist li { position: relative; }
+.checklist h3 { display: flex; align-items: flex-start; gap: 10px 12px; flex-wrap: wrap; position: relative; }
+.checklist h3::before {
+  content: ""; flex: none; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%;
+  background: color-mix(in oklab, var(--ok) 14%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--ok);
+}
+.checklist h3::after {
+  content: ""; position: absolute; left: 7px; top: 6px; width: 6px; height: 10px;
+  border-right: 2px solid var(--ok); border-bottom: 2px solid var(--ok); transform: rotate(45deg);
+}
+.checklist li:has(.tag) h3::before { background: transparent; box-shadow: none; border: 1.5px dashed var(--dim); }
+.checklist li:has(.tag) h3::after { content: none; }
+.checklist h3 .tag { margin-left: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .checklist.is-armed h3::before { transition: box-shadow 260ms ease, background-color 260ms ease, opacity 260ms ease; }
+  .checklist.is-armed h3::after { transition: clip-path 380ms var(--ease-out) 140ms; clip-path: inset(0 0 0 0); }
+  .checklist.is-armed li:not(.is-lit) h3::before { box-shadow: inset 0 0 0 1.5px var(--line2); background: transparent; }
+  .checklist.is-armed li:not(.is-lit) h3::after { clip-path: inset(100% 0 0 0); }
+  .checklist.is-armed li:has(.tag):not(.is-lit) h3::before { opacity: 0.3; }
 }
 
 /* ---- sections ---- */
@@ -595,7 +819,7 @@ pre {
 
 /* ---- print ---- */
 @media print {
-  .site-nav, .skip-link, #newsletter, .copy-btn { display: none !important; }
+  .site-nav, .skip-link, #newsletter, .copy-btn, .sky, .hud { display: none !important; }
   .band, .safety { background: none; }
   .room { box-shadow: 0 0 0 1px #ccc; }
   a { color: inherit; }
