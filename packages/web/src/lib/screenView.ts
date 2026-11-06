@@ -5,6 +5,8 @@
  *   watch   split beside the chat, after the user asks to see the screen
  *   focus   full pane, while this browser has control
  *
+ * The right panel showing Files counts as not watching: the thumbnail may still come up beside it.
+ *
  * The screen follows the chat. The one exception is a screen this browser holds, which stays up whatever chat is
  * open, because leaving it would strand a bot that cannot act until it gets its screen back. RightPanel warns then.
  */
@@ -45,6 +47,8 @@ export interface ScreenState {
   activeRoomId: string | null;
   panelBotId: string | null;
   panelOpen: boolean;
+  /** Missing reads as 'screen'. */
+  panelKind?: 'screen' | 'files';
   control: Record<string, ControlStatus>;
   botStates: Record<string, BotState>;
   messages: Record<string, Message[]>;
@@ -92,6 +96,9 @@ export function computerUse(botId: string, s: ScreenState): string | null {
   return site ? 'Browsing ' + site : 'Using its screen';
 }
 
+/** The user asked to see the screen: the panel is open on it, not on Files. */
+const watching = (s: ScreenState) => s.panelOpen && s.panelKind !== 'files';
+
 export function selectScreenBotId(s: ScreenState): string | null {
   const held = s.bots.filter((b) => holdsScreen(s.control[b.id]));
   if (held.length) return (held.find((b) => b.id === s.panelBotId) ?? held[0]).id;
@@ -99,7 +106,7 @@ export function selectScreenBotId(s: ScreenState): string | null {
   if (!room) return s.panelBotId ?? s.bots[0]?.id ?? null;
   const picked = s.panelBotId && room.memberIds.includes(s.panelBotId) ? s.panelBotId : room.memberIds[0] ?? null;
   // A thumbnail in a group chat is for whoever is at their computer. A split stays on the one the user chose.
-  if (room.kind === 'group' && !s.panelOpen && !(picked && computerUse(picked, s))) {
+  if (room.kind === 'group' && !watching(s) && !(picked && computerUse(picked, s))) {
     return room.memberIds.find((id) => computerUse(id, s)) ?? picked;
   }
   return picked;
@@ -108,5 +115,5 @@ export function selectScreenBotId(s: ScreenState): string | null {
 export function selectScreenSize(s: ScreenState): ScreenSize {
   const id = selectScreenBotId(s);
   if (id && holdsScreen(s.control[id])) return 'focus';
-  return s.panelOpen ? 'watch' : 'glance';
+  return watching(s) ? 'watch' : 'glance';
 }

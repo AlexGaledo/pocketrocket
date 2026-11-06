@@ -33,6 +33,8 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - Every chat has a file folder. A project's chat uses the project folder, any other group chat gets its own folder under `data/rooms/`, and a direct chat uses the bot's `files/` folder.
 - A bot can now open only the folder of the chat it is replying in. A bot asked about a project from a direct chat or another room can no longer open or search that project's folder.
 - New owner-only Files API (`/api/rooms/:id/files`) to list, preview, download, upload (up to 25 MB), rename, move, delete and make folders. Paired phones cannot use it.
+- New Files panel. The folder icon at the top right of a chat opens the chat's folder beside it, or full screen on a phone. It has large tiles (folders, and files with a coloured type badge and their full name), a list view with size and modified date, breadcrumbs, previews (images, PDF, Markdown, text and code), download, upload (button or drag and drop), new folder, rename and delete with a confirmation. Keyboard: arrow keys, Enter, Backspace to go up, F2, Delete and Shift+F10. A link to a file in a message now opens it in Files. A screen you were watching stays connected while Files is open. A paired phone is told that Files open in the desktop app.
+- Desktop app: files dragged from Explorer now drop into the Files panel (the window no longer takes drops itself).
 
 ### Every group chat has a coordinator
 

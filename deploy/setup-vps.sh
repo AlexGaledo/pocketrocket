@@ -84,8 +84,9 @@ install -m 755 -o root -g root deploy/claude-update.sh /etc/cron.hourly/pocketro
 /etc/cron.hourly/pocketrocket-claude-update || echo "   (claude update failed; see: journalctl -t pocketrocket-claude-update)"
 
 echo "==> keep the service user's Claude Code transcripts (the CLI deletes them after 30 days; bots resume from them)"
-# Bot turns also pass cleanupPeriodDays as flag settings, and the hub adds it at start when it is missing; this
-# raises a lower value too, since on this machine the CLI belongs to PocketRocket alone.
+# Bot turns already pass cleanupPeriodDays as flag settings (providers/cliRetention.ts); the hub never edits this
+# file. This step covers everything else the CLI runs as this user, and raises a lower value too, since on this
+# machine the CLI belongs to PocketRocket alone.
 sudo -u "$APP_USER" -H python3 - <<'PY' || echo "   (could not update ~$APP_USER/.claude/settings.json; set cleanupPeriodDays to 3650 by hand)"
 import json, os
 d = os.path.expanduser('~/.claude')

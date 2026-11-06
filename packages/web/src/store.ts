@@ -84,7 +84,9 @@ export type HubIssue =
   | { kind: 'refused' };
 
 /** Toast key for an approval card, so it can be found by room (on opening it) or by approval (once answered). */
-const approvalToastKey = (roomId: string, approvalId: string) => 'approval:' + roomId + ':' + approvalId;
+/** The `filesRev` entry for one folder of one room. A room id holds no ':', so the key is unambiguous. */
+export const filesRevKey = (roomId: string, folder: string) => roomId + ':' + folder;
+const approvalToastKey =(roomId: string, approvalId: string) => 'approval:' + roomId + ':' + approvalId;
 
 /** The parts of Settings that live outside React: the sound engine and the `dark` class on <html>. */
 function applyLocalSettings(s: Settings) {
@@ -133,6 +135,17 @@ interface State {
   panelExpanded: boolean;
   /** Whose screen the user chose in a group chat. lib/screenView.ts says whose actually shows. */
   panelBotId: string | null;
+  /** What the right panel shows while open: the screen, or the room's files (components/files). */
+  panelKind: 'screen' | 'files';
+  /**
+   * Files was opened over a screen the user was watching. That viewer stays mounted, hidden, so its noVNC
+   * connection survives a look at the files; it is let go when the panel closes.
+   */
+  screenParked: boolean;
+  /** Where Files should go next: a folder, and a file in it to preview. `seq` makes the same link work twice. */
+  filesTarget: { roomId: string; path: string; file?: string; seq: number } | null;
+  /** Bumped per `filesRevKey(roomId, folder)` on `files.changed`, so an open folder refetches. */
+  filesRev: Record<string, number>;
   page: Page | null;
   dialog: { kind: 'bot'; bot: Bot | null } | { kind: 'room'; room: Room | null } | { kind: 'podium' } | { kind: 'search' } | { kind: 'profile' } | { kind: 'settings'; section?: SectionId } | null;
   toasts: Toast[];
@@ -191,6 +204,8 @@ interface State {
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
   openScreen: (botId?: string | null) => void;
+  /** Shows the active room's files in the right panel, optionally at a folder (and previewing a file in it). */
+  openFiles: (at?: { path: string; file?: string }) => void;
   openPage: (page: Page) => void;
   closePage: () => void;
   toggleSidebar: () => void;
@@ -234,6 +249,10 @@ export const useStore = create<State>((set, get) => ({
   paneW: readPaneWidths(window.innerWidth),
   panelExpanded: false,
   panelBotId: null,
+  panelKind: 'screen',
+  screenParked: false,
+  filesTarget: null,
+  filesRev: {},
   page: null,
   dialog: null,
   toasts: [],
@@ -430,6 +449,11 @@ export const useStore = create<State>((set, get) => ({
       case 'skills.changed':
         set({ skillsRev: s.skillsRev + 1 });
         return;
+      case 'files.changed': {
+        const key = filesRevKey(ev.roomId, ev.path);
+        set({ filesRev: { ...s.filesRev, [key]: (s.filesRev[key] ?? 0) + 1 } });
+        return;
+      }
       case 'training.changed':
         set({ trainingRev: { ...s.trainingRev, [ev.botId]: (s.trainingRev[ev.botId] ?? 0) + 1 } });
         return;
@@ -508,8 +532,20 @@ export const useStore = create<State>((set, get) => ({
   interrupt: (turnId) => {
     wsSend({ type: 'turn.interrupt', turnId });
   },
-  openScreen: (botId) => set({ panelOpen: true, panelBotId: botId === undefined ? get().panelBotId : botId }),
-  closePanel: () => set({ panelOpen: false }),
+  openScreen: (botId) => set({ panelOpen: true, panelKind: 'screen', screenParked: false, panelBotId: botId === undefined ? get().panelBotId : botId }),
+  openFiles: (at) => {
+    const s = get();
+    const roomId = s.activeRoomId;
+    set({
+      panelOpen: true,
+      panelKind: 'files',
+      // Expanded is a screen thing: files at 1200px wide would squeeze the chat for nothing.
+      panelExpanded: s.panelKind === 'files' ? s.panelExpanded : false,
+      screenParked: s.screenParked || (s.panelOpen && s.panelKind === 'screen'),
+      filesTarget: at && roomId ? { roomId, path: at.path, file: at.file, seq: (s.filesTarget?.seq ?? 0) + 1 } : s.filesTarget,
+    });
+  },
+  closePanel: () => set({ panelOpen: false, screenParked: false }),
   openPage: (page) => set({ page }),
   closePage: () => set({ page: null }),
   toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
@@ -523,7 +559,7 @@ export const useStore = create<State>((set, get) => ({
   },
   setPaneOpen: (pane, open) => {
     if (pane === 'sidebar') get().setSidebarOpen(open);
-    else if (open) get().openScreen();
+    else if (open) set({ panelOpen: true });
     else get().closePanel();
   },
   togglePanelExpanded: () => set((s) => ({ panelExpanded: !s.panelExpanded })),

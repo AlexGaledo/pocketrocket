@@ -26,6 +26,10 @@
   /* Bot icon backgrounds, always under --fg. lib/botIcon.ts picks one from the bot's id. */
   --tint-1: #e3e8f4; --tint-2: #e2eee6; --tint-3: #f2e8d9; --tint-4: #efe4ee;
   --tint-5: #dcecee; --tint-6: #e8e4f4; --tint-7: #f4e3de; --tint-8: #e9ebd9;
+  /* File types in the Files panel (components/files). Only on the extension badge and the glyph, never on text
+     runs: each is AA as a fill under --on-fill, and 3:1 as a shape on --bg. The folder is a shape only. */
+  --ft-doc: #2f5ea8; --ft-pdf: #b0362c; --ft-code: #6a43a6; --ft-image: #14707a;
+  --ft-data: #2b7034; --ft-archive: #86560f; --ft-media: #a1356a; --ft-other: #62615d; --ft-folder: #8f8778;
   --hover: rgba(50, 35, 10, 0.05);
   --active: rgba(50, 35, 10, 0.08);
   --shadow-sm: 0 1px 2px rgba(20, 16, 10, 0.05);
@@ -57,6 +61,8 @@
   --on-fill: #1c1c1b;
   --tint-1: #2d3647; --tint-2: #27372f; --tint-3: #40362a; --tint-4: #3a2e3a;
   --tint-5: #243a3d; --tint-6: #332f47; --tint-7: #43302a; --tint-8: #353928;
+  --ft-doc: #8fb2f2; --ft-pdf: #ff9c90; --ft-code: #c4a8ff; --ft-image: #6fd2da;
+  --ft-data: #8fd694; --ft-archive: #e8b864; --ft-media: #f59cc8; --ft-other: #b0afa9; --ft-folder: #7f7a6f;
   --hover: rgba(255, 255, 255, 0.06);
   --active: rgba(255, 255, 255, 0.10);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.18);
@@ -110,6 +116,15 @@
   --color-ink: var(--ink);
   --color-ink-fg: var(--ink-fg);
   --color-on-fill: var(--on-fill);
+  --color-ft-doc: var(--ft-doc);
+  --color-ft-pdf: var(--ft-pdf);
+  --color-ft-code: var(--ft-code);
+  --color-ft-image: var(--ft-image);
+  --color-ft-data: var(--ft-data);
+  --color-ft-archive: var(--ft-archive);
+  --color-ft-media: var(--ft-media);
+  --color-ft-other: var(--ft-other);
+  --color-ft-folder: var(--ft-folder);
   --color-hover: var(--hover);
   --color-active: var(--active);
   --radius-xs: var(--r-xs);
@@ -172,6 +187,12 @@ button { font-family: inherit; }
 body[data-pane-drag] { user-select: none; }
 body[data-pane-drag] * { cursor: col-resize !important; }
 body[data-pane-drag] iframe { pointer-events: none; }
+
+/* ---- Files panel (components/files) ---- */
+/* A big folder (up to 2,000 entries) lays out and paints only what is on screen; the size is the box it keeps
+   while skipped, so the scrollbar stays honest. */
+.file-tile { content-visibility: auto; contain-intrinsic-size: auto 132px; }
+.file-row { content-visibility: auto; contain-intrinsic-size: auto 40px; }
 
 /* ---- motion: three deliberate effects only ---- */
 @keyframes ring-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent); } 50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent) 28%, transparent); } }
