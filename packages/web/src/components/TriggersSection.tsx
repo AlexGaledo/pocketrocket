@@ -222,7 +222,7 @@ export function TriggersSection({ botId }: { botId: string | null }) {
                 <button className="min-w-0 flex-1 text-left" onClick={() => openEdit(t)}>
                   <div className="flex items-center gap-1 font-medium"><Zap size={11} className="shrink-0 text-accent" />{t.name}</div>
                   <div className="truncate text-muted">{TRIGGER_SOURCE_LABEL[t.source]} · {filterSummary(t)}</div>
-                  <div className="truncate text-muted">@{b?.handle} in {rm?.name}</div>
+                  <div className="truncate text-muted">{b ? '@' + b.handle : 'a deleted bot'} in {rm?.name ?? 'a deleted room'}</div>
                   {st && (
                     <div className="truncate text-dim">
                       {st.firesLastHour}/{t.maxPerHour} this hour · {fmtUsd(st.spentLastDayUsd)} of {fmtUsd(t.budgetUsd)} today

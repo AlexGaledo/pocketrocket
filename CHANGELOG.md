@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### UX fixes
+
+- The sidebar and the screen panel come back when the window grows past their breakpoint again, if shrinking it was what closed them. A pane you closed yourself stays closed.
+- A room whose coordinator bot was deleted no longer shows "coordinator @undefined" in its header; schedules and triggers for a deleted bot or room say so instead of "@undefined in".
+- The Podium's "Your assistant" star uses the theme's warning colour, so it reads right in light and dark.
+- Desktop: the app opens in a normal maximized window with its title bar and resize border instead of OS full screen. Alt+Enter and the tray menu still toggle full screen. Needs a new installer build to reach installed copies.
+
 ### Folder uploads
 
 - The Files panel uploads whole folders: an "Upload folder" button (hidden on iPhone, iPad and Android, which can't pick folders) and dropping folders onto the panel. The folder structure is kept under the folder you're in, empty folders included when dropped. A progress line shows "Uploading 12 of 340: path" with a Cancel that stops after the current file. Files already there are asked about once for the whole batch (Replace all, Skip existing, Cancel), and files over 25 MB are listed at the end instead of stopping the upload. A folder upload takes at most 1,000 files and 500 MB, and asks first above 200 files. `.git/`, `node_modules/`, `.DS_Store` and `Thumbs.db` are left out, and so are files that look like keys (`.env*` except `.env.example`, `*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*` and other SSH keys, `service-account*.json`), with a warning that lists them.
