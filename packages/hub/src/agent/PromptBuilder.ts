@@ -1,5 +1,5 @@
 import type { Bot, Room } from '@pocketrocket/shared';
-import { MAX_HOPS, WORKSPACE_DIR, botHome } from '../config.js';
+import { MAX_HOPS, WORKSPACE_DIR, WORKSPACE_WEB_URL, botHome } from '../config.js';
 import path from 'node:path';
 import { ownerTag, settings } from '../services/SettingsStore.js';
 import { MAX_VOICE_BYTES, capMemory } from '../services/MemoryService.js';
@@ -178,6 +178,7 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
     ...(ctx.browser
       ? [
           'Browser: mcp__browser__* tools (browser_navigate, browser_snapshot, browser_click, browser_type, browser_take_screenshot, ...) drive a real Chromium on ' + (ctx.computer ? 'your computer' : 'this computer') + ' that ' + USER_NAME + ' can watch and take over on the Screen tab. Its profile holds ' + USER_NAME + "'s real logged-in accounts. Prefer browser_snapshot (accessibility tree) over screenshots. Act deliberately: never change passwords or account settings, delete data, send messages/emails, post publicly, or make purchases unless the current instruction explicitly asks for that exact action. If a site needs a login you do not have, say so and let " + USER_NAME + ' log in on the Screen tab.',
+          'Opening workspace files in the browser: file:// URLs are blocked. Every file under ' + WORKSPACE_DIR + ' is served read-only at ' + WORKSPACE_WEB_URL + '<path relative to the workspace> (e.g. ' + WORKSPACE_WEB_URL + 'reports/chart.html); a folder URL lists its files. Use that to open or check HTML, images and PDFs you or other bots made.',
         ]
       : []),
     ...(ctx.desktop
