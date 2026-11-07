@@ -71,6 +71,9 @@ export const CLAUDE_EXE =
 
 export const HOST = '127.0.0.1';
 export const PORT = Number(process.env.PORT ?? 7788);
+/** Loopback-only, read-only view of WORKSPACE_DIR for the Browser tool (api/workspaceWeb.ts); file:// is blocked there. */
+export const WORKSPACE_WEB_PORT = Number(process.env.WORKSPACE_WEB_PORT ?? 7789);
+export const WORKSPACE_WEB_URL = 'http://127.0.0.1:' + WORKSPACE_WEB_PORT + '/';
 /** Explicit token from the environment (the desktop app sets one), or null when the hub must mint its own. */
 // `|| null`, not `?? null`: an empty POCKETROCKET_TOKEN means "unset", never "no token required".
 export const HUB_TOKEN = process.env.POCKETROCKET_TOKEN || null;
