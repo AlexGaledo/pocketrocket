@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { reconnectWsNow } from '../lib/ws';
 import { CHAT_RAIL_W, PANEL_INLINE_MIN, PANEL_SOLO_MIN, SIDEBAR_INLINE_MIN, applyPaneVars, paneLayout } from '../lib/panes';
+import { paneAutoStep } from '../lib/paneAutoClose';
 import { selectScreenSize } from '../lib/screenView';
 import { PaneSeparator } from './PaneSeparator';
 import { Sidebar } from './Sidebar';
@@ -37,6 +38,7 @@ export function App() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const closePanel = useStore((s) => s.closePanel);
+  const setPaneOpen = useStore((s) => s.setPaneOpen);
   const panelOpen = useStore((s) => s.panelOpen);
   const filesOpen = useStore((s) => s.panelOpen && s.panelKind === 'files');
   const screenParked = useStore((s) => s.screenParked);
@@ -109,14 +111,19 @@ export function App() {
   }, [squeezed]);
 
   // Shrinking the window past a breakpoint closes that side rather than dropping an open drawer over the
-  // chat. Only on the change itself; the store already starts both closed on a narrow window.
-  const wasInline = useRef({ sidebar: sidebarInline, panel: panelInline });
+  // chat, and growing back past it reopens what that shrink closed (lib/paneAutoClose.ts). Only on the change
+  // itself; the store already starts both closed on a narrow window. Open state is read from the store because
+  // the squeezed effect above may have just changed it; it is a dependency so a user's open is seen too.
+  const auto = useRef({ sidebar: { inline: sidebarInline, autoClosed: false }, panel: { inline: panelInline, autoClosed: false } });
   useEffect(() => {
-    const was = wasInline.current;
-    if (was.sidebar && !sidebarInline && useStore.getState().sidebarOpen) setSidebarOpen(false);
-    if (was.panel && !panelInline && useStore.getState().panelOpen) closePanel();
-    wasInline.current = { sidebar: sidebarInline, panel: panelInline };
-  }, [sidebarInline, panelInline, setSidebarOpen, closePanel]);
+    const s = useStore.getState();
+    const side = paneAutoStep(auto.current.sidebar, sidebarInline, s.sidebarOpen);
+    const pane = paneAutoStep(auto.current.panel, panelInline, s.panelOpen);
+    auto.current = { sidebar: side.next, panel: pane.next };
+    if (side.act) setSidebarOpen(side.act === 'open');
+    if (pane.act === 'close') closePanel();
+    else if (pane.act === 'open') setPaneOpen('panel', true);
+  }, [sidebarInline, panelInline, sidebarOpen, panelOpen, setSidebarOpen, closePanel, setPaneOpen]);
 
   // The screen gets the room while the user drives it, and Hand back puts the sidebar back as it was. Written
   // to the store directly so it isn't saved as the user's preference.

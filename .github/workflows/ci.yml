@@ -42,6 +42,9 @@ jobs:
       - name: PC runner tests
         run: node --test "scripts/pc-runner/*.test.mjs"
 
+      - name: Web logic tests
+        run: node --test "packages/web/test/*.test.mjs"
+
       - name: Syntax-check the kill switch
         run: bash -n deploy/keys.sh
 

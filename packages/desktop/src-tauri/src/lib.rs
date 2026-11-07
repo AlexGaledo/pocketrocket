@@ -957,7 +957,8 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-/// Full screen is how the app opens, and a full screen window has no title bar to minimize or drag it by.
+/// The app opens maximized with its title bar; full screen is opt-in, and a full screen window has no title bar
+/// to minimize or drag it by, so this is how the user gets back out.
 fn toggle_fullscreen(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let on = w.is_fullscreen().unwrap_or(false);

@@ -74,6 +74,8 @@ export function ChatPane() {
   // P2: in a group, say which bots' screens the user holds or paused.
   const filesShown = panelOpen && panelKind === 'files';
   const screenShown = panelOpen && panelKind === 'screen';
+  // A deleted coordinator leaves its id on the room; no badge rather than "@undefined".
+  const coordinator = room.coordinatorBotId ? botById(bots, room.coordinatorBotId) : undefined;
   const held = room.kind === 'group' ? members.filter((m) => (control[m.id]?.control ?? 'agent') !== 'agent') : [];
 
   return (
@@ -88,7 +90,7 @@ export function ChatPane() {
                 ? <button type="button" className="min-w-24 truncate rounded-xs text-left text-body font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" title="Group details" onClick={() => openDialog({ kind: 'room', room })}>{room.name}</button>
                 : <span className="min-w-24 truncate text-body font-semibold">{room.name}</span>}
             <span className="flex min-w-0 items-center gap-2 overflow-hidden @max-[640px]:hidden">
-              {room.coordinatorBotId && <Badge tone="accent">coordinator @{botById(bots, room.coordinatorBotId)?.handle}</Badge>}
+              {coordinator && <Badge tone="accent">coordinator @{coordinator.handle}</Badge>}
               {held.map((m) => <Badge key={m.id} tone="warn">@{m.handle} {control[m.id]?.control === 'paused' ? 'paused' : 'screen: you'}</Badge>)}
             </span>
           </div>
