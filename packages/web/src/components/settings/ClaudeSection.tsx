@@ -4,7 +4,7 @@
  * developer build enables more than one.
  */
 import { useEffect, useState } from 'react';
-import { AUTO_MODEL_INFO, MAX_ROUTING_BYTES, MODELS } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, HEAVY_MODEL_HINT, MAX_ROUTING_BYTES, MODELS, isHeavyModel, modelOptionLabel } from '@pocketrocket/shared';
 import type { ModelInfo, ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
@@ -59,13 +59,15 @@ export function ClaudeSection() {
             <Label hint="New bots start with this">Default model</Label>
             <Select value={settings.defaultModel} onChange={(e) => void updateSettings({ defaultModel: e.target.value })}>
               {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>
+                <option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>
               ))}
               {/* Keep an unknown saved value visible instead of silently showing the first option. */}
               {!models.some((m) => m.id === settings.defaultModel) && <option value={settings.defaultModel}>{settings.defaultModel}</option>}
             </Select>
           </Field>
-          <p className="mt-2 text-hint text-muted">Each bot can override this.</p>
+          <p className="mt-2 text-hint text-muted">
+            Each bot can override this.{isHeavyModel(settings.defaultModel) && ' This model ' + HEAVY_MODEL_HINT + '; Sonnet or Auto suits most bots.'}
+          </p>
         </Card>
       </Group>
 

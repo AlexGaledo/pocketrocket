@@ -9,7 +9,7 @@ export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' |
 // 'Browser' and 'Desktop' are not Claude Code built-ins: Browser = Playwright MCP attached to the shared screen
 // Chromium; Desktop = screenshot/click/type on the virtual desktop (computer use).
 export const BUILTIN_TOOLS = [
-  'Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'Browser', 'Desktop', 'NotebookEdit', 'Skill',
+  'Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'Browser', 'Desktop', 'NotebookEdit', 'Skill', 'Task',
 ] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 
@@ -255,13 +255,24 @@ export interface HealthInfo {
  * It always picks from the active provider's own list and never changes the bot's budget.
  */
 export const AUTO_MODEL = 'auto';
-export const AUTO_MODEL_INFO = { id: AUTO_MODEL, label: 'Auto', note: 'moves up when needed' } as const;
+export const AUTO_MODEL_INFO = { id: AUTO_MODEL, label: 'Auto', note: 'Sonnet, moves up when needed' } as const;
+
+/** What a model picker says next to Opus-class models. No multiplier: the real ratio depends on the plan. */
+export const HEAVY_MODEL_HINT = 'uses your plan limit much faster';
+/** True for the models that eat a subscription's usage limit fastest (Opus and above), on any provider. */
+export const isHeavyModel = (id: string): boolean => /opus|fable/i.test(id);
+/** A picker option's text: label, note, and the cost hint on a heavy model unless the note already says it. */
+export function modelOptionLabel(m: { id: string; label: string; note?: string }): string {
+  const hint = isHeavyModel(m.id) && !/plan limit/i.test(m.note ?? '') ? HEAVY_MODEL_HINT : '';
+  const extra = [m.note, hint].filter(Boolean).join(', ');
+  return m.label + (extra ? ' — ' + extra : '');
+}
 
 /** What the composer's picker offers (Claude only; other providers keep each bot's own model). */
 export const CHAT_MODELS = [
   { id: AUTO_MODEL, label: 'Auto', note: 'Sonnet 5, moves up when needed' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'Everyday work' },
-  { id: 'claude-opus-5', label: 'Opus 5', note: 'Hard problems, uses more of your plan' },
+  { id: 'claude-opus-5', label: 'Opus 5', note: 'Hard problems, ' + HEAVY_MODEL_HINT },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku', note: 'Quick checks' },
 ] as const;
 export const isChatModel = (v: unknown): boolean => CHAT_MODELS.some((m) => m.id === v);

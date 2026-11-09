@@ -102,17 +102,18 @@ describe('BotRunner routes auto bots per turn', () => {
     expect(usageRows(s.repos)[0]).toMatchObject({ model: 'claude-opus-5', route_reason: 'pinned', cause_kind: 'routine' });
   });
 
-  it('escalates the step-limit continuation to Opus, logs it, and never raises the budget', async () => {
+  it('keeps the step-limit continuation on the same tier and never raises the budget', async () => {
     const s = setup([{ error: 'error_max_turns', costUsd: 0.5 }, { ok: true, text: 'done', costUsd: 0.25 }], { maxBudgetUsd: 2 });
     const r = await s.turn({ causeBudgetUsd: 1.5 });
-    expect(s.provider.seen.map((c) => c.model)).toEqual(['claude-sonnet-5', 'claude-opus-5']);
+    // No Opus replay of the turn's largest context: running out of steps is not a reasoning failure.
+    expect(s.provider.seen.map((c) => c.model)).toEqual(['claude-sonnet-5', 'claude-sonnet-5']);
     // min(bot budget, cause budget) first, then what is left of it: the same numbers a pinned bot gets.
     expect(s.provider.seen.map((c) => c.maxBudgetUsd)).toEqual([1.5, 1.0]);
     for (const c of s.provider.seen) expect(c.maxBudgetUsd).toBeLessThanOrEqual(s.bot.maxBudgetUsd);
-    expect(r).toMatchObject({ ok: true, model: 'claude-opus-5', modelReason: 'Auto: Opus after the step limit (retry)' });
-    expect(usageRows(s.repos).map((u) => u.route_reason)).toEqual(['default', 'retry']);
+    expect(r).toMatchObject({ ok: true, model: 'claude-sonnet-5' });
+    expect(usageRows(s.repos).map((u) => u.route_reason)).toEqual(['default', 'default']);
     const notes = s.repos.listMessages(s.room.id).filter((m) => m.kind === 'system').map((m) => m.text);
-    expect(notes.some((t) => t.includes('continuing (1/') && t.includes('escalated by the model router'))).toBe(true);
+    expect(notes.some((t) => t.includes('continuing (1/') && !t.includes('escalated'))).toBe(true);
   });
 
   it('gives a pinned bot the same budgets on continuation, with no escalation', async () => {
@@ -120,7 +121,8 @@ describe('BotRunner routes auto bots per turn', () => {
     await s.turn();
     expect(s.provider.seen).toHaveLength(1 + MAX_TURN_CONTINUATIONS);
     expect(new Set(s.provider.seen.map((c) => c.model))).toEqual(new Set(['claude-sonnet-5']));
-    expect(s.provider.seen.map((c) => c.maxBudgetUsd)).toEqual([2, 1.5, 1]);
+    // Each continuation gets what is left: 2, then 1.5, then 1 ... for as many as MAX_TURN_CONTINUATIONS allows (1 now).
+    expect(s.provider.seen.map((c) => c.maxBudgetUsd)).toEqual([2, 1.5, 1].slice(0, 1 + MAX_TURN_CONTINUATIONS));
   });
 
   it('records what the opt-in classifier cost against the same cause', async () => {

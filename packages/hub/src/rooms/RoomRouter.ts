@@ -11,6 +11,7 @@ import type { AutoMemory } from '../services/AutoMemory.js';
 import { parseMentions } from './mentions.js';
 import { triggerText } from './untrusted.js';
 import { logError } from '../providers/redact.js';
+import { hopBudgetLine, rosterText } from '../agent/PromptBuilder.js';
 
 interface LaneItem {
   causeId: string;
@@ -81,6 +82,14 @@ export function capBacklog(lines: string[], maxMessages = BACKLOG_MAX_MESSAGES, 
 export class RoomRouter {
   private lanes = new Map<string, Lane>();
   private states = new Map<string, Map<string, BotState>>(); // botId -> roomId -> state
+  /**
+   * botId:roomId -> the roster that bot's session last saw, and which session. The roster rides the injected
+   * message only on a fresh session or when it changed, never in the cached system prompt. In memory only:
+   * after a restart every bot is shown it once more.
+   */
+  private rosterSeen = new Map<string, { roster: string; sessionId: string }>();
+  /** botId:roomId -> the bots a running turn already woke with a tool (handoff, send_message) on its own thread. */
+  private toolDispatched = new Map<string, { causeId: string; botIds: Set<string> }>();
   private runningTurns = 0;
   private waiters: (() => void)[] = [];
   runner!: BotRunner;
@@ -202,6 +211,9 @@ export class RoomRouter {
     }
     const seq = this.repos.maxSeq(room.id);
     for (const t of valid) this.enqueue(t, room, { causeId: req.causeId, hop, triggerSeq: seq, causeKind: 'bot', onDone });
+    // Called from a running turn's tool: note who it woke, so its final message does not wake them again.
+    const running = this.toolDispatched.get(req.bot.id + ':' + room.id);
+    if (running?.causeId === req.causeId) for (const t of valid) running.botIds.add(t.id);
     return valid.map((v) => v.handle);
   }
 
@@ -244,6 +256,9 @@ export class RoomRouter {
         let req: TurnRequest;
         let startSeq: number;
         let result: TurnResult;
+        let shownRoster: string | null = null;
+        let sessionBefore: string | null = null;
+        const wokeByTool = new Set<string>();
         try {
           // The cost cap covers every cause (user message, routine, later triggers), not only bot hops: a
           // trigger whose thread already spent the cap is dropped with a note instead of starting a turn,
@@ -254,10 +269,18 @@ export class RoomRouter {
           const causeId = items[0].causeId;
           const session = this.repos.getSession(bot.id, room.id);
           startSeq = this.repos.maxSeq(room.id);
+          const members = this.members(room);
           const notes = [...new Set(items.map((i) => i.note).filter((n): n is string => !!n))];
           const handBack = this.control?.takeNote(bot.id);
           if (handBack) notes.push(handBackNote(handBack));
-          const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq)) + (notes.length ? '\n\n' + notes.join('\n') : '');
+          // What changes from turn to turn (hop budget, roster) ends the input; the system prompt stays cacheable.
+          const roster = rosterText(members, bot.id);
+          const seen = this.rosterSeen.get(key);
+          shownRoster = !session.sdkSessionId || !seen || seen.roster !== roster || seen.sessionId !== session.sdkSessionId ? roster : null;
+          const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq)) +
+            (notes.length ? '\n\n' + notes.join('\n') : '') +
+            '\n\n(' + hopBudgetLine(hop) + ')' + (shownRoster ? '\n' + shownRoster : '');
+          this.toolDispatched.set(key, { causeId, botIds: wokeByTool });
           // P5: a trigger item also brings its own remaining daily budget; the turn gets the tighter of the two.
           const causeBudgetUsd = Math.min(CAUSE_COST_CAP_USD - this.usage.causeCost(causeId), ...items.map((i) => i.budgetUsd ?? Infinity));
           // A person's message in the batch outranks automation, so a routine never drags a reply down to triage.
@@ -272,11 +295,18 @@ export class RoomRouter {
           const routinePrompt = cause?.kind === 'routine' ? cause.text : undefined;
           // The composer's pick is for what a person starts here. Hand-offs and schedules keep each bot's own model.
           const chatModel = items.some((i) => i.causeKind === 'user' && i.hop === 0) ? room.chatModel ?? undefined : undefined;
-          req = { bot, room, members: this.members(room), hop, causeId, injected, latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
+          req = { bot, room, members, hop, causeId, injected, latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
+          sessionBefore = session.sdkSessionId;
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
+          this.toolDispatched.delete(key);
         }
+        // Remember which session has seen which roster. A roster sent this turn reached whatever session the turn
+        // ended on (a fresh or rotated one included); a session that changed without one has not seen any.
+        const sessionAfter = this.repos.getSession(bot.id, room.id).sdkSessionId;
+        if (shownRoster && result.ok && sessionAfter) this.rosterSeen.set(key, { roster: shownRoster, sessionId: sessionAfter });
+        else if (shownRoster || sessionAfter !== sessionBefore) this.rosterSeen.delete(key);
         // Shutting down: the hub interrupted the turn, it did not finish. Leave its journal rows (and the
         // session cursor) alone so the next start resumes it (services/FollowUp.ts).
         if (this.frozen) return;
@@ -293,7 +323,9 @@ export class RoomRouter {
         if (result.ok && result.finalText && !left) {
           // re-read members: the turn may have created or added bots
           const freshRoom = this.repos.getRoom(roomId) ?? room;
-          const targets = parseMentions(result.finalText, this.members(freshRoom), bot.id);
+          // A bot this turn already woke with handoff or send_message is not woken again because the final message
+          // names it too ("handed this to @x"): that second turn costs a full context load for nothing new.
+          const targets = parseMentions(result.finalText, this.members(freshRoom), bot.id).filter((t) => !wokeByTool.has(t.id));
           if (targets.length) this.dispatchFromBot({ ...req, room: freshRoom }, targets);
         }
       }

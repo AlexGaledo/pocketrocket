@@ -471,3 +471,27 @@ registerMigrations([160, 169], [
     },
   },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+// Token efficiency (agent/BotRunner.ts, services/SessionRotation.ts). Per (bot, room) session:
+//   cost_total         the SDK's cumulative total_cost_usd last reported for this session (it is cumulative across
+//                      resumes), so a turn's own cost is the difference; NULL on rows from before this migration.
+//   context_tokens     input size of the last top-level model call of the last turn; NULL = unknown, which makes a
+//   context_at         resumed legacy session rotate once. context_at is when it was measured (idle check).
+//   memory_snapshot    memory.md and identity as they were when the session started, so the system prompt stays
+//   identity_snapshot  byte-identical (prompt-cache hits) across resumed turns.
+//   summary            the hub's running summary of the room, written when a session rotates and replayed into the next.
+registerMigrations([170, 179], [
+  {
+    version: 170,
+    name: 'sessions: cost_total, context_tokens, context_at, memory/identity snapshot, summary',
+    up: (db) => {
+      addColumnIfMissing(db, 'sessions', 'cost_total', 'REAL');
+      addColumnIfMissing(db, 'sessions', 'context_tokens', 'INTEGER');
+      addColumnIfMissing(db, 'sessions', 'context_at', 'INTEGER');
+      addColumnIfMissing(db, 'sessions', 'memory_snapshot', 'TEXT');
+      addColumnIfMissing(db, 'sessions', 'identity_snapshot', 'TEXT');
+      addColumnIfMissing(db, 'sessions', 'summary', 'TEXT');
+    },
+  },
+]);
