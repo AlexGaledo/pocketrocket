@@ -88,6 +88,12 @@ export function isStaleSessionError(error: string | undefined): boolean {
   return !!error && /no conversation found with session id/i.test(error);
 }
 
+/** A narration block as a one-line status note: its first line, capped so the status chip stays short. */
+export function narrationNote(text: string): string {
+  const line = text.trim().split('\n')[0].trim();
+  return line.length > 140 ? line.slice(0, 139).trimEnd() + '…' : line;
+}
+
 export interface RunnerHooks {
   /** Route mentions produced mid-turn (send_message / handoff tools). Returns handles dispatched. */
   dispatchFromBot: (req: TurnRequest, targets: Bot[], onDone?: (r: TurnResult) => void) => string[];
@@ -462,6 +468,24 @@ export class BotRunner {
     const texts: string[] = [];
     const toolMsgIds = new Map<string, string>();
     let lastMessageId: string | undefined;
+    // Text is held, not posted, until we know what follows it. A text block followed by a tool call is
+    // narration ("Let's click the mascot to test…") — posting each one turned a browser test into dozens of
+    // room messages. It becomes the bot's status note instead. Text with no tool call after it is the reply,
+    // posted when the turn ends. Only replies count toward finalText, so narration can't @mention-wake bots.
+    let pending: string | undefined;
+    const postText = (text: string) => {
+      texts.push(text);
+      const msg = this.repos.insertMessage({
+        roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'text', text, payload: null,
+        causeId: req.causeId, hop: req.hop, turnId, model: route.model, modelReason: route.detail,
+      });
+      lastMessageId = msg.id;
+      events.emitEvent({ type: 'message.new', message: msg });
+    };
+    const flushPending = () => {
+      if (pending !== undefined) postText(pending);
+      pending = undefined;
+    };
 
     const sink: TurnSink = {
       onInit: (info) => { this.lastInit = info; },
@@ -472,18 +496,17 @@ export class BotRunner {
       onText: (text) => {
         // NO_REPLY is the sentinel a bot uses to stay silent; swallow it instead of posting it.
         if (/^\W*NO_REPLY\W*$/.test(text.trim())) {
+          pending = undefined; // the bot chose silence: whatever it was about to say goes too
           events.emitEvent({ type: 'bot.state', botId: bot.id, state: 'done', roomId: room.id, note: 'no reply' });
           return;
         }
-        texts.push(text);
-        const msg = this.repos.insertMessage({
-          roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'text', text, payload: null,
-          causeId: req.causeId, hop: req.hop, turnId, model: route.model, modelReason: route.detail,
-        });
-        lastMessageId = msg.id;
-        events.emitEvent({ type: 'message.new', message: msg });
+        pending = pending === undefined ? text : pending + '\n\n' + text;
       },
       onToolUse: (id, name, input) => {
+        if (pending !== undefined) {
+          setState('working', narrationNote(pending));
+          pending = undefined;
+        }
         if (computer?.perBot && (name.startsWith('mcp__browser__') || name.includes('desktop_'))) this.computers!.touch(bot.id);
         const payload: ToolPayload = { toolUseId: id, name, input, done: false };
         const msg = this.repos.insertMessage({
@@ -505,6 +528,15 @@ export class BotRunner {
       onState: (s) => setState(s),
     };
 
+    // Post the held reply as soon as each run returns, not after the turn's bookkeeping: a hand-off started in
+    // this run can finish first, and its result must not land above the reply that announced it.
+    const runProvider = async (c: TurnContext, k: TurnSink) => {
+      try {
+        return await provider.runTurn(c, k);
+      } finally {
+        flushPending();
+      }
+    };
     this.activeTurns.add(turnId);
     this.aborts.set(turnId, ac);
     this.laneTurns.set(bot.id + ':' + room.id, turnId);
@@ -534,7 +566,7 @@ export class BotRunner {
       const removed = room.memberIds.includes(bot.id) && !this.repos.getRoom(room.id)?.memberIds.includes(bot.id);
       let outcome: TurnOutcome = removed
         ? { ok: false, error: 'removed from this chat', costUsd: 0, usage: EMPTY_USAGE, durationMs: 0 }
-        : await provider.runTurn(ctx, sink);
+        : await runProvider(ctx, sink);
       const record = (o: TurnOutcome) => {
         costUsd += o.costUsd;
         cacheRead += o.usage.cacheReadTokens;
@@ -566,7 +598,7 @@ export class BotRunner {
         setState('thinking');
         // The lost session's recent messages carry over, as on a rotation (unless this turn already seeded them).
         const lostSeed = seed ? '' : buildSeed(this.repos, room.id, session.lastSeenSeq, { summary: state.summary, roomNotes: readRoomNotes(folder?.dir) });
-        outcome = await provider.runTurn(
+        outcome = await runProvider(
           { ...ctx, ...nextRun(), input: lostSeed ? lostSeed + '\n\n' + ctx.input : ctx.input, resumeToken: null, maxBudgetUsd: budgetUsd - costUsd },
           sink,
         );
@@ -595,7 +627,7 @@ export class BotRunner {
         }
         route = next;
         setState('working');
-        outcome = await provider.runTurn(
+        outcome = await runProvider(
           {
             ...ctx,
             ...nextRun(),
@@ -640,7 +672,7 @@ export class BotRunner {
         });
         events.emitEvent({ type: 'message.new', message: note });
         setState('working');
-        outcome = await provider.runTurn(
+        outcome = await runProvider(
           {
             ...ctx,
             ...nextRun(),
@@ -672,6 +704,7 @@ export class BotRunner {
       releaseComputer();
     }
 
+    flushPending();
     if (parkedWhy) {
       // Not a failure: the bot is waiting on the user, and a new turn picks it up with their answer.
       const msg = this.repos.insertMessage({
