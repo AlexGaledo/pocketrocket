@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { z } from 'zod';
-import { BOT_ICON_KEYS, MAX_ROOM_BOTS, isMediaRef } from '@pocketrocket/shared';
+import { AUTO_MODEL, BOT_ICON_KEYS, DEFAULT_MODEL, MAX_ROOM_BOTS, isMediaRef } from '@pocketrocket/shared';
 import type { Bot, Room, HandoffPayload, HandoffResultPayload } from '@pocketrocket/shared';
 import { MAX_HOPS, WORKSPACE_DIR, botRoots } from '../config.js';
 import type { Repos } from '../db/repos.js';
@@ -62,9 +62,16 @@ export interface ToolCtx {
   /** The card for a first hand-off to a bot outside this chat. Absent in unit tests, where it goes through. */
   confirmOutsideHandoff?: (a: { input: { to_bot: string; task: string; context?: string }; reason: string }) => Promise<{ allowed: boolean; message: string }>;
   // ---- Auto routing ----
-  /** Present on a turn that may move itself up. False when it already asked. Adds `use_stronger_model`. */
-  useStrongerModel?: (reason: string) => boolean;
-  /** Present on a turn the owner started. Adds `propose_routing_change`; the line goes in only if they approve it. */
+  /**
+   * Adds `use_stronger_model`. True = approved; false = it already asked on this turn; a string = why this turn may
+   * not move up. Offered on every Claude turn and refused here, so the tool list (which sits ahead of the system
+   * prompt in the prompt cache) stays the same from turn to turn.
+   */
+  useStrongerModel?: (reason: string) => boolean | string;
+  /**
+   * Adds `propose_routing_change`; the line goes in only if the owner approves it. Offered whenever routing rules
+   * exist, for the same cache reason, and refused inside on a turn the owner did not start.
+   */
   proposeRouting?: (line: string, reason: string) => Promise<{ ok: boolean; message: string }>;
   // ---- P3: routine tools ----
   /** Reschedule after a routine tool changed the table (RoutineScheduler.reload). Absent in unit tests. */
@@ -206,6 +213,17 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     !m || !ctx.models.length || ctx.models.includes(m)
       ? null
       : err('Unknown model "' + m + '" for the active provider. Available: ' + ctx.models.join(', ') + '.');
+  /**
+   * A new bot's model when create_bot names none: the provider's default (Sonnet on Claude), never the creator's.
+   * An Opus lead must not quietly fill a room with Opus workers; they burn the owner's plan limit much faster.
+   * Another provider's list has no Sonnet id, so it gets Auto (its own default tier per turn); with no list at all
+   * there is nothing to check against, so it keeps the creator's model.
+   */
+  const newBotModel = () =>
+    ctx.models.includes(DEFAULT_MODEL) || (!ctx.models.length && settings.get().provider === 'claude') ? DEFAULT_MODEL
+      : ctx.models.includes(AUTO_MODEL) ? AUTO_MODEL
+      : ctx.bot.model;
+  const MODEL_GUIDE = ' Pick the cheapest model that does the job: Sonnet for most workers, Haiku for routine or simple bots. Opus uses up the plan limit much faster: only when ' + userName + ' asks for it, or for a lead/planner that truly needs it.';
 
   const sendMessage = hubTool(
     'send_message',
@@ -448,22 +466,23 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       avatar: z.enum(BOT_ICON_KEYS).optional().describe('Icon name. Leave it out and the app picks one.'),
       tools: z.array(z.enum(['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'])).optional().describe('Default: all of them'),
       join_this_room: z.boolean().optional().describe('Add the bot to the current room (group chats only). Default true'),
-      model: z.string().optional().describe('Model for the new bot. Default: same as yours.' + modelHint),
+      model: z.string().optional().describe('Model for the new bot. Default: the provider default (Sonnet), not yours.' + MODEL_GUIDE + modelHint),
     },
     async (a) => {
       if (ctx.repos.listBots().length >= 50) return err('Bot limit reached (50).');
       if (ctx.repos.getBotByHandle(a.handle)) return err('Handle @' + a.handle + ' already exists. Use add_to_room to bring an existing bot in, or pick another handle.');
       const bad = checkModel(a.model);
       if (bad) return bad;
+      const model = a.model ?? newBotModel();
       const denied = await gate(
         'create_bot',
         'Create bot @' + a.handle + ' (' + a.name + ')' + (a.title ? ' — ' + a.title : '') +
           ', tools: ' + (a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch']).join('/') +
-          ', model: ' + (a.model ?? ctx.bot.model),
+          ', model: ' + model,
         a as unknown as Record<string, unknown>,
       );
       if (denied) return denied;
-      const bot = ctx.repos.createBot({ name: a.name, handle: a.handle, title: a.title, description: a.description, avatar: a.avatar ?? '', model: a.model ?? ctx.bot.model, allowedTools: a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'], maxBudgetUsd: ctx.bot.maxBudgetUsd });
+      const bot = ctx.repos.createBot({ name: a.name, handle: a.handle, title: a.title, description: a.description, avatar: a.avatar ?? '', model, allowedTools: a.tools ?? ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'], maxBudgetUsd: ctx.bot.maxBudgetUsd });
       ctx.memory.ensureHome(bot.id);
       ctx.memory.writeIdentity(bot.id, a.description);
       events.emitEvent({ type: 'bots.changed', bots: ctx.repos.listBots() });
@@ -580,7 +599,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       title: z.string().max(80).optional(),
       description: z.string().min(10).max(4000).optional().describe('New role instructions (full replacement)'),
       avatar: z.enum(BOT_ICON_KEYS).optional().describe('Icon name'),
-      model: z.string().optional().describe('Model id.' + modelHint),
+      model: z.string().optional().describe('Model id.' + MODEL_GUIDE + modelHint),
       tools: z.array(TOOL_ENUM).optional().describe('Full replacement of the allowed tool list'),
       max_budget_usd: z.number().min(0.05).max(50).optional().describe('Budget per turn'),
     },
@@ -775,9 +794,13 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       'use_stronger_model',
       'Move this turn up to the stronger model for hard work. You continue in this same session, for this turn only. Make no more tool calls after it: reply with exactly NO_REPLY, and you carry on from there on the stronger model.',
       { reason: z.string().min(3).max(200).describe('Why, in a few words. Shown in the chat.') },
-      async (a) => text(move(a.reason)
-        ? 'Approved. Make no more tool calls now: reply with exactly NO_REPLY. You continue where you left off on the stronger model.'
-        : 'You already asked for this on this turn.'),
+      async (a) => {
+        const r = move(a.reason);
+        if (typeof r === 'string') return err(r);
+        return text(r
+          ? 'Approved. Make no more tool calls now: reply with exactly NO_REPLY. You continue where you left off on the stronger model.'
+          : 'You already asked for this on this turn.');
+      },
     ));
   }
   if (ctx.proposeRouting) {

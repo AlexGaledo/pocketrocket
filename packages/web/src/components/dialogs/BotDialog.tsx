@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AUTO_MODEL_INFO, BUILTIN_TOOLS, MODELS, DEFAULT_MODEL, isBotIconKey, isMediaRef, type Bot, type BotInput } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, BUILTIN_TOOLS, HEAVY_MODEL_HINT, MODELS, DEFAULT_MODEL, isBotIconKey, isHeavyModel, modelOptionLabel, isMediaRef, type Bot, type BotInput } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
 import { iconGlyph } from '../../lib/botIcon';
@@ -87,7 +87,7 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
         <Textarea rows={5} value={f.description} onChange={(e) => set({ description: e.target.value })} placeholder="What it does, and what to avoid." />
       </Field>
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field><Label>Model</Label><Select value={f.model} onChange={(e) => set({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>)}</Select></Field>
+        <Field><Label>Model</Label><Select value={f.model} onChange={(e) => set({ model: e.target.value })}>{models.map((m) => <option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>)}</Select>{isHeavyModel(f.model) && <p className="mt-1 text-hint text-muted">This model {HEAVY_MODEL_HINT}. Sonnet or Auto suits most bots.</p>}</Field>
         <Field><Label hint="stops a runaway reply">Usage limit per reply (API-price USD)</Label><Input type="number" step="0.5" min="0.05" value={f.maxBudgetUsd} onChange={(e) => set({ maxBudgetUsd: Number(e.target.value) })} /></Field>
       </div>
       <div className="mt-3">

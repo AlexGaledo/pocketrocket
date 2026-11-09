@@ -340,7 +340,7 @@ export const useStore = create<State>((set, get) => ({
         if (m.roomId !== s.activeRoomId && m.authorType !== 'user' && (m.kind === 'text' || m.kind === 'approval' || m.kind === 'takeover')) unread[m.roomId] = (unread[m.roomId] ?? 0) + 1;
         // a bot text message replaces its in-flight stream buffer for that turn
         const streaming = { ...s.streaming };
-        if (m.turnId && m.kind === 'text' && streaming[m.turnId]) streaming[m.turnId] = { ...streaming[m.turnId], text: '' };
+        if (m.turnId && (m.kind === 'text' || m.kind === 'tool') && streaming[m.turnId]) streaming[m.turnId] = { ...streaming[m.turnId], text: '' };
         set({ messages: { ...s.messages, [m.roomId]: [...list, m] }, unread, streaming });
         if (m.authorType === 'bot' && m.kind === 'text') {
           if (m.authorId && m.text) set({ previews: { ...get().previews, [m.authorId]: { text: m.text.slice(0, 200), at: m.createdAt } } });

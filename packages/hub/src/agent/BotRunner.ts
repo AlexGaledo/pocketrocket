@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
-import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
+import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
 import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -17,7 +17,7 @@ import { buildSystemPrompt } from './PromptBuilder.js';
 import type { PcRunner } from '../services/PcRunner.js';
 import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
-import { ModelRouter, canUpgrade, type RouteChoice, type RouteRequest } from './ModelRouter.js';
+import { ModelRouter, canUpgrade, isAuto, type RouteChoice, type RouteRequest } from './ModelRouter.js';
 import type { RoutingRules } from '../services/RoutingRules.js';
 import { desktopTools, SHARED_BROWSER_NOTE, SHARED_TAB_NOTE, viewScreenTool } from './desktopTools.js';
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
@@ -34,6 +34,8 @@ import { outsideMcpFor, registerOutsideMcpSecrets, vpsMountable } from '../servi
 import { loadKeyRegistry } from '../services/keyRegistry.js';
 import { computerToolGuard } from '../permissions/controlInterlock.js';
 import type { MediaStore } from '../services/MediaStore.js';
+import { AUTO_MEMORY_MODEL, runPass, type PassOutcome } from '../services/AutoMemory.js';
+import { buildSeed, buildSummaryPrompt, cleanSummary, readRoomNotes, rotationNote, rotationReason, SUMMARY_SYSTEM_PROMPT } from '../services/SessionRotation.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -86,6 +88,12 @@ export function isStaleSessionError(error: string | undefined): boolean {
   return !!error && /no conversation found with session id/i.test(error);
 }
 
+/** A narration block as a one-line status note: its first line, capped so the status chip stays short. */
+export function narrationNote(text: string): string {
+  const line = text.trim().split('\n')[0].trim();
+  return line.length > 140 ? line.slice(0, 139).trimEnd() + '…' : line;
+}
+
 export interface RunnerHooks {
   /** Route mentions produced mid-turn (send_message / handoff tools). Returns handles dispatched. */
   dispatchFromBot: (req: TurnRequest, targets: Bot[], onDone?: (r: TurnResult) => void) => string[];
@@ -118,6 +126,8 @@ export class BotRunner {
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
   pcRunner?: PcRunner;
+  /** The one-shot Haiku call that writes the running room summary when a session rotates. Tests replace it. */
+  summarize: (prompt: string, systemPrompt: string) => Promise<PassOutcome> = runPass;
 
   constructor(
     private repos: Repos,
@@ -161,9 +171,38 @@ export class BotRunner {
     const budgetUsd = spendCapsOff() ? Infinity : Math.min(bot.maxBudgetUsd, req.causeBudgetUsd ?? Infinity);
     const provider = this.providers.active();
     const session = this.repos.getSession(bot.id, room.id, provider.id);
+    const state = this.repos.getSessionState(bot.id, room.id);
     this.memory.ensureHome(bot.id);
-    const memoryText = this.memory.read(bot.id);
-    const identity = this.memory.readIdentity(bot.id) || bot.description;
+    // Session rotation: Claude reports the context size, so a session that grew too large (or went idle while large,
+    // or was never measured) starts over, seeded with a summary and the recent messages, instead of being resumed.
+    let resumeToken = session.sdkSessionId;
+    let seed = '';
+    // The room's own file folder (current.md lives there); also used below for the turn's working roots.
+    const folder = this.roomFiles?.forBot(room, bot.id) ?? null;
+    const rotateWhy = resumeToken && provider.id === 'claude' ? rotationReason(state, Date.now()) : null;
+    if (rotateWhy) {
+      resumeToken = null;
+      // Forgotten now, so a rotated run that dies before it reports a session cannot leave the old one to resume.
+      this.repos.saveSession(bot.id, room.id, { sdkSessionId: null, provider: provider.id });
+      const note = this.repos.insertMessage({
+        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: rotationNote(bot.name, rotateWhy, state.contextTokens),
+        payload: null, causeId: req.causeId, hop: req.hop, turnId,
+      });
+      events.emitEvent({ type: 'message.new', message: note });
+      const summary = (await this.writeSummary(bot, room.id, session.lastSeenSeq, state.summary)) ?? state.summary;
+      seed = buildSeed(this.repos, room.id, session.lastSeenSeq, { summary, roomNotes: readRoomNotes(folder?.dir) });
+    }
+    // The system prompt has to be byte-identical across resumed turns for the prompt cache to hit, but memory.md
+    // changes between them (update_memory, auto-memory). A session keeps the memory and identity it started with;
+    // they are refreshed on a fresh session, or once the session has been idle long enough that its cache is cold
+    // anyway (so an owner's edit still lands in a quiet chat).
+    const cold = state.contextAt == null || Date.now() - state.contextAt > ROTATE_IDLE_MS;
+    const keepSnapshot = !!resumeToken && !cold && state.memorySnapshot != null && state.identitySnapshot != null;
+    const memoryText = keepSnapshot ? state.memorySnapshot! : this.memory.read(bot.id);
+    const identity = keepSnapshot ? state.identitySnapshot! : this.memory.readIdentity(bot.id) || bot.description;
+    if (!keepSnapshot) this.repos.saveSessionState(bot.id, room.id, { memorySnapshot: memoryText, identitySnapshot: identity });
+    // A fresh session's cumulative cost starts at 0, and it starts small.
+    if (!resumeToken) this.repos.saveSessionState(bot.id, room.id, { costTotal: 0, contextTokens: 0, contextAt: Date.now() });
     const pluginDir = this.skills.materialize(bot.id, bot.handle);
     const setState = (s: BotState, note?: string) => this.hooks.setState(bot.id, room.id, s, note);
 
@@ -260,7 +299,10 @@ export class BotRunner {
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
       confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal, { evenUnderBypass: a.evenUnderBypass }),
       confirmOutsideHandoff: (a) => this.broker.askOutsideHandoff(permCtx, a.input, a.reason, ac.signal),
-      useStrongerModel: mayMoveUp ? (reason) => {
+      // Offered on every Claude turn and refused here when this turn may not move up: a tool list that changes between
+      // turns of one session invalidates the whole prompt cache.
+      useStrongerModel: provider.id === 'claude' ? (reason) => {
+        if (!mayMoveUp) return 'Not available on this turn: only an Auto bot on Sonnet, on a thread a person started, can move up. Carry on with this model.';
         if (up.asked) return false;
         up.asked = true;
         const why = redact(reason.replace(/\s+/g, ' ').trim());
@@ -273,7 +315,8 @@ export class BotRunner {
         events.emitEvent({ type: 'message.new', message: line });
         return true;
       } : undefined,
-      proposeRouting: mayPropose ? async (line, reason) => {
+      proposeRouting: routing ? async (line, reason) => {
+        if (!mayPropose) return { ok: false, message: 'Routing changes can only be proposed on a turn the owner started directly, not on a hand-off or an automation.' };
         try {
           routing!.withLine(line);
           const r = await this.broker.askRoutingChange(permCtx, { line, reason }, ac.signal);
@@ -331,8 +374,7 @@ export class BotRunner {
     };
 
     const knowledgeDir = this.p7.knowledgeDir?.() ?? null;
-    // The one file folder this turn may use: its room's. Every other project and room folder stays shut.
-    const folder = this.roomFiles?.forBot(room, bot.id) ?? null;
+    // The one file folder this turn may use (`folder`, above): its room's. Every other project and room folder stays shut.
     const folderDir = folder ? this.roomFiles!.ensure(folder) : null;
     const roomProject = folder?.kind === 'project' ? this.projects?.get(folder.projectSlug!) : undefined;
     const mcpToken = this.turns.registerTurn(tools, computerToolGuard(controlBlocked));
@@ -364,11 +406,15 @@ export class BotRunner {
         computerUnavailable: computerDown,
         routing: routing?.promptText(),
         keyRegistry,
-        canMoveUp: mayMoveUp,
-        canProposeRouting: mayPropose,
+        // Stable per bot, not per turn: the system prompt must not change between turns of one session (cache).
+        // The tools themselves refuse on turns where mayMoveUp / mayPropose is false.
+        canMoveUp: provider.id === 'claude' && isAuto(bot),
+        canProposeRouting: !!routing,
       }),
-      input: req.injected,
-      resumeToken: session.sdkSessionId,
+      input: seed ? seed + '\n\n' + req.injected : req.injected,
+      resumeToken,
+      sessionCostUsd: resumeToken ? state.costTotal : 0,
+      cacheReadBudget: TURN_CACHE_READ_CAP > 0 ? TURN_CACHE_READ_CAP : undefined,
       workspaceDir: WORKSPACE_DIR,
       botHome: botHome(bot.id),
       tools,
@@ -422,6 +468,24 @@ export class BotRunner {
     const texts: string[] = [];
     const toolMsgIds = new Map<string, string>();
     let lastMessageId: string | undefined;
+    // Text is held, not posted, until we know what follows it. A text block followed by a tool call is
+    // narration ("Let's click the mascot to test…") — posting each one turned a browser test into dozens of
+    // room messages. It becomes the bot's status note instead. Text with no tool call after it is the reply,
+    // posted when the turn ends. Only replies count toward finalText, so narration can't @mention-wake bots.
+    let pending: string | undefined;
+    const postText = (text: string) => {
+      texts.push(text);
+      const msg = this.repos.insertMessage({
+        roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'text', text, payload: null,
+        causeId: req.causeId, hop: req.hop, turnId, model: route.model, modelReason: route.detail,
+      });
+      lastMessageId = msg.id;
+      events.emitEvent({ type: 'message.new', message: msg });
+    };
+    const flushPending = () => {
+      if (pending !== undefined) postText(pending);
+      pending = undefined;
+    };
 
     const sink: TurnSink = {
       onInit: (info) => { this.lastInit = info; },
@@ -432,18 +496,17 @@ export class BotRunner {
       onText: (text) => {
         // NO_REPLY is the sentinel a bot uses to stay silent; swallow it instead of posting it.
         if (/^\W*NO_REPLY\W*$/.test(text.trim())) {
+          pending = undefined; // the bot chose silence: whatever it was about to say goes too
           events.emitEvent({ type: 'bot.state', botId: bot.id, state: 'done', roomId: room.id, note: 'no reply' });
           return;
         }
-        texts.push(text);
-        const msg = this.repos.insertMessage({
-          roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'text', text, payload: null,
-          causeId: req.causeId, hop: req.hop, turnId, model: route.model, modelReason: route.detail,
-        });
-        lastMessageId = msg.id;
-        events.emitEvent({ type: 'message.new', message: msg });
+        pending = pending === undefined ? text : pending + '\n\n' + text;
       },
       onToolUse: (id, name, input) => {
+        if (pending !== undefined) {
+          setState('working', narrationNote(pending));
+          pending = undefined;
+        }
         if (computer?.perBot && (name.startsWith('mcp__browser__') || name.includes('desktop_'))) this.computers!.touch(bot.id);
         const payload: ToolPayload = { toolUseId: id, name, input, done: false };
         const msg = this.repos.insertMessage({
@@ -465,20 +528,51 @@ export class BotRunner {
       onState: (s) => setState(s),
     };
 
+    // Post the held reply as soon as each run returns, not after the turn's bookkeeping: a hand-off started in
+    // this run can finish first, and its result must not land above the reply that announced it.
+    const runProvider = async (c: TurnContext, k: TurnSink) => {
+      try {
+        return await provider.runTurn(c, k);
+      } finally {
+        flushPending();
+      }
+    };
     this.activeTurns.add(turnId);
     this.aborts.set(turnId, ac);
     this.laneTurns.set(bot.id + ':' + room.id, turnId);
     let ok = false;
     let error: string | undefined;
     let costUsd = 0;
+    // Token brake: cache-read tokens summed over every run of this turn (continuations and move-ups included).
+    let cacheRead = 0;
+    const brakeOn = TURN_CACHE_READ_CAP > 0;
+    const braked = () => brakeOn && cacheRead >= TURN_CACHE_READ_CAP;
+    /** What the next run of this turn needs: the session's cost baseline and what is left of the token brake. */
+    const nextRun = () => ({
+      sessionCostUsd: this.repos.getSessionState(bot.id, room.id).costTotal,
+      cacheReadBudget: brakeOn ? Math.max(0, TURN_CACHE_READ_CAP - cacheRead) : undefined,
+    });
+    const brakeNote = () => {
+      const line = this.repos.insertMessage({
+        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
+        text: bot.name + ' stopped instead of continuing: this turn already read ' + cacheRead.toLocaleString('en-US') +
+          ' cached tokens (limit ' + TURN_CACHE_READ_CAP.toLocaleString('en-US') + '). Send a message to pick it up again.',
+        payload: null, causeId: req.causeId, hop: req.hop, turnId,
+      });
+      events.emitEvent({ type: 'message.new', message: line });
+    };
     try {
       // Waking a computer can take a while: the owner may have removed this bot from the room before it got here.
       const removed = room.memberIds.includes(bot.id) && !this.repos.getRoom(room.id)?.memberIds.includes(bot.id);
       let outcome: TurnOutcome = removed
         ? { ok: false, error: 'removed from this chat', costUsd: 0, usage: EMPTY_USAGE, durationMs: 0 }
-        : await provider.runTurn(ctx, sink);
+        : await runProvider(ctx, sink);
       const record = (o: TurnOutcome) => {
         costUsd += o.costUsd;
+        cacheRead += o.usage.cacheReadTokens;
+        // The session's cumulative cost is the next run's baseline; the last call's input size decides rotation.
+        if (o.sessionCostUsd !== undefined) this.repos.saveSessionState(bot.id, room.id, { costTotal: o.sessionCostUsd });
+        if (o.contextTokens !== undefined) this.repos.saveSessionState(bot.id, room.id, { contextTokens: o.contextTokens, contextAt: Date.now() });
         // Only turns the provider actually accounted for become usage rows (matches the pre-provider
         // behaviour: a turn that died before any result reported nothing).
         const u = o.usage;
@@ -494,6 +588,7 @@ export class BotRunner {
       // fresh session rather than leaving the bot permanently broken (seen live on the VPS, 2026-09-10).
       if (ctx.resumeToken && !ac.signal.aborted && isStaleSessionError(outcome.error)) {
         this.repos.saveSession(bot.id, room.id, { sdkSessionId: null, provider: provider.id });
+        this.repos.saveSessionState(bot.id, room.id, { costTotal: 0, contextTokens: 0, contextAt: Date.now() });
         const note = this.repos.insertMessage({
           roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
           text: bot.name + "'s saved session no longer exists; starting a fresh one (earlier conversation context is lost).",
@@ -501,16 +596,27 @@ export class BotRunner {
         });
         events.emitEvent({ type: 'message.new', message: note });
         setState('thinking');
-        outcome = await provider.runTurn({ ...ctx, resumeToken: null, maxBudgetUsd: budgetUsd - costUsd }, sink);
+        // The lost session's recent messages carry over, as on a rotation (unless this turn already seeded them).
+        const lostSeed = seed ? '' : buildSeed(this.repos, room.id, session.lastSeenSeq, { summary: state.summary, roomNotes: readRoomNotes(folder?.dir) });
+        outcome = await runProvider(
+          { ...ctx, ...nextRun(), input: lostSeed ? lostSeed + '\n\n' + ctx.input : ctx.input, resumeToken: null, maxBudgetUsd: budgetUsd - costUsd },
+          sink,
+        );
         record(outcome);
       }
 
       // use_stronger_model: the run that asked has ended cleanly, so its session is saved and its cost is counted.
       // The same session carries on with the stronger model. Nothing is stored, so the next turn routes from scratch.
       const moveUp = async () => {
+        // A run that ended in an error keeps the request: a step-limit continuation picks it up instead.
+        if (outcome.error) return;
         const next = up.next;
         up.next = null;
-        if (!next || next.model === route.model || ac.signal.aborted || outcome.error) return;
+        if (!next || next.model === route.model || ac.signal.aborted) return;
+        if (braked()) {
+          brakeNote();
+          return;
+        }
         if (costUsd >= budgetUsd) {
           const line = this.repos.insertMessage({
             roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: bot.name + ' used its budget before it could continue.', payload: null,
@@ -521,9 +627,10 @@ export class BotRunner {
         }
         route = next;
         setState('working');
-        outcome = await provider.runTurn(
+        outcome = await runProvider(
           {
             ...ctx,
+            ...nextRun(),
             resumeToken: this.repos.getSession(bot.id, room.id, provider.id)?.sdkSessionId ?? ctx.resumeToken,
             input:
               'You are now on the stronger model you asked for, for the rest of this turn. Continue from exactly where ' +
@@ -543,8 +650,17 @@ export class BotRunner {
       for (let attempt = 1; outcome.error?.startsWith('error_max_turns') && attempt <= MAX_TURN_CONTINUATIONS; attempt++) {
         if (ac.signal.aborted) break;
         if (costUsd >= budgetUsd) break;
-        // P8: an auto bot retries on Opus. Same remaining budget either way: the router never raises it.
-        const next = this.router.escalate(routeReq, route, 'error_max_turns');
+        // The token brake holds with dollar caps off: a turn that already read this much is not handed more steps.
+        if (braked()) {
+          brakeNote();
+          break;
+        }
+        // The router keeps a step-limit continuation on its tier, but a stronger model the bot asked for during the run
+        // (use_stronger_model) applies here rather than costing a run of its own afterwards. Same remaining budget
+        // either way: neither raises it.
+        const asked = up.next && up.next.model !== route.model ? up.next : null;
+        if (asked) up.next = null;
+        const next = asked ?? this.router.escalate(routeReq, route, 'error_max_turns');
         const escalated = next.model !== route.model;
         if (escalated) console.log('[router] ' + bot.handle + ' ' + turnId + ': ' + route.model + ' -> ' + next.model + ' (' + next.detail + ')');
         route = next;
@@ -556,9 +672,10 @@ export class BotRunner {
         });
         events.emitEvent({ type: 'message.new', message: note });
         setState('working');
-        outcome = await provider.runTurn(
+        outcome = await runProvider(
           {
             ...ctx,
+            ...nextRun(),
             // saveSession already stored whatever the last run reported, so this picks up its context.
             resumeToken: this.repos.getSession(bot.id, room.id, provider.id)?.sdkSessionId ?? ctx.resumeToken,
             input:
@@ -587,6 +704,7 @@ export class BotRunner {
       releaseComputer();
     }
 
+    flushPending();
     if (parkedWhy) {
       // Not a failure: the bot is waiting on the user, and a new turn picks it up with their answer.
       const msg = this.repos.insertMessage({
@@ -611,6 +729,31 @@ export class BotRunner {
     events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, error });
     setState(error ? 'error' : 'done');
     return { ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail };
+  }
+
+  /**
+   * Before a rotation: folds the messages that will not be replayed into the room's running summary with one cheap,
+   * tool-less Haiku call (the auto-memory pass options), and stores it on the session row. Returns the new summary, or
+   * null when there was nothing older than the replayed window or the call failed (the old summary then stays).
+   */
+  private async writeSummary(bot: Bot, roomId: string, lastSeenSeq: number, previous: string | null): Promise<string | null> {
+    const prompt = buildSummaryPrompt(this.repos, bot, roomId, lastSeenSeq, previous);
+    if (!prompt) return null;
+    try {
+      const outcome = await this.summarize(prompt, SUMMARY_SYSTEM_PROMPT);
+      const u = outcome.usage;
+      // Not tied to the cause: like auto-memory, it must not count toward a thread's cost cap.
+      if (u.costUsd || u.inputTokens || u.outputTokens) {
+        this.usage.record(bot.id, roomId, 'sum-' + nanoid(8), null, u, { model: AUTO_MEMORY_MODEL, routeReason: 'session-summary', causeKind: 'memory' });
+      }
+      const summary = cleanSummary(outcome);
+      if (summary) this.repos.saveSessionState(bot.id, roomId, { summary });
+      else console.warn('[rotation ' + bot.handle + '] summary skipped: ' + redact(outcome.error ?? 'empty reply'));
+      return summary;
+    } catch (e) {
+      console.warn('[rotation ' + bot.handle + '] summary failed: ' + redact(String((e as Error).message ?? e)));
+      return null;
+    }
   }
 
   /** Feeds GET /api/health, which answers without the hub token, so the error names no path. */

@@ -293,6 +293,38 @@ export class Repos {
     );
   }
 
+  /**
+   * Token-efficiency state of the (bot, room) session (migration 170). Kept apart from getSession/saveSession so
+   * their shape stays as it was. Every field is null when unknown, which on a legacy row means "never measured".
+   */
+  getSessionState(botId: string, roomId: string): SessionState {
+    const r = this.db.get('SELECT * FROM sessions WHERE bot_id=? AND room_id=?', botId, roomId);
+    const num = (v: unknown) => (typeof v === 'number' ? v : null);
+    const str = (v: unknown) => (typeof v === 'string' ? v : null);
+    return {
+      costTotal: num(r?.cost_total),
+      contextTokens: num(r?.context_tokens),
+      contextAt: num(r?.context_at),
+      memorySnapshot: str(r?.memory_snapshot),
+      identitySnapshot: str(r?.identity_snapshot),
+      summary: str(r?.summary),
+    };
+  }
+  /** Writes only the fields given (an explicit null clears one). Creates the row when there is none. */
+  saveSessionState(botId: string, roomId: string, patch: Partial<SessionState>) {
+    const cols: Record<keyof SessionState, string> = {
+      costTotal: 'cost_total', contextTokens: 'context_tokens', contextAt: 'context_at',
+      memorySnapshot: 'memory_snapshot', identitySnapshot: 'identity_snapshot', summary: 'summary',
+    };
+    const keys = (Object.keys(patch) as (keyof SessionState)[]).filter((k) => k in cols && patch[k] !== undefined);
+    if (!keys.length) return;
+    this.db.run('INSERT OR IGNORE INTO sessions (bot_id,room_id,last_seen_seq,updated_at) VALUES (?,?,0,?)', botId, roomId, now());
+    this.db.run(
+      'UPDATE sessions SET ' + keys.map((k) => cols[k] + '=?').join(',') + ' WHERE bot_id=? AND room_id=?',
+      ...keys.map((k) => patch[k]), botId, roomId,
+    );
+  }
+
   // ---------- auto-memory progress ----------
   getAutoMemory(botId: string, roomId: string): { turnsSince: number; lastSeq: number; retryAt: number } {
     const r = this.db.get('SELECT * FROM auto_memory WHERE bot_id=? AND room_id=?', botId, roomId);
@@ -614,4 +646,18 @@ export interface LaneJournalRow {
   note: string | null;
   attempts: number;
   createdAt: number;
+}
+
+/** Per-session token-efficiency state (migration 170); see Repos.getSessionState. */
+export interface SessionState {
+  /** The SDK's cumulative cost last reported for this session; null on a legacy row. */
+  costTotal: number | null;
+  /** Input tokens of the last top-level model call of the last turn; null = never measured. */
+  contextTokens: number | null;
+  /** When contextTokens was measured (ms). */
+  contextAt: number | null;
+  memorySnapshot: string | null;
+  identitySnapshot: string | null;
+  /** The hub's running room summary, written when the session rotates. */
+  summary: string | null;
 }

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Cheaper default models
+
+- A bot that creates another bot no longer hands it its own model: without an explicit pick the new bot gets Sonnet 5, so an Opus lead no longer fills a room with Opus workers. The create/update bot tools tell bots to use Sonnet for workers, Haiku for simple or routine bots, and Opus only when you ask or a lead truly needs it.
+- Model pickers mark Opus and Fable with "uses your plan limit much faster", and Auto now reads "Sonnet, moves up when needed".
+
 ### Folder uploads
 
 - The Files panel uploads whole folders: an "Upload folder" button (hidden on iPhone, iPad and Android, which can't pick folders) and dropping folders onto the panel. The folder structure is kept under the folder you're in, empty folders included when dropped. A progress line shows "Uploading 12 of 340: path" with a Cancel that stops after the current file. Files already there are asked about once for the whole batch (Replace all, Skip existing, Cancel), and files over 25 MB are listed at the end instead of stopping the upload. A folder upload takes at most 1,000 files and 500 MB, and asks first above 200 files. `.git/`, `node_modules/`, `.DS_Store` and `Thumbs.db` are left out, and so are files that look like keys (`.env*` except `.env.example`, `*.pem`, `*.key`, `*.p8`, `*.p12`, `*.pfx`, `id_rsa*` and other SSH keys, `service-account*.json`), with a warning that lists them.

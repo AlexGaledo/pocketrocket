@@ -164,7 +164,9 @@ export class ProjectService {
         title: name,
         description: cloneDescription(source.description, name, dir),
         avatar: source.avatar,
-        model: source.model,
+        // Not the source's model: a template source on Opus would make every cloned team Opus. 'auto' starts
+        // on Sonnet and moves up only when a turn needs it.
+        model: 'auto',
         allowedTools: source.allowedTools,
         maxBudgetUsd: source.maxBudgetUsd,
       });
