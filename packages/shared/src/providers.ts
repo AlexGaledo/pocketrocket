@@ -133,6 +133,12 @@ export const SettingsSchema = z.object({
    * itself the owner's messages from every chat.
    */
   personaBotId: z.string().max(64).default(''),
+  /**
+   * $ a bot may spend in a rolling 24h window before a one-line alert posts to the room its turn is running
+   * in. Visibility only: it never stops or throttles the turn (spend caps are off, see spendCapsOff). 0 turns
+   * the alert off.
+   */
+  spendAlertThresholdUsd: z.number().min(0).max(1000).default(5),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

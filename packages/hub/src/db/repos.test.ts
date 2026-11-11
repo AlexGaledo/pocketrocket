@@ -32,6 +32,7 @@ describe('Repos', () => {
     r.recordUsage({ botId: bot.id, roomId: room.id, turnId: 't2', causeId: 'c1', costUsd: 0.25, inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, modelUsage: null, durationMs: 10 });
     expect(r.usageTotals({ causeId: 'c1' }).costUsd).toBeCloseTo(0.75);
     expect(r.usageTotals({ botId: bot.id }).turns).toBe(2);
+    expect(r.usageTotals({ botId: bot.id, sinceMs: Date.now() + 1000 }).turns).toBe(0);
     expect(r.getBot(bot.id)?.allowedTools).toEqual(['Read']);
   });
 

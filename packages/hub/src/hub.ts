@@ -171,7 +171,6 @@ export function createHub(opts: HubOptions = {}): Hub {
     reportOrphanBotDirs(BOTS_DIR, repos.listBots().map((b) => b.id));
   }
   const skills = new SkillService(repos);
-  const usage = new UsageTracker(repos);
   const secrets = new SecretsStore();
   const account = opts.account ?? new AccountService();
   const settings = new SettingsStore({
@@ -180,6 +179,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     models: (p) => providers.modelsSync(p),
     modelsAsync: (p) => providers.modelsAwaited(p),
   });
+  const usage = new UsageTracker(repos, { alertThresholdUsd: () => settings.get().spendAlertThresholdUsd });
   installSettings(settings);
   // A name set before migration 112, or the OS account default, reaches the owner's row here.
   repos.renameOwner(settings.get().userName);
