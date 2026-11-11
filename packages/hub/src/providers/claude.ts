@@ -6,7 +6,7 @@ import {
   type Options, type PermissionResult, type Query, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
-import { CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { BASH_MAX_OUTPUT_CHARS, CLAUDE_EXE, MAX_MCP_OUTPUT_TOKENS, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
 import { SESSION_RETENTION_DAYS } from './cliRetention.js';
@@ -22,11 +22,55 @@ import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, Tu
 // cwd/additionalDirectories are already free, edits inside are covered by acceptEdits, and anything
 // outside (plus every Bash call) then falls through to the PermissionBroker.
 const AUTO_OK = new Set(['WebSearch', 'WebFetch']);
-const ALL_BUILTINS = ['Read','Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit'];
+// 'Task' is the subagent tool (the CLI now calls it 'Agent' and keeps 'Task' as an alias; both are passed). Off
+// unless the bot has it: a subagent explores in its own context and hands back a short report, which keeps file
+// dumps out of the bot's resumed session.
+const ALL_BUILTINS = ['Read','Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit', 'Task'];
+/** The CLI's own names for a bot-facing built-in. */
+const sdkNames = (t: string) => (t === 'Task' ? ['Task', 'Agent'] : [t]);
+
+/**
+ * The SDK's `maxBudgetUsd` flag for one run. The SDK checks it against the session's cumulative cost, which on a
+ * resumed session includes every earlier turn, so the stored cumulative is added to make it a per-run cap. A resumed
+ * session whose cumulative is unknown (from before the hub tracked it) gets no flag rather than one that trips at once;
+ * the hub's own checks between runs still hold. undefined = no flag (no budget, or POCKETROCKET_NO_SPEND_CAPS).
+ */
+export function sdkBudgetUsd(maxBudgetUsd: number, resumed: boolean, sessionCostUsd: number | null | undefined): number | undefined {
+  if (!Number.isFinite(maxBudgetUsd)) return undefined;
+  if (!resumed) return maxBudgetUsd;
+  if (sessionCostUsd == null) return undefined;
+  return sessionCostUsd + maxBudgetUsd;
+}
+
+/**
+ * This run's own cost out of the SDK's cumulative `total_cost_usd`. A cumulative below the baseline means the CLI
+ * started a new session after all, so all of it is this run's. An unknown baseline on a resumed (legacy) session
+ * counts as 0 rather than billing the session's whole history to one turn.
+ */
+export function runCostUsd(cumulative: number, resumed: boolean, sessionCostUsd: number | null | undefined): number {
+  if (!resumed) return cumulative;
+  if (sessionCostUsd == null) return 0;
+  return cumulative >= sessionCostUsd ? cumulative - sessionCostUsd : cumulative;
+}
+
+/** Input tokens a model call was sent: uncached + cache read + cache write. */
+export function callInputTokens(u: { input_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined): number {
+  return (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
+}
+
+/** The env the Claude Code child runs with: the allowlist plus the hub's own output caps (the allowlist is not widened). */
+export function claudeChildEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return childEnv('claude', {
+    CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/' + VERSION,
+    // One huge command output or MCP result would otherwise sit in the resumed session and be re-read every step.
+    BASH_MAX_OUTPUT_LENGTH: String(BASH_MAX_OUTPUT_CHARS),
+    MAX_MCP_OUTPUT_TOKENS: String(MAX_MCP_OUTPUT_TOKENS),
+  }, source);
+}
 
 const MODELS: ModelInfo[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'balanced, default', default: true },
-  { id: 'claude-opus-5', label: 'Opus 5', note: 'strong, pricey' },
+  { id: 'claude-opus-5', label: 'Opus 5', note: 'hard problems' },
   { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'most capable, 2x Opus price' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', note: 'cheapest, fastest' },
 ];
@@ -40,6 +84,12 @@ export const CLAUDE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   permissions: 'full',
   maturity: 'verified',
 };
+
+/** The turn error for a run the token brake stopped. Says "budget", so turnFailure files it as external. */
+export function tokenBrakeError(read: number, cap: number): string {
+  return 'token_budget: stopped after reading ' + read.toLocaleString('en-US') + ' cached tokens this turn (cap ' +
+    cap.toLocaleString('en-US') + ") to save your plan's usage";
+}
 
 /** Wrap provider-agnostic hub tools as an in-process SDK MCP server named `pocketrocket`. */
 function toolServer(tools: HubTool[]) {
@@ -207,9 +257,10 @@ export class ClaudeProvider implements AgentProvider {
     const started = Date.now();
     const bot = ctx.bot;
     const pluginDir = ctx.pluginDir ?? null;
+    const resumed = !!ctx.resumeToken;
 
     const allowed = ctx.allowedBuiltins.filter((t) => AUTO_OK.has(t));
-    const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t));
+    const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t)).flatMap(sdkNames);
     // "Browser" = Playwright MCP attached over CDP to the Chromium on the bot's own computer (its logged-in
     // profile). With no computer there is no endpoint, and it never falls back to a shared screen.
     const browserOn = ctx.allowedBuiltins.includes('Browser') && !!ctx.cdpUrl && fs.existsSync(PLAYWRIGHT_MCP_CLI);
@@ -378,7 +429,8 @@ export class ClaudeProvider implements AgentProvider {
       settingSources: [],
       // Flag settings load even with settingSources: [] (user settings do not), so this is what stops the CLI's
       // 30-day sweep from deleting the session files bots resume from.
-      settings: { cleanupPeriodDays: SESSION_RETENTION_DAYS },
+      // bashOutputMaxChars is what caps Bash output inline on current CLIs (BASH_MAX_OUTPUT_LENGTH in env covers older ones).
+      settings: { cleanupPeriodDays: SESSION_RETENTION_DAYS, bashOutputMaxChars: BASH_MAX_OUTPUT_CHARS },
       plugins: pluginDir ? [{ type: 'local', path: pluginDir }] : undefined,
       skills: pluginDir ? 'all' : [],
       // Approvals bypassed: the SDK skips canUseTool entirely (and the out-of-workspace hook below is left
@@ -388,7 +440,7 @@ export class ClaudeProvider implements AgentProvider {
         : { permissionMode: 'acceptEdits' as const }),
       // Availability: only the bot's built-ins (+ Skill when a plugin is attached) exist in context.
       // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
-      tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)), ...(pluginDir ? ['Skill'] : [])],
+      tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)).flatMap(sdkNames), ...(pluginDir ? ['Skill'] : [])],
       allowedTools: [...allowed, 'mcp__pocketrocket__*', ...(browserOn ? ['mcp__browser__*'] : [])],
       disallowedTools: disallowed,
       mcpServers,
@@ -444,10 +496,11 @@ export class ClaudeProvider implements AgentProvider {
       includePartialMessages: true,
       maxTurns: ctx.maxTurns,
       // No budget (POCKETROCKET_NO_SPEND_CAPS) is Infinity here, which the CLI flag cannot carry: leave it out.
-      maxBudgetUsd: Number.isFinite(ctx.maxBudgetUsd) ? ctx.maxBudgetUsd : undefined,
+      // The SDK compares the flag with the session's cumulative cost, so it is offset by what is already spent.
+      maxBudgetUsd: sdkBudgetUsd(ctx.maxBudgetUsd, resumed, ctx.sessionCostUsd),
       // Allowlisted env only (audit 2026-09-09, B7): the child never sees POCKETROCKET_TOKEN or another
       // provider's API key, so `env`/`node -e "process.env"` inside a prompt injection yields nothing useful.
-      env: childEnv('claude', { CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/' + VERSION }),
+      env: claudeChildEnv(),
       stderr: (d) => { if (process.env.POCKETROCKET_DEBUG) process.stderr.write('[claude ' + bot.handle + '] ' + d); },
     };
 
@@ -459,6 +512,14 @@ export class ClaudeProvider implements AgentProvider {
     let durationMs = 0;
     let outdatedCli: string | undefined;
     let usedTools = false;
+    let gotResult = false;
+    let sessionCostUsd: number | undefined;
+    // Per top-level model call (the SDK repeats one call's usage on each of its content blocks, so keyed by id):
+    // the running cache-read sum feeds the token brake, the last call's input size is the context size.
+    const calls = new Map<string, { input: number; cacheRead: number; cacheWrite: number; output: number }>();
+    let contextTokens: number | undefined;
+    let braked = false;
+    const runningCacheRead = () => [...calls.values()].reduce((n, c) => n + c.cacheRead, 0);
 
     const q = query({ prompt: prompt(), options });
     this.active.set(ctx.turnId, q);
@@ -480,6 +541,18 @@ export class ClaudeProvider implements AgentProvider {
         }
         if (m.type === 'assistant') {
           if (m.parent_tool_use_id) continue;
+          const mu = m.message.usage as (Parameters<typeof callInputTokens>[0] & { output_tokens?: number | null }) | undefined;
+          if (mu) {
+            calls.set(m.message.id ?? 'call-' + calls.size, {
+              input: mu.input_tokens ?? 0, cacheRead: mu.cache_read_input_tokens ?? 0,
+              cacheWrite: mu.cache_creation_input_tokens ?? 0, output: mu.output_tokens ?? 0,
+            });
+            contextTokens = callInputTokens(mu);
+            if (!braked && ctx.cacheReadBudget !== undefined && runningCacheRead() > ctx.cacheReadBudget) {
+              braked = true;
+              void q.interrupt().catch(() => undefined);
+            }
+          }
           for (const block of m.message.content) {
             if (block.type === 'text' && block.text.trim()) {
               // Held back rather than shown: runTurn updates the CLI and replays, or reports it as the turn error.
@@ -508,7 +581,10 @@ export class ClaudeProvider implements AgentProvider {
           continue;
         }
         if (m.type === 'result') {
-          costUsd = m.total_cost_usd ?? 0;
+          gotResult = true;
+          // total_cost_usd is the session's running total across resumes, not this run's.
+          sessionCostUsd = m.total_cost_usd ?? 0;
+          costUsd = runCostUsd(sessionCostUsd, resumed, ctx.sessionCostUsd);
           ok = m.subtype === 'success';
           if (!ok) error = m.subtype + ((m as { errors?: string[] }).errors?.length ? ': ' + (m as { errors?: string[] }).errors!.join('; ') : '');
           const resultText = (m as { result?: string }).result;
@@ -538,11 +614,21 @@ export class ClaudeProvider implements AgentProvider {
       ok = false;
       error = outdatedCli;
     }
+    // Interrupted before a result: what the model calls themselves reported is all there is to count.
+    if (!gotResult && calls.size) {
+      const sum = (k: 'input' | 'cacheRead' | 'cacheWrite' | 'output') => [...calls.values()].reduce((n, c) => n + c[k], 0);
+      usage = { inputTokens: sum('input'), outputTokens: sum('output'), cacheReadTokens: sum('cacheRead'), cacheWriteTokens: sum('cacheWrite') };
+    }
+    if (braked) {
+      ok = false;
+      error = tokenBrakeError(runningCacheRead(), ctx.cacheReadBudget!);
+    }
 
     const outcome: TurnOutcome = {
       ok, error, costUsd,
       usage: { costUsd, ...usage, modelUsage, durationMs: durationMs || Date.now() - started },
       durationMs: durationMs || Date.now() - started,
+      sessionCostUsd, contextTokens, braked: braked || undefined,
     };
     return { outcome, outdatedCli: !!outdatedCli, usedTools };
   }

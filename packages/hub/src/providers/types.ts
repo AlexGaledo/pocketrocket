@@ -62,7 +62,20 @@ export interface TurnContext {
   /** Claude-only: materialized skill plugin directory for this bot, or null. Other adapters ignore it. */
   pluginDir?: string | null;
   model: string;
+  /** What this run may spend, in dollars, on its own (not counting earlier turns of a resumed session). */
   maxBudgetUsd: number;
+  /**
+   * Claude: the SDK's cumulative `total_cost_usd` already recorded for the session in `resumeToken` (the SDK reports
+   * a running total across resumes). The adapter subtracts it to get this run's own cost, and adds it to the SDK's
+   * budget flag so that check is per run too. null = unknown (a session from before the hub tracked it); ignored
+   * on a fresh session.
+   */
+  sessionCostUsd?: number | null;
+  /**
+   * Token brake: once this run has read this many cache tokens (summed over its top-level model calls), the
+   * adapter stops it and reports `braked`. Undefined = no brake. Applies with dollar caps off.
+   */
+  cacheReadBudget?: number;
   maxTurns: number;
   signal: AbortSignal;
   /** Loopback MCP endpoint exposing `tools` for this turn only; CLI adapters point their config at it. */
@@ -123,9 +136,16 @@ export interface ProviderInit {
 export interface TurnOutcome {
   ok: boolean;
   error?: string;
+  /** This run's own cost. */
   costUsd: number;
   usage: TurnUsage;
   durationMs: number;
+  /** Claude: the SDK's cumulative cost for the session after this run, to store as the next run's baseline. */
+  sessionCostUsd?: number;
+  /** Claude: input tokens (uncached + cache read + cache write) of the last top-level model call: the context size. */
+  contextTokens?: number;
+  /** Stopped by the token brake (`cacheReadBudget`). */
+  braked?: boolean;
 }
 
 export interface AgentProvider {

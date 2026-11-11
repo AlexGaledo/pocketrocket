@@ -60,7 +60,10 @@ describe('voice, notes and knowledge in the prompt', () => {
 
   it('names the notes folder and tools but never puts note contents in the prompt', () => {
     const p = buildSystemPrompt({ ...base, notesCount: 42 });
-    expect(p).toContain('Notes: 42 file(s)');
+    expect(p).toContain('Notes: kept in');
+    // Whether there are notes, not how many: a count would rewrite the cached prompt after every write_note.
+    expect(buildSystemPrompt({ ...base, notesCount: 43 })).toBe(p);
+    expect(buildSystemPrompt({ ...base, notesCount: 0 })).toContain('Notes: none yet');
     expect(p).toContain('mcp__pocketrocket__search_notes');
     expect(p).toContain('mcp__pocketrocket__write_note');
   });

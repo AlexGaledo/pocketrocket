@@ -67,3 +67,26 @@ describe('Repos', () => {
     expect(r.expirePendingApprovals()).toEqual([]);
   });
 });
+
+describe('session state (migration 170)', () => {
+  it('reads a legacy row as all-unknown and writes only the fields given', () => {
+    const r = new Repos(new Db(':memory:'));
+    const bot = r.createBot({ name: 'L', handle: 'legacy', title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1 });
+    const room = r.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
+    // A row written the old way: no cost_total, no context size.
+    r.saveSession(bot.id, room.id, { sdkSessionId: 'old', lastSeenSeq: 3, provider: 'claude' });
+    expect(r.getSessionState(bot.id, room.id)).toEqual({ costTotal: null, contextTokens: null, contextAt: null, memorySnapshot: null, identitySnapshot: null, summary: null });
+    r.saveSessionState(bot.id, room.id, { contextTokens: 5000, costTotal: 1.5 });
+    r.saveSessionState(bot.id, room.id, { summary: '- s' });
+    expect(r.getSessionState(bot.id, room.id)).toMatchObject({ contextTokens: 5000, costTotal: 1.5, summary: '- s' });
+    // saveSession keeps them, and the old shape of getSession is unchanged.
+    r.saveSession(bot.id, room.id, { lastSeenSeq: 9 });
+    expect(r.getSessionState(bot.id, room.id).costTotal).toBe(1.5);
+    expect(r.getSession(bot.id, room.id)).toEqual({ sdkSessionId: 'old', lastSeenSeq: 9, provider: 'claude' });
+    // A row that does not exist yet is created.
+    const other = r.createRoom({ kind: 'dm', name: 'DM2', memberIds: [bot.id], coordinatorBotId: null });
+    r.saveSessionState(bot.id, other.id, { memorySnapshot: 'm' });
+    expect(r.getSessionState(bot.id, other.id).memorySnapshot).toBe('m');
+    expect(r.getSession(bot.id, other.id).lastSeenSeq).toBe(0);
+  });
+});

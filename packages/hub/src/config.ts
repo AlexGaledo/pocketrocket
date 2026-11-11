@@ -155,7 +155,11 @@ export function osUserName(): string {
   }
 }
 
-export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 5);
+/**
+ * Bot-to-bot hops one thread may take. Every hop wakes a bot that loads its own full context, so a long
+ * chain multiplies cost; 3 keeps lead -> worker -> reviewer possible without open-ended ping-pong.
+ */
+export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 3);
 /**
  * `POCKETROCKET_BYPASS_PERMISSIONS`, when set, pins the approvals setting and locks it in the UI:
  * `1`/`true`/`yes`/`on` → 'bypass' (no approval cards: the PermissionBroker allows everything, the Claude SDK
@@ -200,7 +204,7 @@ export const CAUSE_COST_CAP_USD = causeCostCap();
  * use, where every navigate, snapshot, click and keystroke costs a step: reading a few pages and writing a
  * file can pass 50 on its own. Whatever is left over is picked up by MAX_TURN_CONTINUATIONS.
  */
-export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 80);
+export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 30);
 /**
  * How many times a turn that ran out of steps may be resumed to finish the job.
  *
@@ -208,7 +212,30 @@ export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 80)
  * A continuation is cheaper and safer: the session is resumed, so the model keeps its context, and every
  * hop is re-checked against the bot's per-turn budget and its abort signal before it starts. 0 disables.
  */
-export const MAX_TURN_CONTINUATIONS = Number(process.env.MAX_TURN_CONTINUATIONS ?? 2);
+export const MAX_TURN_CONTINUATIONS = Number(process.env.MAX_TURN_CONTINUATIONS ?? 1);
+/**
+ * Context-size brake. Every step of a turn re-sends the whole session, so cost per step grows with history.
+ * When the last model call of a turn saw more than this many input tokens (input + cache read + cache write),
+ * the next turn starts a fresh session seeded with memory, the room summary and recent messages instead of
+ * resuming. 0 disables rotation.
+ */
+export const ROTATE_CONTEXT_TOKENS = Number(process.env.ROTATE_CONTEXT_TOKENS ?? 120_000);
+/**
+ * A session idle longer than this has a cold prompt cache (5 min TTL), so resuming it rewrites the whole
+ * history at cache-write price. Past this gap, a session above ROTATE_IDLE_MIN_TOKENS rotates instead.
+ */
+export const ROTATE_IDLE_MS = Number(process.env.ROTATE_IDLE_MS ?? 30 * 60 * 1000);
+export const ROTATE_IDLE_MIN_TOKENS = Number(process.env.ROTATE_IDLE_MIN_TOKENS ?? 40_000);
+/** Recent room messages replayed into a freshly rotated session. */
+export const ROTATE_SEED_MESSAGES = Number(process.env.ROTATE_SEED_MESSAGES ?? 20);
+/**
+ * Per-turn token brake, independent of dollars: subscription limits count tokens, and it stays on even with
+ * POCKETROCKET_NO_SPEND_CAPS. A turn whose cache-read tokens pass this is stopped and not continued. 0 disables.
+ */
+export const TURN_CACHE_READ_CAP = Number(process.env.TURN_CACHE_READ_CAP ?? 3_000_000);
+/** Caps passed to the Claude Code child so one tool result cannot flood the context. */
+export const BASH_MAX_OUTPUT_CHARS = Number(process.env.BASH_MAX_OUTPUT_CHARS ?? 15_000);
+export const MAX_MCP_OUTPUT_TOKENS = Number(process.env.MAX_MCP_OUTPUT_TOKENS ?? 12_000);
 
 export const VERSION: string = resolveVersion(here);
 

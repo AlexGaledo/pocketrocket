@@ -117,6 +117,22 @@ describe('createHubTools', () => {
     expect(repos.getBotByHandle('xx')).toBeUndefined();
   });
 
+  it('create_bot defaults to the provider default model, not the creator\'s', async () => {
+    const s = setup();
+    const tools = createHubTools({ ...s.ctx, bot: { ...s.bot, model: 'claude-opus-5' } });
+    const out = await byName(tools, 'create_bot').handler({ name: 'Worker', handle: 'worker', title: '', description: 'a description' });
+    expect(out.isError).toBeFalsy();
+    expect(s.repos.getBotByHandle('worker')!.model).toBe('claude-sonnet-5');
+    // Opus only when it is asked for by name.
+    await byName(tools, 'create_bot').handler({ name: 'Lead', handle: 'lead', title: '', description: 'a description', model: 'claude-opus-5' });
+    expect(s.repos.getBotByHandle('lead')!.model).toBe('claude-opus-5');
+    // Another provider has no Sonnet id: Auto, which routes to its own default tier, rather than the creator's model.
+    const other = createHubTools({ ...s.ctx, bot: { ...s.bot, model: 'opencode/claude-opus-4-6' }, models: ['opencode/claude-opus-4-6', 'opencode/claude-sonnet-4-5', 'auto'] });
+    await byName(other, 'create_bot').handler({ name: 'Other', handle: 'other', title: '', description: 'a description' });
+    expect(s.repos.getBotByHandle('other')!.model).toBe('auto');
+    expect((byName(tools, 'create_bot').inputSchema.shape.model as { description?: string }).description).toMatch(/Sonnet for most workers/);
+  });
+
   it('reports bad arguments instead of throwing', async () => {
     const { tools } = setup();
     const out = await byName(tools, 'send_message').handler({});
