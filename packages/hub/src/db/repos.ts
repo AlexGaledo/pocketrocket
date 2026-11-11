@@ -563,12 +563,13 @@ export class Repos {
       turns: (r?.n as number) ?? 0,
     };
   }
-  usageTotals(where: { botId?: string; roomId?: string; causeId?: string } = {}): UsageTotals {
+  usageTotals(where: { botId?: string; roomId?: string; causeId?: string; sinceMs?: number } = {}): UsageTotals {
     const conds: string[] = [];
     const params: unknown[] = [];
     if (where.botId) { conds.push('bot_id=?'); params.push(where.botId); }
     if (where.roomId) { conds.push('room_id=?'); params.push(where.roomId); }
     if (where.causeId) { conds.push('cause_id=?'); params.push(where.causeId); }
+    if (where.sinceMs) { conds.push('created_at>=?'); params.push(where.sinceMs); }
     const sql = 'SELECT ' + SUM + ' FROM usage' + (conds.length ? ' WHERE ' + conds.join(' AND ') : '');
     return this.totalsFrom(this.db.get(sql, ...params));
   }
