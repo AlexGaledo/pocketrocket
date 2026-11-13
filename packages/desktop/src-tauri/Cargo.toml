@@ -34,5 +34,5 @@ strip = true
 
 [target."cfg(windows)".dependencies]
 # the same version tauri uses, for catching Alt+Enter before the page sees it
-webview2-com = "0.38"
+webview2-com = "0.39"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
