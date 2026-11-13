@@ -989,6 +989,7 @@ fn catch_alt_enter(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Res
     use webview2_com::AcceleratorKeyPressedEventHandler;
     use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS};
     const VK_RETURN: u32 = 0x0D;
+    const VK_T: u32 = 0x54;
     let app = app.clone();
     window.with_webview(move |webview| {
         let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
@@ -998,6 +999,14 @@ fn catch_alt_enter(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Res
                 args.KeyEventKind(&mut kind)?;
                 args.VirtualKey(&mut key)?;
                 args.PhysicalKeyStatus(&mut status)?;
+                // Alt+T opens the Server terminal (the tray icon is easy to miss).
+                if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN && key == VK_T {
+                    args.SetHandled(true)?;
+                    if !status.WasKeyDown.as_bool() {
+                        let app = app.clone();
+                        std::thread::spawn(move || open_terminal(&app));
+                    }
+                }
                 if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN && key == VK_RETURN {
                     args.SetHandled(true)?;
                     // Holding the keys repeats the key press, which must not flicker the window.
@@ -1160,6 +1169,7 @@ pub fn run() {
             term::term_resize,
             term::term_close,
             term::term_host,
+            term::term_open_url,
             scan::list_ssh_hosts,
             scan::scan_ssh_hosts,
             scan::ssh_host_fingerprint,
@@ -1216,7 +1226,7 @@ pub fn run() {
             let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket", true, None::<&str>)?;
             let m_fullscreen = MenuItem::with_id(app, "toggle_fullscreen", "Full screen on or off (Alt+Enter)", true, None::<&str>)?;
             let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
-            let m_term = MenuItem::with_id(app, "terminal", "Server terminal (SSH)", true, None::<&str>)?;
+            let m_term = MenuItem::with_id(app, "terminal", "Server terminal (Alt+T)", true, None::<&str>)?;
             let m_reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;

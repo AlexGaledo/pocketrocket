@@ -21,6 +21,7 @@
 <div id="term"></div>
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-web-links.js"></script>
 <script>
 (async () => {
   const { invoke } = window.__TAURI__.core, { listen } = window.__TAURI__.event;
@@ -35,14 +36,38 @@
   const term = new Terminal({ cursorBlink: true, fontSize: 14, scrollback: 5000, fontFamily: 'Cascadia Mono, Consolas, monospace', theme: { background: '#0b0d10' } });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
+  // Clickable links, including ones wrapped over several lines. Opened by Rust in the default browser.
+  term.loadAddon(new WebLinksAddon.WebLinksAddon((_e, uri) => invoke('term_open_url', { url: uri }).catch((err) => term.write('
+[31m' + err + '[0m
+'))));
   term.open(box);
   fit.fit();
   let current = 0, alive = false;
 
+  // navigator.clipboard is often refused in a webview, so fall back to a hidden textarea and execCommand.
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+    } else legacyCopy(text);
+  }
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    ta.remove(); term.focus();
+  }
+  // Select to copy (like most terminals), and right-click pastes.
+  term.onSelectionChange(() => { if (term.hasSelection()) copyText(term.getSelection()); });
+  box.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then((t) => { if (alive && t) invoke('term_write', { data: t }); }, () => {});
+  });
+
   // Ctrl+C with a selection copies (then a plain Ctrl+C still interrupts); Ctrl+V pastes.
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown' || !e.ctrlKey) return true;
-    if (e.key === 'c' && term.hasSelection()) { navigator.clipboard.writeText(term.getSelection()); term.clearSelection(); return false; }
+    if (e.key === 'c' && term.hasSelection()) { copyText(term.getSelection()); term.clearSelection(); return false; }
     if (e.key === 'v') return false; // the browser paste event feeds onData
     return true;
   });

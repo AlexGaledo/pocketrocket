@@ -117,3 +117,15 @@ pub fn term_host(window: Window, state: State<'_, crate::AppState>) -> Result<St
     only_terminal(&window)?;
     Ok(state.0.lock().unwrap().config.ssh_host.clone())
 }
+
+/// Open a link clicked in the terminal in the default browser. http(s) only, parsed here in Rust.
+#[tauri::command]
+pub fn term_open_url(window: Window, url: String) -> Result<(), String> {
+    only_terminal(&window)?;
+    let u = tauri::Url::parse(url.trim()).map_err(|e| e.to_string())?;
+    if !matches!(u.scheme(), "http" | "https") {
+        return Err("only http and https links can be opened".into());
+    }
+    crate::open_in_browser(&u);
+    Ok(())
+}
