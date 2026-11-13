@@ -23,6 +23,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 # ConPTY on Windows: the "Server terminal" window
 portable-pty = "0.9"
+# system clipboard for copy/paste in that window (the webview blocks its own clipboard API)
+arboard = { version = "3", default-features = false }
 
 [profile.release]
 opt-level = "s"

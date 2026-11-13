@@ -1170,6 +1170,8 @@ pub fn run() {
             term::term_close,
             term::term_host,
             term::term_open_url,
+            term::term_copy,
+            term::term_paste,
             scan::list_ssh_hosts,
             scan::scan_ssh_hosts,
             scan::ssh_host_fingerprint,

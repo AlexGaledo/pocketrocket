@@ -129,3 +129,17 @@ pub fn term_open_url(window: Window, url: String) -> Result<(), String> {
     crate::open_in_browser(&u);
     Ok(())
 }
+
+/// Copy selected terminal text to the system clipboard. The webview's own clipboard API is often refused.
+#[tauri::command]
+pub fn term_copy(window: Window, text: String) -> Result<(), String> {
+    only_terminal(&window)?;
+    arboard::Clipboard::new().and_then(|mut c| c.set_text(text)).map_err(|e| e.to_string())
+}
+
+/// Text from the system clipboard, for paste.
+#[tauri::command]
+pub fn term_paste(window: Window) -> Result<String, String> {
+    only_terminal(&window)?;
+    arboard::Clipboard::new().and_then(|mut c| c.get_text()).map_err(|e| e.to_string())
+}
