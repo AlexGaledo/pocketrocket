@@ -21,6 +21,8 @@ getrandom = "0.4"
 open = { version = "5", features = ["shellexecute-on-windows"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
+# ConPTY on Windows: the "Server terminal" window
+portable-pty = "0.9"
 
 [profile.release]
 opt-level = "s"
