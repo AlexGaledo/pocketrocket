@@ -37,9 +37,9 @@
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   // Clickable links, including ones wrapped over several lines. Opened by Rust in the default browser.
-  term.loadAddon(new WebLinksAddon.WebLinksAddon((_e, uri) => invoke('term_open_url', { url: uri }).catch((err) => term.write('
-[31m' + err + '[0m
-'))));
+  term.loadAddon(new WebLinksAddon.WebLinksAddon((_e, uri) => {
+    invoke('term_open_url', { url: uri }).catch((err) => term.write('\r\n\x1b[31m' + err + '\x1b[0m\r\n'));
+  }));
   term.open(box);
   fit.fit();
   let current = 0, alive = false;
