@@ -15,6 +15,7 @@
 mod proc;
 mod scan;
 mod ssh;
+mod term;
 
 use proc::{kill_tree, no_window, own_process_group, Tail};
 use serde::{Deserialize, Serialize};
@@ -28,7 +29,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::NewWindowResponse;
-use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -949,6 +950,22 @@ fn set_close_behaviour(app: &AppHandle, state: &AppState, on: bool) {
 /// The tray's "Keep running when window closes" item, so the splash page's checkbox can update it.
 struct TrayCheck(CheckMenuItem<tauri::Wry>);
 
+/// The "Server terminal" window: a bundled page with its own capability, running `ssh -tt <host>` in a
+/// ConPTY (see term.rs). It is how Claude Code gets logged in on the server without leaving the app.
+fn open_terminal(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(term::LABEL) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(app, term::LABEL, WebviewUrl::App("terminal.html".into()))
+        .title("PocketRocket - Server terminal")
+        .inner_size(980.0, 640.0)
+        .min_inner_size(480.0, 300.0)
+        .build();
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -972,6 +989,7 @@ fn catch_alt_enter(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Res
     use webview2_com::AcceleratorKeyPressedEventHandler;
     use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS};
     const VK_RETURN: u32 = 0x0D;
+    const VK_T: u32 = 0x54;
     let app = app.clone();
     window.with_webview(move |webview| {
         let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
@@ -981,6 +999,14 @@ fn catch_alt_enter(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Res
                 args.KeyEventKind(&mut kind)?;
                 args.VirtualKey(&mut key)?;
                 args.PhysicalKeyStatus(&mut status)?;
+                // Alt+T opens the Server terminal (the tray icon is easy to miss).
+                if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN && key == VK_T {
+                    args.SetHandled(true)?;
+                    if !status.WasKeyDown.as_bool() {
+                        let app = app.clone();
+                        std::thread::spawn(move || open_terminal(&app));
+                    }
+                }
                 if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN && key == VK_RETURN {
                     args.SetHandled(true)?;
                     // Holding the keys repeats the key press, which must not flicker the window.
@@ -1127,6 +1153,7 @@ pub fn run() {
         // Rust-side confirm dialogs only; no capability grants the pages dialog access.
         .plugin(tauri_plugin_dialog::init())
         .manage(state.clone())
+        .manage(term::Term::default())
         .invoke_handler(tauri::generate_handler![
             get_config,
             get_status,
@@ -1137,6 +1164,14 @@ pub fn run() {
             open_hub,
             open_log,
             remote_claude_status,
+            term::term_open,
+            term::term_write,
+            term::term_resize,
+            term::term_close,
+            term::term_host,
+            term::term_open_url,
+            term::term_copy,
+            term::term_paste,
             scan::list_ssh_hosts,
             scan::scan_ssh_hosts,
             scan::ssh_host_fingerprint,
@@ -1193,6 +1228,7 @@ pub fn run() {
             let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket", true, None::<&str>)?;
             let m_fullscreen = MenuItem::with_id(app, "toggle_fullscreen", "Full screen on or off (Alt+Enter)", true, None::<&str>)?;
             let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
+            let m_term = MenuItem::with_id(app, "terminal", "Server terminal (Alt+T)", true, None::<&str>)?;
             let m_reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;
@@ -1201,7 +1237,7 @@ pub fn run() {
             let t_keep = CheckMenuItem::with_id(app, "tray_keep", "Keep running when window closes", true, keep, None::<&str>)?;
             let t_quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[
-                &t_show, &m_fullscreen, &m_settings, &m_reload,
+                &t_show, &m_fullscreen, &m_settings, &m_term, &m_reload,
                 &PredefinedMenuItem::separator(app)?,
                 &m_data, &m_log,
                 &PredefinedMenuItem::separator(app)?,
@@ -1221,6 +1257,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "tray_show" => show_main_window(app),
+                    "terminal" => open_terminal(app),
                     "tray_keep" => {
                         let on = !close_to_tray(&tray_state.0.lock().unwrap().config);
                         set_close_behaviour(app, &tray_state, on);
@@ -1269,6 +1306,7 @@ pub fn run() {
                     show_main_window(app);
                     toggle_fullscreen(app);
                 }
+                "terminal" => open_terminal(app),
                 "open_data" => open_data_folder(app),
                 "open_log" => open_log_file(app),
                 "settings" => {
@@ -1300,6 +1338,13 @@ pub fn run() {
         // P9: close-to-tray. Closing the main window hides it while the app (and in local mode the hub and
         // its bots) keeps running; the tray or a second launch brings it back, and only Quit really exits.
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if window.label() == term::LABEL {
+                    if let Some(t) = window.app_handle().try_state::<term::Term>() {
+                        t.close();
+                    }
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
                     return;
@@ -1320,6 +1365,9 @@ pub fn run() {
         .expect("error while building PocketRocket")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                if let Some(t) = app.try_state::<term::Term>() {
+                    t.close();
+                }
                 if let Some(st) = app.try_state::<AppState>() {
                     let mut inner = st.0.lock().unwrap();
                     inner.quitting = true;
