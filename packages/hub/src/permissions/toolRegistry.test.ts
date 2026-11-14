@@ -64,12 +64,12 @@ describe('hub tool registry (B3)', () => {
     ];
     const gated = [
       'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
-      'create_routine', 'update_routine', 'delete_routine', 'propose_routing_change', ...INTEGRATION_WRITE_TOOLS, 'run_on_pc',
+      'create_routine', 'update_routine', 'delete_routine', 'propose_routing_change', ...INTEGRATION_WRITE_TOOLS, 'run_on_pc', 'fill_credential',
     ];
     expect([...SILENT_TOOLS].sort()).toEqual([...silent].sort());
     expect([...GATED_TOOLS].sort()).toEqual([...gated].sort());
-    expect([...ASK_EVERY_TIME_TOOLS].sort()).toEqual(['propose_routing_change', 'run_on_pc']);
-    expect([...SIGN_IN_TOOLS]).toEqual(['run_on_pc']);
+    expect([...ASK_EVERY_TIME_TOOLS].sort()).toEqual(['fill_credential', 'propose_routing_change', 'run_on_pc']);
+    expect([...SIGN_IN_TOOLS].sort()).toEqual(['fill_credential', 'run_on_pc']);
     expect(BROKER_SIGN_IN).toBe(SIGN_IN_TOOLS);
     expect(DESKTOP_TOOL_NAMES).toHaveLength(6);
   });

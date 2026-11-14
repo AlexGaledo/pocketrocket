@@ -83,6 +83,9 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
   ['propose_routing_change', 'askEveryTime'],
   // A Claude Code job on the owner's PC; its handler calls askFleetChange with evenUnderBypass.
   ['run_on_pc', 'signInOnly'],
+  // Types a saved login into the bot's browser; its handler calls askCredentialFill. Asked on every call, under bypass
+  // too, and only a signed-in browser may allow it (G4).
+  ['fill_credential', 'signInOnly'],
   // Registered by the hub but in no broker set today (see `unlisted` above).
   ['read_owner_messages', 'unlisted'],
   ['search_project_context', 'unlisted'],

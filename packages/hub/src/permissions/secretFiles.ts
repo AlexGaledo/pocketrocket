@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  ACCOUNT_PATH, DATA_DIR, DB_PATH, HUB_TOKEN_PATH, INTEGRATIONS_PATH, PROJECTS_DIR, SECRETS_PATH, VAPID_PATH, VAULT_KEY_PATH,
+  ACCOUNT_PATH, DATA_DIR, DB_PATH, HUB_TOKEN_PATH, INTEGRATIONS_PATH, CREDENTIALS_PATH, PROJECTS_DIR, SECRETS_PATH, VAPID_PATH, VAULT_KEY_PATH,
 } from '../config.js';
 import { segments, tokenize } from './bashRules.js';
 
@@ -47,7 +47,7 @@ const isWin = process.platform === 'win32';
 const DB_SIDECARS = ['', '-wal', '-shm', '-journal'];
 const HUB_FILES = [
   path.basename(HUB_TOKEN_PATH), path.basename(SECRETS_PATH), 'mcp-servers.json', 'pc-runner.json', 'key-registry.json',
-  path.basename(ACCOUNT_PATH), path.basename(VAPID_PATH), path.basename(VAULT_KEY_PATH), path.basename(INTEGRATIONS_PATH),
+  path.basename(ACCOUNT_PATH), path.basename(VAPID_PATH), path.basename(VAULT_KEY_PATH), path.basename(INTEGRATIONS_PATH), path.basename(CREDENTIALS_PATH),
   // The hub database (and the pre-rename one): browser sessions, the password hash, approvals and PC jobs. A bot
   // that could write it could forge a signed-in session and approve its own job on the PC.
   ...[path.basename(DB_PATH), 'claudebot.db'].flatMap((db) => DB_SIDECARS.map((s) => db + s)),

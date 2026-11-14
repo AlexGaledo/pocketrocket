@@ -12,6 +12,7 @@ import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrock
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
 import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
+import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
 import type { MachineInfo, MachinePolicy, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
@@ -269,6 +270,13 @@ export const api = {
     turnOff: () => req<{ ok: true; cancelled: number }>('DELETE', '/api/pc-runner'),
     machines: () => req<MachineInfo[]>('GET', '/api/pc-runner/machines'),
     setMachinePolicy: (id: string, policy: MachinePolicy) => req<MachineInfo>('PUT', '/api/pc-runner/machines/' + encodeURIComponent(id), { policy }),
+  },
+  // Saved logins for fill_credential. The secret is write-only: it is sent here and never comes back.
+  credentials: {
+    list: () => req<{ credentials: CredentialInfo[] }>('GET', '/api/credentials'),
+    create: (c: Omit<CredentialCreate, 'username'> & { username?: string }) => req<CredentialInfo>('POST', '/api/credentials', c),
+    update: (id: string, c: CredentialPatch) => req<CredentialInfo>('PATCH', '/api/credentials/' + encodeURIComponent(id), c),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/credentials/' + encodeURIComponent(id)),
   },
   devices: {
     list:() => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),

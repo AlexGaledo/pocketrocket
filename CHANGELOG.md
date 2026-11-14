@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Saved logins for bots
+
+- A new **Logins** section in Settings saves a login (a name, the exact site, a username and a password or secret). A bot can then sign in with `fill_credential` by name: the hub types it into the field in the bot's browser, and the bot only ever hears "filled". The secret is write-only (never shown again, never in a bot's chat, logs, cards or any API answer) and is stored encrypted in `data/credentials.json` under the same key as your integration tokens.
+- It asks you on a card every single time, also when approvals are bypassed, and only a browser signed in with your password can say yes; there is no "for this session" and no rule that pre-approves it. A login only works on the exact site it was saved for (same scheme, host and port): on any other page, after a redirect, or with two tabs in front, it refuses and types nothing. A password goes only into a password field.
+- Saving, changing or deleting a login also needs a signed-in browser, and is recorded in the audit log without the secret.
+
 ### Tasks, history search and bot reports
 
 - Each room has a local task board: bots get `create_task`, `update_task` and `list_tasks`, and there is a REST API under `/api/rooms/:id/tasks` (200 open tasks per room, 200-character titles, 4 KB notes). A task is only a note: it never grants an approval or changes a setting.

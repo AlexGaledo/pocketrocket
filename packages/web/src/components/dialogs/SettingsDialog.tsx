@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { Bell, BookOpen, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
+import { Bell, BookOpen, KeyRound, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
 // P9
 import { Monitor, Smartphone } from 'lucide-react';
 import { DevicesSection } from '../settings/DevicesSection';
@@ -27,6 +27,7 @@ import { canNotify } from '../../lib/notify';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
 import { ProjectsSection } from '../settings/ProjectsSection';
+import { CredentialsSection } from '../settings/CredentialsSection';
 
 export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
   // P4
@@ -35,6 +36,7 @@ export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance
   // P9
   | 'devices'
   | 'pc-runner'
+  | 'credentials'
   // U7: desktop app only
   | 'notifications';
 
@@ -46,6 +48,8 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'projects', label: 'Projects', icon: FolderGit2 },
   // P4
   { id: 'integrations', label: 'Connections', icon: Plug },
+  // G4: saved logins bots can type into a page (desktop only: the hub refuses a phone).
+  { id: 'credentials', label: 'Logins', icon: KeyRound },
   // P7
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   // P9
@@ -147,6 +151,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             <TabsPrimitive.Content value="bots" tabIndex={-1} className={PANEL}><BotsSection health={health} onHealthStale={refreshHealth} /></TabsPrimitive.Content>
             {/* P4 */}
             <TabsPrimitive.Content value="integrations" tabIndex={-1} className={PANEL}><IntegrationsSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="credentials" tabIndex={-1} className={PANEL}><CredentialsSection /></TabsPrimitive.Content>
             {/* P7 */}
             <TabsPrimitive.Content value="knowledge" tabIndex={-1} className={PANEL}><KnowledgeSection /></TabsPrimitive.Content>
             {canNotify() && <TabsPrimitive.Content value="notifications" tabIndex={-1} className={PANEL}><NotificationsSection /></TabsPrimitive.Content>}

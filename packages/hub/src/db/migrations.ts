@@ -582,3 +582,19 @@ registerMigrations([190, 199], [
     },
   },
 ]);
+
+// Credential vault (G4). Name, origin and username of each saved login; the secret is in the encrypted vault file
+// (data/credentials.json, key in vault.key), keyed by `credentials.id`, never in this table.
+registerMigrations([210, 219], [
+  {
+    version: 210,
+    name: 'credentials',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS credentials (' +
+          "id TEXT PRIMARY KEY, name TEXT NOT NULL, origin TEXT NOT NULL, username TEXT NOT NULL DEFAULT '', " +
+          'created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_used_at INTEGER);' +
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_name ON credentials(name COLLATE NOCASE)',
+      ),
+  },
+]);
