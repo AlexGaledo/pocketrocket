@@ -18,3 +18,5 @@ export * from './files.js';
 export * from './pcRunner.js';
 // Hub tool registry
 export * from './tools.js';
+// Tasks
+export * from './tasks.js';

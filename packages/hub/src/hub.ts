@@ -32,6 +32,7 @@ import { ContextRepo } from './db/contextRepo.js';
 import { ProjectService } from './services/ProjectService.js';
 import { createProjectsApi } from './api/projects.js';
 import { createRest } from './api/rest.js';
+import { startHistoryBackfill } from './db/historyIndex.js';
 import { attachWs } from './api/ws.js';
 import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, dropCookie, presentsHubToken, tokenMatches } from './api/guard.js';
 import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
@@ -165,6 +166,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   }
 
   const db = opts.dbFile ? new Db(opts.dbFile) : new Db();
+  // Finishes indexing old messages for search_history when the history was too long for the migration alone.
+  const stopHistoryBackfill = startHistoryBackfill(db);
   const repos = new Repos(db);
   const memory = new MemoryService();
   if (!opts.skipBootstrap) {
@@ -736,6 +739,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         });
       }),
     async shutdown() {
+      stopHistoryBackfill();
       scheduler.stop();
       // Aborts a running pass and waits for it, so nothing writes to the database after it closes below.
       await training.stop();

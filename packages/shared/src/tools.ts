@@ -63,6 +63,9 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     'where_to_run',
     // Notes live in the bot's own home.
     'search_notes', 'write_note',
+    // G1-G5: tasks only touch the local task table and grant nothing; search and recall are reads over the bot's own
+    // rooms and notes; report_blocked posts a room note and send_feedback appends to a local file, both rate limited.
+    'create_task', 'update_task', 'list_tasks', 'search_history', 'recall_memory', 'report_blocked', 'send_feedback',
   ]),
   ...silent(DESKTOP_TOOL_NAMES),
   // Integration reads: granted per bot; untrusted output is labelled as such.

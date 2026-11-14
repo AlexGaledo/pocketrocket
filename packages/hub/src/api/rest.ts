@@ -4,8 +4,8 @@ import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
   BotInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  isMediaRef, mediaHash,
-  type HealthInfo, type ProviderId, type Room,
+  TASK_STATUSES, isMediaRef, mediaHash,
+  type HealthInfo, type ProviderId, type Room, type TaskStatus,
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
@@ -27,6 +27,8 @@ function probe(url: string): Promise<boolean> {
 }
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
+import { TaskError, TaskService } from '../services/TaskService.js';
+import { BotReports } from '../services/BotReports.js';
 import { MAX_MEMORY_BYTES, type MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
@@ -404,6 +406,55 @@ export function createRest(deps: RestDeps) {
     return { ...s, reviewStatus };
   });
   add('DELETE', '/api/skills/:id', ({ params }) => { skills.remove(params.id); return { ok: true }; });
+
+  // ---- tasks (G1), bot reports and feedback (G5)
+  const taskSvc = new TaskService(repos.db);
+  const botReports = new BotReports(repos.db);
+  const taskFail = <T>(fn: () => T): T => {
+    try { return fn(); } catch (e) { if (e instanceof TaskError) throw new HttpError(e.status, e.message); throw e; }
+  };
+  const TaskBodySchema = z.object({
+    title: z.string().trim().min(1).max(200),
+    notes: z.string().max(4096).optional(),
+    status: z.enum(TASK_STATUSES).optional(),
+    assigneeBotId: z.string().nullable().optional(),
+    dueAt: z.number().int().nonnegative().nullable().optional(),
+    parentId: z.string().nullable().optional(),
+  });
+  const needAssignee = (roomId: string, id: string | null | undefined) => {
+    if (id && !need(repos.getRoom(roomId), 'Room').memberIds.includes(id)) throw new HttpError(400, 'The assignee is not in this room');
+  };
+  add('GET', '/api/rooms/:id/tasks', ({ params, query }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const status = query.get('status');
+    if (status && !(TASK_STATUSES as readonly string[]).includes(status)) throw new HttpError(400, 'bad status');
+    return taskSvc.list(params.id, { status: (status as TaskStatus | null) ?? undefined, includeDone: query.get('all') === '1', limit: Number(query.get('limit')) || undefined });
+  });
+  add('POST', '/api/rooms/:id/tasks', ({ params, body }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const i = parse(TaskBodySchema, body);
+    needAssignee(params.id, i.assigneeBotId);
+    return taskFail(() => taskSvc.create(params.id, null, i));
+  });
+  add('PATCH', '/api/rooms/:id/tasks/:taskId', ({ params, body }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const cur = need(taskSvc.get(params.taskId), 'Task');
+    if (cur.roomId !== params.id) throw new HttpError(404, 'Task not found');
+    const i = parsePatch(TaskBodySchema.partial(), body);
+    needAssignee(params.id, i.assigneeBotId);
+    return taskFail(() => taskSvc.update(cur.id, i));
+  });
+  add('GET', '/api/bot-reports', ({ query }) => {
+    const st = query.get('status');
+    return botReports.listReports(st === 'pending' || st === 'resolved' || st === 'dismissed' ? st : undefined);
+  });
+  add('PATCH', '/api/bot-reports/:id', ({ params, body }) => {
+    need(botReports.getReport(params.id), 'Report');
+    const { status } = parse(z.object({ status: z.enum(['pending', 'resolved', 'dismissed']) }), body);
+    return botReports.setStatus(params.id, status);
+  });
+  // Read-only export of what bots sent with send_feedback. Nothing here leaves the machine.
+  add('GET', '/api/feedback', ({ query }) => botReports.readFeedback(Number(query.get('limit')) || 200));
 
   // ---- routines
   add('GET', '/api/routines', () => repos.listRoutines());
