@@ -11,6 +11,7 @@ import { play, setSoundsEnabled } from './lib/sounds';
 import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
 import { getItem, setItem } from './lib/persist';
+import { newClientId, readJournal, writeJournal, type OutboxEntry } from './lib/outbox';
 import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
 import type { SectionId } from './components/dialogs/SettingsDialog';
 
@@ -98,8 +99,28 @@ function applyLocalSettings(s: Settings) {
   applyFont(s.font);
 }
 
+/** How long a message written to the socket may go unechoed before it shows as not sent (B5). */
+export const SEND_ACK_MS = 15_000;
+/** clientId -> timer that turns an unechoed `sent` entry into `failed` (or back to `sending` if the link is down). */
+const ackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function clearAck(clientId: string) {
+  const t = ackTimers.get(clientId);
+  if (t) clearTimeout(t);
+  ackTimers.delete(clientId);
+}
+
 interface State {
   connected: boolean;
+  /** True once this page has had a connection, so a later loss reads as "Reconnecting" rather than a first "Connecting". */
+  hasConnected: boolean;
+  /** The send journal (B5): messages written by the user that the hub has not echoed back yet, oldest first. */
+  outbox: OutboxEntry[];
+  /** Resend what is waiting, in order, stopping at the first entry the socket will not take. */
+  flushOutbox: () => void;
+  /** Failed entry: try again. */
+  retrySend: (clientId: string) => void;
+  /** Drop an entry from the journal without sending it. */
+  discardSend: (clientId: string) => void;
   /** When the connection last went down (or the page loaded without one); null while connected. */
   disconnectedAt: number | null;
   /** The diagnosed cause while disconnected; null until a probe has said anything. */
@@ -234,6 +255,8 @@ let toastSeq = 0;
 
 export const useStore = create<State>((set, get) => ({
   connected: false,
+  hasConnected: false,
+  outbox: readJournal(),
   disconnectedAt: Date.now(),
   hubIssue: null,
   bots: [],
@@ -284,8 +307,10 @@ export const useStore = create<State>((set, get) => ({
 
   setConnected: (connected) => {
     const was = get().connected;
-    if (connected) set({ connected, disconnectedAt: null, hubIssue: null });
+    if (connected) set({ connected, hasConnected: true, disconnectedAt: null, hubIssue: null });
     else if (was) set({ connected, disconnectedAt: Date.now() });
+    // Everything the user wrote while the link was down goes out now, before anything newer.
+    if (connected) get().flushOutbox();
     if (connected && !was && isDesktopMode() && !get()._playedConnectedSound) {
       set({ _playedConnectedSound: true });
       play('connected');
@@ -336,6 +361,8 @@ export const useStore = create<State>((set, get) => ({
       case 'message.new': {
         const m = ev.message;
         const list = s.messages[m.roomId] ?? [];
+        // The hub's copy of a message from the journal: the entry has done its job.
+        if (m.clientMsgId) settleSends([m.clientMsgId]);
         if (list.some((x) => x.id === m.id)) return;
         const unread = { ...s.unread };
         if (m.roomId !== s.activeRoomId && m.authorType !== 'user' && (m.kind === 'text' || m.kind === 'approval' || m.kind === 'takeover')) unread[m.roomId] = (unread[m.roomId] ?? 0) + 1;
@@ -435,6 +462,12 @@ export const useStore = create<State>((set, get) => ({
           set({ approvalErrors: { ...s.approvalErrors, [ev.context]: ev.message } });
           return;
         }
+        // A refused send (a room that no longer exists) belongs on its own bubble, which then offers Retry.
+        if (ev.context && s.outbox.some((e) => e.clientId === ev.context)) {
+          patchOutbox(ev.context, 'failed');
+          clearAck(ev.context);
+          return;
+        }
         get().toast(ev.message, true);
         return;
       // ---- P7 ----
@@ -507,6 +540,7 @@ export const useStore = create<State>((set, get) => ({
       const existing = get().messages[roomId] ?? [];
       const ids = new Set(msgs.map((m) => m.id));
       const merged = [...msgs, ...existing.filter((m) => !ids.has(m.id))].sort((a, b) => a.seq - b.seq);
+      settleSends(msgs.flatMap((m) => (m.clientMsgId ? [m.clientMsgId] : [])));
       // A reload after reconnect keeps older pages already fetched, so only a short newest page proves there is nothing more.
       const done = msgs.length < MESSAGE_PAGE || !!get().history[roomId]?.done;
       set({
@@ -543,8 +577,32 @@ export const useStore = create<State>((set, get) => ({
   sendMessage: (text) => {
     const roomId = get().activeRoomId;
     if (!roomId || !text.trim()) return;
-    if (wsSend({ type: 'message.send', roomId, text })) play('send');
-    else get().toast('Not connected', true);
+    // Journal first, then try the socket: a message is never only in memory.
+    const entry: OutboxEntry = { clientId: newClientId(), roomId, text, status: 'sending', createdAt: Date.now() };
+    setOutbox([...get().outbox, entry]);
+    play('send');
+    get().flushOutbox();
+  },
+  flushOutbox: () => {
+    for (const e of get().outbox) {
+      if (e.status !== 'sending' && e.status !== 'sent') continue;
+      if (!wsSend({ type: 'message.send', roomId: e.roomId, text: e.text, clientMsgId: e.clientId })) return;
+      patchOutbox(e.clientId, 'sent');
+      // No echo: if the link is still up the hub is not taking it, otherwise it waits for the reconnect.
+      clearAck(e.clientId);
+      ackTimers.set(e.clientId, setTimeout(() => {
+        ackTimers.delete(e.clientId);
+        patchOutbox(e.clientId, get().connected ? 'failed' : 'sending', 'sent');
+      }, SEND_ACK_MS));
+    }
+  },
+  retrySend: (clientId) => {
+    patchOutbox(clientId, 'sending', 'failed');
+    get().flushOutbox();
+  },
+  discardSend: (clientId) => {
+    clearAck(clientId);
+    setOutbox(get().outbox.filter((e) => e.clientId !== clientId));
   },
   decide: (approvalId, decision) => {
     decided.add(approvalId);
@@ -665,3 +723,29 @@ export const useStore = create<State>((set, get) => ({
 
 export const selectActiveRoom = (s: State) => s.rooms.find((r) => r.id === s.activeRoomId) ?? null;
 export const botById = (bots: Bot[], id: string | null | undefined) => (id ? bots.find((b) => b.id === id) : undefined);
+
+// ---------- send journal helpers (B5) ----------
+
+/** Replaces the journal in state and on disk. */
+function setOutbox(outbox: OutboxEntry[]) {
+  useStore.setState({ outbox });
+  writeJournal(outbox);
+}
+
+/** Sets one entry's status; with `only`, leaves it alone unless it currently has that status. */
+function patchOutbox(clientId: string, status: OutboxEntry['status'], only?: OutboxEntry['status']) {
+  const cur = useStore.getState().outbox;
+  const at = cur.find((e) => e.clientId === clientId);
+  if (!at || at.status === status || (only && at.status !== only)) return;
+  setOutbox(cur.map((e) => (e.clientId === clientId ? { ...e, status } : e)));
+}
+
+/** The hub has these messages, so their journal entries are done. */
+function settleSends(clientIds: string[]) {
+  const cur = useStore.getState().outbox;
+  if (!cur.length) return;
+  const done = new Set(clientIds);
+  if (!cur.some((e) => done.has(e.clientId))) return;
+  for (const id of done) clearAck(id);
+  setOutbox(cur.filter((e) => !done.has(e.clientId)));
+}

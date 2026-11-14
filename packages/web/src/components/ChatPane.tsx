@@ -14,6 +14,8 @@ import { WorkLine, fmtInput, isStep } from './WorkLine';
 import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
 import { selectScreenSize } from '../lib/screenView';
 import { useMediaUrl } from '../lib/media';
+import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
+import type { OutboxEntry } from '../lib/outbox';
 
 export function ChatPane() {
   const room = useStore(selectActiveRoom);
@@ -167,10 +169,12 @@ function Transcript({ roomId }: { roomId: string }) {
 
   const isDm = useStore((s) => s.rooms.find((r) => r.id === roomId)?.kind === 'dm');
   const streams = useMemo(() => Object.entries(streaming).filter(([, v]) => v.roomId === roomId && v.text), [streaming, roomId]);
+  const outbox = useStore((s) => s.outbox);
+  const pending = useMemo(() => outbox.filter((e) => e.roomId === roomId), [outbox, roomId]);
 
   useEffect(() => {
     if (stick && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [messages, streams, stick]);
+  }, [messages, streams, pending, stick]);
   useEffect(() => { if (stick) setUnseen(null); }, [stick]);
 
   // New messages land at the end of the list; older pages land at the start. Only the former count as unseen.
@@ -260,7 +264,7 @@ function Transcript({ roomId }: { roomId: string }) {
       )}
       <div ref={ref} onScroll={onScroll} className="flex-1 overflow-x-clip overflow-y-auto overscroll-contain px-6 py-4 [overflow-anchor:none]">
         <div className="mx-auto flex max-w-[var(--page-max)] flex-col gap-6">
-          {!messages?.length && (
+          {!messages?.length && !pending.length && (
             loaded
               ? <div className="py-12 text-center text-ui text-muted">Nothing here yet. Say what you need.</div>
               : <TranscriptSkeleton label="Loading messages" />
@@ -280,6 +284,7 @@ function Transcript({ roomId }: { roomId: string }) {
               </div>
             ) : null;
           })}
+          {pending.length > 0 && <PendingSends entries={pending} bots={bots} />}
         </div>
       </div>
       {unseen && (
@@ -294,6 +299,45 @@ function Transcript({ roomId }: { roomId: string }) {
           <ArrowDown size={14} aria-hidden /> {unseen === 'approval' ? 'Approval waiting' : unseen === 'takeover' ? 'Needs you' : 'New messages'}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * What the user has sent that the hub has not echoed yet: shown at once, in the user's bubble style but dimmed,
+ * with its state spelled out in words (not colour alone) and Retry / Discard when it did not go.
+ */
+function PendingSends({ entries, bots }: { entries: OutboxEntry[]; bots: Bot[] }) {
+  const userName = useStore((s) => s.settings.userName);
+  const userAvatar = useStore((s) => s.settings.userAvatar);
+  const connected = useStore((s) => s.connected);
+  const retrySend = useStore((s) => s.retrySend);
+  const discardSend = useStore((s) => s.discardSend);
+  return (
+    <div className="flex justify-end gap-3 pl-16 @max-[560px]:pl-6">
+      <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
+        {entries.map((e) => (
+          <div key={e.clientId} className="flex max-w-[85%] flex-col items-end gap-1">
+            <div className={cn('md rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body', e.status !== 'sent' && 'opacity-70')}>
+              <RichText text={e.text} bots={bots} />
+            </div>
+            <div role="status" className={cn('flex items-center gap-2 pr-1 text-hint', e.status === 'failed' ? 'text-bad' : 'text-dim')}>
+              {e.status === 'failed' ? (
+                <>
+                  <span>Not sent</span>
+                  <Button size="sm" variant="ghost" onClick={() => retrySend(e.clientId)}>Retry</Button>
+                  <Button size="sm" variant="ghost" onClick={() => discardSend(e.clientId)}>Discard</Button>
+                </>
+              ) : e.status === 'sent' ? (
+                <span>Sent</span>
+              ) : (
+                <span>{connected ? 'Sending…' : 'Waiting to reconnect…'}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <UserAvatar name={userName} avatar={userAvatar} size={30} />
     </div>
   );
 }
@@ -612,7 +656,20 @@ function Composer({ members }: { members: Bot[] }) {
   const showPicker = useStore((s) => !s.device && s.settings.provider === 'claude');
   // A paired phone may not change settings, and the hub would refuse it.
   const showPermissions = useStore((s) => !s.device);
-  const [text, setText] = useState('');
+  // One draft per room (the composer remounts per room): restored here, saved a moment after typing stops,
+  // saved at once when the room changes or the pane closes, and cleared on send.
+  const [text, setText] = useState(() => (roomId ? readDraft(roomId) : ''));
+  const textRef = useRef(text);
+  textRef.current = text;
+  useEffect(() => {
+    if (!roomId) return;
+    const t = setTimeout(() => writeDraft(roomId, text), DRAFT_SAVE_MS);
+    return () => clearTimeout(t);
+  }, [roomId, text]);
+  useEffect(() => {
+    if (!roomId) return;
+    return () => writeDraft(roomId, textRef.current);
+  }, [roomId]);
   const [mentionIdx, setMentionIdx] = useState(0);
   // Escape hides the popup for the @word being typed; typing on reopens it.
   const [mentionDismissed, setMentionDismissed] = useState(false);
@@ -652,6 +709,8 @@ function Composer({ members }: { members: Bot[] }) {
     if (!text.trim()) return;
     sendMessage(text.trim());
     setText('');
+    textRef.current = '';
+    if (roomId) writeDraft(roomId, '');
   };
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // While an IME is composing (Japanese, Chinese, Korean…), Enter confirms the candidate; it must not send.

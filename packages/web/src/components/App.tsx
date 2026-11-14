@@ -263,6 +263,7 @@ function HubStatus() {
   const connected = useStore((s) => s.connected);
   const disconnectedAt = useStore((s) => s.disconnectedAt);
   const issue = useStore((s) => s.hubIssue);
+  const hasConnected = useStore((s) => s.hasConnected);
   const [late, setLate] = useState(false);
   useEffect(() => {
     setLate(false);
@@ -275,7 +276,7 @@ function HubStatus() {
   if (!late) {
     return (
       <div role="status" className="fixed left-1/2 top-4 z-[100] -translate-x-1/2 rounded-full bg-ink px-3.5 py-1.5 text-ui text-ink-fg shadow-[var(--shadow-overlay)]">
-        Connecting…
+        {hasConnected && !issue ? 'Reconnecting…' : 'Connecting…'}
       </div>
     );
   }

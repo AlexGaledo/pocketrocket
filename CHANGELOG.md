@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Messages that don't get lost
+
+- Sending while the hub is unreachable no longer drops the text. The message shows in the chat at once, marked "Waiting to reconnect", and goes out in order when the connection is back. A message the hub never confirms shows "Not sent" with Retry and Discard. Unsent messages survive closing the tab.
+- Each chat remembers what you were typing: the draft comes back when you return to the room and clears when you send.
+- The hub tells a repeated send from a new one (an optional `clientMsgId` on `message.send`, stored on the message), so a retry after a reconnect never posts twice or starts a second turn. Older clients that send no id work as before. Existing databases get the new column and index on start.
+- The connection now notices a link that has gone quiet (cable pulled, laptop woken from sleep): the hub pings every 20 seconds, and after two missed pings the app shows "Reconnecting…" in the profile menu and the top banner and reconnects with the usual backoff.
+- All browser storage goes through one guarded helper, so blocked or full storage can no longer throw. Existing settings keep their keys and values.
+
 ### Cheaper default models
 
 - A bot that creates another bot no longer hands it its own model: without an explicit pick the new bot gets Sonnet 5, so an Opus lead no longer fills a room with Opus workers. The create/update bot tools tell bots to use Sonnet for workers, Haiku for simple or routine bots, and Opus only when you ask or a lead truly needs it.
