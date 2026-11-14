@@ -845,7 +845,7 @@ function Composer({ members }: { members: Bot[] }) {
                     <img src={p.preview} alt={'Picture ' + (i + 1) + ' to send'} className={cn('h-full w-full object-cover', p.status !== 'ready' && 'opacity-50')} />
                   </span>
                   <span role="status" className={cn('text-hint', p.status === 'failed' ? 'text-bad' : 'text-dim', p.status === 'working' && 'motion-safe:animate-pulse')}>
-                    {p.status === 'working' ? 'Uploading…' : p.status === 'failed' ? p.error ?? 'Not uploaded' : ''}
+                    {p.status === 'working' ? 'Uploadingâ€¦' : p.status === 'failed' ? p.error ?? 'Not uploaded' : ''}
                   </span>
                   {p.status === 'failed' && <Button size="sm" variant="ghost" onClick={() => void runUpload(p.id, p.file, p.blob)}>Retry</Button>}
                   <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={'Remove picture ' + (i + 1)} onClick={() => dropPic(p.id)}><X size={14} /></Button>

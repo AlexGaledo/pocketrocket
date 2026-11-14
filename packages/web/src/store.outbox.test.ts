@@ -168,6 +168,40 @@ describe('send journal', () => {
   });
 });
 
+describe('flush and reconnect', () => {
+  it('does not resend a sent entry or reset its ack timer when flushed again', async () => {
+    const { useStore, connectWs, SEND_ACK_MS } = await boot();
+    useStore.setState({ activeRoomId: 'r1' });
+    connectWs();
+    const sock = FakeSocket.instances[0];
+    sock.open();
+    useStore.getState().sendMessage('one');
+    expect(texts(sock)).toEqual(['one']);
+    vi.advanceTimersByTime(SEND_ACK_MS - 1000);
+    useStore.getState().sendMessage('two'); // flushes the whole journal again
+    expect(texts(sock)).toEqual(['one', 'two']); // 'one' was not written a second time
+    vi.advanceTimersByTime(1000); // the original timer for 'one' still fires on schedule
+    expect(useStore.getState().outbox.map((e) => [e.text, e.status])).toEqual([['one', 'failed'], ['two', 'sent']]);
+  });
+
+  it('resends an unacked sent entry exactly once on reconnect', async () => {
+    const { useStore, connectWs } = await boot();
+    useStore.setState({ activeRoomId: 'r1' });
+    connectWs();
+    const a = FakeSocket.instances[0];
+    a.open();
+    useStore.getState().sendMessage('one');
+    const first = a.sent.splice(0)[0] as Send;
+    a.drop(); // shorter than the ack wait, so the entry is still 'sent'
+    expect(useStore.getState().outbox[0].status).toBe('sent');
+    vi.advanceTimersByTime(2000);
+    const b = FakeSocket.instances[1];
+    b.open();
+    expect(b.sent.filter((e) => e.type === 'message.send').map((e) => (e as Send).clientMsgId)).toEqual([first.clientMsgId]);
+    expect(useStore.getState().outbox[0].status).toBe('sent');
+  });
+});
+
 describe('liveness', () => {
   it('answers a ping with a pong', async () => {
     const { connectWs } = await boot();
