@@ -19,6 +19,7 @@ import type { HubTool, ToolOutput } from '../providers/types.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { Routine } from '@pocketrocket/shared';
 import { isInside } from '../permissions/pathRules.js';
+import { denyMessage } from '../permissions/messages.js';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
 import { MAX_PC_PROMPT_BYTES, PC_EXPIRED_MESSAGE, PC_FOLDER_RE, PcRunnerError, type PcRunner } from '../services/PcRunner.js';
 import { KEY_NAME_RE, loadKeyRegistry, routeByNeeds, type KeyRegistry } from '../services/keyRegistry.js';
@@ -281,7 +282,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
    * and the hop and cost caps still hold: it is the same thread.
    */
   const handoffToItsChat = async (b: Bot, a: { task: string; context?: string }): Promise<ToolOutput> => {
-    if (ctx.hop + 1 > MAX_HOPS) return err('Could not dispatch: hop budget exhausted. Finish the task yourself.');
+    if (ctx.hop + 1 > MAX_HOPS) return err(denyMessage('unavailable', { subject: 'this hand-off', note: 'the hop budget is used up', alt: 'finish the task yourself' }));
     const r = await ctx.confirmOutsideHandoff?.({
       input: { to_bot: b.handle, task: a.task, ...(a.context ? { context: a.context } : {}) },
       reason: '@' + ctx.bot.handle + ' wants to pass this to @' + b.handle + ', which has different logins and tools.',
@@ -307,7 +308,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     });
     return dispatched.length
       ? text('Passed to @' + b.handle + ', working in its own chat. Its result will appear in this chat; do not wait for it.')
-      : err('Could not dispatch. Finish the task yourself.');
+      : err(denyMessage('unavailable', { subject: 'this hand-off', note: 'it could not be dispatched', alt: 'finish the task yourself' }));
   };
 
   const handoff = hubTool(
@@ -1092,7 +1093,7 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
       }
       if (Buffer.byteLength(a.prompt, 'utf8') > MAX_PC_PROMPT_BYTES) return err('The prompt is over 8 KB. Make it shorter.');
       // Fails closed: without a card nobody approved it.
-      if (!ctx.confirmFleetChange) return err('Jobs on the PC need ' + userName + "'s approval, and none can be asked for here.");
+      if (!ctx.confirmFleetChange) return err(denyMessage('unavailable', { subject: 'a job on the PC', note: userName + "'s approval is needed and none can be asked for here", alt: 'do the work on your own computer, or say so in the room' }));
       let jobId: string;
       try {
         jobId = pc.create({ botId: ctx.bot.id, roomId: ctx.room.id, folder: a.folder, prompt: a.prompt }).id;
@@ -1129,11 +1130,11 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
         case 'failed':
           return err('The job failed on the PC. Its output:\n\n' + (out || '(no output)'));
         case 'refused':
-          return err(userName + ' declined the job on the PC. Do not retry it; say so in the room.' + (out ? '\n\n' + out : ''));
+          return err(denyMessage('declined', { subject: 'the job on the PC', alt: 'say so in the room' }).replace('The user declined', userName + ' declined') + (out ? '\n\n' + out : ''));
         case 'expired':
-          return err(PC_EXPIRED_MESSAGE + ' within 30 minutes; the job was dropped.');
+          return err(denyMessage('unavailable', { subject: 'the job on the PC', note: PC_EXPIRED_MESSAGE.toLowerCase().replace(/^the pc/, 'the PC') + ' within 30 minutes, so the job was dropped', alt: 'do the work on your own computer, or say so in the room' }));
         default:
-          return err('The job was cancelled: ' + (out || 'no reason given') + '.' + (offline ? ' The PC was offline when you asked.' : ''));
+          return err(denyMessage('unavailable', { subject: 'the job on the PC', note: 'it was cancelled: ' + (out || 'no reason given') + (offline ? '. The PC was offline when you asked' : ''), alt: 'do the work on your own computer, or say so in the room' }));
       }
     },
   );

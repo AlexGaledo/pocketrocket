@@ -5,6 +5,7 @@ import type { HubTool } from '../providers/types.js';
 import { redact } from '../providers/redact.js';
 import { label, type IntegrationClients, type IntegrationService } from '../services/IntegrationService.js';
 import { IntegrationError } from './http.js';
+import { denyMessage } from '../permissions/messages.js';
 
 /**
  * Raises the approval card for an integration write. BotRunner wires it to
@@ -58,7 +59,7 @@ export function createIntegrationTools(svc: IntegrationService, botId: string, c
   ) {
     if (!granted.has(p)) return;
     tools.push(hubTool(name, description + ' Shows the user an approval card first and waits for the answer; call it once.', shape, async (a) => {
-      if (!confirmWrite) return err(name + ' needs the user to approve it, and no approval card can be shown here. Nothing was sent.');
+      if (!confirmWrite) return err(denyMessage('unavailable', { subject: name, note: 'it needs the user to approve it and no approval card can be shown here. Nothing was sent', alt: 'say so in the room' }));
       const ok = await confirmWrite({ tool: name, reason: label(p) + ': ' + reason(a), input: a as Record<string, unknown> });
       if (!ok.allowed) return err(ok.message);
       try {
