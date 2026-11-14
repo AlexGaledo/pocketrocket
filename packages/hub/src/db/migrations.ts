@@ -495,3 +495,17 @@ registerMigrations([170, 179], [
     },
   },
 ]);
+
+// ---------------------------------------------------------------------------------------------------
+// Send journal (B5). A client numbers each message it sends; the hub keeps one message per (room, id) so a replay
+// after a reconnect cannot post twice. NULL for every message that did not come with an id.
+registerMigrations([180, 189], [
+  {
+    version: 180,
+    name: 'messages.client_msg_id + unique (room_id, client_msg_id)',
+    up: (db) => {
+      addColumnIfMissing(db, 'messages', 'client_msg_id', 'TEXT');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_msg ON messages(room_id, client_msg_id) WHERE client_msg_id IS NOT NULL');
+    },
+  },
+]);

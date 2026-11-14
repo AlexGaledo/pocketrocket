@@ -186,6 +186,7 @@ export class Repos {
       createdAt: r.created_at as number,
       ...(r.model ? { model: r.model as string, modelReason: (r.model_reason as string) ?? undefined } : {}),
       ...(r.attachments ? { attachments: JSON.parse(r.attachments as string) as string[] } : {}),
+      ...(r.client_msg_id ? { clientMsgId: r.client_msg_id as string } : {}),
     };
   }
   insertMessage(m: Omit<Message, 'id' | 'seq' | 'createdAt'> & { id?: string }): Message {
@@ -194,10 +195,10 @@ export class Repos {
         this.db.get<{ s: number }>('SELECT COALESCE(MAX(seq),0)+1 AS s FROM messages WHERE room_id=?', m.roomId)?.s ?? 1;
       const msg: Message = { ...m, id: m.id ?? nanoid(12), seq, createdAt: now() };
       this.db.run(
-        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments,client_msg_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         msg.id, msg.roomId, msg.seq, msg.authorType, msg.authorId, msg.kind, msg.text,
         msg.payload ? JSON.stringify(msg.payload) : null, msg.causeId, msg.hop, msg.turnId, msg.createdAt,
-        msg.model ?? null, msg.modelReason ?? null, msg.attachments?.length ? JSON.stringify(msg.attachments) : null,
+        msg.model ?? null, msg.modelReason ?? null, msg.attachments?.length ? JSON.stringify(msg.attachments) : null, msg.clientMsgId ?? null,
       );
       return msg;
     });
@@ -208,6 +209,11 @@ export class Repos {
     const m = { ...cur, ...patch };
     this.db.run('UPDATE messages SET text=?, payload=? WHERE id=?', m.text, m.payload ? JSON.stringify(m.payload) : null, id);
     return m;
+  }
+  /** The message a client already sent under `clientMsgId` in this room (B5), if any. */
+  findByClientMsgId(roomId: string, clientMsgId: string): Message | undefined {
+    const r = this.db.get('SELECT * FROM messages WHERE room_id=? AND client_msg_id=?', roomId, clientMsgId);
+    return r && this.rowToMessage(r);
   }
   getMessage(id: string): Message | undefined {
     const r = this.db.get('SELECT * FROM messages WHERE id=?', id);

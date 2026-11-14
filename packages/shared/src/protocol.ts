@@ -29,6 +29,8 @@ export type ServerEvent =
   | { type: 'usage.updated'; botId: string; roomId: string; totals: UsageTotals }
   | { type: 'account.changed'; account: AccountState }
   | { type: 'error'; message: string; context?: string }
+  /** Liveness probe (B6), every {@link WS_PING_MS}. The client answers with a `pong` client event; old clients just ignore it. */
+  | { type: 'ping'; t: number }
   // ---- P3: routines v2 ----
   /** A routine was created, changed or deleted (REST or a bot tool); clients refetch GET /api/routines. */
   | { type: 'routines.changed' }
@@ -67,9 +69,23 @@ export type ServerEvent =
    */
   | { type: 'pc-runner.changed'; jobId?: string };
 
+/** How often the hub pings each WebSocket client (B6). The client calls the link stale after two missed pings. */
+export const WS_PING_MS = 20_000;
+
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('message.send'), roomId: z.string(), text: z.string().min(1) }),
+  z.object({
+    type: z.literal('message.send'),
+    roomId: z.string(),
+    text: z.string().min(1),
+    /**
+     * Optional id the client made up for this send (B5). The hub posts one message per (room, id) however many
+     * times it is repeated, so a client may replay its outbox after a reconnect. Clients that omit it still work.
+     */
+    clientMsgId: z.string().min(1).max(64).optional(),
+  }),
+  /** Answer to a server `ping` (B6). Carries nothing; it only proves the path is alive. */
+  z.object({ type: z.literal('pong') }),
   z.object({
     type: z.literal('approval.decide'),
     approvalId: z.string(),
