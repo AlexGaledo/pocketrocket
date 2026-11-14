@@ -2,7 +2,7 @@
 // lib/inbox.ts; the primary action opens the room (or the bot's Skills tab), and a plain approval can be answered
 // here with the same store action the card uses.
 import { useEffect, useState } from 'react';
-import { Hand, Inbox, Monitor, Sparkles, ShieldQuestion } from 'lucide-react';
+import { ClipboardList, Hand, Inbox, Monitor, Sparkles, ShieldQuestion } from 'lucide-react';
 import { useStore, botById } from '../store';
 import { fmtAge, type InboxItem } from '../lib/inbox';
 import { cardWords } from '../lib/approvalWords';
@@ -11,7 +11,7 @@ import { useInbox } from '../lib/useInbox';
 import { Avatar, Button, EmptyState, Skeleton, SkeletonGroup } from './ui';
 import { FleetHeader, PageBody } from './FleetPages';
 
-const KIND_ICON = { approval: ShieldQuestion, takeover: Monitor, skill: Sparkles } as const;
+const KIND_ICON = { approval: ShieldQuestion, takeover: Monitor, skill: Sparkles, form: ClipboardList } as const;
 
 export function InboxPage() {
   const items = useInbox();

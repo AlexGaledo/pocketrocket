@@ -4,10 +4,10 @@
  * from the control status, and skills from GET /api/skills (reviewStatus / pendingVersions). No hub endpoint is
  * added; a source that would need one is listed in the changelog notes instead.
  */
-import { ASK_EVERY_TIME_TOOLS, SIGN_IN_TOOLS, type ApprovalPayload, type ControlStatus, type Message, type OpenApproval, type Skill } from '@pocketrocket/shared';
+import { ASK_EVERY_TIME_TOOLS, SIGN_IN_TOOLS, type ApprovalPayload, type ControlStatus, type FormPayload, type Message, type OpenApproval, type Skill } from '@pocketrocket/shared';
 import { toolPhrase } from './toolPhrases';
 
-export type InboxKind = 'approval' | 'takeover' | 'skill';
+export type InboxKind = 'approval' | 'takeover' | 'skill' | 'form';
 
 export interface InboxItem {
   /** Stable across renders: `approval:<id>`, `takeover:<messageId>`, `skill:<id>`. */
@@ -51,6 +51,9 @@ export function rowMayDeny(p: ApprovalPayload): boolean {
 const isPendingApproval = (m: Message): m is Message & { payload: ApprovalPayload } =>
   m.kind === 'approval' && (m.payload as ApprovalPayload | null)?.status === 'pending';
 
+const isPendingForm = (m: Message): m is Message & { payload: FormPayload } =>
+  m.kind === 'form' && (m.payload as FormPayload | null)?.status === 'pending';
+
 export function selectInbox({ openApprovals, messages, control, skills }: InboxInput): InboxItem[] {
   const items: InboxItem[] = [];
 
@@ -80,6 +83,23 @@ export function selectInbox({ openApprovals, messages, control, skills }: InboxI
   };
   for (const a of openApprovals) add(a.approvalId, a.botId, a.roomId);
   for (const [approvalId, { m, roomId }] of cards) add(approvalId, m.authorId, roomId);
+
+  // Open request_form cards (a bot asked for a few values). Counted like approvals, but there is nothing to answer on
+  // the row: Open goes to the card, where the fields are. The hub's hello does not list forms, so only loaded rooms show.
+  for (const [roomId, list] of Object.entries(messages)) {
+    for (const m of list) {
+      if (!isPendingForm(m)) continue;
+      items.push({
+        key: 'form:' + m.id,
+        kind: 'form',
+        botId: m.payload.botId || m.authorId,
+        roomId,
+        title: 'Asked you for some details',
+        detail: m.payload.title || null,
+        since: m.createdAt,
+      });
+    }
+  }
 
   for (const c of Object.values(control)) {
     const t = c.takeover;
