@@ -13,6 +13,7 @@ import { FilesPanel } from './files/FilesPanel';
 import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
 import { InboxPage } from './InboxPage';
+import { TasksPage } from './TasksPage';
 import { useInbox } from '../lib/useInbox';
 import { titleWithCount } from '../lib/inbox';
 import { BotDialog } from './dialogs/BotDialog';
@@ -177,7 +178,7 @@ export function App() {
         <div inert={!!page} className="flex min-h-0 flex-1 flex-col"><ChatPane /></div>
         {page && (
           <div className="@container panel absolute inset-0 flex flex-col">
-            {page.kind === 'bot' ? <BotPage botId={page.botId} tab={page.tab} /> : page.kind === 'automations' ? <AutomationsPage /> : page.kind === 'inbox' ? <InboxPage /> : <UsagePage />}
+            {page.kind === 'bot' ? <BotPage botId={page.botId} tab={page.tab} /> : page.kind === 'automations' ? <AutomationsPage /> : page.kind === 'inbox' ? <InboxPage /> : page.kind === 'tasks' ? <TasksPage /> : <UsagePage />}
           </div>
         )}
       </main>

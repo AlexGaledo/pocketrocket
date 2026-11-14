@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { Bell, BookOpen, KeyRound, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
+import { Bell, BookOpen, Flag, FolderGit2, KeyRound, Wrench, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
 // P9
 import { Monitor, Smartphone } from 'lucide-react';
 import { DevicesSection } from '../settings/DevicesSection';
@@ -28,11 +28,15 @@ import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
 import { ProjectsSection } from '../settings/ProjectsSection';
 import { CredentialsSection } from '../settings/CredentialsSection';
+import { McpServersSection } from '../settings/McpServersSection';
+import { BotReportsSection } from '../settings/BotReportsSection';
 
 export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
   // P4
   | 'integrations'
   | 'projects'
+  | 'tools'
+  | 'reports'
   // P9
   | 'devices'
   | 'pc-runner'
@@ -46,6 +50,8 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'claude', label: 'Claude', icon: Sparkles },
   { id: 'bots', label: 'Bots', icon: ShieldCheck },
   { id: 'projects', label: 'Projects', icon: FolderGit2 },
+  { id: 'tools', label: 'Tools', icon: Wrench },
+  { id: 'reports', label: 'Reports', icon: Flag },
   // P4
   { id: 'integrations', label: 'Connections', icon: Plug },
   // G4: saved logins bots can type into a page (desktop only: the hub refuses a phone).
@@ -157,6 +163,8 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             {canNotify() && <TabsPrimitive.Content value="notifications" tabIndex={-1} className={PANEL}><NotificationsSection /></TabsPrimitive.Content>}
             <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection readOnly={device} /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="tools" tabIndex={-1} className={PANEL}><McpServersSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="reports" tabIndex={-1} className={PANEL}><BotReportsSection /></TabsPrimitive.Content>
             {/* P9 */}
             <TabsPrimitive.Content value="projects" tabIndex={-1} className={PANEL}><ProjectsSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="devices" tabIndex={-1} className={PANEL}><DevicesSection /></TabsPrimitive.Content>

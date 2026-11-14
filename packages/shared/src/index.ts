@@ -27,3 +27,6 @@ export * from './credentials.js';
 
 // Form and call-to-action cards (U4, U5)
 export * from './cards.js';
+
+// Bot export / import files
+export * from './botExport.js';
