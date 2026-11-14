@@ -1,6 +1,8 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { clsx } from 'clsx';
 import { CircleAlert, Hash, Info, TriangleAlert, X } from 'lucide-react';
@@ -454,5 +456,51 @@ export function Banner({ tone = 'info', title, children, action, onDismiss, dism
         </Button>
       )}
     </div>
+  );
+}
+
+export const Popover = PopoverPrimitive.Root;
+export const PopoverTrigger = PopoverPrimitive.Trigger;
+export const PopoverAnchor = PopoverPrimitive.Anchor;
+export const PopoverClose = PopoverPrimitive.Close;
+/**
+ * Anchored panel for small forms and detail (a menu is for commands, a dialog is for tasks). Non-modal:
+ * Escape and an outside click close it, focus moves in on open and back to the trigger on close. It is
+ * portaled, so it never shifts the layout; z-[65] puts it above dialogs (50) and onboarding (60).
+ */
+export function PopoverContent({ className, ...p }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  return (
+    <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Content
+        collisionPadding={8}
+        sideOffset={6}
+        className={cn('z-[65] w-72 max-w-[calc(100vw-1rem)] rounded-xl bg-panel p-3 text-ui text-fg shadow-[var(--shadow-overlay)] ring-1 ring-line focus:outline-none', className)}
+        {...p}
+      />
+    </PopoverPrimitive.Portal>
+  );
+}
+
+/** Wrap a group of tooltips once (App level) so moving between neighbours skips the open delay. Optional: `Tooltip` works alone. */
+export const TooltipProvider = TooltipPrimitive.Provider;
+/**
+ * A short, non-interactive label for a control that shows on hover and on keyboard focus (not on touch) and
+ * closes on Escape or blur. It is a description, not a name: an icon-only button still needs `aria-label`.
+ * `content` must be plain text; put anything interactive in a Popover. There is no enter or exit animation,
+ * so nothing changes under prefers-reduced-motion, and the bubble is portaled so it cannot shift layout.
+ */
+export function Tooltip({ content, children, side = 'top', delay = 400 }: { content: React.ReactNode; children: React.ReactElement; side?: 'top' | 'right' | 'bottom' | 'left'; delay?: number }) {
+  if (content == null || content === false || content === '') return children;
+  return (
+    <TooltipPrimitive.Provider delayDuration={delay} skipDelayDuration={300}>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content side={side} sideOffset={6} collisionPadding={8} className="z-[70] max-w-[min(20rem,calc(100vw-1rem))] rounded-md bg-ink px-2 py-1 text-hint text-ink-fg shadow-[var(--shadow-overlay)]">
+            {content}
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
   );
 }
