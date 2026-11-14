@@ -34,6 +34,7 @@ import { createProjectsApi } from './api/projects.js';
 import { createRest } from './api/rest.js';
 import { startHistoryBackfill } from './db/historyIndex.js';
 import { attachWs } from './api/ws.js';
+import { FormBroker } from './services/FormBroker.js';
 import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, dropCookie, presentsHubToken, tokenMatches } from './api/guard.js';
 import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
 import { readBody } from './api/body.js';
@@ -242,6 +243,8 @@ export function createHub(opts: HubOptions = {}): Hub {
     routinesChanged: () => scheduler.reload(),
   }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing }, media);
   router.runner = runner;
+  const forms = new FormBroker(repos);
+  runner.forms = forms;
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
@@ -659,7 +662,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
-  const wss = attachWs(server, { media, repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
+  const wss = attachWs(server, { media, forms, repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
   server.on('upgrade', (req, socket, head) => {
     const p = req.url ?? '';
     const url = new URL(p, 'http://localhost');

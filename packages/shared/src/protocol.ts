@@ -8,6 +8,7 @@ import type { TriggerFireStatus } from './triggers.js';
 import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './models.js';
 import type { RecorderStatus } from './teach.js';
 import type { Task } from './tasks.js';
+import { FormAnswersSchema } from './cards.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -101,6 +102,9 @@ export const ClientEventSchema = z.discriminatedUnion('type', [
     approvalId: z.string(),
     decision: z.enum(['allow', 'always', 'deny']),
   }),
+  /** U4: the owner's answers to a request_form card (formId is the card's message id). The hub checks them against the stored fields. */
+  z.object({ type: z.literal('form.submit'), formId: z.string().max(64), answers: FormAnswersSchema }),
+  z.object({ type: z.literal('form.cancel'), formId: z.string().max(64) }),
   z.object({ type: z.literal('turn.interrupt'), turnId: z.string() }),
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;
