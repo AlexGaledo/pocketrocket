@@ -53,6 +53,8 @@ export type BotExport = z.infer<typeof BotExportSchema>;
 export interface BotExportResult {
   file: BotExport;
   redactions: number;
+  /** Skills left out of the file, by name, so the owner is not left thinking the file is complete. */
+  skipped: { name: string; reason: 'too_big' | 'too_many' }[];
 }
 
 /** What POST /api/bots/import answers. */

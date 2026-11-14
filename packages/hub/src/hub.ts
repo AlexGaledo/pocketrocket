@@ -56,7 +56,8 @@ import { TriggerService } from './services/TriggerService.js';
 import { createTriggersApi } from './api/triggers.js';
 import type { SocketFactory } from './services/SlackSocketMode.js';
 // P9: devices, pairing, push
-import { ALLOWED_HOSTS, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { ALLOWED_HOSTS, ATTACHMENTS_DIR, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { sweepAttachments } from './agent/attachments.js';
 import { seedDefaultBots } from './services/SeedBots.js';
 import { DEVICE_PAIR_PATH, deviceMayAccess, setPrincipal } from './api/guard.js';
 import { DevicesRepo } from './db/devices.js';
@@ -346,6 +347,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const sweepMedia = () => {
     if (opts.skipBootstrap && !opts.mediaDir) return;
     try { media.sweep(referencedMedia(repos, settings.get())); } catch (e) { logError('[media]', e); }
+    try { sweepAttachments(ATTACHMENTS_DIR, new Set(repos.listBots().map((b) => b.id))); } catch (e) { logError('[attachments]', e); }
   };
   let mediaTimer: NodeJS.Timeout | null = null;
   const rest = createRest({

@@ -26,8 +26,8 @@ export interface TurnImage {
   /** Absolute path inside the bot's own folder. */
   path: string;
   mediaType: 'image/png' | 'image/jpeg' | 'image/webp';
-  /** The bytes, for providers that take image input. Never logged. */
-  data: Buffer;
+  /** The bytes, for providers that take image input. Never logged. Absent when the picture is too big to inline: it is then reachable by `path` only. */
+  data?: Buffer;
 }
 
 /** Everything an adapter needs to run one turn. Built by BotRunner; adapters never touch the DB. */

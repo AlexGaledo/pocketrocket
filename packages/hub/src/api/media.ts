@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { AttachmentUploadSchema, MAX_ATTACHMENT_BYTES, MediaUploadSchema } from '@pocketrocket/shared';
+import { AttachmentUploadSchema, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_IMAGE_BYTES, MediaUploadSchema } from '@pocketrocket/shared';
 import { readBody } from './body.js';
 import { principalOf } from './guard.js';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
@@ -39,7 +39,7 @@ export function createMediaApi({ media }: { media: MediaStore }) {
         return send(res, tooBig ? 413 : 400, { error: tooBig ? 'Image too large' : 'Invalid image data' });
       }
       try {
-        return send(res, 200, { ref: media.put(Buffer.from(parsed.data.data, 'base64'), attachment ? MAX_ATTACHMENT_BYTES : undefined) });
+        return send(res, 200, { ref: media.put(Buffer.from(parsed.data.data, 'base64'), attachment ? MAX_ATTACHMENT_IMAGE_BYTES : undefined) });
       } catch (e) {
         if (e instanceof MediaRejected) return send(res, e.status, { error: e.message });
         throw e;

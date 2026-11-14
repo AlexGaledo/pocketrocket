@@ -124,6 +124,11 @@ export const MediaUploadSchema = z.object({
 
 /** U2a: pictures a person attaches to a chat message. Larger than an avatar; the browser downscales before upload. */
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/**
+ * The most one picture may weigh. Pictures are base64-inlined into the Claude turn and the API refuses an image over
+ * about 5 MB (counted after encoding, which adds a third), so the raw cap sits below it with headroom.
+ */
+export const MAX_ATTACHMENT_IMAGE_BYTES = 3.5 * 1024 * 1024;
 /** Most pictures on one message. */
 export const MAX_ATTACHMENTS = 4;
 export const AttachmentUploadSchema = z.object({

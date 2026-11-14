@@ -174,10 +174,12 @@ function authStatus(): Promise<ClaudeAuthStatus | undefined> {
  * names their paths, see agent/attachments.ts); without, the plain string, byte-for-byte as before.
  */
 export function userContent(input: string, images: readonly TurnImage[]) {
-  if (!images.length) return input;
+  // A picture without `data` was too big to inline (see materializeImages); the input text still names its path.
+  const inline = images.filter((i) => i.data);
+  if (!inline.length) return input;
   return [
     { type: 'text' as const, text: input },
-    ...images.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data.toString('base64') } })),
+    ...inline.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data!.toString('base64') } })),
   ];
 }
 

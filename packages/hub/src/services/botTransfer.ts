@@ -1,6 +1,6 @@
 import {
   BOT_EXPORT_FORMAT, BOT_EXPORT_VERSION, MAX_BOT_EXPORT_BYTES, MAX_EXPORT_MEMORY_BYTES, MAX_EXPORT_SKILL_BYTES, MAX_EXPORT_SKILLS,
-  BotExportSchema, isBotIconKey,
+  BotExportSchema, DEFAULT_MODEL, isBotIconKey,
   type Bot, type BotExport, type BotExportResult, type BotImportResult,
 } from '@pocketrocket/shared';
 import type { Repos } from '../db/repos.js';
@@ -13,14 +13,17 @@ export class TransferError extends Error {
 }
 
 /**
- * Anything that names a place on this machine: `C:\Users\dana\...`, `/home/dana/...`, `/Users/dana/...`, a UNC share.
+ * Anything that names a place on this machine: any drive-letter path (`C:\Users\dana\...`, `D:/work/x`), a UNC share,
+ * a home folder, or a Unix absolute path of two or more segments (`/srv/app/data`, `/opt/x`). URLs are left alone:
+ * a Unix path may not start right after a word character, `:`, `/` or `.`, so `https://host/path` never matches.
  * A path tells a stranger who you are and how your disk is laid out, and means nothing on their machine.
  */
 const PATHS: RegExp[] = [
-  /\b[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\s"'`<>|)\]]*/gi,
+  /(?<!\w)[A-Za-z]:[\\/][^\s"'`<>|)\]]*/g,
   /\\\\[A-Za-z0-9._$-]+\\[^\s"'`<>|)\]]*/g,
   /(?<![\w./-])\/(?:home|Users|root)\/[^\s"'`<>|)\]]*/g,
   /(?<![\w./-])~[\\/][^\s"'`<>|)\]]*/g,
+  /(?<![\w./:~-])\/[\w.@+-]+\/[^\s"'`<>|)\]]+/g,
 ];
 const PEM = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
 /** `password: hunter2`, `api_key = abc`, `export TOKEN=abc` on one line. */
@@ -42,18 +45,21 @@ type Deps = { repos: Repos; memory: MemoryService; skills: SkillService };
 
 /**
  * Builds the file for one bot. Free text is scrubbed (see {@link scrubForExport}); `redactions` says how many things
- * were removed so the owner knows to read the file before sharing it. Nothing is read from the vault, settings,
+ * were removed so the owner knows to read the file before sharing it, and `skipped` names skills left out for size or count. Nothing is read from the vault, settings,
  * approval rules, integrations or the bot's tool list.
  */
 export function exportBot(d: Deps, bot: Bot, opts: { includeMemory: boolean }): BotExportResult {
   let redactions = 0;
   const clean = (s: string): string => { const r = scrubForExport(s); redactions += r.removed; return r.text; };
   const skills: BotExport['skills'] = [];
+  const skipped: BotExportResult['skipped'] = [];
   for (const id of d.repos.botSkillIds(bot.id)) {
     const s = d.repos.getSkill(id);
-    if (!s || s.parentId || skills.length >= MAX_EXPORT_SKILLS) continue;
+    if (!s || s.parentId) continue;
+    if (skills.length >= MAX_EXPORT_SKILLS) { skipped.push({ name: s.name, reason: 'too_many' }); continue; }
     const md = clean(d.skills.readMarkdown(s));
-    if (!md.trim() || Buffer.byteLength(md, 'utf8') > MAX_EXPORT_SKILL_BYTES) continue;
+    if (!md.trim()) continue;
+    if (Buffer.byteLength(md, 'utf8') > MAX_EXPORT_SKILL_BYTES) { skipped.push({ name: s.name, reason: 'too_big' }); continue; }
     skills.push({ name: s.name, description: clean(s.description).slice(0, 300) || s.name, markdown: md });
   }
   const file: BotExport = {
@@ -76,7 +82,7 @@ export function exportBot(d: Deps, bot: Bot, opts: { includeMemory: boolean }): 
   }
   // The file we make must pass the check we apply on the way in.
   if (!BotExportSchema.safeParse(file).success) throw new TransferError(500, 'Could not make a valid export file');
-  return { file, redactions };
+  return { file, redactions, skipped };
 }
 
 /** `handle`, or `handle-2`, `handle-3`... the first one free. */
@@ -97,7 +103,8 @@ export const IMPORT_DEFAULT_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'W
  * Makes a NEW bot from a file that passes {@link BotExportSchema}. It never touches an existing bot, and never
  * replaces a skill that is already in the pool: a clash gets a new name. Skills arrive `imported` and `pending`, so
  * nothing from the file reaches a bot until the owner approves it on the Skills tab. The bot gets a minimal tool set (no Bash or
- * WebFetch), the default model and budget; a file cannot grant any of those.
+ * WebFetch), the default model and a deliberately small $2 budget (below a hand-made bot's: its instructions come from a
+ * stranger, so a runaway one is capped early); a file cannot grant any of those. The owner can raise it later.
  */
 export function importBot(d: Deps, raw: unknown, opts: { includeMemory: boolean }): BotImportResult {
   const parsed = BotExportSchema.safeParse(raw);
@@ -108,7 +115,7 @@ export function importBot(d: Deps, raw: unknown, opts: { includeMemory: boolean 
   const handle = freeHandle((h) => !!d.repos.getBotByHandle(h), f.bot.handle);
   const bot = d.repos.createBot({
     name: f.bot.name, handle, title: f.bot.title, description: f.bot.description, avatar: f.bot.avatar,
-    model: 'claude-sonnet-5',
+    model: DEFAULT_MODEL,
     allowedTools: [...IMPORT_DEFAULT_TOOLS],
     maxBudgetUsd: 2,
   });

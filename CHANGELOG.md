@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Review fixes
+
+- Pictures attached to a message are now limited to 3.5 MB each (the browser shrinks them to fit); a bigger one is refused instead of failing the whole turn.
+- Bot export now also removes other file paths (any drive, network shares, `/srv/...`-style paths) and tells you which skills were left out for being over 64 KB or past the 20-skill limit.
+- `write_note` no longer says "Saved" while ignoring tags: it explains when tags cannot be added. Forms are not offered to routine and trigger runs. Old attached pictures and the pictures of deleted bots are cleaned up after 7 days.
+
 ### Saved logins for bots
 
 - A new **Logins** section in Settings saves a login (a name, the exact site, a username and a password or secret). A bot can then sign in with `fill_credential` by name: the hub types it into the field in the bot's browser, and the bot only ever hears "filled". The secret is write-only (never shown again, never in a bot's chat, logs, cards or any API answer) and is stored encrypted in `data/credentials.json` under the same key as your integration tokens.

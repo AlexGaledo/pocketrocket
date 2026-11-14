@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MAX_ATTACHMENTS, MAX_MEDIA_BYTES, isMediaRef, mediaHash } from '@pocketrocket/shared';
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_IMAGE_BYTES, MAX_MEDIA_BYTES, isMediaRef, mediaHash } from '@pocketrocket/shared';
 
 export type MediaType = 'image/png' | 'image/jpeg' | 'image/webp';
 
@@ -65,7 +65,9 @@ export class MediaStore {
     if (refs.length > MAX_ATTACHMENTS) return 'At most ' + MAX_ATTACHMENTS + ' pictures per message';
     for (const ref of refs) {
       if (!isMediaRef(ref)) return 'Not a picture this hub stored';
-      if (!this.read(mediaHash(ref))) return 'A picture is missing or not allowed. Attach it again.';
+      const found = this.read(mediaHash(ref));
+      if (!found) return 'A picture is missing or not allowed. Attach it again.';
+      if (found.bytes.length > MAX_ATTACHMENT_IMAGE_BYTES) return 'A picture is too large. Use one under ' + Math.floor(MAX_ATTACHMENT_IMAGE_BYTES / 1024 / 1024 * 10) / 10 + ' MB.';
     }
     return null;
   }
