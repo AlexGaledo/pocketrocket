@@ -9,6 +9,7 @@ import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import { SIGN_IN_MESSAGE, type PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { MediaStore } from '../services/MediaStore.js';
+import type { FormBroker } from '../services/FormBroker.js';
 import type { SettingsStore } from '../services/SettingsStore.js';
 
 /** Creates the app WebSocket server in noServer mode; the caller routes HTTP upgrades (see index.ts). */
@@ -17,6 +18,8 @@ export function attachWs(
   deps: {
     /** Checks a message's pictures (U2a). Left out, a send with pictures is refused. */
     media?: MediaStore;
+    /** Answers to request_form cards (U4). Left out, form events are refused. */
+    forms?: FormBroker;
     repos: Repos; router: RoomRouter; broker: PermissionBroker; settings: SettingsStore;
     /**
      * True while the upgrade request's session cookie is live (owner password sign-in). Asked at answer time, so
@@ -94,6 +97,11 @@ export function attachWs(
           // Only a card this answer actually settled: an expired or repeated one changed nothing.
           if (answered && who && card) recordAudit(deps.repos.db, who, 'approval.' + ev.decision, ev.approvalId, String(card.tool_name) + ' by bot ' + String(card.bot_id));
           if (!answered) send(ws, { type: 'error', message: 'Approval no longer pending', context: ev.approvalId });
+        } else if (ev.type === 'form.submit') {
+          const why = deps.forms ? deps.forms.submit(ev.formId, ev.answers) : 'This hub cannot take form answers';
+          if (why) send(ws, { type: 'error', message: why, context: ev.formId });
+        } else if (ev.type === 'form.cancel') {
+          if (!deps.forms?.cancel(ev.formId)) send(ws, { type: 'error', message: 'This form is no longer waiting for an answer.', context: ev.formId });
         } else if (ev.type === 'turn.interrupt') {
           if (!deps.router.interrupt(ev.turnId)) send(ws, { type: 'error', message: 'Turn not active', context: ev.turnId });
         }

@@ -31,6 +31,7 @@ import type { RoomFiles } from '../rooms/roomFiles.js';
 import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGuard.js';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
+import type { FormBroker } from '../services/FormBroker.js';
 import { turnFailureNote } from './turnFailure.js';
 import { outsideMcpFor, registerOutsideMcpSecrets, vpsMountable } from '../services/outsideMcp.js';
 import { loadKeyRegistry } from '../services/keyRegistry.js';
@@ -149,6 +150,9 @@ export class BotRunner {
     /** Uploaded pictures; `send_message`'s `image_path` is refused when absent (most unit tests). */
     private media?: MediaStore,
   ) {}
+
+  /** U4: waits for the owner's answers to request_form cards. Set by the hub; without it the tool is not offered. */
+  forms?: FormBroker;
 
   interrupt(turnId: string) {
     const ac = this.aborts.get(turnId);
@@ -298,6 +302,7 @@ export class BotRunner {
       desktop: false,
       // `auto` is a valid choice wherever the provider has a list to route within (P8).
       models: providerModels.length ? [...providerModels.map((m) => m.id), AUTO_MODEL] : [],
+      forms: this.forms,
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).

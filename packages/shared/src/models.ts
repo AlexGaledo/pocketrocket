@@ -116,7 +116,7 @@ export interface Room {
 }
 
 export type AuthorType = 'user' | 'bot' | 'system';
-export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system' | 'trigger' | 'takeover';
+export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system' | 'trigger' | 'takeover' | 'form';
 
 export interface ToolPayload {
   toolUseId: string;
@@ -159,6 +159,28 @@ export interface RoutinePayload {
   name: string;
 }
 
+/** One field of a `request_form` card. Only these three kinds exist: there is no password or secret field. */
+export type FormField =
+  | { id: string; kind: 'text'; label: string; help?: string; required: boolean; maxLength: number }
+  | { id: string; kind: 'choice'; label: string; help?: string; required: boolean; choices: string[] }
+  | { id: string; kind: 'yesno'; label: string; help?: string; required: boolean };
+export type FormAnswer = string | boolean;
+/** `kind: 'form'` message: a bot asked the owner for a few values. `status` leaves `pending` once, for good. */
+export interface FormPayload {
+  botId: string;
+  title: string;
+  description?: string;
+  fields: FormField[];
+  /** `expired`: the hub stopped, or the bot's turn ended, while it waited. */
+  status: 'pending' | 'submitted' | 'cancelled' | 'timeout' | 'expired';
+  /** What the owner sent, once submitted: field id to value. */
+  answers?: Record<string, FormAnswer>;
+}
+/** A button a bot attached to a message. Exactly one of `say` (sends that text as the owner's own message) or `href`. */
+export interface CtaButton { label: string; say?: string; href?: string }
+/** On a `text` message: up to {@link MAX_CTA_BUTTONS} buttons under it. */
+export interface CtaPayload { cta: CtaButton[] }
+
 export interface Message {
   id: string;
   roomId: string;
@@ -167,7 +189,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, user id for people, null for system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | FormPayload | CtaPayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;

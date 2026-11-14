@@ -10,6 +10,7 @@ import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Men
 import { Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { RuleOffer, TakeoverCard } from './ComputerControl';
+import { CtaButtons, FormCard } from './Cards';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
 import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
 import { selectScreenSize } from '../lib/screenView';
@@ -441,6 +442,7 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
   switch (m.kind) {
     case 'approval': return <ApprovalCard m={m} />;
     case 'takeover': return <TakeoverCard m={m} />;
+    case 'form': return <FormCard m={m} />;
     case 'handoff': return <HandoffCard m={m} bots={bots} />;
     default: {
       // A bot outside this chat reporting back: its work is in its own chat.
@@ -450,6 +452,7 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
           <RichText text={m.text} bots={bots} />
           {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
           {work && <OpenChat roomId={work} />}
+          {m.kind === 'text' && <CtaButtons payload={m.payload} />}
         </div>
       );
     }

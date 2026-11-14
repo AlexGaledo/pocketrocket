@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Forms and buttons in chat
+
+- A bot can now ask you for a few answers in one card with `request_form`: text boxes, a pick-one list and yes/no, up to 8 fields, with length limits. The card sits in the chat, survives a reload, and your answers go straight back to the bot, which carries on with them. Cancel, or no answer in 10 minutes, tells the bot plainly that you said no. Forms cannot ask for passwords, keys, tokens or codes: such a form is refused, and an answer that looks like a key is refused too.
+- A bot can put up to 3 buttons under a message. A button either sends its text as a normal reply from you (the text is shown under the button before you click) or opens a web link in a new tab with the site name written next to it. Only plain http and https links are allowed. A button never changes a setting or approves anything.
+- Everything a bot writes on these cards is shown as plain text, never as formatting or HTML.
+
 ### Tasks, history search and bot reports
 
 - Each room has a local task board: bots get `create_task`, `update_task` and `list_tasks`, and there is a REST API under `/api/rooms/:id/tasks` (200 open tasks per room, 200-character titles, 4 KB notes). A task is only a note: it never grants an approval or changes a setting.
