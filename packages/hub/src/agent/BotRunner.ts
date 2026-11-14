@@ -297,7 +297,7 @@ export class BotRunner {
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
-      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal, { evenUnderBypass: a.evenUnderBypass }),
+      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal, { evenUnderBypass: a.evenUnderBypass, machine: a.machine }),
       confirmOutsideHandoff: (a) => this.broker.askOutsideHandoff(permCtx, a.input, a.reason, ac.signal),
       // Offered on every Claude turn and refused here when this turn may not move up: a tool list that changes between
       // turns of one session invalidates the whole prompt cache.

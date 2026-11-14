@@ -83,10 +83,11 @@ export function createTakeoverApi(deps: { repos: Repos; control: ComputerControl
       tool = input.tool;
       pattern = input.pattern;
     }
+    if (input.expiresAt && input.expiresAt <= Date.now()) throw new HttpError(400, 'expiresAt is in the past');
     bot(botId);
     // P4: sending or posting as the user to a third party asks on every call; no rule can pre-approve it.
     if (INTEGRATION_WRITES.has(tool)) throw new HttpError(400, 'Integration writes always ask; they cannot become a rule');
-    const p = store.addPolicy({ botId, tool, pattern: pattern.trim(), decision: input.decision, scope: 'always' });
+    const p = store.addPolicy({ botId, tool, pattern: pattern.trim(), decision: input.decision, scope: 'always', machine: input.machine ?? null, expiresAt: input.expiresAt ?? null });
     policiesChanged();
     return toPublic(p);
   });

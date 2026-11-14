@@ -12,7 +12,7 @@ import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrock
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
 import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
-import type { PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { MachineInfo, MachinePolicy, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -265,6 +265,8 @@ export const api = {
     /** Shown once and never stored here: the caller keeps it in component state only. Replaces the old token. */
     mintToken: () => req<{ token: string }>('POST', '/api/pc-runner/token', {}),
     turnOff: () => req<{ ok: true; cancelled: number }>('DELETE', '/api/pc-runner'),
+    machines: () => req<MachineInfo[]>('GET', '/api/pc-runner/machines'),
+    setMachinePolicy: (id: string, policy: MachinePolicy) => req<MachineInfo>('PUT', '/api/pc-runner/machines/' + encodeURIComponent(id), { policy }),
   },
   devices: {
     list:() => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),

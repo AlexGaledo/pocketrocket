@@ -8,10 +8,10 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight, KeyRound, Power, RefreshCw, TriangleAlert } from 'lucide-react';
-import type { PcJobStatus, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { MachineInfo, MachinePolicy, PcJobStatus, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
-import { Badge, Button, cn, confirmAction, fmtUsd } from '../ui';
+import { Badge, Button, Field, Label, Select, cn, confirmAction, fmtUsd } from '../ui';
 import { Card, Group, InlineError, Private, SectionHeader } from './parts';
 
 function ago(ts: number | null): string {
@@ -79,6 +79,7 @@ export function PcRunnerSection({ onOpenSecurity }: { onOpenSecurity: () => void
         </div>
       )}
       <StatusGroup status={status} error={statusError} onChanged={load} />
+      {status?.paired && <MachinesGroup rev={rev} />}
       <JobsGroup jobs={jobs} error={jobsError} onRefresh={load} />
     </>
   );
@@ -190,6 +191,54 @@ function StatusGroup({ status, error, onChanged }: { status: PcRunnerStatus | nu
           </div>
         )}
         {error && <InlineError>{error}</InlineError>}
+      </Card>
+    </Group>
+  );
+}
+
+// ---------- per-machine policy ----------
+
+const POLICY_HELP: Record<MachinePolicy, string> = {
+  never: 'Bots cannot send anything to this machine.',
+  ask: 'Bots can ask. Every job needs your OK here and again on the PC.',
+  always: 'Same as Ask: every job still needs your signed-in OK and the PC still asks you. This never skips a prompt.',
+};
+
+function MachinesGroup({ rev }: { rev: number }) {
+  const toast = useStore((s) => s.toast);
+  const [machines, setMachines] = useState<MachineInfo[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api.pcRunner.machines().then((m) => alive && setMachines(m), () => alive && setMachines([]));
+    return () => { alive = false; };
+  }, [rev]);
+  // The bot's own computer has no policy to set here; approvals settings govern it.
+  const pc = machines?.find((m) => m.kind === 'pc');
+  if (!pc) return null;
+  const change = async (policy: MachinePolicy) => {
+    setBusy(true);
+    try {
+      const next = await api.pcRunner.setMachinePolicy(pc.id, policy);
+      setMachines((cur) => cur?.map((m) => (m.id === next.id ? next : m)) ?? cur);
+    } catch (e) {
+      toast("Couldn't change the policy: " + (e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Group title="Machine policy">
+      <Card>
+        <Field>
+          <Label>{pc.label}</Label>
+          <Select value={pc.policy} disabled={busy} onChange={(e) => void change(e.target.value as MachinePolicy)}>
+            <option value="never">Never</option>
+            <option value="ask">Ask</option>
+            <option value="always">Always</option>
+          </Select>
+        </Field>
+        <p className="mt-1.5 text-hint leading-snug text-muted">{POLICY_HELP[pc.policy]}</p>
       </Card>
     </Group>
   );

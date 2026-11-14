@@ -180,5 +180,9 @@ export const ApprovalPolicyInputSchema = z.object({
   tool: z.string().min(1).max(120).optional(),
   pattern: z.string().min(1).max(500).optional(),
   decision: z.enum(['allow', 'deny']).default('allow'),
+  /** Limit the rule to one machine (`pc`, `vps`); omit for any. */
+  machine: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).nullable().optional(),
+  /** Epoch ms after which the rule no longer applies; omit for never. */
+  expiresAt: z.number().int().positive().nullable().optional(),
 });
 export type ApprovalPolicyInput = z.infer<typeof ApprovalPolicyInputSchema>;

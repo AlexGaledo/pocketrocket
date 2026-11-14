@@ -6,7 +6,8 @@ import type { Db } from '../db/db.js';
 import type { Repos } from '../db/repos.js';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { MAX_PC_FOLDERS, PC_FOLDER_RE, PcRunnerError, type PcJob, type PcRunner } from '../services/PcRunner.js';
-import type { PcRunnerJob } from '@pocketrocket/shared';
+import { MachinePolicyInputSchema, type PcRunnerJob } from '@pocketrocket/shared';
+import { Machines } from '../services/Machines.js';
 import { logError } from '../providers/redact.js';
 
 const send = (res: ServerResponse, status: number, body?: unknown): true => {
@@ -38,6 +39,8 @@ const ResultInput = z.object({
  *   DELETE /api/pc-runner            kill switch: forget the token, cancel every open job
  *   GET    /api/pc-runner/jobs?limit=50  -> PcRunnerJob[] newest first (limit 1..200)
  *   GET    /api/pc-runner/jobs/:id       -> PcRunnerJob
+ *   GET    /api/pc-runner/machines       -> MachineInfo[] (policy per machine: never | ask | always)
+ *   PUT    /api/pc-runner/machines/:id   { policy } -> MachineInfo; only the owner, never a bot tool
  *   Every change pushes `pc-runner.changed` on /ws (no content; clients refetch).
  *
  * The helper on the PC (runner principal only; the hub token gets 403 here, guard.ts keeps the runner out of
@@ -49,6 +52,7 @@ const ResultInput = z.object({
  */
 export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: Db }) {
   const { pcRunner, repos, db } = deps;
+  const machines = new Machines(db, pcRunner);
   /** The owner's view of a job. `result` is the PC's output, or the hub's reason when it dropped the job. */
   const view = (j: PcJob): PcRunnerJob => {
     const dropped = j.status === 'cancelled' || j.status === 'expired';
@@ -82,7 +86,7 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
       return send(res, 403, { error: runnerRoute ? 'Only the PC runner can do this' : 'Only the desktop app can do this' });
     }
     let body: unknown;
-    if (method === 'POST') {
+    if (method === 'POST' || method === 'PUT') {
       const buf = await readBody(req);
       if (buf === null) return send(res, 413, { error: 'Request body too large (max 1 MB)' });
       try { body = buf.length ? JSON.parse(buf.toString('utf8')) : {}; } catch { return send(res, 400, { error: 'Invalid JSON' }); }
@@ -111,6 +115,16 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
       if (!runnerRoute && parts[0] === 'jobs' && parts.length === 2 && method === 'GET') {
         const j = pcRunner.get(parts[1]);
         return j ? send(res, 200, view(j)) : send(res, 404, { error: 'No such job' });
+      }
+
+      if (parts[0] === 'machines' && parts.length === 1 && method === 'GET') return send(res, 200, machines.list());
+      if (parts[0] === 'machines' && parts.length === 2 && method === 'PUT') {
+        const p = MachinePolicyInputSchema.safeParse(body);
+        if (!p.success) return bad(p.error);
+        if (!machines.setPolicy(parts[1], p.data.policy)) return send(res, 404, { error: 'No machine "' + parts[1] + '" with a policy to set' });
+        const actor = actorOf(req);
+        if (actor) recordAudit(db, actor, 'machine.policy.set', parts[1], p.data.policy);
+        return send(res, 200, machines.get(parts[1]));
       }
 
       // ---- the PC ----
@@ -142,7 +156,7 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
         const p = ResultInput.safeParse(body);
         if (!p.success) return bad(p.error);
         const j = pcRunner.finish(parts[1], p.data);
-        const detail = j.folder + (p.data.durationMs !== undefined ? ', ' + Math.round(p.data.durationMs / 1000) + ' s' : '') + (j.costUsd !== null ? ', $' + j.costUsd.toFixed(4) : '');
+        const detail = 'machine pc, ' + j.folder + (p.data.durationMs !== undefined ? ', ' + Math.round(p.data.durationMs / 1000) + ' s' : '') + (j.costUsd !== null ? ', $' + j.costUsd.toFixed(4) : '');
         recordAudit(db, { kind: 'bot', id: j.botId }, 'pc-runner.job.' + j.status, j.id, detail);
         return send(res, 200, { ok: true, status: j.status });
       }

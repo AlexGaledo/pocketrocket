@@ -412,4 +412,8 @@ export interface ApprovalPolicy {
   pattern: string;
   decision: 'allow' | 'deny';
   createdAt: number;
+  /** Machine the rule covers (`pc`, `vps`); null or absent = any. */
+  machine?: string | null;
+  /** Epoch ms the rule stops applying; null or absent = never. */
+  expiresAt?: number | null;
 }
