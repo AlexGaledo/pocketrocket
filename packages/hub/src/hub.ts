@@ -43,6 +43,7 @@ import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
 import { IntegrationService } from './services/IntegrationService.js';
 import { createIntegrationsApi } from './api/integrations.js';
+import { cspModeFrom, webSecurityHeaders } from './api/csp.js';
 import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
 import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
 import { TriggerService } from './services/TriggerService.js';
@@ -361,6 +362,9 @@ export function createHub(opts: HubOptions = {}): Hub {
   const contextApi = createContextApi({ context: contextRepo, projects });
   const connectorTools = contextConnectorTools(contextRepo);
 
+  // CSP, nosniff and Referrer-Policy on the app shell and its assets (POCKETROCKET_CSP: enforce|report-only|off).
+  const webHeaders = webSecurityHeaders(cspModeFrom(process.env.POCKETROCKET_CSP));
+
   const MIME: Record<string, string> = {
     '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
     '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2', '.woff': 'font/woff',
@@ -616,14 +620,15 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (!file.startsWith(WEB_DIST)) { res.writeHead(403); res.end(); return; }
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(WEB_DIST, 'index.html');
       if (!fs.existsSync(file)) {
-        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.writeHead(200, { 'content-type': 'text/plain', ...webHeaders });
         res.end('PocketRocket hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
         return;
       }
       // P9: the service worker and the manifest have fixed names, so they must be revalidated like the shell;
       // an immutable sw.js would pin every installed phone to the build it first saw.
-      const isShell = ['index.html', 'sw.js', 'manifest.json', 'manifest.webmanifest'].includes(path.basename(file));
+      const isShell = ['index.html', 'theme-init.js', 'sw.js', 'manifest.json', 'manifest.webmanifest'].includes(path.basename(file));
       res.writeHead(200, {
+        ...webHeaders,
         'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
         // hashed assets are immutable; the shell must always be re-fetched so a reload picks up new builds
         'cache-control': isShell ? 'no-cache, no-store, must-revalidate' : 'public, max-age=31536000, immutable',
