@@ -143,7 +143,7 @@ sr-only `label` (default "Loading…") and the shapes hidden. The local skeleton
 Two surfaces, two policies. The Tauri `csp` in `tauri.conf.json` covers only pages Tauri serves itself: the splash
 (`ui/index.html`) and the Server terminal (`ui/terminal.html`). The main window navigates to the hub on
 `http://127.0.0.1:<port>` after the splash, and Tauri does not inject a CSP into a remote page, so the hub's web UI
-needs its own header (not implemented yet, see the checklist).
+gets its own header from the hub (`packages/hub/src/api/csp.ts`, set on the SPA shell and static assets only).
 
 Bundled pages (`tauri.conf.json`, same string for dev because there is no dev server):
 
@@ -160,24 +160,34 @@ connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base
 - `object-src 'none'`, `frame-src 'none'`: no plugins, no frames.
 - `base-uri 'none'`, `form-action 'none'`: no `<base>` tricks, no form posts.
 
-Hub web UI (what to send as a header from the hub; derived from `packages/web` sources and a production build, which
+Hub web UI (sent by the hub as the header below; derived from `packages/web` sources and a production build, which
 loads no third-party script, font, image or stylesheet; Supabase is called by the hub, not by the page):
 
 ```
-default-src 'self'; script-src 'self' 'sha256-<hash of the inline theme snippet in web/index.html>';
+default-src 'self'; script-src 'self';
 style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self';
 connect-src 'self' ipc: http://ipc.localhost; frame-src 'self' blob:; object-src blob:;
 worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 ```
 
-- `script-src`: the only inline script is the theme/font snippet in `web/index.html`. Either hash it or move it to `/theme-init.js`; never `unsafe-inline`. `unsafe-eval` is not needed.
+- `script-src`: the theme/font snippet moved out of `web/index.html` into `packages/web/public/theme-init.js` (served as `/theme-init.js`, revalidated like the shell). Keep new code in files; never `unsafe-inline`. `unsafe-eval` is not needed.
 - `style-src 'unsafe-inline'`: React `style={}` attributes and Radix inject styles.
 - `img-src data: blob:`: SVG previews are `data:` URLs in an `<img>`, chat and file images are `blob:` URLs.
 - `media-src blob:`: Files preview plays audio and video from a `blob:` URL.
 - `connect-src 'self'`: `/api/*` and the `/ws` WebSocket on the same origin (the loopback hub, an SSH tunnel to it, or the phone's HTTPS origin). `ipc:` and `http://ipc.localhost` are for the notification call in the desktop app.
 - `frame-src 'self' blob:`: the Screen tab frames `/screen/` on the same origin, and the Files preview frames a PDF from a `blob:` URL.
-- `object-src blob:`: Chromium's PDF viewer embeds the blob; `'none'` may blank the PDF preview. Verify before tightening.
+- `object-src blob:`: Chromium's PDF viewer embeds the blob; `'none'` may blank the PDF preview. Not verified in a browser, so it stays until someone checks.
 - `worker-src 'self'`: `/sw.js` for Web Push.
 - `frame-ancestors 'none'`: nothing may frame the app. Send the header (a meta tag cannot carry this directive).
 
-Neither policy has been run against a live window yet (see the checklist rows).
+Mode: `POCKETROCKET_CSP=enforce|report-only|off`, default `report-only` until a browser run of the production build is clean (flip the default in `csp.ts` then). `report-only` sends the same policy as
+`Content-Security-Policy-Report-Only` (the browser console lists violations, nothing is blocked); `off` sends no CSP.
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer` go on the same responses in every mode. File, media,
+auth-callback and `/screen/*` responses keep their own headers and are not touched.
+
+Known effect: a `blob:` HTML preview inherits this policy, so inline `<script>` in a previewed HTML file does not run
+(static HTML and CSS still render). `FilePreview.tsx` frames that blob without `sandbox`; adding one is a web change.
+
+Neither policy has been run against a live window yet: the hub policy is covered by unit tests on the headers
+(`api/csp.test.ts`) but a browser run of the production build (violations, Screen tab, PDF preview) has not been done.
+If you see a blank page or a broken preview, read the console for `Content-Security-Policy-Report-Only` violations; `POCKETROCKET_CSP=enforce` turns blocking on.

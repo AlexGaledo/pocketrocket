@@ -15,6 +15,11 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - Bots can search the chat history of the rooms they are in with `search_history` (full-text, stemmed) and look across memory, notes and history with `recall_memory`. Notes can carry `tags:` in front-matter and `search_notes` can filter by tag. Older messages are indexed in the background after an upgrade.
 - Bots can tell you when a site stopped them with `report_blocked` (a room note plus a review list at `GET /api/bot-reports`) and leave feedback with `send_feedback` (a local file, readable at `GET /api/feedback`). Both refuse secrets and are limited to 10 an hour per bot. Nothing leaves your machine.
 
+### Web UI security headers and MCP server API
+
+- The hub now sends a Content-Security-Policy, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer` with the web app. `POCKETROCKET_CSP=report-only|enforce|off` picks the mode; the default is `report-only` (violations show in the browser console, nothing is blocked) until the policy has been run against the production build. The theme snippet moved from `index.html` to `/theme-init.js` so scripts need no `unsafe-inline`. Inline scripts in a previewed HTML file will not run once the policy is enforced.
+- New `GET/POST/PATCH/DELETE /api/mcp-servers` and `POST /api/mcp-servers/:name/check` manage `data/mcp-servers.json` without hand-editing. Tokens and env values are write-only (listings show whether a token is set and the variable names). Adding or changing a server that runs a command needs a browser signed in with your password, like a PC job approval; url servers and deletes take the hub token. A hand-edited file keeps working and is never overwritten when it does not parse. No UI yet.
+
 ### Clearer refusals for bots
 
 - Every refusal a bot reads (declined card, timeout, read-only mode, a rule you set, an unavailable tool) now says what happened, tells it not to retry, and says what to do instead, so bots stop looping on a "no". The hub tool lists the permission gate uses now come from one shared registry, with a test that fails if a new tool is left out. Wording only; no approval behaviour changed.
