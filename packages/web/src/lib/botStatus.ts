@@ -52,6 +52,8 @@ function openApprovals(messages: Record<string, Message[]>, known: OpenApproval[
   for (const [roomId, list] of Object.entries(messages)) {
     for (const m of list) {
       if (m.kind === 'approval' && m.authorId && (m.payload as ApprovalPayload | null)?.status === 'pending') out.set(m.authorId, roomId);
+      // An open request_form card also waits on the owner.
+      else if (m.kind === 'form' && m.authorId && (m.payload as { status?: string } | null)?.status === 'pending') out.set(m.authorId, roomId);
     }
   }
   return out;

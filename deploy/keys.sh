@@ -9,10 +9,15 @@
 #                                          --all (second confirm) also replaces the hub token and removes the Claude login
 #
 # What counts as a key file (all under data/ unless noted):
-#   mcp-servers.json, secrets.json, integrations.json + vault.key (the encrypted integration tokens and their key),
+#   mcp-servers.json, secrets.json, integrations.json + credentials.json + vault.key (the encrypted integration tokens and saved
+#   logins, and the one key that opens both),
 #   pc-runner.json, account.json (Supabase session), vapid.json (Web Push key pair), every .env* except .env.example
 #   under data/projects/. Left in place by disable: data/hub-token and ~pocketrocket/.claude/.credentials.json
 #   (the Claude login: deleting it stops every bot). delete --all takes those two as well.
+#
+# credentials.json (the Logins vault, mode 0600) is encrypted with vault.key, so it moves, restores and shreds
+# together with the key and is never printed. backup.sh excludes vault.key but not credentials.json: an archive
+# holds only ciphertext, useless without the key (same as integrations.json), so back the key up separately.
 #
 # Moving a file only stops THIS server from using the key. The key still works wherever else it was copied, and
 # the daily backups in /var/backups/pocketrocket still hold secrets.json, mcp-servers.json and the .env files.
@@ -151,7 +156,7 @@ claude_ok() {
   [ -f "$CLAUDE_CREDS" ] && [ ! -L "$CLAUDE_CREDS" ]
 }
 
-CORE_FILES=(mcp-servers.json secrets.json integrations.json vault.key pc-runner.json account.json vapid.json)
+CORE_FILES=(mcp-servers.json secrets.json integrations.json credentials.json vault.key pc-runner.json account.json vapid.json)
 
 # Every .env* under data/projects except .env.example, NUL-separated. node_modules and .git are not the user's keys.
 project_envs() {
@@ -229,7 +234,7 @@ inventory() {
   # Integrations: tokens are AES-GCM encrypted in integrations.json (key in vault.key); the provider list is
   # in the database's integrations table, read here read-only.
   local have_vault=0
-  { [ -e "$DATA/integrations.json" ] || [ -e "$DATA/vault.key" ]; } && have_vault=1
+  { [ -e "$DATA/integrations.json" ] || [ -e "$DATA/credentials.json" ] || [ -e "$DATA/vault.key" ]; } && have_vault=1
   if [ -f "$DATA/pocketrocket.db" ] && [ ! -L "$DATA/pocketrocket.db" ]; then
     while IFS= read -r p; do
       [ -z "$p" ] || row "$p" "Integration token (encrypted)" "data/integrations.json + data/vault.key" \
@@ -238,6 +243,7 @@ inventory() {
   fi
   if [ "$have_vault" = 1 ]; then
     row "Integrations" "encrypted token store and its key" "data/integrations.json, data/vault.key" "revoke each integration above"
+    [ -e "$DATA/credentials.json" ] && row "Logins" "saved site logins (encrypted, names only)" "data/credentials.json + data/vault.key" "change each saved password at its site"
   fi
 
   [ -e "$DATA/pc-runner.json" ] && row "PC runner" "runner pairing (present)" "data/pc-runner.json" "re-pair the PC runner (runner token)"

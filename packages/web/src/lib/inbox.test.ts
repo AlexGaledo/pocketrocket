@@ -12,7 +12,22 @@ const takeover = (botId: string, roomId: string, messageId: string, since = 5): 
 const skill = (id: string, over: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: '', path: '', source: 'user', reviewStatus: 'approved', createdByBot: null, ...over }) as Skill;
 
+const form = (id: string, roomId: string, createdAt: number, status = 'pending'): Message => ({
+  id, roomId, seq: 1, authorType: 'bot', authorId: 'b1', kind: 'form', text: '', causeId: null, hop: 0, turnId: null, createdAt,
+  payload: { botId: 'b1', title: 'Shipping details', fields: [], status },
+} as Message);
+
 const base = { openApprovals: [], messages: {}, control: {}, skills: null };
+
+describe('selectInbox forms', () => {
+  it('counts an open request_form card like an approval, with no inline answer', () => {
+    const items = selectInbox({ ...base, messages: { r1: [form('f1', 'r1', 5), form('f2', 'r1', 6, 'submitted')], r2: [approval('a1', 'r2', 9)] } });
+    expect(items.map((i) => i.key)).toEqual(['form:f1', 'approval:a1']);
+    expect(items[0]).toMatchObject({ kind: 'form', roomId: 'r1', botId: 'b1', detail: 'Shipping details' });
+    expect(items[0].approvalId).toBeUndefined();
+    expect(items[0].canDeny).toBeUndefined();
+  });
+});
 
 describe('selectInbox', () => {
   it('is empty when nothing waits', () => {

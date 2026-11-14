@@ -55,6 +55,7 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   // P4
   { id: 'integrations', label: 'Connections', icon: Plug },
   // G4: saved logins bots can type into a page (desktop only: the hub refuses a phone).
+  // Logins, Tools and Reports are desktop only: they are not in DEVICE_SECTIONS, and the hub 403s a phone on their routes.
   { id: 'credentials', label: 'Logins', icon: KeyRound },
   // P7
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
