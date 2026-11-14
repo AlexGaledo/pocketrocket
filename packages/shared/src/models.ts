@@ -177,6 +177,8 @@ export interface Message {
   modelReason?: string;
   /** Pictures attached to this message, each an uploaded reference (see {@link isMediaRef}). */
   attachments?: string[];
+  /** User messages only (B5): the id the sending client gave it, so the client can match its outbox entry. */
+  clientMsgId?: string;
 }
 
 export interface Routine {

@@ -1,7 +1,7 @@
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import type { IncomingMessage, Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { ClientEventSchema, type ServerEvent } from '@pocketrocket/shared';
+import { ClientEventSchema, WS_PING_MS, type ServerEvent } from '@pocketrocket/shared';
 import { MAX_WS_BYTES } from './body.js';
 import { deviceIdOf } from './guard.js';
 import { events } from '../events.js';
@@ -20,6 +20,8 @@ export function attachWs(
      * signing out takes effect at once. Left out, no connection counts as signed in.
      */
     signedIn?: (req: IncomingMessage) => boolean;
+    /** Ping period in ms; tests shorten it. Defaults to {@link WS_PING_MS}. */
+    pingMs?: number;
   },
 ) {
   // 256 KB per frame (audit 2026-09-09, B15): the largest legitimate client event is a chat message.
@@ -32,6 +34,16 @@ export function attachWs(
   events.onEvent((ev) => {
     for (const c of wss.clients) send(c, ev);
   });
+
+  // B6: a half-open socket (cable pulled, laptop asleep) never fires `close` in the browser, so the client needs
+  // something to miss. Sent to every open client; the answer (`pong`) is only read, never acted on, so a client
+  // from before this change, which ignores the ping, is not penalised.
+  const pinger = setInterval(() => {
+    const ev: ServerEvent = { type: 'ping', t: Date.now() };
+    for (const c of wss.clients) send(c, ev);
+  }, deps.pingMs ?? WS_PING_MS);
+  pinger.unref();
+  wss.on('close', () => clearInterval(pinger));
 
   wss.on('connection', (ws, req?: IncomingMessage) => {
     // P9: a paired phone answers cards once; a standing "always" grant is the desktop's call.
@@ -51,7 +63,15 @@ export function attachWs(
       if (!parsed.success) return send(ws, { type: 'error', message: 'Bad event: ' + parsed.error.issues.map((i) => i.message).join(', ') });
       const ev = parsed.data;
       try {
-        if (ev.type === 'message.send') deps.router.onUserMessage(ev.roomId, ev.text);
+        if (ev.type === 'pong') return;
+        if (ev.type === 'message.send') {
+          try {
+            deps.router.onUserMessage(ev.roomId, ev.text, ev.clientMsgId);
+          } catch (e) {
+            // Tagged with the client's id so its outbox can show this one entry as failed.
+            return send(ws, { type: 'error', message: (e as Error).message ?? String(e), ...(ev.clientMsgId ? { context: ev.clientMsgId } : {}) });
+          }
+        }
         else if (ev.type === 'approval.decide') {
           if (device && ev.decision === 'always') return send(ws, { type: 'error', message: '"Always allow" can only be granted from the desktop app', context: ev.approvalId });
           const card = deps.repos.db.get('SELECT tool_name, bot_id FROM approvals WHERE id=?', ev.approvalId);

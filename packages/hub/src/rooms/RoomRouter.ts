@@ -134,10 +134,17 @@ export class RoomRouter {
   }
 
   // ---------- entry points ----------
-  onUserMessage(roomId: string, text: string): Message {
+  onUserMessage(roomId: string, text: string, clientMsgId?: string): Message {
     const room = this.repos.getRoom(roomId);
     if (!room) throw new Error('Room not found');
-    const msg = this.repos.insertMessage({ roomId, authorType: 'user', authorId: this.repos.owner().id, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null });
+    // A repeat of a send the hub already took (a client replaying its outbox): no second message and no second
+    // turn. The message is announced again, because the repeat usually means the first announcement was missed.
+    const seen = clientMsgId ? this.repos.findByClientMsgId(roomId, clientMsgId) : undefined;
+    if (seen) {
+      events.emitEvent({ type: 'message.new', message: seen });
+      return seen;
+    }
+    const msg = this.repos.insertMessage({ roomId, authorType: 'user', authorId: this.repos.owner().id, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null, ...(clientMsgId ? { clientMsgId } : {}) });
     // a user message starts a new cause chain
     const withCause = this.repos.updateMessage(msg.id, {}) ?? msg;
     this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
