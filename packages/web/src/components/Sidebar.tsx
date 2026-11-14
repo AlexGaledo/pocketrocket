@@ -10,6 +10,7 @@ import { getJson, setJson } from '../lib/persist';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { STATUS_LABEL, avatarStatus, isWorking, useBotStatus, type BotStatus } from '../lib/botStatus';
 import { toolPhrase } from '../lib/toolPhrases';
+import { PopoutButton } from './PopoutButton';
 import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
 
 /** Shared by bot and room rows: a whole-row button, so Tab reaches every chat and Enter/Space opens it. */
@@ -324,6 +325,7 @@ function BotRow({ bot, status, activity, preview, active, unread, onOpen, onSett
       </button>
       {/* A sibling of the row button, not inside it. Shown on hover, whenever focus is anywhere in the
           row (so Tab finds it), and always on touch screens, which have no hover to reveal it. */}
+      {onSettings && <PopoutButton bot={bot} />}
       {onSettings && <button
         className="mr-1.5 hidden shrink-0 rounded-sm p-1.5 text-muted hover:bg-hover hover:text-fg focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:block group-focus-within:block [@media(hover:none)]:block"
         title="Bot settings"
