@@ -21,6 +21,11 @@ function tauriInvoke(): NonNullable<NonNullable<TauriGlobal['core']>['invoke']> 
   return typeof invoke === 'function' ? invoke : null;
 }
 
+/** True inside the PocketRocket desktop app, the only place notify() can do anything. */
+export function canNotify(): boolean {
+  return tauriInvoke() !== null;
+}
+
 export interface NotifyInput {
   title?: string;
   body?: string;
