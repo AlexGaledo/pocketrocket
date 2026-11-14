@@ -1132,7 +1132,7 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
         case 'refused':
           return err(denyMessage('declined', { subject: 'the job on the PC', alt: 'say so in the room' }).replace('The user declined', userName + ' declined') + (out ? '\n\n' + out : ''));
         case 'expired':
-          return err(denyMessage('unavailable', { subject: 'the job on the PC', note: PC_EXPIRED_MESSAGE.toLowerCase().replace(/^the pc/, 'the PC') + ' within 30 minutes, so the job was dropped', alt: 'do the work on your own computer, or say so in the room' }));
+          return err(denyMessage('unavailable', { subject: 'the job on the PC', note: PC_EXPIRED_MESSAGE + ' within 30 minutes, so the job was dropped', alt: 'do the work on your own computer, or say so in the room' }));
         default:
           return err(denyMessage('unavailable', { subject: 'the job on the PC', note: 'it was cancelled: ' + (out || 'no reason given') + (offline ? '. The PC was offline when you asked' : ''), alt: 'do the work on your own computer, or say so in the room' }));
       }
