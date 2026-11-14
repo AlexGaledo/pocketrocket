@@ -10,6 +10,7 @@ import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
+import { getItem, setItem } from './lib/persist';
 import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
 import type { SectionId } from './components/dialogs/SettingsDialog';
 
@@ -238,7 +239,7 @@ export const useStore = create<State>((set, get) => ({
   bots: [],
   rooms: [],
   botStates: {},
-  activeRoomId: localStorage.getItem('pocketrocket.activeRoom'),
+  activeRoomId: getItem('pocketrocket.activeRoom'),
   messages: {},
   previews: {},
   searchTarget: null,
@@ -253,7 +254,7 @@ export const useStore = create<State>((set, get) => ({
   triggersRev: 0,
   memory: {},
   panelOpen: false,
-  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('pocketrocket.sidebar') !== '0',
+  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && getItem('pocketrocket.sidebar') !== '0',
   paneW: readPaneWidths(window.innerWidth),
   panelExpanded: false,
   panelBotId: null,
@@ -487,7 +488,7 @@ export const useStore = create<State>((set, get) => ({
     get().setActiveRoom(roomId);
   },
   setActiveRoom: (id) => {
-    if (id) localStorage.setItem('pocketrocket.activeRoom', id);
+    if (id) setItem('pocketrocket.activeRoom', id);
     const unread = { ...get().unread };
     if (id) delete unread[id];
     // Moving to another chat leaves a page. The same chat again (a reconnect's hello) must not.
@@ -573,7 +574,7 @@ export const useStore = create<State>((set, get) => ({
   closePage: () => set({ page: null }),
   toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
   setSidebarOpen: (open) => {
-    if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
+    if (!matches(NARROW_SIDEBAR_QUERY)) setItem('pocketrocket.sidebar', open ? '1' : '0');
     set({ sidebarOpen: open });
   },
   setPaneW: (pane, width) => {

@@ -5,6 +5,7 @@ import { Avatar, Menu, MenuContent, MenuItem, cn } from './ui';
 import { Podium } from './Podium';
 import { ProfileMenu } from './ProfileMenu';
 import { api } from '../lib/api';
+import { getJson, setJson } from '../lib/persist';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { STATUS_LABEL, avatarStatus, isWorking, useBotStatus, type BotStatus } from '../lib/botStatus';
 import { toolPhrase } from '../lib/toolPhrases';
@@ -54,12 +55,8 @@ const COLLAPSED_KEY = 'pocketrocket.collapsedSections';
 const SOLO_SECTION = 'bots';
 
 function readCollapsed(): Set<string> {
-  try {
-    const ids: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
-    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
-  } catch {
-    return new Set();
-  }
+  const ids = getJson(COLLAPSED_KEY, Array.isArray as (v: unknown) => v is unknown[], []);
+  return new Set(ids.filter((id): id is string => typeof id === 'string'));
 }
 
 /** Which sidebar sections are folded. Kept per device: a phone and a desktop want different lists. */
@@ -69,7 +66,7 @@ function useCollapsedSections() {
     const next = new Set(collapsed);
     if (!next.delete(id)) next.add(id);
     setCollapsed(next);
-    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next])); } catch { /* still works until reload */ }
+    setJson(COLLAPSED_KEY, [...next]); // a blocked store keeps it in memory until reload
   };
   return { collapsed, toggle };
 }

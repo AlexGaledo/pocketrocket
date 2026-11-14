@@ -14,6 +14,7 @@ import { RowIcon, TileIcon } from './FileIcon';
 import { FilePreview } from './FilePreview';
 import { canPickFolder, emptyDirs, gatherFromDrop, gatherFromInput, splitRel, tooBig, type Gathered } from './folderUpload';
 import { KIND_LABEL, baseName, fileKind, fmtBytes, fmtModified, fmtModifiedFull, joinPath, parentPath, resolveFileLink } from './fileKinds';
+import { getJson, setJson } from '../../lib/persist';
 
 type View = 'grid' | 'list';
 type SortKey = 'name' | 'size' | 'mtime';
@@ -22,17 +23,8 @@ interface Sort { key: SortKey; dir: 1 | -1 }
 const VIEW_KEY = 'pocketrocket.files.view';
 const SORT_KEY = 'pocketrocket.files.sort';
 
-function readPref<T>(key: string, ok: (v: unknown) => v is T, fallback: T): T {
-  try {
-    const v = JSON.parse(localStorage.getItem(key) ?? 'null');
-    return ok(v) ? v : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function writePref(key: string, v: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage blocked: it holds for this session */ }
-}
+const readPref = getJson;
+const writePref = (key: string, v: unknown) => void setJson(key, v);
 const isView = (v: unknown): v is View => v === 'grid' || v === 'list';
 const isSort = (v: unknown): v is Sort => !!v && typeof v === 'object' && ['name', 'size', 'mtime'].includes((v as Sort).key) && ((v as Sort).dir === 1 || (v as Sort).dir === -1);
 
