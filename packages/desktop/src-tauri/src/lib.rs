@@ -1152,6 +1152,8 @@ pub fn run() {
         }))
         // Rust-side confirm dialogs only; no capability grants the pages dialog access.
         .plugin(tauri_plugin_dialog::init())
+        // Local desktop notifications. Granted only to the hub origin, and only the notify commands (capabilities/hub-notify.json).
+        .plugin(tauri_plugin_notification::init())
         .manage(state.clone())
         .manage(term::Term::default())
         .invoke_handler(tauri::generate_handler![
