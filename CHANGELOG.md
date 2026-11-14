@@ -25,6 +25,11 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 
 - New shared UI primitives in `ui.tsx`: Banner, Popover, Tooltip, Kbd, EmptyState and Skeleton (documented in `docs/DEVELOPMENT.md`). Adds `@radix-ui/react-popover` and `@radix-ui/react-tooltip`. Nothing uses them yet.
 
+### Desktop hardening
+
+- The desktop app now sets a Content Security Policy on its own pages (the connection screen and the Server terminal): no inline or eval script, and no network access beyond the app's own commands.
+- Groundwork for local desktop notifications: the app ships the notification plugin, and the hub page may raise a notification only while the window is not focused. Nothing triggers one yet.
+
 ### Cheaper default models
 
 - A bot that creates another bot no longer hands it its own model: without an explicit pick the new bot gets Sonnet 5, so an Opus lead no longer fills a room with Opus workers. The create/update bot tools tell bots to use Sonnet for workers, Haiku for simple or routine bots, and Opus only when you ask or a lead truly needs it.
