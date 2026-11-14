@@ -558,6 +558,27 @@ registerMigrations([200, 209], [
   },
 ]);
 
+// 240  messages_fts only indexes the kinds searchHistory reads (text, handoff, routine, trigger), so tool/approval/form
+//      cards and system rows no longer cost index space and trigger work. The update trigger fires only when the
+//      text or kind changed. Rows of other kinds that 201 already indexed are removed. Migration 201 itself is
+//      shipped on this branch and stays as it is.
+const FTS_KINDS = "('text','handoff','routine','trigger')";
+registerMigrations([240, 249], [
+  {
+    version: 240,
+    name: 'messages_fts: index searchable kinds only',
+    up: (db) => {
+      db.exec(
+        'DROP TRIGGER IF EXISTS messages_fts_ai; DROP TRIGGER IF EXISTS messages_fts_au;' +
+          'CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages WHEN new.kind IN ' + FTS_KINDS + ' BEGIN INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END;' +
+          'CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages WHEN old.text IS NOT new.text OR old.kind IS NOT new.kind ' +
+          'BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; INSERT INTO messages_fts (rowid, text) SELECT new.rowid, new.text WHERE new.kind IN ' + FTS_KINDS + '; END',
+      );
+      db.exec('DELETE FROM messages_fts WHERE rowid IN (SELECT rowid FROM messages WHERE kind NOT IN ' + FTS_KINDS + ')');
+    },
+  },
+]);
+
 // Machines (B4). One row per machine the owner set a policy for (never | ask | always); no row means 'ask'.
 // A table rather than a settings field: machines are keyed by id and there will be more than the two that
 // exist today. Approval rules also gain an optional machine scope and an expiry (NULL = any machine / never).

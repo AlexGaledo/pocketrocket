@@ -57,6 +57,16 @@ describe('reencodeImage', () => {
     expect(c.tries.map((t: [string, number?]) => t[0])).toEqual(['image/png', 'image/jpeg']);
   });
 
+  it('targets the per-picture cap, not the old 10 MB transport cap, and halves the size as a last resort', async () => {
+    const big = { type: 'image/jpeg', size: 4 * 1024 * 1024 };
+    const c = mockCanvas([{ type: 'image/png', size: 4 * 1024 * 1024 }, big, big, { type: 'image/jpeg', size: 900 }]);
+    bitmap(1000, 800);
+    const out = await reencodeImage(fileOf(PNG, 'image/png'));
+    expect(out.size).toBe(900);
+    expect(c.tries).toHaveLength(4);
+    expect([c.width, c.height]).toEqual([500, 400]);
+  });
+
   it('refuses a GIF by its bytes even when it claims to be a PNG', async () => {
     mockCanvas([{ type: 'image/png', size: 1 }]);
     bitmap(10, 10);

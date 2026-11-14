@@ -307,6 +307,7 @@ export class BotRunner {
       // `auto` is a valid choice wherever the provider has a list to route within (P8).
       models: providerModels.length ? [...providerModels.map((m) => m.id), AUTO_MODEL] : [],
       forms: this.forms,
+      strictApprovals: !!req.strictApprovals,
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).

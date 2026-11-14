@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from '@pocketrocket/shared';
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_IMAGE_BYTES } from '@pocketrocket/shared';
 import { api } from './api';
 import { IMAGE_TYPES, ImageRefused, cachePreview, sniffImage } from './media';
 
@@ -27,8 +27,8 @@ const encode = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
 /**
  * Re-draws the picture through a canvas, which drops every piece of metadata (EXIF location, camera, thumbnails)
  * and scales it to {@link MAX_ATTACH_EDGE}. The type is checked from the file's own bytes, not its name or declared
- * type. PNG stays PNG (transparency), the others keep their format; if the result is still over the hub's cap it is
- * written as JPEG at lower quality.
+ * type. PNG stays PNG (transparency), the others keep their format; if the result is still over the hub's per-picture cap
+ * ({@link MAX_ATTACHMENT_IMAGE_BYTES}) it is written as JPEG at lower quality, then at half size.
  */
 export async function reencodeImage(file: File): Promise<Blob> {
   const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
@@ -51,10 +51,21 @@ export async function reencodeImage(file: File): Promise<Blob> {
   }
   ctx.drawImage(bitmap, 0, 0, size.width, size.height);
   bitmap.close?.();
-  const tries: [string, number | undefined][] = [[type, type === 'image/png' ? undefined : 0.92], ['image/jpeg', 0.85], ['image/jpeg', 0.6]];
-  for (const [t, q] of tries) {
-    const blob = await encode(canvas, t, q);
-    if (blob && (IMAGE_TYPES as readonly string[]).includes(blob.type) && blob.size <= MAX_ATTACHMENT_BYTES) return blob;
+  // Each step is smaller than the last, and the last also halves the picture, so a huge one still ends up under the
+  // per-picture cap the hub enforces (MAX_ATTACHMENT_IMAGE_BYTES).
+  const tries: [string, number | undefined, number][] = [
+    [type, type === 'image/png' ? undefined : 0.92, 1], ['image/jpeg', 0.85, 1], ['image/jpeg', 0.6, 1], ['image/jpeg', 0.6, 0.5],
+  ];
+  let scaled = canvas;
+  for (const [t, q, f] of tries) {
+    if (f !== 1 && scaled === canvas) {
+      scaled = document.createElement('canvas');
+      scaled.width = Math.max(1, Math.round(canvas.width * f));
+      scaled.height = Math.max(1, Math.round(canvas.height * f));
+      scaled.getContext('2d')?.drawImage(canvas, 0, 0, scaled.width, scaled.height);
+    }
+    const blob = await encode(f === 1 ? canvas : scaled, t, q);
+    if (blob && (IMAGE_TYPES as readonly string[]).includes(blob.type) && blob.size <= MAX_ATTACHMENT_IMAGE_BYTES) return blob;
   }
   throw new ImageRefused('That picture is too large.');
 }

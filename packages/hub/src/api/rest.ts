@@ -9,7 +9,8 @@ import {
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
-import { WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
+import { removeBotAttachments } from '../agent/attachments.js';
+import { ATTACHMENTS_DIR, WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
 import { openWorkspace, workspaceTarget } from './openWorkspace.js';
 import { SCREEN_VIEWER_PATH, screenViewerPath, type ScreenSessions } from './screenSession.js';
 import { AlwaysOnRefused, type ComputerManager } from '../services/ComputerManager.js';
@@ -288,6 +289,7 @@ export function createRest(deps: RestDeps) {
     need(repos.getBot(params.id), 'Bot');
     repos.deleteBot(params.id);
     memory.removeHome(params.id);
+    removeBotAttachments(ATTACHMENTS_DIR, params.id);
     deps.voice?.removeForBot(params.id);
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });

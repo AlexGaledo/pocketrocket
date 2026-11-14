@@ -14,7 +14,7 @@ export function backfillMessagesFts(raw: DatabaseSync, batch = BACKFILL_BATCH, i
   const st = raw.prepare("SELECT next_rowid AS n, upto AS u FROM fts_backfill WHERE name='messages'").get() as { n: number; u: number } | undefined;
   if (!st) return false;
   const rows = raw
-    .prepare('SELECT rowid AS r, text FROM messages WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT ?')
+    .prepare("SELECT rowid AS r, text FROM messages WHERE rowid>? AND rowid<=? AND kind IN ('text','handoff','routine','trigger') ORDER BY rowid LIMIT ?")
     .all(st.n, st.u, batch) as { r: number; text: string }[];
   const has = raw.prepare('SELECT 1 FROM messages_fts WHERE rowid=?');
   const ins = raw.prepare('INSERT INTO messages_fts (rowid, text) VALUES (?, ?)');

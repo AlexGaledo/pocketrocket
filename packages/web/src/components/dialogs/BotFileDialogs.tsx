@@ -32,9 +32,14 @@ export function ExportBotControls({ bot }: { bot: Bot }) {
     try {
       const r = await api.bots.export(bot.id, memory);
       saveFile(bot.handle + '.pocketrocket-bot.json', JSON.stringify(r.file, null, 2));
-      setNote(r.redactions > 0
+      const left = r.skipped ?? [];
+      const big = left.filter((k) => k.reason === 'too_big').map((k) => k.name);
+      const many = left.filter((k) => k.reason === 'too_many').map((k) => k.name);
+      const skippedText = (big.length ? ' Left out because it is over 64 KB: ' + big.join(', ') + '.' : '') +
+        (many.length ? ' Left out because a file holds at most 20 skills: ' + many.join(', ') + '.' : '');
+      setNote((r.redactions > 0
         ? r.redactions + (r.redactions === 1 ? ' secret or file path was' : ' secrets or file paths were') + ' taken out. Read the file before you share it.'
-        : 'Saved. Read the file before you share it.');
+        : 'Saved. Read the file before you share it.') + skippedText);
     } catch (e) { toast((e as Error).message, true); } finally { setBusy(false); }
   };
   return (

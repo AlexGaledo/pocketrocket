@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import { z } from 'zod';
 import { AUTO_MODEL, BOT_ICON_KEYS, DEFAULT_MODEL, MAX_ROOM_BOTS, isMediaRef } from '@pocketrocket/shared';
 import type { Bot, Room, HandoffPayload, HandoffResultPayload } from '@pocketrocket/shared';
-import { MAX_HOPS, WORKSPACE_DIR, botRoots } from '../config.js';
+import { removeBotAttachments } from './attachments.js';
+import { ATTACHMENTS_DIR, MAX_HOPS, WORKSPACE_DIR, botRoots } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
@@ -93,6 +94,12 @@ export interface ToolCtx {
   pcRunner?: PcRunner;
   /** U4: adds `request_form`. Absent in most unit tests. */
   forms?: FormBroker;
+  /**
+   * A routine/trigger turn (see PermissionBroker.strictApprovals): nobody is watching, so `request_form` is refused
+   * instead of holding the turn slot for up to 10 minutes. Approvals park such turns; a form is plain data the bot
+   * can ask for in text, so the simplest safe choice is to not offer the wait at all.
+   */
+  strictApprovals?: boolean;
   /** The turn's abort signal; run_on_pc cancels its job when the turn is stopped. */
   signal?: AbortSignal;
   /** key-registry.json, read on every call. Defaults to the file in DATA_DIR; tests hand in their own. */
@@ -687,6 +694,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       if (denied) return denied;
       ctx.repos.deleteBot(target.id);
       try { ctx.memory.removeHome(target.id); } catch { /* ignore */ }
+      removeBotAttachments(ATTACHMENTS_DIR, target.id);
       const idx = ctx.members.findIndex((m) => m.id === target.id);
       if (idx >= 0) ctx.members.splice(idx, 1);
       events.emitEvent({ type: 'bots.changed', bots: ctx.repos.listBots() });
@@ -779,15 +787,17 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
         title: z.string().min(1).max(80).describe('Short title, e.g. "Q3 launch plan"'),
         text: z.string().min(1).max(32000).describe('Markdown body'),
         mode: z.enum(['replace', 'append']).optional().describe('Default replace'),
-        tags: z.array(z.string().regex(/^[\p{L}\p{N}_-]{1,32}$/u)).max(10).optional().describe('Tags, saved as a tags: line in front-matter (replace mode)'),
+        tags: z.array(z.string().regex(/^[\p{L}\p{N}_-]{1,32}$/u)).max(10).optional().describe('Tags, saved as a tags: line in front-matter (replace mode only; refused with append or a text that starts with ---)'),
       },
       async (a) => {
         const secret = refuseSecret('note', a.title, a.text, ...(a.tags ?? []));
         if (secret) return secret;
         try {
-          const body = a.tags?.length && (a.mode ?? 'replace') === 'replace' && !a.text.startsWith('---')
-            ? '---\ntags: ' + a.tags.join(', ') + '\n---\n' + a.text
-            : a.text;
+          // Tags go in a front-matter block this tool writes. Where it cannot (append, or a body with its own
+          // front matter) say so rather than saving without them.
+          if (a.tags?.length && (a.mode ?? 'replace') === 'append') return err('Nothing saved: tags only apply when a note is replaced, not appended to. Call again with mode "replace", or leave tags out.');
+          if (a.tags?.length && a.text.trimStart().startsWith('---')) return err('Nothing saved: the text starts with its own "---" front matter, so tags cannot be added. Put a "tags: a, b" line in that front matter yourself and leave the tags argument out.');
+          const body = a.tags?.length ? '---\ntags: ' + a.tags.join(', ') + '\n---\n' + a.text : a.text;
           const r = ctx.memory.writeNote(ctx.bot.id, a.title, body, a.mode ?? 'replace');
           return text('Saved ' + r.file + (r.trimmed ? ' (cut at 32 KB; split it into several notes)' : '') + '.');
         } catch (e) {
@@ -821,6 +831,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       'Ask ' + userName + ' for a few plain values in one card (text, a choice, or yes/no; at most 8 fields; at most ' + FORM_RATE_MAX + ' per hour). Waits for them to fill it in and returns their answers as data. Never ask for passwords, keys, tokens or codes: such forms are refused. If they cancel or do not answer, carry on without or say so in the room.',
       FormInputShape,
       async (a) => {
+        // Unattended (routine/trigger) turns never block on a person; interactive turns are unchanged.
+        if (ctx.strictApprovals) return err(denyMessage('unavailable', { subject: 'a form', note: 'this run is unattended, so nobody is there to fill it in', alt: 'ask ' + userName + ' in plain text in the room and carry on without the answer' }));
         const built = buildForm(a);
         if (!built.ok) return err(built.error);
         if (forms.hasOpen(ctx.bot.id)) return err(denyMessage('unavailable', { subject: 'a second form', note: 'one of yours is still waiting for ' + userName, alt: 'wait for that answer' }));
