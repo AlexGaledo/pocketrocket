@@ -54,3 +54,86 @@ pnpm desktop:dev
 Node runtime: the desktop app looks for a system Node ≥ 22.13 on `PATH` first; if none is found,
 it falls back to a Node 24 LTS binary bundled with the installer. Releasing is described in
 [RELEASING.md](RELEASING.md).
+
+## UI primitives
+
+Shared building blocks live in `packages/web/src/components/ui.tsx`. Use them before writing a local
+one. Colours and radii come from the tokens in `index.css`; nothing here adds a new colour or animation.
+
+### Banner
+
+An inline notice that stays in the layout (a toast is for transient events).
+
+```tsx
+<Banner tone="warn" title="Hub is slow" action={<Button size="sm" onClick={retry}>Retry</Button>} onDismiss={hide}>
+  Replies may be delayed.
+</Banner>
+```
+
+Props: `tone` (`info` | `warn` | `error`, default `info`), `title`, `children`, `action` (buttons, right side),
+`onDismiss` (shows an X button; label via `dismissLabel`), `role` (override), `className`.
+A11y: `error` is `role="alert"` (assertive), `info` and `warn` are `role="status"` (polite). Text is always
+`--fg`, so AA contrast does not depend on the tone; the tone is in the icon and ring. Mount it
+when the condition starts: a live region that is already on screen is not announced.
+
+### Popover
+
+Anchored panel for small forms or detail. Menus are for commands, dialogs for tasks.
+
+```tsx
+<Popover>
+  <PopoverTrigger asChild><Button size="icon" aria-label="Filters"><Filter size={14} /></Button></PopoverTrigger>
+  <PopoverContent align="end">...controls...  <PopoverClose asChild><Button size="sm">Done</Button></PopoverClose></PopoverContent>
+</Popover>
+```
+
+Exports: `Popover` (supports `open`/`onOpenChange`), `PopoverTrigger`, `PopoverAnchor`, `PopoverContent`, `PopoverClose`.
+Radix props pass through (`side`, `align`). A11y: Escape or an outside click closes; focus moves in on open and
+returns to the trigger; the trigger gets `aria-expanded`/`aria-controls`. Portaled at `z-[65]` (above dialogs 50,
+onboarding 60), so it does not affect layout. Non-modal, unlike `MenuContent`.
+
+### Tooltip
+
+```tsx
+<Tooltip content="Search (Ctrl K)"><Button size="icon" aria-label="Search"><Search size={14} /></Button></Tooltip>
+```
+
+Props: `content` (plain text; empty renders the child untouched), `children` (one element that takes a ref),
+`side` (default `top`), `delay` (ms, default 400). Wrap a region in `TooltipProvider` to share the open delay
+between neighbours (optional). A11y: opens on hover and on keyboard focus, never on touch; closes on Escape,
+blur or leaving; the trigger gets `aria-describedby`. It describes, it does not name: icon-only controls still
+need `aria-label`. Never put interactive content in it (use a Popover). No enter/exit animation, so
+reduced motion needs no special case; it is portaled (`z-[70]`), so it cannot shift layout.
+
+### Kbd
+
+```tsx
+<Kbd>Esc</Kbd>   <Kbd>Ctrl</Kbd> <Kbd>K</Kbd>
+```
+
+Props: `children`, `className`. Renders a `<kbd>` (mono, `--card2` fill, `--line` ring), so assistive tech reads the text.
+Write modifiers as words (`Ctrl`), not glyphs.
+
+### EmptyState
+
+```tsx
+<EmptyState icon={<Inbox size={18} />} title="No routines yet" action={<Button variant="primary" onClick={add}>New routine</Button>}>
+  Routines run a bot on a schedule.
+</EmptyState>
+```
+
+Props: `icon` (decorative, `aria-hidden`), `title`, `children` (body, max 40ch), `action`, `as`
+(`div` default, or `h2`..`h4` to put it in the heading outline), `className`. Centred; give the parent the height.
+
+### Skeleton
+
+```tsx
+<SkeletonGroup label="Loading bots…">
+  <Skeleton className="h-8 w-8" /> <Skeleton className="mt-2 h-3 w-24" />
+</SkeletonGroup>
+```
+
+`Skeleton` is one block (`--card2`, full radius by default; set size and radius via `className`) that pulses
+only under `motion-safe`. It is `aria-hidden`. `SkeletonGroup` is the accessible shell: `role="status"` with an
+sr-only `label` (default "Loading…") and the shapes hidden. The local skeletons in `ChatPane.tsx`
+(`TranscriptSkeleton`), `Sidebar.tsx` (`SkeletonRows`) and `files/FilesPanel.tsx` (`Skeleton`) can adopt these.
