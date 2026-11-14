@@ -17,6 +17,7 @@ import { SettingsStore, installSettings } from './services/SettingsStore.js';
 import { SecretsStore } from './services/SecretsStore.js';
 import { AccountService } from './services/AccountService.js';
 import { PermissionBroker } from './permissions/PermissionBroker.js';
+import { denyMessage } from './permissions/messages.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
 import { RoutingRules } from './services/RoutingRules.js';
@@ -779,6 +780,6 @@ function parkedDecisionNote(p: ParkedApproval, decision: 'allow' | 'always' | 'd
   if (decision === 'allow' || decision === 'always') {
     return '(Approval granted: the user allowed ' + what + '. Retry exactly the same call now; it goes through without another card. Then finish the task.)';
   }
-  if (decision === 'deny') return '(Approval denied: the user declined ' + what + '. Do not retry it; choose another approach or say so in the room.)';
-  return '(Approval expired: nobody answered ' + what + ' in time, so it was denied. Do not retry it; say so in the room.)';
+  if (decision === 'deny') return '(Approval denied: ' + denyMessage('declined', { subject: what, alt: 'choose another approach or say so in the room' }) + ')';
+  return '(Approval expired: ' + denyMessage('timeout', { note: 'nobody answered ' + what + ' in time, so it was denied', alt: 'say so in the room' }) + ')';
 }

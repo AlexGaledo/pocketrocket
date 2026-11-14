@@ -14,6 +14,7 @@ import { deleteGate } from '../permissions/deleteGate.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '../permissions/readOnlyRoots.js';
 import { secretFileAccess } from '../permissions/secretFiles.js';
+import { denyMessage } from '../permissions/messages.js';
 import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
 import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
 
@@ -301,7 +302,7 @@ export class ClaudeProvider implements AgentProvider {
     ): Promise<PermissionResult> => {
       if (ctx.permissionDetailed) return (await ctx.permissionDetailed(name, toolInput, o)) as PermissionResult;
       const d = await ctx.permission(name, toolInput, { blockedPath: o.blockedPath });
-      return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: 'The user declined this action.' };
+      return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: denyMessage('declined', { alt: 'choose another approach or say so in the room' }) };
     };
 
     // P7: writes into the read-only knowledge repo ask (or, under bypass, are denied) before acceptEdits sees them.

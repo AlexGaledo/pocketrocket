@@ -1,6 +1,7 @@
 import { ROUTING_PATH } from '../config.js';
 import { bashWritesReadOnly } from './bashRules.js';
 import { isInside, pathsFromInput } from './pathRules.js';
+import { denyMessage } from './messages.js';
 
 /**
  * P7: the knowledge repo is a read-only root. The Claude SDK gets it in `additionalDirectories` so reads are
@@ -22,7 +23,7 @@ export function routingFileWrite(toolName: string, input: Record<string, unknown
   const hit = toolName === 'Bash'
     ? !!bashWritesReadOnly(String(input.command ?? ''), cwd, [ROUTING_PATH])
     : (WRITE_TOOLS as readonly string[]).includes(toolName) && pathsFromInput(toolName, input).some((p) => isInside(p, [ROUTING_PATH], cwd));
-  return hit ? 'routing.md belongs to the owner and bots cannot write it. Use propose_routing_change to suggest a line.' : null;
+  return hit ? denyMessage('not_allowed', { subject: 'writing routing.md', note: 'it belongs to the owner', alt: 'use propose_routing_change to suggest a line' }) : null;
 }
 
 export function readOnlyWriteDecision(
@@ -38,13 +39,13 @@ export function readOnlyWriteDecision(
     const hit = bashWritesReadOnly(String(input.command ?? ''), cwd, readOnlyRoots);
     if (!hit) return null;
     return bypass
-      ? { decision: 'deny', reason: 'The knowledge repo is read-only; this shell command writes there: ' + hit }
+      ? { decision: 'deny', reason: denyMessage('not_allowed', { subject: 'this shell command', note: 'the knowledge repo is read-only and it writes there: ' + hit, alt: 'write inside your own workspace instead, or say so in the room' }) }
       : { decision: 'ask', reason: 'Shell write into the read-only knowledge repo: ' + hit };
   }
   if (!(WRITE_TOOLS as readonly string[]).includes(toolName)) return null;
   const hits = pathsFromInput(toolName, input).filter((p) => isInside(p, readOnlyRoots, cwd));
   if (!hits.length) return null;
   return bypass
-    ? { decision: 'deny', reason: 'The knowledge repo is read-only; ' + toolName + ' refused: ' + hits.join(', ') }
+    ? { decision: 'deny', reason: denyMessage('not_allowed', { subject: toolName, note: 'the knowledge repo is read-only: ' + hits.join(', '), alt: 'write inside your own workspace instead, or say so in the room' }) }
     : { decision: 'ask', reason: toolName + ' into the read-only knowledge repo: ' + hits.join(', ') };
 }

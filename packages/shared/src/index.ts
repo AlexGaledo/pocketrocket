@@ -16,3 +16,5 @@ export * from './training.js';
 export * from './files.js';
 // PC runner
 export * from './pcRunner.js';
+// Hub tool registry
+export * from './tools.js';
