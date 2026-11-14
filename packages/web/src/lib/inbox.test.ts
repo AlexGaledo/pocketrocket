@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ApprovalPayload, ControlStatus, Message, Skill } from '@pocketrocket/shared';
+import { ASK_EVERY_TIME_TOOLS, SIGN_IN_TOOLS, type ApprovalPayload, type ControlStatus, type Message, type Skill } from '@pocketrocket/shared';
 import { fmtAge, selectInbox, titleWithCount } from './inbox';
+import { cardWords } from './approvalWords';
 
 const approval = (id: string, roomId: string, createdAt: number, p: Partial<ApprovalPayload> = {}): Message => ({
   id: 'm-' + id, roomId, seq: 1, authorType: 'bot', authorId: 'b1', kind: 'approval', text: '', causeId: null, hop: 0, turnId: null, createdAt,
@@ -20,13 +21,13 @@ describe('selectInbox', () => {
 
   it('lists an approval known only from hello, with no age or inline answer', () => {
     const [it] = selectInbox({ ...base, openApprovals: [{ approvalId: 'a1', botId: 'b1', roomId: 'r1' }] });
-    expect(it).toMatchObject({ kind: 'approval', roomId: 'r1', botId: 'b1', since: null, inline: false, title: 'Needs your approval' });
+    expect(it).toMatchObject({ kind: 'approval', roomId: 'r1', botId: 'b1', since: null, canDeny: false, title: 'Needs your approval' });
   });
 
   it('adds detail and age from a loaded card, and lists it once', () => {
     const items = selectInbox({ ...base, openApprovals: [{ approvalId: 'a1', botId: 'b1', roomId: 'r1' }], messages: { r1: [approval('a1', 'r1', 100)] } });
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ since: 100, inline: true, detail: 'run a script' });
+    expect(items[0]).toMatchObject({ since: 100, canDeny: true, detail: 'run a script', approval: { toolName: 'Bash' } });
     expect(items[0].title).not.toContain('Bash');
   });
 
@@ -35,9 +36,39 @@ describe('selectInbox', () => {
     expect(items.map((i) => i.key)).toEqual(['approval:a1']);
   });
 
-  it('never offers an inline answer for a dangerous or sign-in-required card', () => {
-    const items = selectInbox({ ...base, messages: { r1: [approval('a1', 'r1', 1, { danger: true }), approval('a2', 'r1', 2, { signInRequired: true })] } });
-    expect(items.map((i) => i.inline)).toEqual([false, false]);
+  it('never exposes an inline allow on any row', () => {
+    const items = selectInbox({ ...base, messages: { r1: [approval('a1', 'r1', 1)] } });
+    for (const i of items) expect(Object.keys(i)).not.toContain('inline');
+    expect(items[0].canDeny).toBe(true);
+  });
+
+  it('shows Open only (no inline Deny) for danger, once, sign-in, ask-every-time and proposal cards', () => {
+    const ask = [...ASK_EVERY_TIME_TOOLS][0];
+    const signIn = [...SIGN_IN_TOOLS][0];
+    const cards = [
+      approval('danger', 'r1', 1, { danger: true }),
+      approval('once', 'r1', 2, { once: true }),
+      approval('signin', 'r1', 3, { signInRequired: true }),
+      approval('ask', 'r1', 4, { toolName: ask }),
+      approval('pc', 'r1', 5, { toolName: signIn }),
+      approval('handoff', 'r1', 6, { toolName: 'handoff', toolInput: { task: 'do it' } }),
+      approval('route', 'r1', 7, { toolName: 'propose_routing_change', toolInput: { line: 'x' } }),
+    ];
+    const items = selectInbox({ ...base, messages: { r1: cards } });
+    expect(items).toHaveLength(7);
+    expect(items.map((i) => i.canDeny)).toEqual(Array(7).fill(false));
+  });
+
+  it('allows an inline Deny for an ordinary gated call only', () => {
+    const items = selectInbox({ ...base, messages: { r1: [approval('a1', 'r1', 1, { toolName: 'Write' })] } });
+    expect(items[0].canDeny).toBe(true);
+    expect(items[0].approval).toEqual({ toolName: 'Write', toolInput: {} });
+  });
+
+  it('words a hand-off or routing card like the approval card does', () => {
+    expect(cardWords({ toolName: 'handoff', toolInput: { task: 'ship it', context: 'c' } })).toEqual({ main: 'ship it', more: 'c' });
+    expect(cardWords({ toolName: 'propose_routing_change', toolInput: { line: 'L' } })).toEqual({ main: 'L', more: undefined });
+    expect(cardWords({ toolName: 'Bash', toolInput: { command: 'ls' } })).toBeNull();
   });
 
   it('lists takeovers, using the card time when loaded and the control time otherwise', () => {

@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import { Hand, Inbox, Monitor, Sparkles, ShieldQuestion } from 'lucide-react';
 import { useStore, botById } from '../store';
 import { fmtAge, type InboxItem } from '../lib/inbox';
+import { cardWords } from '../lib/approvalWords';
+import { fmtInput } from './WorkLine';
 import { useInbox } from '../lib/useInbox';
 import { Avatar, Button, EmptyState, Skeleton, SkeletonGroup } from './ui';
 import { FleetHeader, PageBody } from './FleetPages';
@@ -62,6 +64,9 @@ function InboxRow({ item, now }: { item: InboxItem; now: number }) {
       setActiveRoom(item.roomId);
     } else if (skillBot) openPage({ kind: 'bot', botId: skillBot.id, tab: 'skills' });
   };
+  // Context only: the tool and a one-line summary, from the same formatting the card uses. Approving needs the card.
+  const words = item.approval ? cardWords(item.approval) : null;
+  const summary = item.approval ? (words ? words.main : fmtInput(item.approval.toolInput)).replace(/\s+/g, ' ').trim().slice(0, 160) : '';
   const canOpen = !!item.roomId || !!skillBot;
   const openLabel = item.kind === 'skill' ? 'Review' : 'Open';
 
@@ -81,18 +86,14 @@ function InboxRow({ item, now }: { item: InboxItem; now: number }) {
             {item.kind === 'takeover' ? <Hand size={12} aria-hidden /> : <Icon size={12} aria-hidden />}
             <span className="min-w-0">{item.title}</span>
           </div>
+          {item.approval && <p className="mt-0.5 truncate text-hint text-muted" title={summary}><span className="font-mono">{item.approval.toolName}</span>{summary && ' \u00b7 ' + summary}</p>}
           {item.detail && <p className="mt-0.5 line-clamp-2 text-hint text-muted">{item.detail}</p>}
           {error && <p role="alert" className="mt-1 text-hint text-bad">{error}</p>}
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
-        {item.approvalId && item.inline && (
-          <>
-            <Button size="sm" variant="danger" onClick={() => decide(item.approvalId!, 'deny')}>Deny</Button>
-            <Button size="sm" variant="primary" onClick={() => decide(item.approvalId!, 'allow')}>Allow once</Button>
-          </>
-        )}
-        {canOpen && <Button size="sm" variant={item.inline ? 'outline' : 'primary'} onClick={open}>{openLabel}</Button>}
+        {item.approvalId && item.canDeny && <Button size="sm" variant="danger" onClick={() => decide(item.approvalId!, 'deny')}>Deny</Button>}
+        {canOpen && <Button size="sm" variant="primary" onClick={open}>{item.kind === 'approval' ? 'Review' : openLabel}</Button>}
       </div>
     </li>
   );

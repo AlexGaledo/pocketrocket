@@ -4,7 +4,7 @@
  * from the control status, and skills from GET /api/skills (reviewStatus / pendingVersions). No hub endpoint is
  * added; a source that would need one is listed in the changelog notes instead.
  */
-import type { ApprovalPayload, ControlStatus, Message, OpenApproval, Skill } from '@pocketrocket/shared';
+import { ASK_EVERY_TIME_TOOLS, SIGN_IN_TOOLS, type ApprovalPayload, type ControlStatus, type Message, type OpenApproval, type Skill } from '@pocketrocket/shared';
 import { toolPhrase } from './toolPhrases';
 
 export type InboxKind = 'approval' | 'takeover' | 'skill';
@@ -22,9 +22,14 @@ export interface InboxItem {
   detail: string | null;
   /** Epoch ms it started waiting, or null when the data in hand does not say. */
   since: number | null;
-  /** Approvals only: may be answered here (card loaded, not dangerous, no sign-in needed). */
   approvalId?: string;
-  inline?: boolean;
+  /** Approvals only, when the card is loaded: which tool is waiting and its input. Context for the row, never a consent surface. */
+  approval?: Pick<ApprovalPayload, 'toolName' | 'toolInput'>;
+  /**
+   * Approvals only: Deny may be offered on the row (denying is always safe, and uses the same `decide` as the card).
+   * Allowing is never offered here: it goes through Open, to the full card.
+   */
+  canDeny?: boolean;
 }
 
 export interface InboxInput {
@@ -32,6 +37,15 @@ export interface InboxInput {
   messages: Record<string, Message[]>;
   control: Record<string, ControlStatus>;
   skills: Skill[] | null;
+}
+
+/** Cards that are yes-or-no proposals rather than a tool call; ApprovalCard words them differently. */
+const PROPOSAL_TOOLS: ReadonlySet<string> = new Set(['handoff', 'propose_routing_change']);
+
+/** Only an ordinary gated tool call may be denied from the inbox row; every other class is Open only. */
+export function rowMayDeny(p: ApprovalPayload): boolean {
+  return !p.danger && !p.once && !p.signInRequired
+    && !ASK_EVERY_TIME_TOOLS.has(p.toolName) && !SIGN_IN_TOOLS.has(p.toolName) && !PROPOSAL_TOOLS.has(p.toolName);
 }
 
 const isPendingApproval = (m: Message): m is Message & { payload: ApprovalPayload } =>
@@ -57,10 +71,11 @@ export function selectInbox({ openApprovals, messages, control, skills }: InboxI
       botId,
       roomId,
       title: p ? 'Wants to ' + toolPhrase(p.toolName, 'now').toLowerCase() : 'Needs your approval',
+      approval: p ? { toolName: p.toolName, toolInput: p.toolInput } : undefined,
       detail: p?.reason ? p.reason : null,
       since: card?.m.createdAt ?? null,
       approvalId,
-      inline: !!p && !p.danger && !p.signInRequired,
+      canDeny: !!p && rowMayDeny(p),
     });
   };
   for (const a of openApprovals) add(a.approvalId, a.botId, a.roomId);
