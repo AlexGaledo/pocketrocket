@@ -52,10 +52,10 @@ import { routeByNeeds, type KeyRegistry } from './keyRegistry.js';
 export const OUTSIDE_MCP_PATH = path.join(DATA_DIR, 'mcp-servers.json');
 
 /** Names the hub uses itself; an outside server may not take them. */
-const RESERVED = new Set(['pocketrocket', 'browser']);
+export const RESERVED = new Set(['pocketrocket', 'browser']);
 /** No `__` in a name: the SDK names tools `mcp__<server>__<tool>`, and the approval guard splits on it. */
-const NAME_RE = /^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$/;
-const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+export const NAME_RE = /^[a-z0-9](?:[a-z0-9-]|_(?!_)){0,31}$/;
+export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Launchers a stdio entry may name without a full path. Anything else must be an absolute path. */
 const BARE_COMMANDS = new Set(['npx', 'node']);
 
@@ -97,7 +97,7 @@ export function registerOutsideMcpSecrets(servers: readonly OutsideMcpServer[]):
   }
 }
 
-function stdioCommand(v: unknown): string | null {
+export function stdioCommand(v: unknown): string | null {
   if (typeof v !== 'string' || !v || v !== v.trim()) return null;
   if (BARE_COMMANDS.has(v)) return v;
   return path.isAbsolute(v) ? v : null;
