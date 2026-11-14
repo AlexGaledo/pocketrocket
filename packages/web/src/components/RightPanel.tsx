@@ -8,7 +8,7 @@ import { api } from '../lib/api';
 import { isDesktopMode } from '../lib/auth';
 import { computerUse, holdsScreen, selectScreenBotId, selectScreenSize, type ScreenSize } from '../lib/screenView';
 import { avatarStatus, useBotStatus } from '../lib/botStatus';
-import { Avatar, Button, cn } from './ui';
+import { Avatar, Button, Tooltip, cn } from './ui';
 import { ControlBar, hasComputer, useControl } from './ComputerControl';
 import { RecordingBar, useRecorder } from './TeachControls';
 
@@ -230,10 +230,10 @@ function Viewer({ bot, size, use, inline, dismissed, onDismiss, perBot, parked, 
             <span className="min-w-0 truncate" role="status" aria-live="polite" title={status}>{status}</span>
           </div>
         </div>
-        {live && <Button size="icon" variant="ghost" title="Reload viewer" aria-label="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={14} /></Button>}
+        {live && <Tooltip content="Reload viewer"><Button size="icon" variant="ghost" aria-label="Reload viewer" onClick={() => setNonce((n) => n + 1)}><RefreshCw size={14} /></Button></Tooltip>}
         {inline && size === 'watch' && <Button size="icon" variant="ghost" aria-pressed={expanded} aria-label="Expand screen" title={expanded ? 'Restore' : 'Expand'} onClick={togglePanelExpanded}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</Button>}
-        {live && <Button size="icon" variant="ghost" title="Pop out" aria-label="Pop out" onClick={popOut}><ExternalLink size={14} /></Button>}
-        {size === 'watch' && <Button size="icon" variant="ghost" title="Close screen" aria-label="Close screen" onClick={closePanel}><X size={16} /></Button>}
+        {live && <Tooltip content="Pop out"><Button size="icon" variant="ghost" aria-label="Pop out" onClick={popOut}><ExternalLink size={14} /></Button></Tooltip>}
+        {size === 'watch' && <Tooltip content="Close screen"><Button size="icon" variant="ghost" aria-label="Close screen" onClick={closePanel}><X size={16} /></Button></Tooltip>}
       </div>
 
       {!followsChat && !glance && (
