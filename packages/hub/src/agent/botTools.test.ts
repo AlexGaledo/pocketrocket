@@ -86,7 +86,7 @@ describe('read_owner_messages', () => {
 });
 
 describe('createHubTools', () => {
-  it('returns the 22 hub tools and no request_approval for a full-permission provider', () => {
+  it('returns the 29 hub tools and no request_approval for a full-permission provider', () => {
     const { tools } = setup();
     expect(tools.map((t) => t.name)).toEqual([
       'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
@@ -98,6 +98,8 @@ describe('createHubTools', () => {
       'where_to_run',
       // P7
       'search_notes', 'write_note',
+      // G1-G5
+      'create_task', 'update_task', 'list_tasks', 'search_history', 'recall_memory', 'report_blocked', 'send_feedback',
     ]);
   });
 
