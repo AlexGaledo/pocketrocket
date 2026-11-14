@@ -259,13 +259,17 @@ export class PermissionBroker {
    * The user's rule for this call, if one matches: deny rules first, then allow rules. Allow rules never cover
    * a command the classifier calls dangerous, and nothing covers an integration write (P4: always asks).
    */
-  matchPolicy(botId: string, tool: string, subject: string, danger = false): 'allow' | 'deny' | null {
+  matchPolicy(botId: string, tool: string, subject: string, danger = false, machine?: string): 'allow' | 'deny' | null {
     if (INTEGRATION_WRITES.has(tool)) return null;
     // Asked on every call: a deny rule still refuses, but no allow rule or "always" pre-approves it.
     if (ASK_EVERY_TIME.has(tool)) danger = true;
     const store = this.opts.store;
     if (!store) return !danger && this.alwaysAllowed.has(botId + ':' + tool) ? 'allow' : null;
-    const rules = store.listPolicies(botId, 'all').filter((p) => p.tool === tool && patternMatches(p.pattern, subject));
+    // An allow rule with a machine covers only calls on that machine. A deny rule with a machine also covers a call
+    // that names none, because a refusal must not be skipped just because the caller left the machine out.
+    // Expired rules are not listed.
+    const rules = store.listPolicies(botId, 'all').filter((p) => p.tool === tool && patternMatches(p.pattern, subject)
+      && (!p.machine || p.machine === machine || (p.decision === 'deny' && machine === undefined)));
     if (rules.some((p) => p.decision === 'deny')) return 'deny';
     if (!danger && rules.some((p) => p.decision === 'allow')) return 'allow';
     return null;
@@ -416,11 +420,11 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
     /** A hand-off that adds a bot to this chat: the owner's call on any hub, because that bot has other logins. */
-    opts: { evenUnderBypass?: boolean } = {},
+    opts: { evenUnderBypass?: boolean; machine?: string } = {},
   ): Promise<{ allowed: boolean; message: string }> {
     if (this.opts.globalReadOnly?.()) return { allowed: false, message: denyMessage('readonly', { subject: 'fleet and room changes', alt: 'say so in the room' }) };
     if (this.bypassedFor(ctx) && !opts.evenUnderBypass) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
-    const rule = this.matchPolicy(ctx.bot.id, toolName, approvalSubject(toolName, input));
+    const rule = this.matchPolicy(ctx.bot.id, toolName, approvalSubject(toolName, input), false, opts.machine);
     if (rule === 'allow') return { allowed: true, message: 'Allowed by an approval rule the user set.' };
     if (rule === 'deny') return { allowed: false, message: denyMessage('declined', { subject: 'this change', note: 'an approval rule the user set denies it', alt: 'say so in the room' }) };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });

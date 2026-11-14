@@ -61,6 +61,8 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     'list_routines',
     // Key routing: reads key-registry.json, names only.
     'where_to_run',
+    // Machines: the registry with each one's policy, read-only.
+    'list_machines',
     // Notes live in the bot's own home.
     'search_notes', 'write_note',
     // G1-G5: tasks only touch the local task table and grant nothing; search and recall are reads over the bot's own

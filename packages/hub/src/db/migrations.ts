@@ -557,3 +557,28 @@ registerMigrations([200, 209], [
       ),
   },
 ]);
+
+// Machines (B4). One row per machine the owner set a policy for (never | ask | always); no row means 'ask'.
+// A table rather than a settings field: machines are keyed by id and there will be more than the two that
+// exist today. Approval rules also gain an optional machine scope and an expiry (NULL = any machine / never).
+registerMigrations([190, 199], [
+  {
+    version: 190,
+    name: 'machine_policies table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS machine_policies (
+        machine TEXT PRIMARY KEY,
+        policy TEXT NOT NULL CHECK(policy IN ('never','ask','always')),
+        updated_at INTEGER NOT NULL
+      );
+    `),
+  },
+  {
+    version: 191,
+    name: 'approval_policies.machine + expires_at',
+    up: (db) => {
+      addColumnIfMissing(db, 'approval_policies', 'machine', 'TEXT');
+      addColumnIfMissing(db, 'approval_policies', 'expires_at', 'INTEGER');
+    },
+  },
+]);

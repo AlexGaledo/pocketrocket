@@ -26,6 +26,10 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - In the desktop app, a notification appears when a bot needs your approval, needs you on its screen, or finishes, but only while the window is in the background. The text is generic ("A bot needs you") unless you turn on **Settings > Notifications > Include message text**. The section is only listed in the desktop app. Phones keep using Web Push.
 - Loading placeholders in the chat and sidebar, a few empty lists, and the icon buttons in the fleet pages, bot page, screen panel and triggers now use the shared Skeleton, EmptyState and Tooltip components (the same look, with hover and keyboard-focus labels on the buttons).
 
+### Machines
+
+- Bots can now ask which computers they may run on (`list_machines`) and name one in `run_on_pc`. Each machine gets its own on/off policy in Settings, and approval rules can be scoped to a machine and given an expiry. Existing rules keep applying to every machine.
+
 ### Clearer refusals for bots
 
 - Every refusal a bot reads (declined card, timeout, read-only mode, a rule you set, an unavailable tool) now says what happened, tells it not to retry, and says what to do instead, so bots stop looping on a "no". The hub tool lists the permission gate uses now come from one shared registry, with a test that fails if a new tool is left out. Wording only; no approval behaviour changed.

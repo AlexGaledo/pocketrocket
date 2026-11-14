@@ -60,6 +60,13 @@ export function ApprovalRules() {
                       {p.decision === 'deny' ? <Badge tone="bad">deny</Badge> : <Badge tone="ok">allow</Badge>}
                     </div>
                     <div className="truncate font-mono text-hint text-muted" title={p.pattern}>{p.pattern === '*' ? 'any call' : p.pattern}</div>
+                    {(p.machine || p.expiresAt) && (
+                      <div className="text-hint text-muted">
+                        {p.machine ? 'On ' + (p.machine === 'pc' ? 'your PC' : p.machine === 'vps' ? "the bot's computer" : p.machine) : ''}
+                        {p.machine && p.expiresAt ? ' · ' : ''}
+                        {p.expiresAt ? 'Expires ' + new Date(p.expiresAt).toLocaleString() : ''}
+                      </div>
+                    )}
                   </div>
                   <Button size="sm" variant="ghost" disabled={busy === p.id} onClick={() => void revoke(p)}
                     aria-label={'Revoke rule: ' + (bot?.name ?? 'bot') + ' ' + p.tool + ' ' + p.pattern}>

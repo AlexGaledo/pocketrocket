@@ -16,6 +16,8 @@ export * from './training.js';
 export * from './files.js';
 // PC runner
 export * from './pcRunner.js';
+// Machines (B4)
+export * from './machines.js';
 // Hub tool registry
 export * from './tools.js';
 // Tasks

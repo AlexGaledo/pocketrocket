@@ -21,6 +21,8 @@ import type { Routine } from '@pocketrocket/shared';
 import { isInside } from '../permissions/pathRules.js';
 import { denyMessage } from '../permissions/messages.js';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
+import { Machines } from '../services/Machines.js';
+import { PC_MACHINE_ID, VPS_MACHINE_ID } from '@pocketrocket/shared';
 import { MAX_PC_PROMPT_BYTES, PC_EXPIRED_MESSAGE, PC_FOLDER_RE, PcRunnerError, type PcRunner } from '../services/PcRunner.js';
 import { TaskError, TaskService } from '../services/TaskService.js';
 import { BotReports, REPORT_KINDS, ReportLimited, MAX_FEEDBACK_BYTES } from '../services/BotReports.js';
@@ -63,7 +65,7 @@ export interface ToolCtx {
    * member). Wired by BotRunner for every provider (the broker allows it without a card when approvals are
    * bypassed); when absent (unit tests) the change goes through unguarded. See audit 2026-09-09, B6/B14.
    */
-  confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown>; evenUnderBypass?: boolean }) => Promise<{ allowed: boolean; message: string }>;
+  confirmFleetChange?: (a: { tool: string; reason: string; input: Record<string, unknown>; evenUnderBypass?: boolean; machine?: string }) => Promise<{ allowed: boolean; message: string }>;
   /** The card for a first hand-off to a bot outside this chat. Absent in unit tests, where it goes through. */
   confirmOutsideHandoff?: (a: { input: { to_bot: string; task: string; context?: string }; reason: string }) => Promise<{ allowed: boolean; message: string }>;
   // ---- Auto routing ----
@@ -740,7 +742,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
   if (ctx.pcRunner?.isPaired()) tools.push(runOnPcTool(ctx, ctx.pcRunner));
-  tools.push(whereToRunTool(ctx));
+  tools.push(whereToRunTool(ctx), listMachinesTool(ctx));
   // ---- P7 (7.2): notes/, searched on demand so memory.md can stay small ----
   tools.push(
     hubTool(
@@ -1090,8 +1092,17 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
       folder: z.string().regex(PC_FOLDER_RE).describe('One of the folder names the PC allows'),
       prompt: z.string().min(1).describe('What Claude Code on the PC should do, self-contained (max 8 KB)'),
       needs: needsArg().optional().describe('Key names from the key registry this job uses, as you passed them to where_to_run'),
+      machine: z.string().max(32).optional().describe('Which machine; omit for the owner\'s PC. See list_machines'),
     },
     async (a) => {
+      const machineId = a.machine?.trim().toLowerCase() || PC_MACHINE_ID;
+      if (machineId === VPS_MACHINE_ID) return err(denyMessage('unavailable', { subject: 'run_on_pc on your own computer', note: 'that is the machine you are already on', alt: 'run it yourself with your own tools' }));
+      if (machineId !== PC_MACHINE_ID) return err('Unknown machine "' + a.machine + '". Call list_machines for the ids.');
+      // The owner's per-machine setting. 'never' sends nothing. 'always' changes nothing here: the card below
+      // (sign-in only, asked on every job) and the PC's own prompt stay.
+      if (new Machines(ctx.repos.db, pc).policy(PC_MACHINE_ID) === 'never') {
+        return err(denyMessage('off', { subject: 'running jobs on the PC', note: userName + ' turned it off for this machine, nothing was sent', alt: 'use your own computer' }));
+      }
       if (!pc.isPaired()) return err('No PC is paired with this hub. ' + userName + ' can pair one in Settings.');
       const needs = [...new Set(a.needs ?? [])];
       // Only keys the registry says the PC holds. An unknown name is refused, never guessed.
@@ -1118,6 +1129,7 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
       const r = await ctx.confirmFleetChange({
         tool: 'run_on_pc',
         evenUnderBypass: true,
+        machine: PC_MACHINE_ID,
         reason: 'Run Claude Code on your PC in "' + a.folder + '"' + (needs.length ? ' using keys: ' + needs.join(', ') : '') +
           '. Your PC asks you again before it starts. Only a browser signed in with your password can approve this.' +
           (offline ? ' Your PC looks offline: the job waits up to 30 minutes for it.' : ''),
@@ -1128,7 +1140,7 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
         return err(r.message);
       }
       if (!pc.approve(jobId)) return err('The job was cancelled before it was queued: ' + (pc.get(jobId)?.result ?? 'unknown reason') + '.');
-      recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'pc-runner.job.approved', jobId, a.folder + ' (room ' + ctx.room.id + ')' + (needs.length ? ' needs ' + needs.join(',') : ''));
+      recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'pc-runner.job.approved', jobId, 'machine ' + PC_MACHINE_ID + ', ' + a.folder + ' (room ' + ctx.room.id + ')' + (needs.length ? ' needs ' + needs.join(',') : ''));
       ctx.setState('waiting');
       let j;
       try {
@@ -1159,6 +1171,17 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
 
 function needsArg() {
   return z.array(z.string().regex(KEY_NAME_RE)).max(20);
+}
+
+export function listMachinesTool(ctx: ToolCtx): HubTool {
+  return hubTool(
+    'list_machines',
+    "List the machines your work can run on: id, label, kind, whether it is online or paired, and the owner's policy for it (never, ask or always). " +
+      'Your own computer is "vps". The owner\'s PC is "pc": use run_on_pc with machine "pc". A policy of "never" means nothing will be sent there. Names and flags only.',
+    {},
+    async () => text(JSON.stringify(new Machines(ctx.repos.db, ctx.pcRunner).list())),
+    { readOnly: true },
+  );
 }
 
 export function whereToRunTool(ctx: ToolCtx): HubTool {
