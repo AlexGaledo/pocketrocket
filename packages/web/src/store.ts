@@ -230,7 +230,8 @@ interface State {
   loadMessages: (roomId: string) => Promise<void>;
   /** Prepends the page just before the oldest loaded message. No-op while one is loading or none are left. */
   loadOlder: (roomId: string) => Promise<void>;
-  sendMessage: (text: string) => void;
+  /** `attachments` are media refs already uploaded; a message may be pictures only. */
+  sendMessage: (text: string, attachments?: string[]) => void;
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
   openScreen: (botId?: string | null) => void;
@@ -574,11 +575,12 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  sendMessage: (text) => {
+  sendMessage: (text, attachments) => {
     const roomId = get().activeRoomId;
-    if (!roomId || !text.trim()) return;
+    const pics = attachments?.length ? attachments : undefined;
+    if (!roomId || (!text.trim() && !pics)) return;
     // Journal first, then try the socket: a message is never only in memory.
-    const entry: OutboxEntry = { clientId: newClientId(), roomId, text, status: 'sending', createdAt: Date.now() };
+    const entry: OutboxEntry = { clientId: newClientId(), roomId, text, status: 'sending', createdAt: Date.now(), ...(pics ? { attachments: pics } : {}) };
     setOutbox([...get().outbox, entry]);
     play('send');
     get().flushOutbox();
@@ -586,7 +588,7 @@ export const useStore = create<State>((set, get) => ({
   flushOutbox: () => {
     for (const e of get().outbox) {
       if (e.status !== 'sending' && e.status !== 'sent') continue;
-      if (!wsSend({ type: 'message.send', roomId: e.roomId, text: e.text, clientMsgId: e.clientId })) return;
+      if (!wsSend({ type: 'message.send', roomId: e.roomId, text: e.text, clientMsgId: e.clientId, ...(e.attachments ? { attachments: e.attachments } : {}) })) return;
       patchOutbox(e.clientId, 'sent');
       // No echo: if the link is still up the hub is not taking it, otherwise it waits for the reconnect.
       clearAck(e.clientId);

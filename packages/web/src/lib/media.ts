@@ -98,6 +98,12 @@ async function shrink(file: File): Promise<Blob> {
   throw new ImageRefused('Image too large.');
 }
 
+/** Remembers a blob as the preview of an uploaded reference, so showing it needs no second trip. */
+export function cachePreview(ref: string, blob: Blob): void {
+  const hash = mediaHash(ref);
+  if (!urls.has(hash)) urls.set(hash, URL.createObjectURL(blob));
+}
+
 /** Checks, shrinks and uploads a file. Returns the reference to store; refuses with words to show. */
 export async function uploadImage(file: File): Promise<string> {
   const blob = await shrink(file);
