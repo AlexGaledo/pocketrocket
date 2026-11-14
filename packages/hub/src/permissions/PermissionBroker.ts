@@ -1,13 +1,14 @@
 import { nanoid } from 'nanoid';
 import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
-import type { ApprovalPayload, Bot, Room } from '@pocketrocket/shared';
 import { APPROVAL_TIMEOUT_MS, WORKSPACE_DIR, botRoots } from '../config.js';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import { isInside, pathsFromInput } from './pathRules.js';
 import { bashWritesReadOnly, classifyBash } from './bashRules.js';
-import { DESKTOP_TOOL_NAMES } from '../agent/desktopTools.js';
-import { INTEGRATION_READ_TOOLS, INTEGRATION_WRITE_TOOLS } from '../integrations/toolNames.js';
+import {
+  ASK_EVERY_TIME_TOOLS, GATED_TOOLS, INTEGRATION_WRITE_TOOLS, SIGN_IN_TOOLS, SILENT_TOOLS,
+  type ApprovalPayload, type Bot, type Room,
+} from '@pocketrocket/shared';
 import { patternMatches, type ApprovalStore, type ParkedApproval } from '../db/approvalStore.js';
 import { isComputerTool } from './controlInterlock.js';
 import { routingFileWrite } from './readOnlyRoots.js';
@@ -89,45 +90,24 @@ const READ_TOOLS = new Set(['Read', 'Glob', 'Grep']);
 
 const HUB_PREFIX = 'mcp__pocketrocket__';
 /** Hub tools that never need a card: read-only, or already visible to the user as a room message. */
-const SILENT_HUB_TOOLS = new Set([
-  'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
-  'list_rooms', 'request_approval', 'use_stronger_model', ...DESKTOP_TOOL_NAMES,
-  // P3
-  'list_routines',
-  // Key routing: reads key-registry.json, names only.
-  'where_to_run',
-  // P7: notes live in the bot's own home.
-  'search_notes', 'write_note',
-  // P4: integration reads (granted per bot; untrusted output is labelled as such).
-  ...INTEGRATION_READ_TOOLS,
-]);
+const SILENT_HUB_TOOLS = SILENT_TOOLS;
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
  * approval card (see `agent/botTools.ts`) — that way CLI providers, which reach hub tools over MCP and never
  * touch `decide()`, are gated identically. Before the audit every `mcp__pocketrocket__*` call was allowed
  * unconditionally and a Read-only bot could grant itself Bash (audit 2026-09-09, B6).
  */
-const GATED_HUB_TOOLS = new Set([
-  'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
-  // P3: a routine a bot schedules is autonomous future spend (grok-bot-parity §4).
-  'create_routine', 'update_routine', 'delete_routine',
-  // Its handler calls askRoutingChange.
-  'propose_routing_change',
-  // P4: integration writes; their handlers call askIntegrationWrite.
-  ...INTEGRATION_WRITE_TOOLS,
-  // A Claude Code job on the owner's PC; its handler calls askFleetChange with evenUnderBypass.
-  'run_on_pc',
-]);
+const GATED_HUB_TOOLS = GATED_TOOLS;
 
 /** Answered once per card: no "for this session", and no rule can pre-approve it. */
-const ASK_EVERY_TIME = new Set(['propose_routing_change', 'run_on_pc']);
+const ASK_EVERY_TIME = ASK_EVERY_TIME_TOOLS;
 
 /**
  * Cards only a browser signed in with the owner's password may allow. The hub token is not enough: it sits in
  * DATA_DIR, where a bot under bypass can read it and answer its own card over the socket. Anyone may deny.
  * Keyed by tool name, so a parked card keeps the rule across a restart.
  */
-export const SIGN_IN_TOOLS: ReadonlySet<string> = new Set(['run_on_pc']);
+export { SIGN_IN_TOOLS };
 export const SIGN_IN_MESSAGE =
   'Only a browser signed in with your password can approve this. The server token is not enough. Sign in, then approve it.';
 

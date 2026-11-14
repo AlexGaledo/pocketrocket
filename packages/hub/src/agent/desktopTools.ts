@@ -11,7 +11,7 @@ import { DESKTOP_HOME, SCREEN_DISPLAY, WORKSPACE_DIR } from '../config.js';
 import { hubTool } from './botTools.js';
 import { isInside } from '../permissions/pathRules.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
-import type { Bot } from '@pocketrocket/shared';
+import { DESKTOP_TOOL_NAMES, type Bot } from '@pocketrocket/shared';
 import type { ComputerManager } from '../services/ComputerManager.js';
 
 const run = promisify(execFile);
@@ -216,6 +216,7 @@ export function viewScreenTool(computers: ComputerManager, members: Bot[], selfI
   );
 }
 
-export const DESKTOP_TOOL_NAMES = ['desktop_screenshot', 'desktop_click', 'desktop_type', 'desktop_key', 'desktop_scroll', 'desktop_launch'];
+// The names live in the shared tool registry (packages/shared/src/tools.ts).
+export { DESKTOP_TOOL_NAMES };
 // keep `text` referenced for future non-screenshot returns
 void text;
