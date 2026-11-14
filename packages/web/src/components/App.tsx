@@ -12,6 +12,9 @@ import { RightPanel } from './RightPanel';
 import { FilesPanel } from './files/FilesPanel';
 import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
+import { InboxPage } from './InboxPage';
+import { useInbox } from '../lib/useInbox';
+import { titleWithCount } from '../lib/inbox';
 import { BotDialog } from './dialogs/BotDialog';
 import { RoomDialog } from './dialogs/RoomDialog';
 import { SearchDialog } from './dialogs/SearchDialog';
@@ -60,6 +63,16 @@ export function App() {
   // Files takes the panel unless the user is driving a screen, which always wins the room.
   const filesShown = filesOpen && !focus;
   const covering = !panelInline && (screenSize !== 'glance' || filesShown);
+
+  // U3: the skill pool feeds the Needs you inbox; refetched when skills change. The tab title carries the count.
+  const skillsRev = useStore((s) => s.skillsRev);
+  useEffect(() => {
+    if (helloReceived) void useStore.getState().loadInboxSkills();
+  }, [helloReceived, skillsRev]);
+  const waiting = useInbox().length;
+  useEffect(() => {
+    document.title = titleWithCount(document.title, waiting);
+  }, [waiting]);
 
   // Pane widths are CSS variables, so a resize never re-renders the chat. A drag paints them itself until
   // release, so a store change arriving mid-drag (any streaming message) must not paint over it.
@@ -164,7 +177,7 @@ export function App() {
         <div inert={!!page} className="flex min-h-0 flex-1 flex-col"><ChatPane /></div>
         {page && (
           <div className="@container panel absolute inset-0 flex flex-col">
-            {page.kind === 'bot' ? <BotPage botId={page.botId} tab={page.tab} /> : page.kind === 'automations' ? <AutomationsPage /> : <UsagePage />}
+            {page.kind === 'bot' ? <BotPage botId={page.botId} tab={page.tab} /> : page.kind === 'automations' ? <AutomationsPage /> : page.kind === 'inbox' ? <InboxPage /> : <UsagePage />}
           </div>
         )}
       </main>

@@ -6,7 +6,7 @@ import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Messag
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, Tooltip, UserAvatar, cn, fmtTime } from './ui';
+import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { RuleOffer, TakeoverCard } from './ComputerControl';
@@ -140,17 +140,19 @@ export function ChatPane() {
 /** Grey message shapes while a chat loads, so the page doesn't flash an empty "Loading…" and then jump. */
 function TranscriptSkeleton({ label }: { label: string }) {
   return (
-    <div role="status" aria-label={label} className="mx-auto flex w-full max-w-[var(--page-max)] flex-col gap-5 motion-safe:animate-pulse">
-      {[64, 40, 52].map((w, i) => (
-        <div key={i} className="flex gap-3">
-          <div className="h-[30px] w-[30px] shrink-0 rounded-full bg-card2" />
-          <div className="flex flex-1 flex-col gap-2 pt-1">
-            <div className="h-3 w-24 rounded-full bg-card2" />
-            <div className="h-3 rounded-full bg-card2" style={{ width: w + '%' }} />
+    <SkeletonGroup label={label} className="mx-auto w-full max-w-[var(--page-max)]">
+      <div className="flex flex-col gap-5">
+        {[64, 40, 52].map((w, i) => (
+          <div key={i} className="flex gap-3">
+            <Skeleton className="h-[30px] w-[30px] shrink-0" />
+            <div className="flex flex-1 flex-col gap-2 pt-1">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3" style={{ width: w + '%' }} />
+            </div>
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </SkeletonGroup>
   );
 }
 

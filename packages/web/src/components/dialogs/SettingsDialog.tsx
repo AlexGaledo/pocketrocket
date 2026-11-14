@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { BookOpen, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
+import { Bell, BookOpen, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
 // P9
 import { Monitor, Smartphone } from 'lucide-react';
 import { DevicesSection } from '../settings/DevicesSection';
@@ -22,6 +22,8 @@ import { ClaudeSection } from '../settings/ClaudeSection';
 import { BotsSection } from '../settings/BotsSection';
 import { AppearanceSection } from '../settings/AppearanceSection';
 import { AboutSection } from '../settings/AboutSection';
+import { NotificationsSection } from '../settings/NotificationsSection';
+import { canNotify } from '../../lib/notify';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
 import { ProjectsSection } from '../settings/ProjectsSection';
@@ -32,7 +34,9 @@ export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance
   | 'projects'
   // P9
   | 'devices'
-  | 'pc-runner';
+  | 'pc-runner'
+  // U7: desktop app only
+  | 'notifications';
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'account', label: 'Account', icon: UserRound },
@@ -48,6 +52,7 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'devices', label: 'Devices', icon: Smartphone },
   // Desktop only (not in DEVICE_SECTIONS): the hub refuses a phone on /api/pc-runner.
   { id: 'pc-runner', label: 'PC runner', icon: Monitor },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'about', label: 'About', icon: Info },
 ];
@@ -80,7 +85,8 @@ function useHealth() {
 export function SettingsDialog({ section: opening, onClose }: { section?: SectionId; onClose: () => void }) {
   // P9
   const device = useStore((s) => s.device);
-  const sections = device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS;
+  // Notifications exist only in the desktop app, so a browser never sees the section.
+  const sections = (device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS).filter((x) => x.id !== 'notifications' || canNotify());
   const [section, setSection] = useState<SectionId>(opening ?? (device && !DEVICE_SECTIONS.includes(lastSection) ? 'devices' : lastSection));
   const sideNav = useMediaQuery(SIDE_NAV_QUERY);
   const { health, refresh: refreshHealth } = useHealth();
@@ -143,6 +149,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             <TabsPrimitive.Content value="integrations" tabIndex={-1} className={PANEL}><IntegrationsSection /></TabsPrimitive.Content>
             {/* P7 */}
             <TabsPrimitive.Content value="knowledge" tabIndex={-1} className={PANEL}><KnowledgeSection /></TabsPrimitive.Content>
+            {canNotify() && <TabsPrimitive.Content value="notifications" tabIndex={-1} className={PANEL}><NotificationsSection /></TabsPrimitive.Content>}
             <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection readOnly={device} /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
             {/* P9 */}

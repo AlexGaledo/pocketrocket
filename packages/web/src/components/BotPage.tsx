@@ -6,7 +6,7 @@ import type { Bot, ComputerStatus, Skill } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom, type BotTab } from '../store';
 import { api, ApiError } from '../lib/api';
 import { hasComputer } from '../lib/screenView';
-import { Avatar, Badge, Button, Input, Label, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, cn, confirmAction } from './ui';
+import { Avatar, Badge, Button, EmptyState, Input, Label, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, Tooltip, cn, confirmAction } from './ui';
 import { VoicePanel } from './VoicePanel';
 import { TrainingSection } from './TrainingSection';
 import { SkillGitImport } from './SkillGitImport';
@@ -37,7 +37,7 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   return (
     <>
       <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
-        <Button variant="ghost" size="icon" title="Back to chat" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button>
+        <Tooltip content="Back to chat"><Button variant="ghost" size="icon" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button></Tooltip>
         <Avatar bot={bot} {...avatarStatus(statusOf(bot.id))} size={30} />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-body font-semibold" title={bot.name}>{bot.name}</h1>
@@ -280,7 +280,7 @@ function SkillsTab({ botId }: { botId: string }) {
             </div>
           </li>
         ))}
-        {!pool.length && <li className="py-4 text-center text-hint text-dim">No skills yet. Import or create one.</li>}
+        {!pool.length && <li><EmptyState title="No skills yet" className="py-4">Import or create one.</EmptyState></li>}
       </ul>
       {/* P6: opt-in post-run reflection for this bot */}
       <ReflectionSetting botId={botId} />

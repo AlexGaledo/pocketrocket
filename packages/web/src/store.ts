@@ -4,10 +4,11 @@ import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, 
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
-import type { ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
+import type { Skill, ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
+import { notifyEvent } from './lib/notifyEvents';
 import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
 import { getItem, setItem } from './lib/persist';
@@ -17,7 +18,7 @@ import type { SectionId } from './components/dialogs/SettingsDialog';
 
 export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
 /** What the main pane shows over the chat. Null is the chat. */
-export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' };
+export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
@@ -212,6 +213,10 @@ interface State {
   pcRunnerRev: number;
   /** Bumped per bot on `training.changed`, so its Training section refetches. */
   trainingRev: Record<string, number>;
+  // ---- U3 ----
+  /** The skill pool, for the Needs you inbox (skills waiting for review). Null until GET /api/skills answers, or if it refuses. */
+  inboxSkills: Skill[] | null;
+  loadInboxSkills: () => Promise<void>;
 
   setConnected: (v: boolean) => void;
   setHubIssue: (issue: HubIssue | null) => void;
@@ -305,6 +310,7 @@ export const useStore = create<State>((set, get) => ({
   skillsRev: 0,
   pcRunnerRev: 0,
   trainingRev: {},
+  inboxSkills: null,
 
   setConnected: (connected) => {
     const was = get().connected;
@@ -379,6 +385,7 @@ export const useStore = create<State>((set, get) => ({
         // P2: a bot asking for the user's hands is as urgent as an approval card.
         if (m.kind === 'takeover') {
           play('approvalRequest');
+          void notifyEvent({ kind: 'takeover', roomId: m.roomId, botName: botById(s.bots, m.authorId)?.name ?? 'A bot', reason: m.text });
           if (m.roomId !== s.activeRoomId) {
             const bot = botById(s.bots, m.authorId);
             get().toast((bot?.name ?? 'A bot') + ' needs you on its screen', false, {
@@ -413,6 +420,8 @@ export const useStore = create<State>((set, get) => ({
           const lastReceive = recentReceive.get(ev.turnId);
           const doubleCounted = lastReceive !== undefined && Date.now() - lastReceive < 1500;
           if (!doubleCounted) play('done', { roomActive });
+          const last = [...(s.messages[ev.roomId] ?? [])].reverse().find((m) => m.turnId === ev.turnId && m.kind === 'text');
+          void notifyEvent({ kind: 'turn', roomId: ev.roomId, botName: botById(s.bots, ev.botId)?.name ?? 'A bot', lastText: last?.text });
         }
         recentReceive.delete(ev.turnId);
         return;
@@ -423,6 +432,7 @@ export const useStore = create<State>((set, get) => ({
       case 'approval.request': {
         set({ openApprovals: [...s.openApprovals.filter((a) => a.approvalId !== ev.approval.approvalId), { approvalId: ev.approval.approvalId, botId: ev.botId, roomId: ev.roomId }] });
         play('approvalRequest');
+        void notifyEvent({ kind: 'approval', roomId: ev.roomId, botName: botById(s.bots, ev.botId)?.name ?? 'A bot' });
         if (ev.roomId === s.activeRoomId) return;
         // Named and clickable, and it stays: a toast that fades after four seconds is easy to miss while a
         // bot sits blocked in a room the user is not looking at.
@@ -694,6 +704,15 @@ export const useStore = create<State>((set, get) => ({
       applyLocalSettings(get().settings);
       get().toast("Couldn't save that change: " + (e as Error).message, true);
       return false;
+    }
+  },
+
+  loadInboxSkills: async () => {
+    try {
+      set({ inboxSkills: await api.skills.list() });
+    } catch {
+      // A paired phone may not read the pool (403) and an old hub may not have it: the inbox just has no skill rows.
+      set({ inboxSkills: get().inboxSkills ?? [] });
     }
   },
 
