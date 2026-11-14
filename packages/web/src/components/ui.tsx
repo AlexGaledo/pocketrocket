@@ -504,3 +504,44 @@ export function Tooltip({ content, children, side = 'top', delay = 400 }: { cont
     </TooltipPrimitive.Provider>
   );
 }
+
+/** A key cap for shortcut hints: `<Kbd>Esc</Kbd>`, or `<Kbd>Ctrl</Kbd> <Kbd>K</Kbd>` for a chord. Plain `<kbd>`, so screen readers say the text. */
+export function Kbd({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <kbd className={cn('inline-flex min-w-5 items-center justify-center rounded-xs bg-card2 px-1.5 py-px font-mono text-hint text-muted ring-1 ring-line', className)}>{children}</kbd>;
+}
+
+/** Placeholder for a list or pane with nothing in it. `icon` is decorative (hidden from assistive tech); `title` carries the meaning. */
+export function EmptyState({ icon, title, children, action, as: Title = 'div', className }: {
+  icon?: React.ReactNode;
+  title: React.ReactNode;
+  children?: React.ReactNode;
+  action?: React.ReactNode;
+  as?: 'div' | 'h2' | 'h3' | 'h4';
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex flex-col items-center gap-1 px-6 py-10 text-center', className)}>
+      {icon && <div aria-hidden className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-card2 text-muted">{icon}</div>}
+      <Title className="text-ui font-semibold text-fg">{title}</Title>
+      {children && <p className="max-w-[40ch] text-ui text-muted">{children}</p>}
+      {action && <div className="mt-3 flex flex-wrap justify-center gap-2">{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * One loading placeholder shape: size and radius come from `className` (`h-3 w-24`, `h-8 w-8 rounded-full`).
+ * Pulses only when motion is allowed. Hidden from assistive tech; wrap a group in `SkeletonGroup` to announce loading once.
+ */
+export function Skeleton({ className, ...p }: React.ComponentProps<'span'>) {
+  return <span aria-hidden className={cn('block rounded-full bg-card2 motion-safe:animate-pulse', className)} {...p} />;
+}
+/** The accessible shell for a set of Skeletons: a polite status with a visually hidden label. */
+export function SkeletonGroup({ label = 'Loading…', className, children }: { label?: string; className?: string; children: React.ReactNode }) {
+  return (
+    <div role="status" className={className}>
+      <span className="sr-only">{label}</span>
+      <div aria-hidden>{children}</div>
+    </div>
+  );
+}
