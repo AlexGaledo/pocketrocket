@@ -96,6 +96,7 @@ export class Repos {
       this.db.run('DELETE FROM auto_memory WHERE bot_id=?', id);
       this.db.run('DELETE FROM bot_skills WHERE bot_id=?', id);
       this.db.run('DELETE FROM routines WHERE bot_id=?', id);
+      this.db.run('UPDATE tasks SET assignee_bot_id=NULL WHERE assignee_bot_id=?', id);
       this.db.run('UPDATE rooms SET coordinator_bot_id=NULL WHERE coordinator_bot_id=?', id);
     });
   }
@@ -165,6 +166,7 @@ export class Repos {
       this.db.run('DELETE FROM sessions WHERE room_id=?', id);
       this.db.run('DELETE FROM auto_memory WHERE room_id=?', id);
       this.db.run('DELETE FROM routines WHERE room_id=?', id);
+      this.db.run('DELETE FROM tasks WHERE room_id=?', id);
       this.db.run('DELETE FROM approvals WHERE room_id=?', id);
     });
   }

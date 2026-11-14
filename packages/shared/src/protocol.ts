@@ -7,6 +7,7 @@ import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
 import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './models.js';
 import type { RecorderStatus } from './teach.js';
+import type { Task } from './tasks.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -67,7 +68,9 @@ export type ServerEvent =
    * The PC runner's pairing, online state or a job changed. Carries no job content (paired phones get every
    * event); the desktop's Settings > PC runner refetches GET /api/pc-runner and /api/pc-runner/jobs.
    */
-  | { type: 'pc-runner.changed'; jobId?: string };
+  | { type: 'pc-runner.changed'; jobId?: string }
+  /** A task on a room's board was created or changed (REST or a bot tool). Carries the whole task. */
+  | { type: 'task.changed'; roomId: string; task: Task };
 
 /** How often the hub pings each WebSocket client (B6). The client calls the link stale after two missed pings. */
 export const WS_PING_MS = 20_000;

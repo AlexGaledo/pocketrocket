@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { isBotIconKey } from '@pocketrocket/shared';
 import { nanoid } from 'nanoid';
+import { MIGRATION_BACKFILL_ROWS, backfillMessagesFts } from './historyIndex.js';
 
 /**
  * Versioned schema migrations. See the header of `db.ts` for how phases add theirs.
@@ -507,5 +508,52 @@ registerMigrations([180, 189], [
       addColumnIfMissing(db, 'messages', 'client_msg_id', 'TEXT');
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_msg ON messages(room_id, client_msg_id) WHERE client_msg_id IS NOT NULL');
     },
+  },
+]);
+
+// ---------------------------------------------------------------------------------------------------
+// Tasks, history search and bot reports (G1, G2, G5).
+//   200  tasks: a room's board. Local only.
+//   201  messages_fts: full-text index over messages.text, kept in sync by triggers. Rows that existed before are
+//        indexed in bounded batches: the first here, the rest by startHistoryBackfill after the hub is up.
+//   202  bot_reports: report_blocked items and the send_feedback rate-limit log (feedback text lives in a file).
+registerMigrations([200, 209], [
+  {
+    version: 200,
+    name: 'tasks',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS tasks (' +
+          "id TEXT PRIMARY KEY, room_id TEXT NOT NULL, bot_id TEXT, assignee_bot_id TEXT, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', " +
+          "status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','doing','done','blocked')), " +
+          'due_at INTEGER, parent_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);' +
+          'CREATE INDEX IF NOT EXISTS idx_tasks_room ON tasks(room_id, status, updated_at)',
+      ),
+  },
+  {
+    version: 201,
+    name: 'messages_fts + triggers + bounded backfill',
+    up: (db) => {
+      db.exec(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, tokenize='porter unicode61');" +
+          'CREATE TABLE IF NOT EXISTS fts_backfill (name TEXT PRIMARY KEY, next_rowid INTEGER NOT NULL, upto INTEGER NOT NULL);' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END;' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; END;' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF text ON messages BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END',
+      );
+      db.exec("INSERT OR IGNORE INTO fts_backfill (name, next_rowid, upto) SELECT 'messages', 0, COALESCE(MAX(rowid), 0) FROM messages");
+      backfillMessagesFts(db, MIGRATION_BACKFILL_ROWS, true);
+    },
+  },
+  {
+    version: 202,
+    name: 'bot_reports',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS bot_reports (' +
+          "id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, room_id TEXT, type TEXT NOT NULL CHECK(type IN ('blocked','feedback')), " +
+          "kind TEXT, site TEXT, reason TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved','dismissed')), created_at INTEGER NOT NULL);" +
+          'CREATE INDEX IF NOT EXISTS idx_bot_reports_bot ON bot_reports(bot_id, type, created_at)',
+      ),
   },
 ]);
