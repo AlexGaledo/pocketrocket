@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Needs you inbox and desktop notifications
+
+- A **Needs you** entry at the top of the sidebar opens one list of everything waiting on you across all bots and rooms: approvals, requests to take over a bot's screen, and skills or skill changes waiting for review. Each row shows the bot, what is waiting and for how long; a plain approval can be allowed or denied right there, and Open jumps to the room. The count shows on the sidebar entry and in the window title.
+- In the desktop app, a notification appears when a bot needs your approval, needs you on its screen, or finishes, but only while the window is in the background. The text is generic ("A bot needs you") unless you turn on **Settings > Notifications > Include message text**. The section is only listed in the desktop app. Phones keep using Web Push.
+- Loading placeholders in the chat and sidebar, a few empty lists, and the icon buttons in the fleet pages, bot page, screen panel and triggers now use the shared Skeleton, EmptyState and Tooltip components (the same look, with hover and keyboard-focus labels on the buttons).
+
 ### Clearer refusals for bots
 
 - Every refusal a bot reads (declined card, timeout, read-only mode, a rule you set, an unavailable tool) now says what happened, tells it not to retry, and says what to do instead, so bots stop looping on a "no". The hub tool lists the permission gate uses now come from one shared registry, with a test that fails if a new tool is left out. Wording only; no approval behaviour changed.
