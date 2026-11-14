@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Clearer refusals for bots
+
+- Every refusal a bot reads (declined card, timeout, read-only mode, a rule you set, an unavailable tool) now says what happened, tells it not to retry, and says what to do instead, so bots stop looping on a "no". The hub tool lists the permission gate uses now come from one shared registry, with a test that fails if a new tool is left out. Wording only; no approval behaviour changed.
+
 ### Cheaper default models
 
 - A bot that creates another bot no longer hands it its own model: without an explicit pick the new bot gets Sonnet 5, so an Opus lead no longer fills a room with Opus workers. The create/update bot tools tell bots to use Sonnet for workers, Haiku for simple or routine bots, and Opus only when you ask or a lead truly needs it.
