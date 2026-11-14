@@ -41,5 +41,5 @@ export function notifyEvent(ev: NotifyEvent): Promise<boolean> {
     : ev.kind === 'takeover' ? ev.botName + ' needs you on its screen'
     : ev.botName + ' finished';
   const body = ev.kind === 'takeover' ? ev.reason : ev.kind === 'turn' ? ev.lastText : undefined;
-  return notify({ title, body: body ? clip(body) : title, roomId: ev.roomId, detail });
+  return notify({ title, body: body ? clip(body) : title, roomId: ev.roomId, kind: ev.kind, detail });
 }

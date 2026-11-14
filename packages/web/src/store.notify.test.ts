@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bot, Message, ServerEvent } from '@pocketrocket/shared';
 
 function memoryStorage(): Storage {
@@ -36,6 +36,14 @@ const approvalReq: ServerEvent = {
 const msg = (over: Partial<Message>): Message =>
   ({ id: 'x', roomId: 'r3', seq: 1, authorType: 'bot', authorId: 'b1', kind: 'text', text: '', payload: null, causeId: null, hop: 0, turnId: null, createdAt: 1, ...over });
 
+// The first dynamic import of the store is cold and can outlast the default 5s: warm it once, and allow more time.
+beforeAll(async () => {
+  vi.stubGlobal('window', { innerWidth: 1280, matchMedia: () => ({ matches: false }), addEventListener: () => undefined, removeEventListener: () => undefined });
+  vi.stubGlobal('localStorage', memoryStorage());
+  vi.stubGlobal('sessionStorage', memoryStorage());
+  await import('./store');
+  vi.unstubAllGlobals();
+}, 60_000);
 beforeEach(() => {
   focused = false;
   vi.stubGlobal('localStorage', memoryStorage());
@@ -95,6 +103,14 @@ describe('desktop notifications from hub events', () => {
     store.getState().applyEvent({ type: 'turn.end', turnId: 't3', roomId: 'r5', botId: 'b1' });
     await flush();
     expect(notified()).toHaveLength(1);
+  });
+
+  it('does not let a finished turn hide an approval in the same room', async () => {
+    const store = await boot();
+    store.getState().applyEvent({ type: 'turn.end', turnId: 't1', roomId: 'r2', botId: 'b1' });
+    store.getState().applyEvent(approvalReq);
+    await flush();
+    expect(notified()).toHaveLength(2);
   });
 
   it('notifies for a takeover request', async () => {

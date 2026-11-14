@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { FormAnswer, FormPayload, Message } from '@pocketrocket/shared';
 import { cleanText, displayCta, validateAnswers, MAX_FORM_DESCRIPTION, MAX_FORM_TITLE } from '@pocketrocket/shared';
@@ -29,6 +29,10 @@ export function FormCard({ m }: { m: Message }) {
   const [values, setValues] = useState<Record<string, FormAnswer>>({});
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const formSent = useStore((s) => s.formSent);
+  const refused = useStore((s) => s.formErrors[m.id]);
+  // The hub refused what was sent: open the card again and show why, where the button was.
+  useEffect(() => { if (refused) setSent(false); }, [refused]);
   const set = (id: string, v: FormAnswer) => { setValues((x) => ({ ...x, [id]: v })); setError(null); };
 
   const submit = (e: React.FormEvent) => {
@@ -36,9 +40,10 @@ export function FormCard({ m }: { m: Message }) {
     const v = validateAnswers(fields, values);
     if (!v.ok) return setError(v.error);
     if (!wsSend({ type: 'form.submit', formId: m.id, answers: v.value })) return setError('Not connected. Try again in a moment.');
+    formSent(m.id);
     setSent(true);
   };
-  const cancel = () => { if (wsSend({ type: 'form.cancel', formId: m.id })) setSent(true); };
+  const cancel = () => { if (wsSend({ type: 'form.cancel', formId: m.id })) { formSent(m.id); setSent(true); } };
 
   const status = STATUS_LABEL[p.status];
   return (
@@ -73,7 +78,7 @@ export function FormCard({ m }: { m: Message }) {
             </Field>
           ))}
           <p className="text-hint text-dim">Do not type passwords, keys or codes here. Forms are for plain answers.</p>
-          {error && <p role="alert" className="text-ui text-bad">{error}</p>}
+          {(error ?? refused?.message) && <p role="alert" className="text-ui text-bad">{error ?? refused?.message}</p>}
           <div className="flex flex-wrap gap-2">
             <Button type="submit" variant="primary" className="touch-target" disabled={sent}>Send answers</Button>
             <Button type="button" className="touch-target" disabled={sent} onClick={cancel}>Cancel</Button>

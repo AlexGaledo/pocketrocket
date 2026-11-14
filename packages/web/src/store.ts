@@ -46,6 +46,8 @@ const recentReceive = new Map<string, number>();
 const olderRetryAt = new Map<string, number>();
 /** Approvals this page answered, so a WS `error` about one (context = approval id) lands on its card. */
 const decided = new Set<string>();
+/** Forms whose answer or cancel is in flight; a hub error naming one of them is routed to its card. */
+const formsSent = new Set<string>();
 
 /** True when a response body is a full AccountState rather than a bare `{ ok }`. */
 function isAccountState(v: unknown): v is AccountState {
@@ -193,6 +195,10 @@ interface State {
   signedIn: boolean;
   /** The hub's refusal of an answer, by approval id ("Only a browser signed in…"), shown on that card. */
   approvalErrors: Record<string, string>;
+  /** Why the hub refused a form's answers (by form id); `at` makes a repeat refusal a new value. */
+  formErrors: Record<string, { message: string; at: number }>;
+  /** Marks a form answer/cancel as sent, so a refusal reaches its card. Clears any earlier refusal. */
+  formSent: (formId: string) => void;
   _playedConnectedSound: boolean;
   // ---- P7 ----
   /** Latest knowledge repo status from the `knowledge.status` event; null until one arrives. */
@@ -303,6 +309,12 @@ export const useStore = create<State>((set, get) => ({
   device: isDevice(),
   signedIn: false,
   approvalErrors: {},
+  formErrors: {},
+  formSent: (formId) => {
+    formsSent.add(formId);
+    const { [formId]: _c, ...formErrors } = get().formErrors;
+    set({ formErrors });
+  },
   _playedConnectedSound: false,
   knowledge: null,
   voiceRev: {},
@@ -319,7 +331,11 @@ export const useStore = create<State>((set, get) => ({
     const was = get().connected;
     if (connected) set({ connected, hasConnected: true, disconnectedAt: null, hubIssue: null });
     else if (was) set({ connected, disconnectedAt: Date.now() });
-    // Everything the user wrote while the link was down goes out now, before anything newer.
+    // Everything the user wrote while the link was down goes out now, before anything newer. A fresh link also
+    // resends what was written to the old one without an echo (once; the hub drops the repeat by clientMsgId).
+    if (connected && !was) {
+      for (const e of get().outbox) if (e.status === 'sent') { clearAck(e.clientId); patchOutbox(e.clientId, 'sending', 'sent'); }
+    }
     if (connected) get().flushOutbox();
     if (connected && !was && isDesktopMode() && !get()._playedConnectedSound) {
       set({ _playedConnectedSound: true });
@@ -332,7 +348,7 @@ export const useStore = create<State>((set, get) => ({
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
-        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, openApprovals: ev.openApprovals ?? [] });
+        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, formErrors: {}, openApprovals: ev.openApprovals ?? [] });
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
@@ -471,6 +487,12 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'error':
         // A refused answer belongs on its card, next to the button that was refused, not in a passing toast.
+        // Same for a refused form answer: the card re-enables its buttons and shows the hub's reason.
+        if (ev.context && formsSent.has(ev.context)) {
+          formsSent.delete(ev.context);
+          set({ formErrors: { ...s.formErrors, [ev.context]: { message: ev.message, at: Date.now() } } });
+          return;
+        }
         if (ev.context && decided.has(ev.context)) {
           decided.delete(ev.context);
           set({ approvalErrors: { ...s.approvalErrors, [ev.context]: ev.message } });
@@ -603,7 +625,7 @@ export const useStore = create<State>((set, get) => ({
   },
   flushOutbox: () => {
     for (const e of get().outbox) {
-      if (e.status !== 'sending' && e.status !== 'sent') continue;
+      if (e.status !== 'sending') continue;
       if (!wsSend({ type: 'message.send', roomId: e.roomId, text: e.text, clientMsgId: e.clientId, ...(e.attachments ? { attachments: e.attachments } : {}) })) return;
       patchOutbox(e.clientId, 'sent');
       // No echo: if the link is still up the hub is not taking it, otherwise it waits for the reconnect.
