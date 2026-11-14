@@ -25,6 +25,8 @@ import { desktopTools, SHARED_BROWSER_NOTE, SHARED_TAB_NOTE, viewScreenTool } fr
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
+import { credentialTools } from './credentialTools.js';
+import type { CredentialStore } from '../services/CredentialStore.js';
 import type { ProjectService } from '../services/ProjectService.js';
 import { folderAccessDenied } from '../permissions/projectGuard.js';
 import type { RoomFiles } from '../rooms/roomFiles.js';
@@ -130,6 +132,8 @@ export class BotRunner {
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
   pcRunner?: PcRunner;
+  /** G4: saved logins for `fill_credential`. Set by createHub; absent in most unit tests. */
+  credentials?: CredentialStore;
   /** The one-shot Haiku call that writes the running room summary when a session rotates. Tests replace it. */
   summarize: (prompt: string, systemPrompt: string) => Promise<PassOutcome> = runPass;
 
@@ -346,6 +350,14 @@ export class BotRunner {
       tools.push(takeoverTool({
         bot, room, turnId, hop: req.hop, causeId: req.causeId, runId: req.runId, repos: this.repos, control: this.control,
         signal: ac.signal, setState: (s) => setState(s), park, useComputer,
+      }));
+    }
+
+    // G4: typing a saved login into this bot's browser. Only where there is a browser, and only with a card each time.
+    if (browserOn && computer && this.credentials) {
+      tools.push(...credentialTools({
+        store: this.credentials, db: this.repos.db, bot, roomId: room.id, cdpUrl: computer.cdpUrl,
+        confirm: (a) => this.broker.askCredentialFill(permCtx, a, ac.signal),
       }));
     }
 

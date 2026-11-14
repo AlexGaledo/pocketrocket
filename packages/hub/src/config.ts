@@ -352,6 +352,8 @@ export function setRoomRootsResolver(fn: (botId: string, roomId: string) => stri
 // which deploy/backup.sh leaves out of every archive so a leaked backup holds no usable token.
 export const VAULT_KEY_PATH = path.join(DATA_DIR, 'vault.key');
 export const INTEGRATIONS_PATH = path.join(DATA_DIR, 'integrations.json');
+// G4: saved logins for fill_credential. Secrets live encrypted in credentials.json under the same vault.key.
+export const CREDENTIALS_PATH = path.join(DATA_DIR, 'credentials.json');
 
 // ---------------------------------------------------------------------------------------------------
 // P9: phone, devices, push.

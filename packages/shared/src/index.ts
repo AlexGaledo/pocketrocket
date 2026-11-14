@@ -22,3 +22,5 @@ export * from './machines.js';
 export * from './tools.js';
 // Tasks
 export * from './tasks.js';
+// Credential vault (G4)
+export * from './credentials.js';

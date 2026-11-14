@@ -471,6 +471,31 @@ export class PermissionBroker {
   }
 
   /**
+   * G4: the card for typing a saved login into a page. Asks on every call, under bypass too, for a strict turn too;
+   * no allow rule and no "always" covers it (a deny rule still refuses), and only a browser signed in with the
+   * owner's password may allow it (SIGN_IN_TOOLS). The input shown is the login's name, site and field: never the secret.
+   */
+  async askCredentialFill(
+    ctx: PermCtx,
+    input: { credential: string; site: string; field: string; page: string },
+    signal: AbortSignal,
+  ): Promise<{ allowed: boolean; message: string }> {
+    if (this.opts.globalReadOnly?.()) return { allowed: false, message: denyMessage('readonly', { subject: 'signing in to a site', alt: 'say so in the room' }) };
+    if (this.matchPolicy(ctx.bot.id, 'fill_credential', '*') === 'deny') {
+      return { allowed: false, message: denyMessage('declined', { subject: 'this sign-in', note: 'an approval rule the user set denies it', alt: 'say so in the room' }) };
+    }
+    const reason = 'Type the saved ' + input.field + ' for "' + input.credential + '" into ' + input.page + '. The bot never sees it. Only a browser signed in with your password can approve this.';
+    const { decision } = await this.prompt(ctx, 'fill_credential', input, reason, true, { signal, once: true });
+    if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
+    return {
+      allowed: false,
+      message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
+        ? denyMessage('timeout', { note: 'nothing was filled in', alt: 'say so in the room' })
+        : denyMessage('declined', { subject: 'this sign-in', note: 'nothing was filled in', alt: 'say so in the room, or ask the user to sign in on the screen themselves' }),
+    };
+  }
+
+  /**
    * A line a bot proposes for the owner's routing rules. Asks on every call, under bypass too, and no rule can
    * pre-approve it: redirected work runs under another bot's logins, so injected text must not get in unseen.
    */
