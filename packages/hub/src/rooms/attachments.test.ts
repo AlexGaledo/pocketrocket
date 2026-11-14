@@ -151,13 +151,14 @@ describe('attachments stay stored', () => {
 });
 
 describe('model input', () => {
-  it('saves pictures under the bot folder by hash and names them in the input note', () => {
+  const BOT = 'bot-1';
+  it('saves pictures under the hub-owned folder by hash and names them in the input note', () => {
     const { media } = setup();
-    const home = tmp();
+    const root = tmp();
     const ref = media.put(PNG);
-    const images = materializeImages(media, home, [ref, 'img:' + 'c'.repeat(64), '../x']);
+    const images = materializeImages(media, root, BOT, [ref, 'img:' + 'c'.repeat(64), '../x']);
     expect(images).toHaveLength(1);
-    expect(images[0].path).toBe(path.join(fs.realpathSync(home), 'attachments', ref.slice(4) + '.png'));
+    expect(images[0].path).toBe(path.join(fs.realpathSync(root), BOT, ref.slice(4) + '.png'));
     expect(fs.readFileSync(images[0].path)).toEqual(PNG);
     expect(images[0].mediaType).toBe('image/png');
     const note = imageNote(images);
@@ -167,38 +168,60 @@ describe('model input', () => {
     expect(imageNote([])).toBe('');
   });
 
-  it('refuses an attachments folder that is a link, and writes nothing through it', () => {
+  it('refuses a bot id that is not a plain id', () => {
     const { media } = setup();
-    const home = tmp();
+    expect(materializeImages(media, tmp(), '../escape', [media.put(PNG)])).toEqual([]);
+  });
+
+  it('refuses a folder that is a link, and writes nothing through it', () => {
+    const { media } = setup();
+    const root = tmp();
     const target = tmp();
-    fs.symlinkSync(target, path.join(home, 'attachments'), 'junction');
-    expect(materializeImages(media, home, [media.put(PNG)])).toEqual([]);
+    fs.symlinkSync(target, path.join(root, BOT), 'junction');
+    expect(materializeImages(media, root, BOT, [media.put(PNG)])).toEqual([]);
     expect(fs.readdirSync(target)).toEqual([]);
   });
 
-  it('refuses a link planted at the file name, and one of the wrong size', () => {
+  it('checks the folder again before every file: a swap after the first write stops the second', () => {
     const { media } = setup();
-    const home = tmp();
+    const root = tmp();
+    const target = tmp();
+    const a = media.put(PNG);
+    const b = media.put(JPEG);
+    const dir = path.join(root, BOT);
+    const images = materializeImages(media, root, BOT, [a, b], (n) => {
+      if (n !== 0) return;
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.symlinkSync(target, dir, 'junction');
+    });
+    expect(images).toHaveLength(1);
+    expect(images[0].mediaType).toBe('image/png');
+    expect(fs.readdirSync(target)).toEqual([]);
+  });
+
+  it('refuses a link planted at the file name, and a plain file of the wrong size', () => {
+    const { media } = setup();
+    const root = tmp();
     const outside = path.join(tmp(), 'victim.txt');
     fs.writeFileSync(outside, 'keep');
     const ref = media.put(PNG);
-    fs.mkdirSync(path.join(home, 'attachments'));
-    const name = path.join(home, 'attachments', ref.slice(4) + '.png');
+    fs.mkdirSync(path.join(root, BOT));
+    const name = path.join(root, BOT, ref.slice(4) + '.png');
     try { fs.symlinkSync(outside, name, 'file'); } catch { fs.writeFileSync(name, 'x'); }
-    expect(materializeImages(media, home, [ref])).toEqual([]);
+    expect(materializeImages(media, root, BOT, [ref])).toEqual([]);
     expect(fs.readFileSync(outside, 'utf8')).toBe('keep');
   });
 
   it('reuses a file it already saved', () => {
     const { media } = setup();
-    const home = tmp();
+    const root = tmp();
     const ref = media.put(PNG);
-    expect(materializeImages(media, home, [ref])).toHaveLength(1);
-    expect(materializeImages(media, home, [ref])).toHaveLength(1);
+    expect(materializeImages(media, root, BOT, [ref])).toHaveLength(1);
+    expect(materializeImages(media, root, BOT, [ref])).toHaveLength(1);
   });
 
   it('does nothing without a store or refs', () => {
-    expect(materializeImages(undefined, tmp(), ['img:' + 'a'.repeat(64)])).toEqual([]);
-    expect(materializeImages(new MediaStore(tmp()), tmp(), undefined)).toEqual([]);
+    expect(materializeImages(undefined, tmp(), BOT, ['img:' + 'a'.repeat(64)])).toEqual([]);
+    expect(materializeImages(new MediaStore(tmp()), tmp(), BOT, undefined)).toEqual([]);
   });
 });

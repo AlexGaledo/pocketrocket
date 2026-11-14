@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
-import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
+import path from 'node:path';
+import { ATTACHMENTS_DIR, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
 import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -388,7 +389,7 @@ export class BotRunner {
     const outsideMcp = vpsMountable(outsideMcpFor(bot.handle, room), keyRegistry);
     // Bearer tokens and stdio env values (the owner's API keys): scrubbed from tool output, chat and logs.
     registerOutsideMcpSecrets(outsideMcp);
-    const images = materializeImages(this.media, botHome(bot.id), req.images);
+    const images = materializeImages(this.media, ATTACHMENTS_DIR, bot.id, req.images);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -443,7 +444,7 @@ export class BotRunner {
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
-      readOnlyDirs: bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : undefined,
+      readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length ? [path.dirname(images[0].path)] : [])],
       projectDirs: folderDir ? [folderDir] : [],
       shipGuard: this.repos.botSkillIds(bot.id).some((id) => this.repos.getSkill(id)?.name === SHIP_GUARD_SKILL) ? defaultBranchPushDenied : undefined,
       projectGuard: this.projects || this.roomFiles
