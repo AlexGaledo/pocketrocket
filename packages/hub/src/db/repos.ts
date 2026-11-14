@@ -194,11 +194,14 @@ export class Repos {
       const seq =
         this.db.get<{ s: number }>('SELECT COALESCE(MAX(seq),0)+1 AS s FROM messages WHERE room_id=?', m.roomId)?.s ?? 1;
       const msg: Message = { ...m, id: m.id ?? nanoid(12), seq, createdAt: now() };
+      // The id column only exists from migration 180, so a message without one is written as it always was.
+      const withId = msg.clientMsgId ? ',client_msg_id' : '';
       this.db.run(
-        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments,client_msg_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments' + withId + ') VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?' + (withId ? ',?' : '') + ')',
         msg.id, msg.roomId, msg.seq, msg.authorType, msg.authorId, msg.kind, msg.text,
         msg.payload ? JSON.stringify(msg.payload) : null, msg.causeId, msg.hop, msg.turnId, msg.createdAt,
-        msg.model ?? null, msg.modelReason ?? null, msg.attachments?.length ? JSON.stringify(msg.attachments) : null, msg.clientMsgId ?? null,
+        msg.model ?? null, msg.modelReason ?? null, msg.attachments?.length ? JSON.stringify(msg.attachments) : null,
+        ...(msg.clientMsgId ? [msg.clientMsgId] : []),
       );
       return msg;
     });
