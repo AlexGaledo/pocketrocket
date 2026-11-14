@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare, Inbox } from 'lucide-react';
+import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare, Inbox, Upload, ListChecks } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
 import { Avatar, Badge, Menu, MenuContent, MenuItem, Skeleton, SkeletonGroup, Tooltip, cn } from './ui';
 import { useInbox } from '../lib/useInbox';
 import { Podium } from './Podium';
+import { ImportBotDialog } from './dialogs/BotFileDialogs';
 import { ProfileMenu } from './ProfileMenu';
 import { api } from '../lib/api';
 import { getJson, setJson } from '../lib/persist';
@@ -91,6 +92,8 @@ export function Sidebar() {
   const { statusOf, needsYouRoom } = useBotStatus();
   const waiting = useInbox().length;
   const inboxOpen = useStore((s) => s.page?.kind === 'inbox');
+  const tasksOpen = useStore((s) => s.page?.kind === 'tasks');
+  const [importing, setImporting] = useState(false);
   const connected = useStore((s) => s.connected);
   const helloReceived = useStore((s) => s.helloReceived);
   // P9: a paired phone may not create or edit bots and rooms, change settings or open the workspace (403).
@@ -178,6 +181,7 @@ export function Sidebar() {
                 <MenuContent align="end">
                   <MenuItem onSelect={() => openDialog({ kind: 'bot', bot: null })}><UserPlus size={15} aria-hidden /> New bot</MenuItem>
                   <MenuItem onSelect={() => openDialog({ kind: 'room', room: null })}><MessagesSquare size={15} aria-hidden /> New group chat</MenuItem>
+                  <MenuItem onSelect={() => setImporting(true)}><Upload size={15} aria-hidden /> Import a bot...</MenuItem>
                 </MenuContent>
               </Menu.Portal>
             </Menu.Root>
@@ -193,6 +197,16 @@ export function Sidebar() {
         <span className="flex-1">Needs you</span>
         {waiting > 0 && <Badge tone="warn">{waiting}<span className="sr-only"> waiting</span></Badge>}
       </button>
+      {!device && (
+        <button
+          className={cn('mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', tasksOpen ? 'bg-active text-fg' : 'text-muted hover:text-fg')}
+          aria-current={tasksOpen ? 'page' : undefined}
+          onClick={() => { useStore.getState().openPage({ kind: 'tasks' }); leaveDrawer(); }}
+        >
+          <ListChecks size={15} aria-hidden className="shrink-0" />
+          <span className="flex-1">Tasks</span>
+        </button>
+      )}
       {status.label && (
         <button
           className={cn('mx-3 mb-1 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 self-start rounded-full bg-card2 px-2.5 py-1 text-hint hover:text-fg', status.label && connected ? 'text-warn' : 'text-muted')}
@@ -285,6 +299,7 @@ export function Sidebar() {
         <div className="min-w-0 flex-1"><ProfileMenu onNavigate={leaveDrawer} /></div>
         <Tooltip content="Pair a phone"><button className={ROUND} aria-label="Pair a phone" onClick={() => openDialog({ kind: 'settings', section: 'devices' })}><QrCode size={16} /></button></Tooltip>
       </div>
+      {importing && <ImportBotDialog onClose={() => setImporting(false)} />}
     </aside>
   );
 }

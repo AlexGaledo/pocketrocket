@@ -29,6 +29,7 @@ import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import { TaskError, TaskService } from '../services/TaskService.js';
 import { BotReports } from '../services/BotReports.js';
+import { TransferError, exportBot, importBot } from '../services/botTransfer.js';
 import { MAX_MEMORY_BYTES, type MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
@@ -291,6 +292,20 @@ export function createRest(deps: RestDeps) {
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return { ok: true };
+  });
+  // U10: bot files. Export reads one bot and never secrets; import always makes a NEW bot (see services/botTransfer.ts).
+  const transfer = <T>(fn: () => T): T => {
+    try { return fn(); } catch (e) { if (e instanceof TransferError) throw new HttpError(e.status, e.message); throw e; }
+  };
+  add('GET', '/api/bots/:id/export', ({ params, query }) => {
+    const bot = need(repos.getBot(params.id), 'Bot');
+    return transfer(() => exportBot({ repos, memory, skills }, bot, { includeMemory: query.get('memory') === '1' }));
+  });
+  add('POST', '/api/bots/import', ({ body, query }) => {
+    const out = transfer(() => importBot({ repos, memory, skills }, body, { includeMemory: query.get('memory') === '1' }));
+    events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
+    if (out.skills.length) events.emitEvent({ type: 'skills.changed' });
+    return out;
   });
   // The Memory tab shows how full memory.md is and when auto-memory last wrote to it.
   add('GET', '/api/bots/:id/memory', ({ params }) => {

@@ -18,7 +18,7 @@ import type { SectionId } from './components/dialogs/SettingsDialog';
 
 export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
 /** What the main pane shows over the chat. Null is the chat. */
-export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' };
+export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
@@ -213,6 +213,8 @@ interface State {
   pcRunnerRev: number;
   /** Bumped per bot on `training.changed`, so its Training section refetches. */
   trainingRev: Record<string, number>;
+  /** Bumped per room on WS `task.changed`; an open Tasks board refetches when its room's number moves. */
+  tasksRev: Record<string, number>;
   // ---- U3 ----
   /** The skill pool, for the Needs you inbox (skills waiting for review). Null until GET /api/skills answers, or if it refuses. */
   inboxSkills: Skill[] | null;
@@ -310,6 +312,7 @@ export const useStore = create<State>((set, get) => ({
   skillsRev: 0,
   pcRunnerRev: 0,
   trainingRev: {},
+  tasksRev: {},
   inboxSkills: null,
 
   setConnected: (connected) => {
@@ -521,6 +524,9 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'training.changed':
         set({ trainingRev: { ...s.trainingRev, [ev.botId]: (s.trainingRev[ev.botId] ?? 0) + 1 } });
+        return;
+      case 'task.changed':
+        set({ tasksRev: { ...s.tasksRev, [ev.roomId]: (s.tasksRev[ev.roomId] ?? 0) + 1 } });
         return;
       default:
         return;

@@ -22,3 +22,5 @@ export * from './machines.js';
 export * from './tools.js';
 // Tasks
 export * from './tasks.js';
+// Bot export / import files
+export * from './botExport.js';

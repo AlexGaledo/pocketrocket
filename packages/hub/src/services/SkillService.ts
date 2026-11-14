@@ -104,6 +104,28 @@ export class SkillService {
   }
 
   /**
+   * U10: a skill that arrived inside a bot file. It lands as `imported` + **pending**, so nothing in it reaches a bot
+   * until the owner approves it. A name already in the pool is never overwritten: the newcomer gets `-2`, `-3`...
+   * Only `name` and `description` survive from the file's own frontmatter; any other key (tool allowances, a model,
+   * hooks) is dropped, because a shared file must not widen what a skill may do.
+   */
+  importPending(name: string, description: string, markdown: string): { skill: Skill; renamed: boolean } {
+    let final = name;
+    for (let n = 2; this.repos.getSkillByName(final) || fs.existsSync(path.join(SKILLS_DIR, final)); n++) {
+      if (n > 999) throw new Error('Could not find a free skill name for ' + name);
+      const suffix = '-' + n;
+      final = name.slice(0, 49 - suffix.length) + suffix;
+    }
+    const dir = resolveSkillDir(final);
+    const body = markdown.replace(/^﻿/, '').replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trimStart();
+    const desc = description.replace(/[\r\n]+/g, ' ').slice(0, 300);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: ' + final + '\ndescription: ' + desc + '\n---\n\n' + body);
+    const skill = this.repos.upsertSkill({ name: final, description: desc, path: dir, source: 'imported', reviewStatus: 'pending', createdByBot: null });
+    return { skill, renamed: final !== name };
+  }
+
+  /**
    * P7 (7.4): import skills from a git repo (a local "marketplace"). A URL is shallow-cloned into a temp
    * folder that is always removed afterwards; an absolute local folder is scanned in place. Every valid skill
    * is copied into the pool as `imported` + **pending**: nothing from a repo reaches a bot until the user

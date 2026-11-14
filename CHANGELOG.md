@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Share a bot, and screens for tasks, tools and reports
+
+- You can save a bot as a file (Bot settings > Export) and make a new bot from one (the + menu > Import a bot). The file holds the bot's name, role, picture and skills, and its memory notes only if you switch that on. It never holds logins, keys, tokens, approval rules, tool permissions, budgets or file paths, and anything in the text that looks like a key or a path on your computer is taken out before the file is made. Importing always creates a new bot, never changes one you have, gives a taken handle a number (`@ada-2`), and shows you what is inside first. Skills that arrive wait for your approval on the Skills tab. Files over 1 MB, or with fields the app does not know, are refused.
+- A Tasks page (in the sidebar) shows each chat's to-do list in four columns, updating live as bots add and move tasks.
+- Settings has a Tools page for outside tool servers: add, check, change approval and remove them. Tokens and secrets can be saved or replaced but are never shown again.
+- Settings has a Reports page listing when bots said a site stopped them, with Resolve and Dismiss.
+
 ### Tasks, history search and bot reports
 
 - Each room has a local task board: bots get `create_task`, `update_task` and `list_tasks`, and there is a REST API under `/api/rooms/:id/tasks` (200 open tasks per room, 200-character titles, 4 KB notes). A task is only a note: it never grants an approval or changes a setting.
