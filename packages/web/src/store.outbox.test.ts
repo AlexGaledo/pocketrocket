@@ -209,3 +209,47 @@ describe('liveness', () => {
     expect(useStore.getState().hasConnected).toBe(false);
   });
 });
+
+describe('send journal with attachments (U2a)', () => {
+  const ref = (c: string) => 'img:' + c.repeat(64);
+
+  it('journals the refs, sends them with the text, and a retry sends the same refs once', async () => {
+    const { useStore, connectWs } = await boot();
+    useStore.setState({ activeRoomId: 'r1' });
+    connectWs();
+    const a = FakeSocket.instances[0];
+    a.open();
+    useStore.getState().sendMessage('look', [ref('a'), ref('b')]);
+    const first = a.sent.splice(0)[0] as Send;
+    expect(first.attachments).toEqual([ref('a'), ref('b')]);
+    expect(JSON.parse(localStorage.getItem('pocketrocket.outbox.v1')!)[0].attachments).toEqual([ref('a'), ref('b')]);
+
+    // the hub refuses it (an unknown ref): the entry fails, Retry resends the same refs under the same id
+    a.fromHub({ type: 'error', message: 'A picture is missing or not allowed. Attach it again.', context: first.clientMsgId });
+    expect(useStore.getState().outbox[0].status).toBe('failed');
+    useStore.getState().retrySend(first.clientMsgId!);
+    const again = a.sent.splice(0)[0] as Send;
+    expect(again.clientMsgId).toBe(first.clientMsgId);
+    expect(again.attachments).toEqual([ref('a'), ref('b')]);
+  });
+
+  it('allows a message that is only pictures, and still refuses an empty one', async () => {
+    const { useStore } = await boot();
+    useStore.setState({ activeRoomId: 'r1' });
+    useStore.getState().sendMessage('', []);
+    useStore.getState().sendMessage('   ');
+    expect(useStore.getState().outbox).toEqual([]);
+    useStore.getState().sendMessage('', [ref('c')]);
+    expect(useStore.getState().outbox.map((e) => [e.text, e.attachments])).toEqual([['', [ref('c')]]]);
+  });
+
+  it('reads a picture-only entry back after a reload, and drops one with a bad ref', async () => {
+    localStorage.setItem('pocketrocket.outbox.v1', JSON.stringify([
+      { clientId: 'ok', roomId: 'r1', text: '', status: 'sent', createdAt: 1, attachments: [ref('d')] },
+      { clientId: 'bad', roomId: 'r1', text: '', status: 'sending', createdAt: 2, attachments: ['../../x'] },
+      { clientId: 'empty', roomId: 'r1', text: '', status: 'sending', createdAt: 3 },
+    ]));
+    const { useStore } = await boot();
+    expect(useStore.getState().outbox.map((e) => [e.clientId, e.status])).toEqual([['ok', 'sending']]);
+  });
+});
