@@ -63,7 +63,8 @@ export function credentialTools(d: CredentialToolDeps): HubTool[] {
       }
       const field = a.field ?? 'password';
       const secret = d.store.readSecret(cred.id);
-      if (!secret) return err(denyMessage('unavailable', { subject: '"' + cred.name + '"', note: 'its secret is missing; the owner needs to enter it again in Settings', alt: 'say so in the room' }));
+      if (field === 'username' && !cred.username) return err(denyMessage('unavailable', { subject: 'filling "' + cred.name + '"', note: 'no username is saved for it', alt: 'ask the owner to add one in Settings, Credentials, or say so in the room' }));
+      if (field === 'password' && !secret) return err(denyMessage('unavailable', { subject: '"' + cred.name + '"', note: 'its secret is missing; the owner needs to enter it again in Settings', alt: 'say so in the room' }));
       if (!d.confirm) return err(denyMessage('unavailable', { subject: 'filling "' + cred.name + '"', note: 'the owner\'s approval is needed and none can be asked for here', alt: 'say so in the room' }));
 
       // Look before asking: a wrong page is refused without bothering the owner. The probe carries no secret.
@@ -73,7 +74,8 @@ export function credentialTools(d: CredentialToolDeps): HubTool[] {
       if (!r.allowed) return err(r.message);
 
       // After the approval, against the page as it is now (it may have redirected while the card waited).
-      const out = await fill({ cdpUrl: d.cdpUrl, origin: cred.origin, field, secret });
+      // The username field gets the saved username; the secret is never the value for it.
+      const out = await fill({ cdpUrl: d.cdpUrl, origin: cred.origin, field, secret: field === 'username' ? cred.username : (secret ?? '') });
       recordAudit(d.db, { kind: 'bot', id: d.bot.id }, out.ok ? 'credential.filled' : 'credential.fill_refused', cred.name, 'room ' + d.roomId + ', ' + cred.origin + ', ' + field + (out.ok ? '' : ', ' + out.reason));
       if (!out.ok) return err(refusal(out, cred.name, cred.origin));
       d.store.markUsed(cred.id);

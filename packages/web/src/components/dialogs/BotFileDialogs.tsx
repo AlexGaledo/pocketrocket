@@ -112,7 +112,7 @@ export function ImportBotDialog({ onClose }: { onClose: () => void }) {
             <div className="rounded-lg bg-card2/40 p-3 text-ui ring-1 ring-line">
               <div className="font-semibold">{file.bot.name} <span className="font-mono text-hint font-normal text-muted">@{file.bot.handle}</span></div>
               {file.bot.title && <div className="text-muted">{file.bot.title}</div>}
-              {file.bot.description && <p className="mt-2 line-clamp-6 whitespace-pre-wrap text-hint text-muted">{file.bot.description}</p>}
+              {file.bot.description && <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-hint text-muted">{file.bot.description}</p>}
               <div className="mt-2 text-hint text-muted">
                 {file.skills.length === 0 ? 'No skills.' : 'Skills (need your approval): ' + file.skills.map((s) => s.name).join(', ')}
               </div>
@@ -122,7 +122,7 @@ export function ImportBotDialog({ onClose }: { onClose: () => void }) {
                   <Switch checked={memory} onChange={setMemory} aria-label="Also copy its memory notes" />
                 </label>
               )}
-              <p className="mt-3 text-hint text-dim">Read the instructions above: they decide how this bot behaves. It gets the standard tools and budget, whatever the file says.</p>
+              <p className="mt-3 text-hint text-dim">Read all of the instructions above: this bot will follow them. It starts with a minimal set of tools (no shell and no page fetching; you can turn those on later in its settings) and the standard budget, whatever the file says.</p>
             </div>
           )}
           <div className="flex justify-end gap-2">

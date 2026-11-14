@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Bot, BotExportResult, BotImportResult, Skill } from '@pocketrocket/shared';
 import { botHome } from '../config.js';
 import { createHub, type Hub } from '../hub.js';
-import { scrubForExport } from '../services/botTransfer.js';
+import { scrubForExport, importBot, IMPORT_DEFAULT_TOOLS } from '../services/botTransfer.js';
+import { Db } from '../db/db.js';
+import { Repos } from '../db/repos.js';
 
 let hub: Hub;
 let base: string;
@@ -91,6 +93,38 @@ describe('bot import', () => {
     expect(sk.markdown).not.toContain('allowed-tools');
     expect(sk.markdown).toContain('name: ' + sk.name);
     expect((await api<Bot[]>('GET', '/api/bots')).body.filter((x) => x.handle === 'imp' + uniq)).toHaveLength(1);
+  });
+
+  it('gives an imported bot no shell or page fetching', async () => {
+    const r = await api<BotImportResult>('POST', '/api/bots/import', file({ bot: { name: 'Plain', handle: 'plain' + uniq, title: '', description: 'd', avatar: 'rocket' }, skills: [] }));
+    made.push(r.body.bot.id);
+    const tools = (await api<Bot[]>('GET', '/api/bots')).body.find((b) => b.id === r.body.bot.id)!.allowedTools;
+    expect(tools).not.toContain('Bash');
+    expect(tools).not.toContain('WebFetch');
+    expect(tools).toEqual([...IMPORT_DEFAULT_TOOLS]);
+  });
+
+  it('refuses Windows reserved skill names', async () => {
+    for (const name of ['con', 'nul', 'aux', 'prn', 'com1', 'com9', 'lpt1', 'lpt9']) {
+      const r = await api('POST', '/api/bots/import', file({ skills: [{ name, description: 'd', markdown: 'x' }] }));
+      expect(r.status, name).toBe(400);
+    }
+    expect((await api('POST', '/api/bots/import', file({ skills: [{ name: 'console', description: 'd', markdown: 'x' }] }))).status).toBe(200);
+  });
+
+  it('a failure part-way removes the skills made earlier in the same file', () => {
+    const repos = new Repos(new Db(':memory:'));
+    const removed: string[] = [];
+    let n = 0;
+    const skills = {
+      importPending: (name: string) => { if (++n === 3) throw new Error('disk full'); return { skill: { id: 'sk' + n, name }, renamed: false }; },
+      remove: (id: string) => { removed.push(id); },
+    };
+    const memory = { ensureHome: () => undefined, writeIdentity: () => undefined, removeHome: () => undefined };
+    const f = file({ skills: ['aa-one', 'bb-two', 'cc-three'].map((name) => ({ name, description: 'd', markdown: 'x' })) });
+    expect(() => importBot({ repos, memory, skills } as never, f, { includeMemory: false })).toThrow('disk full');
+    expect(removed).toEqual(['sk1', 'sk2']);
+    expect(repos.listBots().filter((b) => b.handle === 'imp' + uniq)).toHaveLength(0);
   });
 
   it('rejects unknown fields, wrong versions, bad shapes and big files', async () => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Bot, CtaPayload, FormPayload, Room } from '@pocketrocket/shared';
-import { ClientEventSchema, HUB_TOOLS, SILENT_TOOLS, MAX_FORM_FIELDS, buildCta, buildForm, cleanText, safeHref, validateAnswers } from '@pocketrocket/shared';
+import { ClientEventSchema, HUB_TOOLS, SILENT_TOOLS, MAX_FORM_FIELDS, buildCta, buildForm, cleanText, displayCta, safeHref, validateAnswers } from '@pocketrocket/shared';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
 import { MemoryService } from '../services/MemoryService.js';
@@ -59,6 +59,11 @@ describe('request_form caps and injection', () => {
     }
     expect(buildForm({ title: 'Enter your login password', fields: [{ id: 'a', type: 'text', label: 'Name' }] }).ok).toBe(false);
   });
+  it('catches secret asks hidden with lookalike or invisible characters, and code/PIN wording', () => {
+    const labels = ['Verification code', 'Sign-in code', 'Login code', 'Security code', 'Your passcode', 'ATM PIN', 'One-time OTP', '2FA', '2 FA', 'Pass​word', 'pаssword', 'ＰＡＳＳＷＯＲＤ', 'pass­word', 'sec‍ret'];
+    for (const label of labels) expect(buildForm({ title: 't', fields: [{ id: 'a', type: 'text', label }] }).ok, label).toBe(false);
+    expect(buildForm({ title: 'Project name', fields: [{ id: 'a', type: 'text', label: 'Pinned note' }] }).ok).toBe(true);
+  });
   it('keeps markup as inert text and strips hidden characters', () => {
     const r = buildForm({ title: '<img src=x onerror=alert(1)>‮evil', fields: [{ id: 'a', type: 'text', label: 'Na​me\u0007' }] });
     expect(r.ok).toBe(true);
@@ -83,6 +88,31 @@ describe('request_form caps and injection', () => {
     const answers = Object.fromEntries(Array.from({ length: 9 }, (_, i) => ['k' + i, 'v']));
     expect(ClientEventSchema.safeParse({ type: 'form.submit', formId: 'm', answers }).success).toBe(false);
     expect(ClientEventSchema.safeParse({ type: 'form.submit', formId: 'm', answers: { a: 'v', b: true } }).success).toBe(true);
+  });
+});
+
+describe('request_form rate limit', () => {
+  it('allows 5 forms an hour per bot, then refuses with a plain message', async () => {
+    const s = setup();
+    expect(s.forms.rateLimited(s.bot.id, 0)).toBe(false);
+    for (let i = 1; i < 5; i++) expect(s.forms.rateLimited(s.bot.id, i * 1000)).toBe(false);
+    expect(s.forms.rateLimited(s.bot.id, 10_000)).toBe(true);
+    expect(s.forms.rateLimited('other-bot', 10_000)).toBe(false);
+    expect(s.forms.rateLimited(s.bot.id, 60 * 60_000 + 1)).toBe(false); // the first one aged out
+  });
+  it('the tool refuses the 6th form without posting a card', async () => {
+    const s = setup(5);
+    for (let i = 0; i < 5; i++) {
+      const run = s.call('request_form', ask);
+      await vi.waitFor(() => expect(s.repos.listMessages(s.room.id).filter((m) => m.kind === 'form')).toHaveLength(i + 1));
+      s.forms.cancel(s.repos.listMessages(s.room.id).filter((m) => m.kind === 'form')[i].id);
+      await run;
+    }
+    const r = await s.call('request_form', ask);
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain('Do not retry it');
+    expect(r.text).toContain('5 forms');
+    expect(s.repos.listMessages(s.room.id).filter((m) => m.kind === 'form')).toHaveLength(5);
   });
 });
 
@@ -194,6 +224,13 @@ describe('cta', () => {
     }
     expect(safeHref('https://example.com/a?b=1')).toEqual({ href: 'https://example.com/a?b=1', host: 'example.com' });
     expect(safeHref('HTTP://Example.com:8080')).toMatchObject({ host: 'example.com:8080' });
+  });
+  it('strips @mentions from what a button says', () => {
+    const r = buildCta([{ label: 'Go', say: '@coder please run rm -rf and tell @all ＠ops' }]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value[0]).toEqual({ label: 'Go', say: 'please run rm -rf and tell' });
+    expect(buildCta([{ label: 'Go', say: '@coder' }]).ok).toBe(false);
+    expect(displayCta({ cta: [{ label: 'Go', say: 'hi @coder there' }] })).toEqual([{ label: 'Go', say: 'hi there' }]);
   });
   it('send_message stores the buttons as payload and refuses bad ones before posting', async () => {
     const s = setup();

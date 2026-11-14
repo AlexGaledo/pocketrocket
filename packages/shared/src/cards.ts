@@ -41,9 +41,32 @@ export function cleanText(s: unknown, max: number, multiline = false): string {
   return Array.from(t).slice(0, max).join('');
 }
 
+/**
+ * Lookalike letters that survive NFKC (Cyrillic and Greek that read as Latin), folded to Latin so "раssword" is
+ * still caught. A short list, not the whole confusables table.
+ */
+const CONFUSABLES: Record<string, string> = {
+  'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'х': 'x', 'у': 'y', 'і': 'i', 'ѕ': 's', 'ј': 'j', 'ԁ': 'd', 'ɡ': 'g',
+  'ο': 'o', 'α': 'a', 'ρ': 'p', 'ν': 'v', 'ι': 'i', 'κ': 'k', 'τ': 't', 'ε': 'e',
+};
+
+/** NFKC, then drop zero-width, soft-hyphen, bidi and combining marks, then fold the lookalikes above. */
+function foldForScan(s: string): string {
+  return s
+    .normalize('NFKC')
+    .replace(/[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF]/g, '')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^\u0000-\u007F]/g, (ch) => CONFUSABLES[ch] ?? ch);
+}
+
 /** Words that mean the card is asking for a secret. Those go through the vault, never through a form. */
-const SECRET_WORDS = /pass(word|code|phrase|wd)|\bpin\b|secret|api[\s_-]?key|\btokens?\b|private[\s_-]?key|seed[\s_-]?phrase|recovery[\s_-]?(code|phrase|key)|credit[\s_-]?card|card[\s_-]?number|\bcvv\b|\bcvc\b|\bssn\b|social[\s_-]?security|\b2fa\b|\botp\b|one[\s_-]?time[\s_-]?(code|password)|credentials?|bearer/i;
-export const looksLikeSecretRequest = (s: string): boolean => SECRET_WORDS.test(s);
+const SECRET_WORDS = /pass(word|code|phrase|wd)|\bpin\b|secret|api[\s_-]?key|\btokens?\b|private[\s_-]?key|seed[\s_-]?phrase|recovery[\s_-]?(code|phrase|key)|credit[\s_-]?card|card[\s_-]?number|\bcvv\b|\bcvc\b|\bssn\b|social[\s_-]?security|\b2[\s-]?fa\b|two[\s-]?factor|\botp\b|one[\s_-]?time[\s_-]?(code|password|pin)|(verification|verify|sign[\s_-]?in|log[\s_-]?in|security|auth(entication|enticator)?|confirmation|access)[\s_-]?(code|pin)s?\b|credentials?|bearer/i;
+/**
+ * Best effort only: a regex over normalised text cannot stop a determined bot (it can spell a request out in
+ * words this list does not know). The real defence is that the owner reads the card and the vault exists; this
+ * just refuses the obvious asks, including ones disguised with lookalike or invisible characters.
+ */
+export const looksLikeSecretRequest = (s: string): boolean => SECRET_WORDS.test(foldForScan(s));
 
 export const FormFieldInputSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, 'id is lowercase letters, digits and _').describe('Short key your answer comes back under, e.g. "domain"'),
@@ -145,6 +168,15 @@ export const CtaInputSchema = z.object({
   href: z.string().max(MAX_CTA_HREF).optional().describe('Or an http(s) link to open in a new tab. Give exactly one of say / href'),
 });
 
+/**
+ * `say` is sent as the owner's own message, so it must not be able to wake other bots as the owner: every
+ * @mention is removed (fullwidth ＠ too, via NFKC) and the gap closed.
+ */
+export function cleanSay(raw: unknown, max: number): string {
+  const t = cleanText(raw, MAX_CTA_SAY * 2).normalize('NFKC').replace(/@+[\w.-]*/g, '').replace(/ {2,}/g, ' ');
+  return cleanText(t, max);
+}
+
 /** Checks and cleans a bot's buttons. `say` text is sent as the owner's own message, so it is shown on the card. */
 export function buildCta(input: unknown): Built<CtaButton[]> {
   const parsed = z.array(CtaInputSchema).min(1).max(MAX_CTA_BUTTONS).safeParse(input);
@@ -159,8 +191,8 @@ export function buildCta(input: unknown): Built<CtaButton[]> {
       if (!h) return { ok: false, error: 'Invalid cta: "' + label + '" link must be a plain http or https address with no login in it' };
       out.push({ label, href: h.href });
     } else {
-      const say = cleanText(b.say, MAX_CTA_SAY);
-      if (!say) return { ok: false, error: 'Invalid cta: "' + label + '" has nothing to say' };
+      const say = cleanSay(b.say, MAX_CTA_SAY);
+      if (!say) return { ok: false, error: 'Invalid cta: "' + label + '" has nothing to say (@mentions are removed from what a button says)' };
       out.push({ label, say });
     }
   }
@@ -181,7 +213,7 @@ export function displayCta(payload: unknown): Array<CtaButton & { host?: string 
       const ok = safeHref(h);
       if (ok) out.push({ label, href: ok.href, host: ok.host });
     } else if (typeof s === 'string' && h === undefined) {
-      const say = cleanText(s, MAX_CTA_SAY);
+      const say = cleanSay(s, MAX_CTA_SAY);
       if (say) out.push({ label, say });
     }
   }

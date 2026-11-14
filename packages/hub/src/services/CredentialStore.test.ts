@@ -58,10 +58,9 @@ describe('credential origins', () => {
     ['https://GitHub.com/login?a=1#x', 'https://github.com'],
     ['https://github.com:443/', 'https://github.com'],
     ['https://example.com:8443/x', 'https://example.com:8443'],
-    ['http://localhost:3000/a', 'http://localhost:3000'],
   ])('normalises %s', (input, out) => expect(normalizeCredentialOrigin(input)).toBe(out));
 
-  it.each(['http://github.com', 'ftp://x.com', 'https://user:pw@x.com', 'javascript:alert(1)', 'not a url', 'about:blank', ''])('refuses %s', (input) => {
+  it.each(['http://github.com', 'ftp://x.com', 'https://user:pw@x.com', 'javascript:alert(1)', 'not a url', 'about:blank', '', 'http://localhost:3000/a', 'https://localhost', 'https://127.0.0.1:8443', 'https://[::1]/', 'http://[::1]:80', 'https://app.localhost', 'https://127.1.2.3'])('refuses %s', (input) => {
     expect(normalizeCredentialOrigin(input)).toBeNull();
   });
 

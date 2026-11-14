@@ -7,6 +7,10 @@ import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 import { redact } from '../providers/redact.js';
 
+/** A bot may ask this many forms per window. */
+export const FORM_RATE_MAX = 5;
+export const FORM_RATE_WINDOW_MS = 60 * 60_000;
+
 export type FormOutcome =
   | { kind: 'submitted'; answers: Record<string, FormAnswer> }
   | { kind: 'cancelled' }
@@ -23,6 +27,20 @@ interface Open {
 export class FormBroker {
   private open = new Map<string, Open>();
   constructor(private repos: Repos, private timeoutMs: number = FORM_TIMEOUT_MS) {}
+
+  private asked = new Map<string, number[]>();
+
+  /**
+   * True (and the ask is NOT counted) when this bot has already asked `max` forms in the last `windowMs`; otherwise
+   * counts it. Keeps a looping bot from flooding the owner with cards.
+   */
+  rateLimited(botId: string, now = Date.now(), max = FORM_RATE_MAX, windowMs = FORM_RATE_WINDOW_MS): boolean {
+    const recent = (this.asked.get(botId) ?? []).filter((t) => now - t < windowMs);
+    if (recent.length >= max) { this.asked.set(botId, recent); return true; }
+    recent.push(now);
+    this.asked.set(botId, recent);
+    return false;
+  }
 
   hasOpen(botId: string): boolean {
     for (const o of this.open.values()) if (o.botId === botId) return true;

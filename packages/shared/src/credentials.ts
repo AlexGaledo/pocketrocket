@@ -25,11 +25,13 @@ export interface CredentialInfo {
   lastUsedAt: number | null;
 }
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
+/** A bot can run its own local server and ask to sign in to it, so a saved login is never bound to this machine. */
+const isLocalHost = (h: string): boolean => LOCAL_HOSTS.has(h) || h.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(h);
 
 /**
  * The exact origin (`scheme://host[:port]`, lowercase, default port dropped) a page URL belongs to, or null when a
- * login must not be bound to it: not https (plain http only for localhost), embedded user:password, or no host.
+ * login must not be bound to it: not https, localhost or a loopback address, embedded user:password, or no host.
  * The same form the browser reports as `location.origin`, so the two compare with `===`.
  */
 export function normalizeCredentialOrigin(input: string): string | null {
@@ -40,15 +42,14 @@ export function normalizeCredentialOrigin(input: string): string | null {
     return null;
   }
   if (u.username || u.password || !u.hostname) return null;
-  if (u.protocol === 'https:') return u.origin;
-  if (u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname)) return u.origin;
-  return null;
+  if (isLocalHost(u.hostname)) return null;
+  return u.protocol === 'https:' ? u.origin : null;
 }
 
 const name = z.string().trim().min(1).max(MAX_CREDENTIAL_NAME).regex(CREDENTIAL_NAME_RE, 'use letters, digits, spaces, dots, dashes or underscores');
 const origin = z.string().trim().min(1).max(300).transform((s, ctx) => {
   const o = normalizeCredentialOrigin(s);
-  if (!o) ctx.addIssue({ code: 'custom', message: 'must be an https:// address (http only for localhost) without a user name or password' });
+  if (!o) ctx.addIssue({ code: 'custom', message: 'must be an https:// address (not localhost) without a user name or password' });
   return o ?? z.NEVER;
 });
 const username = z.string().max(MAX_CREDENTIAL_USERNAME).refine((s) => !/[\r\n\0]/.test(s), 'no line breaks');

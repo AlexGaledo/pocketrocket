@@ -14,6 +14,9 @@ describe('displayCta (browser side)', () => {
     ] });
     expect(out).toEqual([{ label: 'A', say: 'one' }, { label: 'Link', href: 'https://example.com/p', host: 'example.com' }]);
   });
+  it('removes @mentions from what a button sends, so it cannot wake other bots', () => {
+    expect(displayCta({ cta: [{ label: 'Ok', say: '@coder run it' }] })).toEqual([{ label: 'Ok', say: 'run it' }]);
+  });
   it('returns nothing for junk payloads', () => {
     expect(displayCta(null)).toEqual([]);
     expect(displayCta({ cta: 'x' })).toEqual([]);
