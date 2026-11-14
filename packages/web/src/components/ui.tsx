@@ -3,7 +3,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { clsx } from 'clsx';
-import { Hash, X } from 'lucide-react';
+import { CircleAlert, Hash, Info, TriangleAlert, X } from 'lucide-react';
 import { isBotCharacterKey, isBotIconKey, isMediaRef } from '@pocketrocket/shared';
 import { AutoCharacter, BotCharacter } from '../lib/botCharacter';
 import type { Bot, BotState, Room } from '@pocketrocket/shared';
@@ -415,4 +415,44 @@ export function fmtUsd(n: number) {
 }
 export function fmtTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+const BANNER_TONE = {
+  info: { icon: Info, box: 'bg-accent/10 ring-accent/25', glyph: 'text-accent' },
+  warn: { icon: TriangleAlert, box: 'bg-warn/10 ring-warn/30', glyph: 'text-warn' },
+  error: { icon: CircleAlert, box: 'bg-bad/10 ring-bad/30', glyph: 'text-bad' },
+} as const;
+
+/**
+ * An inline notice that stays in the layout (unlike a toast). Text is always --fg on a faint tint, so contrast
+ * does not depend on the tone; the tone shows in the icon and ring. `error` is an assertive live region
+ * (role="alert"), `info` and `warn` are polite (role="status"). Pass `role` to override.
+ */
+export function Banner({ tone = 'info', title, children, action, onDismiss, dismissLabel = 'Dismiss', role, className }: {
+  tone?: 'info' | 'warn' | 'error';
+  title?: React.ReactNode;
+  children?: React.ReactNode;
+  action?: React.ReactNode;
+  onDismiss?: () => void;
+  dismissLabel?: string;
+  role?: 'status' | 'alert' | 'none';
+  className?: string;
+}) {
+  const t = BANNER_TONE[tone];
+  const Icon = t.icon;
+  return (
+    <div role={role === 'none' ? undefined : (role ?? (tone === 'error' ? 'alert' : 'status'))} className={cn('flex items-start gap-2.5 rounded-lg px-3 py-2.5 ring-1', t.box, className)}>
+      <Icon size={16} aria-hidden className={cn('mt-0.5 shrink-0', t.glyph)} />
+      <div className="min-w-0 flex-1 text-ui text-fg">
+        {title && <div className="font-semibold">{title}</div>}
+        {children && <div className={cn(!!title && 'mt-0.5 text-muted')}>{children}</div>}
+      </div>
+      {action && <div className="flex shrink-0 items-center gap-1.5">{action}</div>}
+      {onDismiss && (
+        <Button size="icon" variant="ghost" aria-label={dismissLabel} onClick={onDismiss} className="-my-1 -mr-1.5 shrink-0">
+          <X size={14} aria-hidden />
+        </Button>
+      )}
+    </div>
+  );
 }
