@@ -19,10 +19,13 @@ export const MAX_EXPORT_SKILL_BYTES = 64 * 1024;
 /** Same cap as a bot's own memory.md. */
 export const MAX_EXPORT_MEMORY_BYTES = 8 * 1024;
 
+/** Device names Windows will not let a folder have (a skill is a folder named after it). */
+export const WINDOWS_RESERVED_NAME = /^(con|nul|aux|prn|com[1-9]|lpt[1-9])$/;
+
 const withinBytes = (max: number) => (s: string) => new TextEncoder().encode(s).length <= max;
 
 export const BotExportSkillSchema = z.object({
-  name: z.string().regex(/^[a-z0-9][a-z0-9-]{1,48}$/, 'skill names use lowercase letters, digits and dashes'),
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]{1,48}$/, 'skill names use lowercase letters, digits and dashes').refine((n) => !WINDOWS_RESERVED_NAME.test(n), 'that skill name is reserved on Windows'),
   description: z.string().min(1).max(300),
   markdown: z.string().refine(withinBytes(MAX_EXPORT_SKILL_BYTES), 'a skill is over 64 KB'),
 }).strict();

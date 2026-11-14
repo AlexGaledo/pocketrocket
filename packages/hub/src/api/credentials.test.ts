@@ -100,7 +100,9 @@ describe('/api/credentials', () => {
       expect([400, 409]).toContain(r.status);
     }
     const r = track(await request('POST', '/api/credentials', { body: { ...login, name: 'local', origin: 'http://localhost:3000' }, cookie: c, token: null }));
-    expect(r.status).toBe(201);
+    expect(r.status).toBe(400);
+    const r2 = track(await request('POST', '/api/credentials', { body: { ...login, name: 'local2', origin: 'https://127.0.0.1' }, cookie: c, token: null }));
+    expect(r2.status).toBe(400);
   });
 
   it('edits without the secret keeping it, deletes, and audits without the secret', async () => {

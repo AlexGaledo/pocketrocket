@@ -20,7 +20,7 @@ import { RoutineScheduler } from '../services/RoutineScheduler.js';
 import type { Routine } from '@pocketrocket/shared';
 import { isInside } from '../permissions/pathRules.js';
 import { denyMessage } from '../permissions/messages.js';
-import type { FormBroker } from '../services/FormBroker.js';
+import { FORM_RATE_MAX, type FormBroker } from '../services/FormBroker.js';
 import { buildCta, buildForm, FormInputShape, CtaInputSchema, MAX_CTA_BUTTONS } from '@pocketrocket/shared';
 import type { CtaPayload } from '@pocketrocket/shared';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
@@ -818,12 +818,13 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     const forms = ctx.forms;
     tools.push(hubTool(
       'request_form',
-      'Ask ' + userName + ' for a few plain values in one card (text, a choice, or yes/no; at most 8 fields). Waits for them to fill it in and returns their answers as data. Never ask for passwords, keys, tokens or codes: such forms are refused. If they cancel or do not answer, carry on without or say so in the room.',
+      'Ask ' + userName + ' for a few plain values in one card (text, a choice, or yes/no; at most 8 fields; at most ' + FORM_RATE_MAX + ' per hour). Waits for them to fill it in and returns their answers as data. Never ask for passwords, keys, tokens or codes: such forms are refused. If they cancel or do not answer, carry on without or say so in the room.',
       FormInputShape,
       async (a) => {
         const built = buildForm(a);
         if (!built.ok) return err(built.error);
         if (forms.hasOpen(ctx.bot.id)) return err(denyMessage('unavailable', { subject: 'a second form', note: 'one of yours is still waiting for ' + userName, alt: 'wait for that answer' }));
+        if (forms.rateLimited(ctx.bot.id)) return err(denyMessage('not_allowed', { subject: 'another form', note: 'you have already asked ' + FORM_RATE_MAX + ' forms in the last hour', alt: 'carry on without it, or ask ' + userName + ' in the room instead' }));
         ctx.setState('waiting');
         const o = await forms.ask({ botId: ctx.bot.id, botHandle: ctx.bot.handle, roomId: ctx.room.id, turnId: ctx.turnId, hop: ctx.hop, causeId: ctx.causeId, form: built.value, signal: ctx.signal ?? new AbortController().signal });
         ctx.setState('working');

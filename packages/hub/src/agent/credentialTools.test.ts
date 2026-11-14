@@ -153,6 +153,15 @@ describe('fill_credential tool', () => {
     expect(store.get(store.byName('github')!.id)!.lastUsedAt).not.toBeNull();
   });
 
+  it('types the username, never the password, when field is username', async () => {
+    const { t, b, asked } = tool({ url: SITE + '/login', origin: SITE, visible: true });
+    const r = await t.handler({ name: 'github', field: 'username' });
+    expect(r).toEqual({ content: [{ type: 'text', text: 'filled' }] });
+    expect(b.written).toEqual(['alex']);
+    expect(b.written).not.toContain(SECRET);
+    expect(asked).toEqual([{ credential: 'github', site: SITE, field: 'username', page: SITE }]);
+  });
+
   it('refuses on another origin without asking the owner and without a write', async () => {
     const { t, b, asked } = tool({ url: 'https://evil.example/', origin: 'https://evil.example', visible: true });
     const r = await t.handler({ name: 'github' });

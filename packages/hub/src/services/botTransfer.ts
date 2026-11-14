@@ -90,11 +90,14 @@ export function freeHandle(taken: (h: string) => boolean, handle: string): strin
   throw new TransferError(409, 'Could not find a free handle');
 }
 
+/** An imported bot's instructions come from a stranger, so it starts without a shell or page fetching; the owner can switch them on later. */
+export const IMPORT_DEFAULT_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch'] as const;
+
 /**
  * Makes a NEW bot from a file that passes {@link BotExportSchema}. It never touches an existing bot, and never
  * replaces a skill that is already in the pool: a clash gets a new name. Skills arrive `imported` and `pending`, so
- * nothing from the file reaches a bot until the owner approves it on the Skills tab. The bot gets the app's default
- * tools, model and budget; a file cannot grant any of those.
+ * nothing from the file reaches a bot until the owner approves it on the Skills tab. The bot gets a minimal tool set (no Bash or
+ * WebFetch), the default model and budget; a file cannot grant any of those.
  */
 export function importBot(d: Deps, raw: unknown, opts: { includeMemory: boolean }): BotImportResult {
   const parsed = BotExportSchema.safeParse(raw);
@@ -106,9 +109,10 @@ export function importBot(d: Deps, raw: unknown, opts: { includeMemory: boolean 
   const bot = d.repos.createBot({
     name: f.bot.name, handle, title: f.bot.title, description: f.bot.description, avatar: f.bot.avatar,
     model: 'claude-sonnet-5',
-    allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch'],
+    allowedTools: [...IMPORT_DEFAULT_TOOLS],
     maxBudgetUsd: 2,
   });
+  const createdSkillIds: string[] = [];
   try {
     d.memory.ensureHome(bot.id);
     d.memory.writeIdentity(bot.id, bot.description);
@@ -117,6 +121,7 @@ export function importBot(d: Deps, raw: unknown, opts: { includeMemory: boolean 
     for (const s of f.skills) {
       const made = d.skills.importPending(s.name, s.description, s.markdown);
       ids.push(made.skill.id);
+      createdSkillIds.push(made.skill.id);
       skills.push({ name: made.skill.name, renamed: made.renamed });
     }
     if (ids.length) d.repos.setBotSkills(bot.id, ids);
@@ -124,6 +129,10 @@ export function importBot(d: Deps, raw: unknown, opts: { includeMemory: boolean 
     if (opts.includeMemory && f.memory?.trim()) { d.memory.write(bot.id, f.memory); memoryImported = true; }
     return { bot, handleRenamed: handle !== f.bot.handle, skills, memoryImported };
   } catch (e) {
+    // Skills made earlier in this same file go too, so a failed import leaves nothing behind in the pool.
+    for (const id of createdSkillIds) {
+      try { d.skills.remove(id); } catch { /* best effort: keep rolling back */ }
+    }
     d.repos.deleteBot(bot.id);
     d.memory.removeHome(bot.id);
     throw e;

@@ -112,8 +112,11 @@ export function CtaButtons({ payload }: { payload: unknown }) {
             </a>
           ) : (
             <>
-              <Button className="touch-target" disabled={used !== null} onClick={() => { setUsed(i); send(b.say!); }}>{b.label}</Button>
-              <span className="max-w-full break-words text-hint text-dim">Sends: “{b.say}”</span>
+              {/* The button says what it sends: a label that differs from the message is not shown instead of it. */}
+              <Button className="touch-target h-auto max-w-full whitespace-normal break-words py-1.5 text-left" disabled={used !== null} onClick={() => { setUsed(i); send(b.say!); }}>
+                {b.say !== b.label ? b.say : b.label}
+              </Button>
+              {b.say !== b.label && <span className="max-w-full break-words text-hint text-dim">Sends this as you</span>}
             </>
           )}
         </div>

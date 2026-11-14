@@ -67,6 +67,8 @@ export const PARKED_MESSAGE =
 const INTEGRATION_WRITES = new Set<string>(INTEGRATION_WRITE_TOOLS);
 /** A parked card's "allow" is good for one retry of the same call within this window. */
 const PARKED_GRANT_TTL_MS = 60 * 60 * 1000;
+/** Ask-every-time tools (fill_credential, ...): the owner said yes for right now, so the grant is short-lived. */
+const PARKED_GRANT_ASK_EVERY_TIME_TTL_MS = 10 * 60 * 1000;
 /** A parked card nobody answers is denied after this long (POCKETROCKET_MAX_PARK_HOURS, default 24). */
 export const MAX_PARK_MS = (Number(process.env.POCKETROCKET_MAX_PARK_HOURS) || 24) * 60 * 60 * 1000;
 interface Pending {
@@ -129,7 +131,7 @@ export class PermissionBroker {
    */
   private alwaysAllowed = new Set<string>();
   /** P2: one-shot grants from a parked card the user allowed: key -> expiry. */
-  private parkedGrants = new Map<string, number>();
+  private parkedGrants = new Map<string, { expiresAt: number; roomId: string }>();
   /** P2: an answer to a parked card (or its expiry). RoomRouter queues the resumed turn. Set by createHub. */
   onParkedDecision?: (p: ParkedApproval, decision: 'allow' | 'always' | 'deny' | 'timeout') => void;
   /**
@@ -302,7 +304,8 @@ export class PermissionBroker {
     this.repos.decideApproval(approvalId, decision, decision === 'timeout' ? null : 'owner');
     const input = (p.toolInput ?? {}) as Record<string, unknown>;
     if (decision === 'allow' || decision === 'always') {
-      this.parkedGrants.set(this.grantKey(p.botId, p.toolName, input), this.now() + PARKED_GRANT_TTL_MS);
+      const ttl = ASK_EVERY_TIME.has(p.toolName) ? PARKED_GRANT_ASK_EVERY_TIME_TTL_MS : PARKED_GRANT_TTL_MS;
+      this.parkedGrants.set(this.grantKey(p.botId, p.toolName, input), { expiresAt: this.now() + ttl, roomId: p.roomId });
       if (decision === 'always') this.rememberSession(p.botId, p.toolName, input, false);
     }
     if (p.messageId) {
@@ -599,9 +602,11 @@ export class PermissionBroker {
     // P2: the retry of a call the user allowed on a parked card goes through once, without a second card.
     const gk = this.grantKey(ctx.bot.id, toolName, input);
     const grant = this.parkedGrants.get(gk);
-    if (grant !== undefined) {
+    // An ask-every-time grant belongs to the room whose card was answered: a retry from another room does not use
+    // it (and does not burn it), so the yes cannot be spent somewhere the owner never saw the card.
+    if (grant !== undefined && (!ASK_EVERY_TIME.has(toolName) || grant.roomId === ctx.room.id)) {
       this.parkedGrants.delete(gk);
-      if (grant > this.now()) return { decision: 'allow', approvalId: 'parked-' + nanoid(8) };
+      if (grant.expiresAt > this.now()) return { decision: 'allow', approvalId: 'parked-' + nanoid(8) };
     }
     const approvalId = nanoid(10);
     const payload: ApprovalPayload = {
