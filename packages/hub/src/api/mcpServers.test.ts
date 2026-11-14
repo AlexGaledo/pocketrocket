@@ -144,9 +144,9 @@ describe('secrets are write-only', () => {
     expect(list.json.servers.find((s: any) => s.name === 'wika')).toMatchObject({ tokenSet: true });
   });
 
-  it('strips credentials and the query from a shown url', async () => {
+  it('strips the query from a shown url', async () => {
     reset();
-    await request('POST', '/api/mcp-servers', { body: { name: 'q', url: 'https://user:pw@h.example.com/mcp?key=abc#frag', bots: ['b'] } });
+    await request('POST', '/api/mcp-servers', { body: { name: 'q', url: 'https://h.example.com/mcp?key=abc#frag', bots: ['b'] } });
     const s = (await request('GET', '/api/mcp-servers')).json.servers[0];
     expect(s.url).toBe('https://h.example.com/mcp');
     expect(s.urlHasQuery).toBe(true);
@@ -257,7 +257,7 @@ describe('atomic write', () => {
     reset();
     await request('POST', '/api/mcp-servers', { body: remote });
     expect(fs.readdirSync(tmp).filter((f) => f.endsWith('.tmp'))).toEqual([]);
-    expect(onDisk().wika).toEqual({ url: remote.url, token: remote.token, bots: remote.bots });
+    expect(onDisk().wika).toEqual({ url: remote.url, token: remote.token, tokenOrigin: 'https://dashboard.example.com', bots: remote.bots });
     if (process.platform !== 'win32') expect(fs.statSync(FILE).mode & 0o777).toBe(0o600);
   });
 
@@ -338,5 +338,79 @@ describe('bots and other principals cannot reach it', () => {
       q.end(JSON.stringify(remote));
     });
     expect(r).toBe(403);
+  });
+});
+
+describe('a stored token stays with its origin', () => {
+  const bearer = (i: number) => (fetchCalls[i].init.headers as Record<string, string>).authorization;
+
+  it('rejects a url change to another origin that keeps the stored token', async () => {
+    reset();
+    await request('POST', '/api/mcp-servers', { body: remote });
+    const r = await request('PATCH', '/api/mcp-servers/wika', { body: { url: 'https://attacker.example.net/mcp' } });
+    expect(r.status).toBe(409);
+    expect(r.json.error).toMatch(/new token|token: null/);
+    expect(onDisk().wika.url).toBe(remote.url);
+    expect(onDisk().wika.token).toBe(remote.token);
+  });
+
+  it('allows a new token with the new origin, clearing the token, and a same-origin path change', async () => {
+    reset();
+    await request('POST', '/api/mcp-servers', { body: remote });
+    expect((await request('PATCH', '/api/mcp-servers/wika', { body: { url: 'https://dashboard.example.com/v2/mcp' } })).status).toBe(200);
+    expect((await request('PATCH', '/api/mcp-servers/wika', { body: { url: 'https://other.example.org/mcp', token: 'new-token-for-other-1' } })).status).toBe(200);
+    expect(onDisk().wika).toMatchObject({ url: 'https://other.example.org/mcp', token: 'new-token-for-other-1', tokenOrigin: 'https://other.example.org' });
+    expect((await request('PATCH', '/api/mcp-servers/wika', { body: { url: 'https://third.example.org/mcp', token: null } })).status).toBe(200);
+    expect(onDisk().wika.token).toBeUndefined();
+    expect(onDisk().wika.tokenOrigin).toBeUndefined();
+  });
+
+  it('refuses credentials in the url and non-http schemes', async () => {
+    reset();
+    for (const url of ['https://u:p@h.example.com/mcp', 'ftp://h.example.com/mcp', 'file:///etc/passwd']) {
+      expect((await request('POST', '/api/mcp-servers', { body: { name: 'x', url, bots: ['b'] } })).status).toBe(400);
+    }
+  });
+
+  it('the loader never mounts a token on an origin it was not saved for, and the check never sends it', async () => {
+    reset();
+    fs.writeFileSync(FILE, JSON.stringify({ wika: { url: 'https://attacker.example.net/mcp', token: 'tok-SECRET-123456', tokenOrigin: 'https://dashboard.example.com', bots: ['wika-backend'] } }), { mode: 0o600 });
+    expect(outsideMcpFor('wika-backend', null, FILE)).toEqual([]);
+    fetchCalls.length = 0;
+    fetchImpl = async () => new Response('{}', { status: 200 });
+    await request('POST', '/api/mcp-servers/wika/check');
+    expect(bearer(0)).toBeUndefined();
+    // A hand-written entry has no binding and is still honoured.
+    fs.writeFileSync(FILE, JSON.stringify({ wika: { url: remote.url, token: remote.token, bots: ['wika-backend'] } }));
+    expect(outsideMcpFor('wika-backend', null, FILE)[0]).toMatchObject({ token: remote.token });
+  });
+
+  it('a redirect to another origin does not carry the Authorization header, and no body is read past the status', async () => {
+    reset();
+    const seen: Record<string, string | undefined>[] = [];
+    const target = http.createServer((q, r) => { seen.push({ auth: q.headers.authorization }); r.end('x'); });
+    await new Promise<void>((r) => target.listen(0, '127.0.0.1', r));
+    const tport = (target.address() as { port: number }).port;
+    const redirector = http.createServer((q, r) => { r.writeHead(302, { location: 'http://127.0.0.1:' + tport + '/steal' }); r.end(); });
+    await new Promise<void>((r) => redirector.listen(0, '127.0.0.1', r));
+    const rport = (redirector.address() as { port: number }).port;
+    try {
+      await request('POST', '/api/mcp-servers', { body: { name: 'redir', url: 'http://127.0.0.1:' + rport + '/mcp', token: 'redir-token-abcdef', bots: ['b'] } });
+      fetchImpl = (u, i) => fetch(u, i);
+      const r = await request('POST', '/api/mcp-servers/redir/check');
+      expect(r.json).toMatchObject({ ok: false, result: 'http-302' });
+      expect(seen).toEqual([]);
+    } finally {
+      target.close(); redirector.close();
+      fetchImpl = async () => new Response('{}', { status: 200 });
+    }
+  });
+
+  it('GET never returns the token or its bound origin', async () => {
+    reset();
+    await request('POST', '/api/mcp-servers', { body: remote });
+    const raw = (await request('GET', '/api/mcp-servers')).raw;
+    expect(raw).not.toContain('tok-SECRET-123456');
+    expect(raw).not.toContain('tokenOrigin');
   });
 });

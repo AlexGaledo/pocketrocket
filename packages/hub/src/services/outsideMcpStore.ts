@@ -25,6 +25,7 @@ const TEXT = z.string().min(1).max(100).refine((s) => s === s.trim() && !/[\0\r\
 const urlRule = z.string().max(2048).superRefine((v, ctx) => {
   let u: URL;
   try { u = new URL(v); } catch { ctx.addIssue({ code: 'custom', message: 'not a valid URL' }); return; }
+  if (u.username || u.password) { ctx.addIssue({ code: 'custom', message: 'no credentials in the url; use token' }); return; }
   const local = u.hostname === '127.0.0.1' || u.hostname === 'localhost';
   // The loader's rule: a key only ever travels over TLS, or to this machine.
   if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) {
@@ -112,6 +113,7 @@ export interface McpServerView {
 
 type Raw = Record<string, unknown>;
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+const safeOrigin = (u: string): string | null => { try { return new URL(u).origin; } catch { return null; } };
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** What is wrong with a stored entry, by the loader's own rules. Empty: the loader will mount it. */
@@ -213,7 +215,9 @@ export class McpServerStore {
     const all = this.read();
     if (Object.hasOwn(all, input.name)) throw new McpStoreError(409, 'A server named "' + input.name + '" already exists');
     const { name, ...entry } = input;
-    const clean = Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined));
+    const clean: Raw = Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined));
+    // The token is bound to the origin it was saved for (outsideMcp.ts refuses to send it anywhere else).
+    if (typeof clean.token === 'string' && typeof clean.url === 'string') clean.tokenOrigin = new URL(clean.url).origin;
     all[name] = clean;
     this.write(all);
     return viewOf(name, clean);
@@ -228,11 +232,21 @@ export class McpServerStore {
     if (!stdio && (input.command !== undefined || input.args !== undefined || input.env !== undefined)) throw new McpStoreError(400, 'command, args and env belong to a command server');
     if (input.args?.some((a) => a.includes(MASK))) throw new McpStoreError(400, 'args holds a masked value (***); send the real arguments');
     const next: Raw = { ...cur };
+    // A stored token must not follow a new url to another origin: the caller sends a new token, or clears it.
+    if (!stdio && input.url !== undefined && input.token === undefined && typeof cur.token === 'string' && cur.token) {
+      const was = typeof cur.tokenOrigin === 'string' ? cur.tokenOrigin : typeof cur.url === 'string' ? safeOrigin(cur.url) : null;
+      if (was !== new URL(input.url).origin) {
+        throw new McpStoreError(409, 'This server has a stored token. Changing its url to another origin needs a new token in the same request, or token: null to clear it.');
+      }
+    }
     for (const k of ['url', 'command', 'args', 'rooms', 'bots', 'approve', 'readTools', 'needs'] as const) {
       if (input[k] !== undefined) next[k] = input[k];
     }
-    if (input.token === null) delete next.token;
+    if (input.token === null) { delete next.token; delete next.tokenOrigin; }
     else if (input.token !== undefined) next.token = input.token;
+    if (typeof next.token === 'string' && next.token && typeof next.url === 'string' && (input.token !== undefined || next.tokenOrigin === undefined)) {
+      next.tokenOrigin = new URL(next.url).origin;
+    }
     if (input.env) {
       const env: Raw = isObj(cur.env) ? { ...cur.env } : {};
       for (const [k, v] of Object.entries(input.env)) { if (v === null) delete env[k]; else env[k] = v; }

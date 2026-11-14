@@ -33,6 +33,10 @@ import { routeByNeeds, type KeyRegistry } from './keyRegistry.js';
  * absolute path. Every `env` value and every `token` is registered for redaction (`registerOutsideMcpSecrets`),
  * so a key the server echoes back is scrubbed from the chat and the logs.
  *
+ * A url entry the REST API saved also carries `tokenOrigin`, the origin its token was saved for. The loader skips
+ * an entry whose url has moved to another origin, so a token cannot follow an edited url. Entries without it
+ * (hand-written) are taken as the owner's word.
+ *
  * `rooms` lists room ids or names: every bot gets the server while it works in that room. `bots` lists
  * handles that get it in every room. An entry needs at least one of the two.
  *
@@ -129,7 +133,7 @@ export function outsideMcpFor(handle: string, room: { id: string; name: string }
     if (!NAME_RE.test(name) || RESERVED.has(name) || !v || typeof v !== 'object') continue;
     const s = v as {
       url?: unknown; token?: unknown; command?: unknown; args?: unknown; env?: unknown;
-      bots?: unknown; rooms?: unknown; approve?: unknown; readTools?: unknown; needs?: unknown;
+      tokenOrigin?: unknown; bots?: unknown; rooms?: unknown; approve?: unknown; readTools?: unknown; needs?: unknown;
     };
     const byBot = Array.isArray(s.bots) && s.bots.includes(handle);
     const byRoom = !!room && Array.isArray(s.rooms) && (s.rooms.includes(room.id) || s.rooms.includes(room.name));
@@ -163,6 +167,12 @@ export function outsideMcpFor(handle: string, room: { id: string; name: string }
     // A key only ever travels over TLS, or to this machine.
     const local = url.hostname === '127.0.0.1' || url.hostname === 'localhost';
     if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) continue;
+    // A token saved by the REST API is bound to the origin it was saved for; a url edited to another origin
+    // (by hand, or any other route) must not carry it. Hand-written entries have no binding and are the owner's word.
+    if (typeof s.token === 'string' && s.token && typeof s.tokenOrigin === 'string' && s.tokenOrigin !== url.origin) {
+      logOnce('[outside-mcp] not mounting "' + name + '": its token was saved for another origin than its url; re-save the token');
+      continue;
+    }
     out.push({
       kind: 'http', name, url: url.toString(), token: typeof s.token === 'string' && s.token ? s.token : null,
       approve: approveOf(s.approve, 'none'), readTools, needs,

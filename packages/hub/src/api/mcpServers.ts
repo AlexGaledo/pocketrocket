@@ -77,7 +77,9 @@ export function createMcpServersApi(deps: {
           'content-type': 'application/json',
           accept: 'application/json, text/event-stream',
         };
-        if (typeof raw.token === 'string' && raw.token) headers.authorization = 'Bearer ' + raw.token;
+        // Same rule as the loader: a token bound to another origin than the url is never sent.
+        const bound = typeof raw.tokenOrigin !== 'string' || raw.tokenOrigin === new URL(raw.url).origin;
+        if (typeof raw.token === 'string' && raw.token && bound) headers.authorization = 'Bearer ' + raw.token;
         const r = await doFetch(raw.url, {
           method: 'POST',
           headers,
