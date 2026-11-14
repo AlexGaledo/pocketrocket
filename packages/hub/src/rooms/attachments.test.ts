@@ -157,7 +157,7 @@ describe('model input', () => {
     const ref = media.put(PNG);
     const images = materializeImages(media, home, [ref, 'img:' + 'c'.repeat(64), '../x']);
     expect(images).toHaveLength(1);
-    expect(images[0].path).toBe(path.join(home, 'attachments', ref.slice(4) + '.png'));
+    expect(images[0].path).toBe(path.join(fs.realpathSync(home), 'attachments', ref.slice(4) + '.png'));
     expect(fs.readFileSync(images[0].path)).toEqual(PNG);
     expect(images[0].mediaType).toBe('image/png');
     const note = imageNote(images);
@@ -165,6 +165,36 @@ describe('model input', () => {
     expect(note).toContain('untrusted data');
     expect(note).not.toContain(PNG.toString('base64'));
     expect(imageNote([])).toBe('');
+  });
+
+  it('refuses an attachments folder that is a link, and writes nothing through it', () => {
+    const { media } = setup();
+    const home = tmp();
+    const target = tmp();
+    fs.symlinkSync(target, path.join(home, 'attachments'), 'junction');
+    expect(materializeImages(media, home, [media.put(PNG)])).toEqual([]);
+    expect(fs.readdirSync(target)).toEqual([]);
+  });
+
+  it('refuses a link planted at the file name, and one of the wrong size', () => {
+    const { media } = setup();
+    const home = tmp();
+    const outside = path.join(tmp(), 'victim.txt');
+    fs.writeFileSync(outside, 'keep');
+    const ref = media.put(PNG);
+    fs.mkdirSync(path.join(home, 'attachments'));
+    const name = path.join(home, 'attachments', ref.slice(4) + '.png');
+    try { fs.symlinkSync(outside, name, 'file'); } catch { fs.writeFileSync(name, 'x'); }
+    expect(materializeImages(media, home, [ref])).toEqual([]);
+    expect(fs.readFileSync(outside, 'utf8')).toBe('keep');
+  });
+
+  it('reuses a file it already saved', () => {
+    const { media } = setup();
+    const home = tmp();
+    const ref = media.put(PNG);
+    expect(materializeImages(media, home, [ref])).toHaveLength(1);
+    expect(materializeImages(media, home, [ref])).toHaveLength(1);
   });
 
   it('does nothing without a store or refs', () => {
