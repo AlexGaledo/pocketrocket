@@ -10,6 +10,7 @@ import type { SkillService } from '../services/SkillService.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { imageNote, materializeImages } from './attachments.js';
 import { EMPTY_USAGE, type ProviderInit, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
@@ -44,6 +45,8 @@ export interface TurnRequest {
   hop: number;
   causeId: string;
   injected: string;
+  /** Media refs of the pictures a person attached in the unread window (U2a). */
+  images?: string[];
   /** The newest message a person wrote in `injected`. The only text that can ask the router for a stronger model. */
   latestUserText?: string;
   /** On a routine's turn: the routine's own prompt. The only other text that can invoke a skill that asks for Opus. */
@@ -385,6 +388,7 @@ export class BotRunner {
     const outsideMcp = vpsMountable(outsideMcpFor(bot.handle, room), keyRegistry);
     // Bearer tokens and stdio env values (the owner's API keys): scrubbed from tool output, chat and logs.
     registerOutsideMcpSecrets(outsideMcp);
+    const images = materializeImages(this.media, botHome(bot.id), req.images);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -411,7 +415,8 @@ export class BotRunner {
         canMoveUp: provider.id === 'claude' && isAuto(bot),
         canProposeRouting: !!routing,
       }),
-      input: seed ? seed + '\n\n' + req.injected : req.injected,
+      input: (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images),
+      ...(images.length ? { images } : {}),
       resumeToken,
       sessionCostUsd: resumeToken ? state.costTotal : 0,
       cacheReadBudget: TURN_CACHE_READ_CAP > 0 ? TURN_CACHE_READ_CAP : undefined,

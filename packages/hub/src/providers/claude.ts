@@ -16,7 +16,7 @@ import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '
 import { secretFileAccess } from '../permissions/secretFiles.js';
 import { denyMessage } from '../permissions/messages.js';
 import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
-import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
+import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnImage, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
 // EVERYWHERE and bypasses canUseTool, so file/shell tools must never appear there: reads inside
@@ -169,6 +169,18 @@ function authStatus(): Promise<ClaudeAuthStatus | undefined> {
   });
 }
 
+/**
+ * The user turn's content. With pictures it is the text followed by one base64 image block each (the input text already
+ * names their paths, see agent/attachments.ts); without, the plain string, byte-for-byte as before.
+ */
+export function userContent(input: string, images: readonly TurnImage[]) {
+  if (!images.length) return input;
+  return [
+    { type: 'text' as const, text: input },
+    ...images.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data.toString('base64') } })),
+  ];
+}
+
 export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const;
   readonly label = 'Claude';
@@ -290,8 +302,9 @@ export class ClaudeProvider implements AgentProvider {
     let resolveDone: () => void = () => undefined;
     const done = new Promise<void>((r) => (resolveDone = r));
     const input = ctx.input;
+    const images = ctx.images ?? [];
     async function* prompt(): AsyncGenerator<SDKUserMessage> {
-      yield { type: 'user', message: { role: 'user', content: input }, parent_tool_use_id: null };
+      yield { type: 'user', message: { role: 'user', content: userContent(input, images) }, parent_tool_use_id: null };
       await done;
     }
 

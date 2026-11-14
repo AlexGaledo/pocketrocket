@@ -77,13 +77,20 @@ export const ClientEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('message.send'),
     roomId: z.string(),
-    text: z.string().min(1),
+    /** May be empty when `attachments` is not (a picture sent on its own). */
+    text: z.string(),
+    /**
+     * Pictures from `POST /api/media?for=attachment` (U2a), at most {@link MAX_ATTACHMENTS}. The hub checks every one
+     * and refuses the whole send when any is unknown or not an allowed image; the cap is enforced there too, so the
+     * refusal can name the client's id (`context`). Left out, the message has no pictures.
+     */
+    attachments: z.array(z.string().max(80)).max(32).optional(),
     /**
      * Optional id the client made up for this send (B5). The hub posts one message per (room, id) however many
      * times it is repeated, so a client may replay its outbox after a reconnect. Clients that omit it still work.
      */
     clientMsgId: z.string().min(1).max(64).optional(),
-  }),
+  }).refine((e) => e.text.trim().length > 0 || (e.attachments?.length ?? 0) > 0, { message: 'Message is empty', path: ['text'] }),
   /** Answer to a server `ping` (B6). Carries nothing; it only proves the path is alive. */
   z.object({ type: z.literal('pong') }),
   z.object({
@@ -106,6 +113,14 @@ const AvatarSchema = z.string().max(MAX_AVATAR_LENGTH).transform((v): string => 
 export const MAX_MEDIA_BYTES = 512 * 1024;
 export const MediaUploadSchema = z.object({
   data: z.string().max(Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
+});
+
+/** U2a: pictures a person attaches to a chat message. Larger than an avatar; the browser downscales before upload. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/** Most pictures on one message. */
+export const MAX_ATTACHMENTS = 4;
+export const AttachmentUploadSchema = z.object({
+  data: z.string().max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
 });
 
 /** The longest a bot's description may be, however it is written. */
