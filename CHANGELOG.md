@@ -24,6 +24,13 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 
 - Every refusal a bot reads (declined card, timeout, read-only mode, a rule you set, an unavailable tool) now says what happened, tells it not to retry, and says what to do instead, so bots stop looping on a "no". The hub tool lists the permission gate uses now come from one shared registry, with a test that fails if a new tool is left out. Wording only; no approval behaviour changed.
 
+### Attach pictures to a message
+
+- The composer has a paperclip button, and you can paste a screenshot or drop pictures onto the chat. Up to 4 PNG, JPEG or WebP pictures per message, each shown as a thumbnail you can remove before sending, with an uploading or failed state and Retry. GIFs, PDFs and other files are refused with a plain message for now.
+- Before upload the browser redraws each picture, which removes EXIF data such as photo location, and scales anything past 2048 px on its longest side. The hub checks the real file type from the bytes, accepts up to 10 MB per picture, and refuses the whole message if any picture is unknown. Sending goes through the same outbox as text, so a retry resends the already uploaded pictures and never posts twice.
+- Bots get your pictures with the message. On Claude they arrive as images in the turn; on other providers the message gives a file path the bot can open. Anything shown or written in a picture is passed as untrusted data. The copies live in a hub-owned folder (`data/attachments/<bot>`) that the bot can read but its own file tools cannot change.
+- Pictures attached to messages are no longer swept away by the daily media cleanup.
+
 ### Messages that don't get lost
 
 - Sending while the hub is unreachable no longer drops the text. The message shows in the chat at once, marked "Waiting to reconnect", and goes out in order when the connection is back. A message the hub never confirms shows "Not sent" with Retry and Discard. Unsent messages survive closing the tab.

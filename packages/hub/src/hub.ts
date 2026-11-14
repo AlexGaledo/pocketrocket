@@ -650,7 +650,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
-  const wss = attachWs(server, { repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
+  const wss = attachWs(server, { media, repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
   server.on('upgrade', (req, socket, head) => {
     const p = req.url ?? '';
     const url = new URL(p, 'http://localhost');

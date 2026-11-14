@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { MediaUploadSchema } from '@pocketrocket/shared';
+import { AttachmentUploadSchema, MAX_ATTACHMENT_BYTES, MediaUploadSchema } from '@pocketrocket/shared';
 import { readBody } from './body.js';
 import { principalOf } from './guard.js';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
@@ -27,17 +27,19 @@ export function createMediaApi({ media }: { media: MediaStore }) {
     const method = req.method ?? 'GET';
     if (method === 'POST' && /^\/api\/media\/?$/.test(pathname)) {
       if (principalOf(req)?.kind !== 'hub') return send(res, 403, { error: 'Only the desktop app can do this' });
-      const buf = await readBody(req);
+      // `?for=attachment` is a picture for a chat message: a larger cap than an avatar, same checks on the bytes.
+      const attachment = new URL(req.url ?? '/', 'http://localhost').searchParams.get('for') === 'attachment';
+      const buf = await readBody(req, attachment ? Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 4096 : undefined);
       if (buf === null) return send(res, 413, { error: 'Image too large' });
       let body: unknown;
       try { body = JSON.parse(buf.toString('utf8')); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
-      const parsed = MediaUploadSchema.safeParse(body);
+      const parsed = (attachment ? AttachmentUploadSchema : MediaUploadSchema).safeParse(body);
       if (!parsed.success) {
         const tooBig = parsed.error.issues.some((i) => i.code === 'too_big');
         return send(res, tooBig ? 413 : 400, { error: tooBig ? 'Image too large' : 'Invalid image data' });
       }
       try {
-        return send(res, 200, { ref: media.put(Buffer.from(parsed.data.data, 'base64')) });
+        return send(res, 200, { ref: media.put(Buffer.from(parsed.data.data, 'base64'), attachment ? MAX_ATTACHMENT_BYTES : undefined) });
       } catch (e) {
         if (e instanceof MediaRejected) return send(res, e.status, { error: e.message });
         throw e;

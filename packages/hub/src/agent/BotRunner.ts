@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
-import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
+import path from 'node:path';
+import { ATTACHMENTS_DIR, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
 import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -10,6 +11,7 @@ import type { SkillService } from '../services/SkillService.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { imageNote, materializeImages } from './attachments.js';
 import { EMPTY_USAGE, type ProviderInit, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
@@ -44,6 +46,8 @@ export interface TurnRequest {
   hop: number;
   causeId: string;
   injected: string;
+  /** Media refs of the pictures a person attached in the unread window (U2a). */
+  images?: string[];
   /** The newest message a person wrote in `injected`. The only text that can ask the router for a stronger model. */
   latestUserText?: string;
   /** On a routine's turn: the routine's own prompt. The only other text that can invoke a skill that asks for Opus. */
@@ -385,6 +389,7 @@ export class BotRunner {
     const outsideMcp = vpsMountable(outsideMcpFor(bot.handle, room), keyRegistry);
     // Bearer tokens and stdio env values (the owner's API keys): scrubbed from tool output, chat and logs.
     registerOutsideMcpSecrets(outsideMcp);
+    const images = materializeImages(this.media, ATTACHMENTS_DIR, bot.id, req.images);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -411,7 +416,8 @@ export class BotRunner {
         canMoveUp: provider.id === 'claude' && isAuto(bot),
         canProposeRouting: !!routing,
       }),
-      input: seed ? seed + '\n\n' + req.injected : req.injected,
+      input: (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images),
+      ...(images.length ? { images } : {}),
       resumeToken,
       sessionCostUsd: resumeToken ? state.costTotal : 0,
       cacheReadBudget: TURN_CACHE_READ_CAP > 0 ? TURN_CACHE_READ_CAP : undefined,
@@ -438,7 +444,7 @@ export class BotRunner {
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
-      readOnlyDirs: bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : undefined,
+      readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length ? [path.dirname(images[0].path)] : [])],
       projectDirs: folderDir ? [folderDir] : [],
       shipGuard: this.repos.botSkillIds(bot.id).some((id) => this.repos.getSkill(id)?.name === SHIP_GUARD_SKILL) ? defaultBranchPushDenied : undefined,
       projectGuard: this.projects || this.roomFiles

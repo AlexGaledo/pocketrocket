@@ -1,3 +1,4 @@
+import { MAX_ATTACHMENTS, isMediaRef } from '@pocketrocket/shared';
 import { getJson, setJson, versionedKey } from './persist';
 
 /**
@@ -10,18 +11,24 @@ import { getJson, setJson, versionedKey } from './persist';
  * - `failed`:  the hub refused it, or never answered. Only the user's Retry moves it on.
  */
 export type OutboxStatus = 'sending' | 'sent' | 'failed';
-export interface OutboxEntry { clientId: string; roomId: string; text: string; status: OutboxStatus; createdAt: number }
+export interface OutboxEntry {
+  clientId: string; roomId: string; text: string; status: OutboxStatus; createdAt: number;
+  /** Media refs of pictures already uploaded (U2a). The upload happens before the entry exists, so a retry only resends refs. */
+  attachments?: string[];
+}
 
 export const OUTBOX_KEY = versionedKey('outbox', 1);
 /** Oldest entries go first if a runaway queue ever grows past this. */
 const MAX_ENTRIES = 200;
 
 const STATUSES: readonly string[] = ['sending', 'sent', 'failed'];
+const isRefs = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.length <= MAX_ATTACHMENTS && v.every(isMediaRef);
 function isEntry(v: unknown): v is OutboxEntry {
   if (typeof v !== 'object' || v === null) return false;
   const e = v as Record<string, unknown>;
+  const hasPics = e.attachments === undefined || isRefs(e.attachments);
   return typeof e.clientId === 'string' && e.clientId.length > 0 && e.clientId.length <= 64
-    && typeof e.roomId === 'string' && typeof e.text === 'string' && e.text.length > 0
+    && hasPics && typeof e.roomId === 'string' && typeof e.text === 'string' && (e.text.length > 0 || e.attachments !== undefined)
     && typeof e.status === 'string' && STATUSES.includes(e.status) && typeof e.createdAt === 'number';
 }
 

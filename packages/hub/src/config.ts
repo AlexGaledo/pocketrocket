@@ -56,6 +56,8 @@ export const BOTS_DIR = path.join(DATA_DIR, 'bots');
 export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
 /** Uploaded pictures. Outside WORKSPACE_DIR and BOTS_DIR, so it is in no bot's roots. */
 export const MEDIA_DIR = path.join(DATA_DIR, 'media');
+/** Copies of the pictures a person attached, one folder per bot, written by the hub only and read by the bot as a read-only root (U2a). */
+export const ATTACHMENTS_DIR = path.join(DATA_DIR, 'attachments');
 export const DB_PATH = path.join(DATA_DIR, 'pocketrocket.db');
 /** The owner's routing rules. No bot may write it (`permissions/readOnlyRoots.ts`). */
 export const ROUTING_PATH = path.join(DATA_DIR, 'routing.md');

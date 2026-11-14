@@ -1,4 +1,5 @@
 import { pickCoordinator } from './coordinator.js';
+import { MAX_ATTACHMENTS } from '@pocketrocket/shared';
 import type { Bot, BotState, CauseKind, Message, Room, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
@@ -55,7 +56,8 @@ export function formatMessage(repos: Repos, m: Message, text: string = m.text): 
     const b = repos.getBot(m.authorId ?? '');
     who = b ? '@' + b.handle : 'bot';
   }
-  return '#' + m.seq + ' [' + who + ']: ' + quoteTags(text);
+  const pics = m.attachments?.length ? ' [' + m.attachments.length + (m.attachments.length === 1 ? ' picture' : ' pictures') + ' attached]' : '';
+  return '#' + m.seq + ' [' + who + ']: ' + quoteTags(text) + pics;
 }
 
 /** Most unread messages one turn is shown (after a context reset, or when a bot joins a busy room). */
@@ -134,7 +136,7 @@ export class RoomRouter {
   }
 
   // ---------- entry points ----------
-  onUserMessage(roomId: string, text: string, clientMsgId?: string): Message {
+  onUserMessage(roomId: string, text: string, clientMsgId?: string, attachments?: string[]): Message {
     const room = this.repos.getRoom(roomId);
     if (!room) throw new Error('Room not found');
     // A repeat of a send the hub already took (a client replaying its outbox): no second message and no second
@@ -144,7 +146,7 @@ export class RoomRouter {
       events.emitEvent({ type: 'message.new', message: seen });
       return seen;
     }
-    const msg = this.repos.insertMessage({ roomId, authorType: 'user', authorId: this.repos.owner().id, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null, ...(clientMsgId ? { clientMsgId } : {}) });
+    const msg = this.repos.insertMessage({ roomId, authorType: 'user', authorId: this.repos.owner().id, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null, ...(attachments?.length ? { attachments } : {}), ...(clientMsgId ? { clientMsgId } : {}) });
     // a user message starts a new cause chain
     const withCause = this.repos.updateMessage(msg.id, {}) ?? msg;
     this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
@@ -302,7 +304,8 @@ export class RoomRouter {
           const routinePrompt = cause?.kind === 'routine' ? cause.text : undefined;
           // The composer's pick is for what a person starts here. Hand-offs and schedules keep each bot's own model.
           const chatModel = items.some((i) => i.causeKind === 'user' && i.hop === 0) ? room.chatModel ?? undefined : undefined;
-          req = { bot, room, members, hop, causeId, injected, latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
+          const images = this.userImages(bot, room, session.lastSeenSeq);
+          req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
           sessionBefore = session.sdkSessionId;
           result = await this.runner.runTurn(req);
         } finally {
@@ -386,6 +389,15 @@ export class RoomRouter {
     if (!p?.triggerId) return null;
     // A deleted trigger has no budget left to spend.
     return { name: p.name, left: this.triggerBudget(p.triggerId) ?? 0 };
+  }
+
+  /** Pictures the person attached in the unread window, newest {@link MAX_ATTACHMENTS}; only what a person sent. */
+  private userImages(bot: Bot, room: Room, lastSeenSeq: number): string[] {
+    const refs = this.repos
+      .messagesAfter(room.id, lastSeenSeq)
+      .filter((m) => m.authorType === 'user' && m.authorId !== bot.id)
+      .flatMap((m) => m.attachments ?? []);
+    return [...new Set(refs)].slice(-MAX_ATTACHMENTS);
   }
 
   private buildInjected(bot: Bot, room: Room, lastSeenSeq: number, triggerSeqs: number[]): string {

@@ -8,12 +8,15 @@ import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import { SIGN_IN_MESSAGE, type PermissionBroker } from '../permissions/PermissionBroker.js';
+import type { MediaStore } from '../services/MediaStore.js';
 import type { SettingsStore } from '../services/SettingsStore.js';
 
 /** Creates the app WebSocket server in noServer mode; the caller routes HTTP upgrades (see index.ts). */
 export function attachWs(
   _server: Server,
   deps: {
+    /** Checks a message's pictures (U2a). Left out, a send with pictures is refused. */
+    media?: MediaStore;
     repos: Repos; router: RoomRouter; broker: PermissionBroker; settings: SettingsStore;
     /**
      * True while the upgrade request's session cookie is live (owner password sign-in). Asked at answer time, so
@@ -66,7 +69,12 @@ export function attachWs(
         if (ev.type === 'pong') return;
         if (ev.type === 'message.send') {
           try {
-            deps.router.onUserMessage(ev.roomId, ev.text, ev.clientMsgId);
+            const refs = ev.attachments ?? [];
+            if (refs.length) {
+              const why = deps.media ? deps.media.checkAttachments(refs) : 'This hub cannot take pictures';
+              if (why) throw new Error(why);
+            }
+            deps.router.onUserMessage(ev.roomId, ev.text, ev.clientMsgId, refs.length ? [...new Set(refs)] : undefined);
           } catch (e) {
             // Tagged with the client's id so its outbox can show this one entry as failed.
             return send(ws, { type: 'error', message: (e as Error).message ?? String(e), ...(ev.clientMsgId ? { context: ev.clientMsgId } : {}) });

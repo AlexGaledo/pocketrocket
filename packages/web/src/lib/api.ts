@@ -146,6 +146,8 @@ export const api = {
   // A picture, base64 in JSON. Reading one back is lib/media.ts, which wants a blob rather than JSON.
   media: {
     upload: (data: string) => req<{ ref: string }>('POST', '/api/media', { data }),
+    /** A picture for a chat message: the hub's larger cap (10 MB), same checks on the bytes. */
+    uploadAttachment: (data: string) => req<{ ref: string }>('POST', '/api/media?for=attachment', { data }),
   },
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),

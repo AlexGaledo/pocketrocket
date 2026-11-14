@@ -215,6 +215,15 @@ export class Repos {
     this.db.run('UPDATE messages SET text=?, payload=? WHERE id=?', m.text, m.payload ? JSON.stringify(m.payload) : null, id);
     return m;
   }
+  /** Every picture reference on any message, so the media sweep keeps them (U2a). */
+  attachmentRefs(): string[] {
+    const out: string[] = [];
+    for (const r of this.db.all('SELECT attachments FROM messages WHERE attachments IS NOT NULL')) {
+      try { out.push(...(JSON.parse(r.attachments as string) as string[])); } catch { /* unreadable: nothing to keep */ }
+    }
+    return out;
+  }
+
   /** The message a client already sent under `clientMsgId` in this room (B5), if any. */
   findByClientMsgId(roomId: string, clientMsgId: string): Message | undefined {
     const r = this.db.get('SELECT * FROM messages WHERE room_id=? AND client_msg_id=?', roomId, clientMsgId);
