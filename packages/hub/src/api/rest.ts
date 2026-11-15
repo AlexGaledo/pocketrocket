@@ -14,6 +14,7 @@ import { ATTACHMENTS_DIR, WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE,
 import { openWorkspace, workspaceTarget } from './openWorkspace.js';
 import { SCREEN_VIEWER_PATH, screenViewerPath, type ScreenSessions } from './screenSession.js';
 import { AlwaysOnRefused, type ComputerManager } from '../services/ComputerManager.js';
+import { ScreenOpenError, type ScreenOpener } from '../services/screenOpen.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -67,6 +68,8 @@ export interface RestDeps {
   voice?: VoiceProposals;
   /** Per-bot computers (P1): Screen tab status, Wake, Keep awake. */
   computers: ComputerManager;
+  /** Opens a web link in a bot's server browser (a chat link's "Open in server browser"). */
+  screenOpener?: ScreenOpener;
   /** The owner's routing rules. */
   routing?: RoutingRules;
   /** P2: true while the viewer of this screen (bot id, or null for the shared one) may only watch. */
@@ -162,6 +165,19 @@ export function createRest(deps: RestDeps) {
       return { url: screenSessions.mintTicket(botId, owner).url };
     }
     return { url: screenSessions.mintTicket(null, owner).url };
+  });
+
+  // A web link from chat, opened in a bot's server browser. Answers the bot whose computer it used (null: the
+  // shared screen) so the client can open Screen on it. Human-only like the rest of /api/screen.
+  add('POST', '/api/screen/open', async ({ body }) => {
+    const { url, roomId, botId } = parse(z.object({ url: z.string().min(1).max(4096), roomId: z.string().max(64).optional(), botId: z.string().max(64).optional() }), body ?? {});
+    if (!deps.screenOpener) throw new HttpError(404, 'Not available on this hub');
+    try {
+      return await deps.screenOpener.open({ url }, { roomId, botId });
+    } catch (e) {
+      if (e instanceof ScreenOpenError) throw new HttpError(e.status, e.message);
+      throw e;
+    }
   });
 
   // ---- per-bot computers (P1). Human-only: no bot tool reaches these.

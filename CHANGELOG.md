@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Choose where a link opens
+
+- Clicking a web link in chat now asks where to open it: **Open in my browser**, **Open in server browser** (the page opens in a bot's virtual browser on the server, with its logins, and the Screen panel shows it) or **Copy link**. Ctrl-click and middle-click still open it straight in your browser.
+- Clicking a file link asks too: **Preview in Files**, **Open in server browser** (an HTML report runs there as a real page) or, in the desktop app, **Open on this PC**, which saves a copy under `Documents\PocketRocket\<chat>\` and opens it in its default app. In a browser tab that item is **Download**.
+- The server browser is the browser of the bot that wrote the message, else the chat's first bot with Browser, else any bot with Browser (an awake one first).
+- **Open on this PC** only copies documents, data and pictures (HTML, Markdown, text, CSV, JSON, PDF, images, Word, Excel, PowerPoint), never programs, scripts or macro files. Copies are marked as downloaded from the internet, so Office opens them in Protected View. It needs this version of the desktop app; an older one shows Download instead.
+- Links that give a full server path (`/home/.../report.html`) now work when the file is inside the chat's folder.
+
 ### Review fixes
 
 - Pictures attached to a message are now limited to 3.5 MB each (the browser shrinks them to fit); a bigger one is refused instead of failing the whole turn.

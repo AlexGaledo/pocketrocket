@@ -225,6 +225,31 @@ describe('/api/rooms/:id/files', () => {
     expect(fs.existsSync(path.join(outside, 'secret.txt'))).toBe(true);
   });
 
+  it('places an absolute server path from a bot\'s link inside the folder, and nothing outside it', async () => {
+    const { room } = groupRoom();
+    await upload(room.id, 'report.html', '<p>hi</p>');
+    const where = (p: string) => request('GET', base(room.id) + '/where?path=' + encodeURIComponent(p));
+    const inside = await where(path.join(roomsDir, room.id, 'report.html'));
+    expect(inside.status).toBe(200);
+    expect(inside.json).toEqual({ path: 'report.html', kind: 'file' });
+    expect((await where(path.join(roomsDir, room.id))).json).toEqual({ path: '', kind: 'dir' });
+    expect((await where(path.join(roomsDir, room.id, 'gone.html'))).status).toBe(404);
+    expect((await where(path.join(outside, 'secret.txt'))).status).toBe(404);
+    expect((await where(path.join(roomsDir, room.id, '..', 'x'))).status).toBe(404);
+    expect((await where('report.html')).status).toBe(400);
+  });
+
+  it('opens a file in the server browser only when it is a file in the folder and a bot here has a browser', async () => {
+    const { room } = groupRoom();
+    await upload(room.id, 'page.html', '<p>hi</p>');
+    const browse = (p: string) => request('POST', base(room.id) + '/browse', { body: { path: p } });
+    expect((await browse('../x.html')).status).toBe(400);
+    expect((await browse('missing.html')).status).toBe(404);
+    expect((await browse('')).status).toBe(400);
+    // The room's only bot has no Browser: refused, or (without per-bot computers) no screen running here.
+    expect([409, 503]).toContain((await browse('page.html')).status);
+  });
+
   it('refuses a link inside the folder that leads out of it, for reading and writing', async () => {
     const { room } = groupRoom();
     const dir = path.join(roomsDir, room.id);

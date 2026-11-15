@@ -118,6 +118,10 @@ export const api = {
    */
   files: {
     list: (roomId: string, path = '') => req<FileListing>('GET', filesBase(roomId) + '?path=' + encodeURIComponent(path)),
+    /** Where an absolute server path (as a bot writes it) sits in the room's folder; 404 when it is outside it. */
+    where: (roomId: string, abs: string) => req<{ path: string; kind: 'file' | 'dir' }>('GET', filesBase(roomId) + '/where?path=' + encodeURIComponent(abs)),
+    /** Opens a file of the room's folder in a bot's server browser. Answers whose screen it used. */
+    browse: (roomId: string, path: string, botId?: string) => req<{ botId: string | null }>('POST', filesBase(roomId) + '/browse', { path, ...(botId ? { botId } : {}) }),
     /** The raw-bytes URL. It needs the Bearer header, so fetch it with `blob` rather than putting it in an <img>. */
     rawUrl: (roomId: string, path: string, download = false) =>
       filesBase(roomId) + '/raw?path=' + encodeURIComponent(path) + (download ? '&download=1' : ''),
@@ -173,6 +177,9 @@ export const api = {
   // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL. With a botId
   // the ticket opens that bot's screen only.
   screenTicket: (botId?: string) => req<{ url: string }>('POST', '/api/screen/ticket', botId ? { botId } : undefined),
+  /** Opens a web link in a bot's server browser (that bot, else the chat's first bot with Browser). Answers whose screen. */
+  screenOpen: (url: string, roomId?: string | null, botId?: string) =>
+    req<{ botId: string | null }>('POST', '/api/screen/open', { url, ...(roomId ? { roomId } : {}), ...(botId ? { botId } : {}) }),
   computers: {
     get: (botId: string) => req<ComputerStatus>('GET', '/api/computers/' + encodeURIComponent(botId)),
     wake: (botId: string, o: { auto?: boolean } = {}) => req<ComputerStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/wake', o),
