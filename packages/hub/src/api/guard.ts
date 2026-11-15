@@ -383,6 +383,12 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/bots\/[^/]+\/skill-reflection$/],
   // Bot training: a phone may read it. The switch, Run now and Approve / Reject / Undo stay desktop actions.
   ['GET', /^\/api\/bots\/[^/]+\/training$/],
+  // Tasks board: a phone may read a room's tasks (the same room it can already read messages of). Creating or
+  // changing a task (POST/PATCH /api/rooms/:id/tasks...) assigns work to bots, so it stays a desktop action.
+  // Deliberately NOT listed, so refused by default: /api/credentials* (the login vault), /api/mcp-servers* (command
+  // and token editor), GET /api/bots/:id/export and POST /api/bots/import (an export is a copy of the bot's
+  // instructions and memory; an import creates a bot), /api/bot-reports* and /api/feedback.
+  ['GET', /^\/api\/rooms\/[^/]+\/tasks$/],
 ];
 
 /**

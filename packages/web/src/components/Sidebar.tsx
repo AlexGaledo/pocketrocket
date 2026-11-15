@@ -1,13 +1,17 @@
 import { useState } from 'react';
-import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare } from 'lucide-react';
+import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare, Inbox, Upload, ListChecks } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
-import { Avatar, Menu, MenuContent, MenuItem, cn } from './ui';
+import { Avatar, Badge, Menu, MenuContent, MenuItem, Skeleton, SkeletonGroup, Tooltip, cn } from './ui';
+import { useInbox } from '../lib/useInbox';
 import { Podium } from './Podium';
+import { ImportBotDialog } from './dialogs/BotFileDialogs';
 import { ProfileMenu } from './ProfileMenu';
 import { api } from '../lib/api';
+import { getJson, setJson } from '../lib/persist';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { STATUS_LABEL, avatarStatus, isWorking, useBotStatus, type BotStatus } from '../lib/botStatus';
 import { toolPhrase } from '../lib/toolPhrases';
+import { PopoutButton } from './PopoutButton';
 import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
 
 /** Shared by bot and room rows: a whole-row button, so Tab reaches every chat and Enter/Space opens it. */
@@ -54,12 +58,8 @@ const COLLAPSED_KEY = 'pocketrocket.collapsedSections';
 const SOLO_SECTION = 'bots';
 
 function readCollapsed(): Set<string> {
-  try {
-    const ids: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]');
-    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
-  } catch {
-    return new Set();
-  }
+  const ids = getJson(COLLAPSED_KEY, Array.isArray as (v: unknown) => v is unknown[], []);
+  return new Set(ids.filter((id): id is string => typeof id === 'string'));
 }
 
 /** Which sidebar sections are folded. Kept per device: a phone and a desktop want different lists. */
@@ -69,7 +69,7 @@ function useCollapsedSections() {
     const next = new Set(collapsed);
     if (!next.delete(id)) next.add(id);
     setCollapsed(next);
-    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next])); } catch { /* still works until reload */ }
+    setJson(COLLAPSED_KEY, [...next]); // a blocked store keeps it in memory until reload
   };
   return { collapsed, toggle };
 }
@@ -90,6 +90,10 @@ export function Sidebar() {
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const toast = useStore((s) => s.toast);
   const { statusOf, needsYouRoom } = useBotStatus();
+  const waiting = useInbox().length;
+  const inboxOpen = useStore((s) => s.page?.kind === 'inbox');
+  const tasksOpen = useStore((s) => s.page?.kind === 'tasks');
+  const [importing, setImporting] = useState(false);
   const connected = useStore((s) => s.connected);
   const helloReceived = useStore((s) => s.helloReceived);
   // P9: a paired phone may not create or edit bots and rooms, change settings or open the workspace (403).
@@ -169,7 +173,7 @@ export function Sidebar() {
           <PanelLeftClose size={15} />
         </button>
         <div className="flex shrink-0 items-center gap-2 pr-1.5">
-          <button className={ROUND} title="Search every chat" aria-label="Search every chat" onClick={() => openDialog({ kind: 'search' })}><Search size={16} /></button>
+          <Tooltip content="Search every chat"><button className={ROUND} aria-label="Search every chat" onClick={() => openDialog({ kind: 'search' })}><Search size={16} /></button></Tooltip>
           {!device && (
             <Menu.Root>
               <Menu.Trigger className={ROUND} title="New" aria-label="New"><Plus size={17} /></Menu.Trigger>
@@ -177,12 +181,32 @@ export function Sidebar() {
                 <MenuContent align="end">
                   <MenuItem onSelect={() => openDialog({ kind: 'bot', bot: null })}><UserPlus size={15} aria-hidden /> New bot</MenuItem>
                   <MenuItem onSelect={() => openDialog({ kind: 'room', room: null })}><MessagesSquare size={15} aria-hidden /> New group chat</MenuItem>
+                  <MenuItem onSelect={() => setImporting(true)}><Upload size={15} aria-hidden /> Import a bot...</MenuItem>
                 </MenuContent>
               </Menu.Portal>
             </Menu.Root>
           )}
         </div>
       </div>
+      <button
+        className={cn('mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', inboxOpen ? 'bg-active text-fg' : 'text-muted hover:text-fg')}
+        aria-current={inboxOpen ? 'page' : undefined}
+        onClick={() => { useStore.getState().openPage({ kind: 'inbox' }); leaveDrawer(); }}
+      >
+        <Inbox size={15} aria-hidden className="shrink-0" />
+        <span className="flex-1">Needs you</span>
+        {waiting > 0 && <Badge tone="warn">{waiting}<span className="sr-only"> waiting</span></Badge>}
+      </button>
+      {!device && (
+        <button
+          className={cn('mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', tasksOpen ? 'bg-active text-fg' : 'text-muted hover:text-fg')}
+          aria-current={tasksOpen ? 'page' : undefined}
+          onClick={() => { useStore.getState().openPage({ kind: 'tasks' }); leaveDrawer(); }}
+        >
+          <ListChecks size={15} aria-hidden className="shrink-0" />
+          <span className="flex-1">Tasks</span>
+        </button>
+      )}
       {status.label && (
         <button
           className={cn('mx-3 mb-1 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 self-start rounded-full bg-card2 px-2.5 py-1 text-hint hover:text-fg', status.label && connected ? 'text-warn' : 'text-muted')}
@@ -273,8 +297,9 @@ export function Sidebar() {
 
       <div className="flex items-center gap-1 pr-2.5">
         <div className="min-w-0 flex-1"><ProfileMenu onNavigate={leaveDrawer} /></div>
-        <button className={ROUND} title="Pair a phone" aria-label="Pair a phone" onClick={() => openDialog({ kind: 'settings', section: 'devices' })}><QrCode size={16} /></button>
+        <Tooltip content="Pair a phone"><button className={ROUND} aria-label="Pair a phone" onClick={() => openDialog({ kind: 'settings', section: 'devices' })}><QrCode size={16} /></button></Tooltip>
       </div>
+      {importing && <ImportBotDialog onClose={() => setImporting(false)} />}
     </aside>
   );
 }
@@ -315,6 +340,7 @@ function BotRow({ bot, status, activity, preview, active, unread, onOpen, onSett
       </button>
       {/* A sibling of the row button, not inside it. Shown on hover, whenever focus is anywhere in the
           row (so Tab finds it), and always on touch screens, which have no hover to reveal it. */}
+      {onSettings && <PopoutButton bot={bot} />}
       {onSettings && <button
         className="mr-1.5 hidden shrink-0 rounded-sm p-1.5 text-muted hover:bg-hover hover:text-fg focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:block group-focus-within:block [@media(hover:none)]:block"
         title="Bot settings"
@@ -408,19 +434,18 @@ function GroupHeader({ room, statusOf, active, unread, collapsed, count, onToggl
 /** Placeholder rows while the hub has not said hello yet. Hidden from screen readers, which get the text instead. */
 function SkeletonRows({ count }: { count: number }) {
   return (
-    <div role="status">
-      <span className="sr-only">Loading…</span>
-      <ul aria-hidden className="space-y-0.5">
+    <SkeletonGroup>
+      <ul className="space-y-0.5">
         {Array.from({ length: count }, (_, i) => (
           <li key={i} className="flex items-center gap-2.5 px-2.5 py-2">
-            <span className="h-[34px] w-[34px] shrink-0 rounded-full bg-card2 motion-safe:animate-pulse" />
+            <Skeleton className="h-[34px] w-[34px] shrink-0" />
             <span className="flex-1 space-y-1.5">
-              <span className="block h-2.5 w-2/3 rounded-full bg-card2 motion-safe:animate-pulse" />
-              <span className="block h-2 w-1/2 rounded-full bg-card2/70 motion-safe:animate-pulse" />
+              <Skeleton className="h-2.5 w-2/3" />
+              <Skeleton className="h-2 w-1/2 bg-card2/70" />
             </span>
           </li>
         ))}
       </ul>
-    </div>
+    </SkeletonGroup>
   );
 }

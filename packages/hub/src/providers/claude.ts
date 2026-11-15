@@ -14,8 +14,9 @@ import { deleteGate } from '../permissions/deleteGate.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '../permissions/readOnlyRoots.js';
 import { secretFileAccess } from '../permissions/secretFiles.js';
+import { denyMessage } from '../permissions/messages.js';
 import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
-import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
+import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnImage, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
 // EVERYWHERE and bypasses canUseTool, so file/shell tools must never appear there: reads inside
@@ -28,6 +29,16 @@ const AUTO_OK = new Set(['WebSearch', 'WebFetch']);
 const ALL_BUILTINS = ['Read','Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit', 'Task'];
 /** The CLI's own names for a bot-facing built-in. */
 const sdkNames = (t: string) => (t === 'Task' ? ['Task', 'Agent'] : [t]);
+/**
+ * Playwright MCP tools a bot never gets. Each can read what a page holds outside the snapshot, including a
+ * password fill_credential just typed: browser_evaluate runs page JavaScript, browser_run_code_unsafe runs
+ * Playwright code in the server process, and browser_network_request returns request bodies (a sign-in POST).
+ * disallowedTools wins over the `mcp__browser__*` entry in allowedTools, in bypass mode too.
+ */
+export const BLOCKED_BROWSER_TOOLS = ['browser_evaluate', 'browser_run_code_unsafe', 'browser_network_request'].map((t) => 'mcp__browser__' + t);
+/** Anchored, so browser_network_request does not also catch browser_network_requests (a URL list only). */
+export const BLOCKED_BROWSER_MATCHER = '^(?:' + BLOCKED_BROWSER_TOOLS.join('|') + ')$';
+export const BLOCKED_BROWSER_REASON = 'This browser tool is turned off for bots: it can read what a page holds, including saved passwords. Use browser_snapshot to read the page.';
 
 /**
  * The SDK's `maxBudgetUsd` flag for one run. The SDK checks it against the session's cumulative cost, which on a
@@ -168,6 +179,20 @@ function authStatus(): Promise<ClaudeAuthStatus | undefined> {
   });
 }
 
+/**
+ * The user turn's content. With pictures it is the text followed by one base64 image block each (the input text already
+ * names their paths, see agent/attachments.ts); without, the plain string, byte-for-byte as before.
+ */
+export function userContent(input: string, images: readonly TurnImage[]) {
+  // A picture without `data` was too big to inline (see materializeImages); the input text still names its path.
+  const inline = images.filter((i) => i.data);
+  if (!inline.length) return input;
+  return [
+    { type: 'text' as const, text: input },
+    ...inline.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data!.toString('base64') } })),
+  ];
+}
+
 export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const;
   readonly label = 'Claude';
@@ -289,8 +314,9 @@ export class ClaudeProvider implements AgentProvider {
     let resolveDone: () => void = () => undefined;
     const done = new Promise<void>((r) => (resolveDone = r));
     const input = ctx.input;
+    const images = ctx.images ?? [];
     async function* prompt(): AsyncGenerator<SDKUserMessage> {
-      yield { type: 'user', message: { role: 'user', content: input }, parent_tool_use_id: null };
+      yield { type: 'user', message: { role: 'user', content: userContent(input, images) }, parent_tool_use_id: null };
       await done;
     }
 
@@ -301,7 +327,7 @@ export class ClaudeProvider implements AgentProvider {
     ): Promise<PermissionResult> => {
       if (ctx.permissionDetailed) return (await ctx.permissionDetailed(name, toolInput, o)) as PermissionResult;
       const d = await ctx.permission(name, toolInput, { blockedPath: o.blockedPath });
-      return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: 'The user declined this action.' };
+      return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: denyMessage('declined', { alt: 'choose another approach or say so in the room' }) };
     };
 
     // P7: writes into the read-only knowledge repo ask (or, under bypass, are denied) before acceptEdits sees them.
@@ -380,6 +406,15 @@ export class ClaudeProvider implements AgentProvider {
           },
         ],
       },
+      // Second line behind disallowedTools for BLOCKED_BROWSER_TOOLS: a hook deny holds in bypass mode too.
+      ...(browserOn
+        ? [{
+            matcher: BLOCKED_BROWSER_MATCHER,
+            hooks: [
+              async () => ({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: BLOCKED_BROWSER_REASON } }),
+            ],
+          }]
+        : []),
       ...outsideGuard,
       ...controlGuard,
       ...knowledgeGuard,
@@ -442,7 +477,7 @@ export class ClaudeProvider implements AgentProvider {
       // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
       tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)).flatMap(sdkNames), ...(pluginDir ? ['Skill'] : [])],
       allowedTools: [...allowed, 'mcp__pocketrocket__*', ...(browserOn ? ['mcp__browser__*'] : [])],
-      disallowedTools: disallowed,
+      disallowedTools: [...disallowed, ...(browserOn ? BLOCKED_BROWSER_TOOLS : [])],
       mcpServers,
       strictMcpConfig: true,
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),

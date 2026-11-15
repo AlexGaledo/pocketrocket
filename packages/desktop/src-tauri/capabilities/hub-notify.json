@@ -1,0 +1,8 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "hub-notify",
+  "description": "The hub's web UI (served from the local loopback hub, or its SSH tunnel) may raise a local desktop notification and nothing else (from the main window and the bot pop-out windows, labelled bot-<id>). A remote origin gets no other plugin command and no app command.",
+  "windows": ["main", "bot-*"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": ["notification:allow-is-permission-granted", "notification:allow-notify"]
+}

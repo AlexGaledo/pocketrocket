@@ -17,6 +17,7 @@ import { SettingsStore, installSettings } from './services/SettingsStore.js';
 import { SecretsStore } from './services/SecretsStore.js';
 import { AccountService } from './services/AccountService.js';
 import { PermissionBroker } from './permissions/PermissionBroker.js';
+import { denyMessage } from './permissions/messages.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
 import { RoutingRules } from './services/RoutingRules.js';
@@ -31,7 +32,9 @@ import { ContextRepo } from './db/contextRepo.js';
 import { ProjectService } from './services/ProjectService.js';
 import { createProjectsApi } from './api/projects.js';
 import { createRest } from './api/rest.js';
+import { startHistoryBackfill } from './db/historyIndex.js';
 import { attachWs } from './api/ws.js';
+import { FormBroker } from './services/FormBroker.js';
 import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, dropCookie, presentsHubToken, tokenMatches } from './api/guard.js';
 import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
 import { readBody } from './api/body.js';
@@ -42,13 +45,19 @@ import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
 import { IntegrationService } from './services/IntegrationService.js';
 import { createIntegrationsApi } from './api/integrations.js';
+import { createMcpServersApi } from './api/mcpServers.js';
+import { createCredentialsApi } from './api/credentials.js';
+import { CredentialStore } from './services/CredentialStore.js';
+import { McpServerStore } from './services/outsideMcpStore.js';
+import { cspModeFrom, webSecurityHeaders } from './api/csp.js';
 import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
 import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
 import { TriggerService } from './services/TriggerService.js';
 import { createTriggersApi } from './api/triggers.js';
 import type { SocketFactory } from './services/SlackSocketMode.js';
 // P9: devices, pairing, push
-import { ALLOWED_HOSTS, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { ALLOWED_HOSTS, ATTACHMENTS_DIR, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { sweepAttachments } from './agent/attachments.js';
 import { seedDefaultBots } from './services/SeedBots.js';
 import { DEVICE_PAIR_PATH, deviceMayAccess, setPrincipal } from './api/guard.js';
 import { DevicesRepo } from './db/devices.js';
@@ -117,6 +126,10 @@ export interface HubOptions {
   training?: Partial<Pick<TrainingDeps, 'run' | 'exeExists' | 'now' | 'timezone'>>;
   /** Uploaded pictures; tests hand in a temp folder. Defaults to data/media. */
   mediaDir?: string;
+  /** Outside MCP servers file (data/mcp-servers.json); tests hand in a temp file, and a fake fetch for the check route. */
+  mcpServers?: { file?: string; fetch?: typeof fetch };
+  /** Tests: where the credential vault and its key live. */
+  credentials?: { file?: string; keyFile?: string };
   /** PC runner overrides (tests: a temp pc-runner.json, short timeouts, a fixed clock). */
   pcRunner?: Partial<Omit<PcRunnerOptions, 'db'>>;
 }
@@ -164,6 +177,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   }
 
   const db = opts.dbFile ? new Db(opts.dbFile) : new Db();
+  // Finishes indexing old messages for search_history when the history was too long for the migration alone.
+  const stopHistoryBackfill = startHistoryBackfill(db);
   const repos = new Repos(db);
   const memory = new MemoryService();
   if (!opts.skipBootstrap) {
@@ -229,6 +244,8 @@ export function createHub(opts: HubOptions = {}): Hub {
     routinesChanged: () => scheduler.reload(),
   }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing }, media);
   router.runner = runner;
+  const forms = new FormBroker(repos);
+  runner.forms = forms;
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
@@ -330,6 +347,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const sweepMedia = () => {
     if (opts.skipBootstrap && !opts.mediaDir) return;
     try { media.sweep(referencedMedia(repos, settings.get())); } catch (e) { logError('[media]', e); }
+    try { sweepAttachments(ATTACHMENTS_DIR, new Set(repos.listBots().map((b) => b.id))); } catch (e) { logError('[attachments]', e); }
   };
   let mediaTimer: NodeJS.Timeout | null = null;
   const rest = createRest({
@@ -357,8 +375,16 @@ export function createHub(opts: HubOptions = {}): Hub {
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
   const projectsApi = createProjectsApi({ projects, repos });
+  const mcpServersApi = createMcpServersApi({ store: new McpServerStore(opts.mcpServers?.file), db, fetch: opts.mcpServers?.fetch });
+  // G4: saved logins for fill_credential; secrets encrypted in data/credentials.json.
+  const credentials = new CredentialStore(db, opts.credentials);
+  runner.credentials = credentials;
+  const credentialsApi = createCredentialsApi({ store: credentials, db });
   const contextApi = createContextApi({ context: contextRepo, projects });
   const connectorTools = contextConnectorTools(contextRepo);
+
+  // CSP, nosniff and Referrer-Policy on the app shell and its assets (POCKETROCKET_CSP: enforce|report-only|off).
+  const webHeaders = webSecurityHeaders(cspModeFrom(process.env.POCKETROCKET_CSP));
 
   const MIME: Record<string, string> = {
     '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -598,6 +624,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await contextApi(req, res)) return;
       if (await projectsApi(req, res)) return;
       if (await filesApi(req, res)) return;
+      if (await mcpServersApi(req, res)) return;
+      if (await credentialsApi(req, res)) return;
       if (await pcRunnerApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
       if (await teachApi(req, res)) return;
@@ -615,14 +643,15 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (!file.startsWith(WEB_DIST)) { res.writeHead(403); res.end(); return; }
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(WEB_DIST, 'index.html');
       if (!fs.existsSync(file)) {
-        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.writeHead(200, { 'content-type': 'text/plain', ...webHeaders });
         res.end('PocketRocket hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
         return;
       }
       // P9: the service worker and the manifest have fixed names, so they must be revalidated like the shell;
       // an immutable sw.js would pin every installed phone to the build it first saw.
-      const isShell = ['index.html', 'sw.js', 'manifest.json', 'manifest.webmanifest'].includes(path.basename(file));
+      const isShell = ['index.html', 'theme-init.js', 'sw.js', 'manifest.json', 'manifest.webmanifest'].includes(path.basename(file));
       res.writeHead(200, {
+        ...webHeaders,
         'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
         // hashed assets are immutable; the shell must always be re-fetched so a reload picks up new builds
         'cache-control': isShell ? 'no-cache, no-store, must-revalidate' : 'public, max-age=31536000, immutable',
@@ -635,7 +664,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
-  const wss = attachWs(server, { repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
+  const wss = attachWs(server, { media, forms, repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
   server.on('upgrade', (req, socket, head) => {
     const p = req.url ?? '';
     const url = new URL(p, 'http://localhost');
@@ -735,6 +764,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         });
       }),
     async shutdown() {
+      stopHistoryBackfill();
       scheduler.stop();
       // Aborts a running pass and waits for it, so nothing writes to the database after it closes below.
       await training.stop();
@@ -779,6 +809,6 @@ function parkedDecisionNote(p: ParkedApproval, decision: 'allow' | 'always' | 'd
   if (decision === 'allow' || decision === 'always') {
     return '(Approval granted: the user allowed ' + what + '. Retry exactly the same call now; it goes through without another card. Then finish the task.)';
   }
-  if (decision === 'deny') return '(Approval denied: the user declined ' + what + '. Do not retry it; choose another approach or say so in the room.)';
-  return '(Approval expired: nobody answered ' + what + ' in time, so it was denied. Do not retry it; say so in the room.)';
+  if (decision === 'deny') return '(Approval denied: ' + denyMessage('declined', { subject: what, alt: 'choose another approach or say so in the room' }) + ')';
+  return '(Approval expired: ' + denyMessage('timeout', { note: 'nobody answered ' + what + ' in time, so it was denied', alt: 'say so in the room' }) + ')';
 }

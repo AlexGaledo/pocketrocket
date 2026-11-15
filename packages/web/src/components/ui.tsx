@@ -1,9 +1,11 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 import { clsx } from 'clsx';
-import { Hash, X } from 'lucide-react';
+import { CircleAlert, Hash, Info, TriangleAlert, X } from 'lucide-react';
 import { isBotCharacterKey, isBotIconKey, isMediaRef } from '@pocketrocket/shared';
 import { AutoCharacter, BotCharacter } from '../lib/botCharacter';
 import type { Bot, BotState, Room } from '@pocketrocket/shared';
@@ -415,4 +417,131 @@ export function fmtUsd(n: number) {
 }
 export function fmtTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+const BANNER_TONE = {
+  info: { icon: Info, box: 'bg-accent/10 ring-accent/25', glyph: 'text-accent' },
+  warn: { icon: TriangleAlert, box: 'bg-warn/10 ring-warn/30', glyph: 'text-warn' },
+  error: { icon: CircleAlert, box: 'bg-bad/10 ring-bad/30', glyph: 'text-bad' },
+} as const;
+
+/**
+ * An inline notice that stays in the layout (unlike a toast). Text is always --fg on a faint tint, so contrast
+ * does not depend on the tone; the tone shows in the icon and ring. `error` is an assertive live region
+ * (role="alert"), `info` and `warn` are polite (role="status"). Pass `role` to override.
+ */
+export function Banner({ tone = 'info', title, children, action, onDismiss, dismissLabel = 'Dismiss', role, className }: {
+  tone?: 'info' | 'warn' | 'error';
+  title?: React.ReactNode;
+  children?: React.ReactNode;
+  action?: React.ReactNode;
+  onDismiss?: () => void;
+  dismissLabel?: string;
+  role?: 'status' | 'alert' | 'none';
+  className?: string;
+}) {
+  const t = BANNER_TONE[tone];
+  const Icon = t.icon;
+  return (
+    <div role={role === 'none' ? undefined : (role ?? (tone === 'error' ? 'alert' : 'status'))} className={cn('flex items-start gap-2.5 rounded-lg px-3 py-2.5 ring-1', t.box, className)}>
+      <Icon size={16} aria-hidden className={cn('mt-0.5 shrink-0', t.glyph)} />
+      <div className="min-w-0 flex-1 text-ui text-fg">
+        {title && <div className="font-semibold">{title}</div>}
+        {children && <div className={cn(!!title && 'mt-0.5 text-muted')}>{children}</div>}
+      </div>
+      {action && <div className="flex shrink-0 items-center gap-1.5">{action}</div>}
+      {onDismiss && (
+        <Button size="icon" variant="ghost" aria-label={dismissLabel} onClick={onDismiss} className="-my-1 -mr-1.5 shrink-0">
+          <X size={14} aria-hidden />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export const Popover = PopoverPrimitive.Root;
+export const PopoverTrigger = PopoverPrimitive.Trigger;
+export const PopoverAnchor = PopoverPrimitive.Anchor;
+export const PopoverClose = PopoverPrimitive.Close;
+/**
+ * Anchored panel for small forms and detail (a menu is for commands, a dialog is for tasks). Non-modal:
+ * Escape and an outside click close it, focus moves in on open and back to the trigger on close. It is
+ * portaled, so it never shifts the layout; z-[65] puts it above dialogs (50) and onboarding (60).
+ */
+export function PopoverContent({ className, ...p }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  return (
+    <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Content
+        collisionPadding={8}
+        sideOffset={6}
+        className={cn('z-[65] w-72 max-w-[calc(100vw-1rem)] rounded-xl bg-panel p-3 text-ui text-fg shadow-[var(--shadow-overlay)] ring-1 ring-line focus:outline-none', className)}
+        {...p}
+      />
+    </PopoverPrimitive.Portal>
+  );
+}
+
+/** Wrap a group of tooltips once (App level) so moving between neighbours skips the open delay. Optional: `Tooltip` works alone. */
+export const TooltipProvider = TooltipPrimitive.Provider;
+/**
+ * A short, non-interactive label for a control that shows on hover and on keyboard focus (not on touch) and
+ * closes on Escape or blur. It is a description, not a name: an icon-only button still needs `aria-label`.
+ * `content` must be plain text; put anything interactive in a Popover. There is no enter or exit animation,
+ * so nothing changes under prefers-reduced-motion, and the bubble is portaled so it cannot shift layout.
+ */
+export function Tooltip({ content, children, side = 'top', delay = 400 }: { content: React.ReactNode; children: React.ReactElement; side?: 'top' | 'right' | 'bottom' | 'left'; delay?: number }) {
+  if (content == null || content === false || content === '') return children;
+  return (
+    <TooltipPrimitive.Provider delayDuration={delay} skipDelayDuration={300}>
+      <TooltipPrimitive.Root>
+        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+        <TooltipPrimitive.Portal>
+          <TooltipPrimitive.Content side={side} sideOffset={6} collisionPadding={8} className="z-[70] max-w-[min(20rem,calc(100vw-1rem))] rounded-md bg-ink px-2 py-1 text-hint text-ink-fg shadow-[var(--shadow-overlay)]">
+            {content}
+          </TooltipPrimitive.Content>
+        </TooltipPrimitive.Portal>
+      </TooltipPrimitive.Root>
+    </TooltipPrimitive.Provider>
+  );
+}
+
+/** A key cap for shortcut hints: `<Kbd>Esc</Kbd>`, or `<Kbd>Ctrl</Kbd> <Kbd>K</Kbd>` for a chord. Plain `<kbd>`, so screen readers say the text. */
+export function Kbd({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <kbd className={cn('inline-flex min-w-5 items-center justify-center rounded-xs bg-card2 px-1.5 py-px font-mono text-hint text-muted ring-1 ring-line', className)}>{children}</kbd>;
+}
+
+/** Placeholder for a list or pane with nothing in it. `icon` is decorative (hidden from assistive tech); `title` carries the meaning. */
+export function EmptyState({ icon, title, children, action, as: Title = 'div', className }: {
+  icon?: React.ReactNode;
+  title: React.ReactNode;
+  children?: React.ReactNode;
+  action?: React.ReactNode;
+  as?: 'div' | 'h2' | 'h3' | 'h4';
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex flex-col items-center gap-1 px-6 py-10 text-center', className)}>
+      {icon && <div aria-hidden className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-card2 text-muted">{icon}</div>}
+      <Title className="text-ui font-semibold text-fg">{title}</Title>
+      {children && <p className="max-w-[40ch] text-ui text-muted">{children}</p>}
+      {action && <div className="mt-3 flex flex-wrap justify-center gap-2">{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * One loading placeholder shape: size and radius come from `className` (`h-3 w-24`, `h-8 w-8 rounded-full`).
+ * Pulses only when motion is allowed. Hidden from assistive tech; wrap a group in `SkeletonGroup` to announce loading once.
+ */
+export function Skeleton({ className, ...p }: React.ComponentProps<'span'>) {
+  return <span aria-hidden className={cn('block rounded-full bg-card2 motion-safe:animate-pulse', className)} {...p} />;
+}
+/** The accessible shell for a set of Skeletons: a polite status with a visually hidden label. */
+export function SkeletonGroup({ label = 'Loading…', className, children }: { label?: string; className?: string; children: React.ReactNode }) {
+  return (
+    <div role="status" className={className}>
+      <span className="sr-only">{label}</span>
+      <div aria-hidden>{children}</div>
+    </div>
+  );
 }

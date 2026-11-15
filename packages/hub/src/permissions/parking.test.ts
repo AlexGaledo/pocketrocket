@@ -97,6 +97,51 @@ describe('PermissionBroker parking (unit)', () => {
     expect(cards).toBe(1);
   });
 
+  it('an ask-every-time grant (fill_credential) is spent once, only from its own room, and lapses in 10 minutes', async () => {
+    let t = 0;
+    const s = setup(() => t);
+    const room2 = s.repos.createRoom({ kind: 'dm', name: 'DM2', memberIds: [s.bot.id], coordinatorBotId: null });
+    const ctx2 = { ...s.ctx(false), room: room2 };
+    const input = { credential: 'github', site: 'https://github.com', field: 'password', page: 'https://github.com' };
+    const park = async () => {
+      await s.broker.askCredentialFill(s.ctx(true), input, signal());
+      const p = s.store.listParked().find((x) => x.toolName === 'fill_credential')!;
+      expect(s.broker.resolve(p.id, 'allow', { signedIn: true })).toBe(true);
+    };
+    let cards = 0;
+    let autoDeny = false;
+    const off = events.onEvent((ev) => { if (autoDeny && ev.type === 'approval.request') { cards++; setTimeout(() => s.broker.resolve(ev.approval.approvalId, 'deny', { signedIn: true }), 0); } });
+    await park();
+    autoDeny = true;
+    // Another room asking for the same fill gets its own card; it does not spend the grant.
+    expect((await s.broker.askCredentialFill(ctx2, input, signal())).allowed).toBe(false);
+    expect(cards).toBe(1);
+    // The originating room spends it once, without a card...
+    expect((await s.broker.askCredentialFill(s.ctx(false), input, signal())).allowed).toBe(true);
+    expect(cards).toBe(1);
+    // ...and only once.
+    expect((await s.broker.askCredentialFill(s.ctx(false), input, signal())).allowed).toBe(false);
+    expect(cards).toBe(2);
+    // Ten minutes is the limit for this kind of tool.
+    autoDeny = false;
+    await park();
+    autoDeny = true;
+    t += 10 * 60_000 + 1;
+    expect((await s.broker.askCredentialFill(s.ctx(false), input, signal())).allowed).toBe(false);
+    expect(cards).toBe(3);
+    off();
+  });
+
+  it('other tools keep the hour-long grant and are not tied to a room', async () => {
+    let t = 0;
+    const s = setup(() => t);
+    const room2 = s.repos.createRoom({ kind: 'dm', name: 'DM2', memberIds: [s.bot.id], coordinatorBotId: null });
+    await s.broker.decide(s.ctx(true), 'Bash', { command: 'git push origin main' }, { signal: signal() });
+    s.broker.resolve(s.store.listParked()[0].id, 'allow');
+    t += 50 * 60_000;
+    expect(await s.broker.decide({ ...s.ctx(false), room: room2 }, 'Bash', { command: 'git push origin main' }, { signal: signal() })).toEqual({ behavior: 'allow' });
+  });
+
   it('a parked card older than the max park age is denied (fake clock)', async () => {
     let t = 1_000;
     const s = setup(() => t);

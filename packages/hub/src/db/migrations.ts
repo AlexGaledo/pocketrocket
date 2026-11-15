@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { isBotIconKey } from '@pocketrocket/shared';
 import { nanoid } from 'nanoid';
+import { MIGRATION_BACKFILL_ROWS, backfillMessagesFts } from './historyIndex.js';
 
 /**
  * Versioned schema migrations. See the header of `db.ts` for how phases add theirs.
@@ -493,5 +494,128 @@ registerMigrations([170, 179], [
       addColumnIfMissing(db, 'sessions', 'identity_snapshot', 'TEXT');
       addColumnIfMissing(db, 'sessions', 'summary', 'TEXT');
     },
+  },
+]);
+
+// ---------------------------------------------------------------------------------------------------
+// Send journal (B5). A client numbers each message it sends; the hub keeps one message per (room, id) so a replay
+// after a reconnect cannot post twice. NULL for every message that did not come with an id.
+registerMigrations([180, 189], [
+  {
+    version: 180,
+    name: 'messages.client_msg_id + unique (room_id, client_msg_id)',
+    up: (db) => {
+      addColumnIfMissing(db, 'messages', 'client_msg_id', 'TEXT');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_msg ON messages(room_id, client_msg_id) WHERE client_msg_id IS NOT NULL');
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------------------------------
+// Tasks, history search and bot reports (G1, G2, G5).
+//   200  tasks: a room's board. Local only.
+//   201  messages_fts: full-text index over messages.text, kept in sync by triggers. Rows that existed before are
+//        indexed in bounded batches: the first here, the rest by startHistoryBackfill after the hub is up.
+//   202  bot_reports: report_blocked items and the send_feedback rate-limit log (feedback text lives in a file).
+registerMigrations([200, 209], [
+  {
+    version: 200,
+    name: 'tasks',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS tasks (' +
+          "id TEXT PRIMARY KEY, room_id TEXT NOT NULL, bot_id TEXT, assignee_bot_id TEXT, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', " +
+          "status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','doing','done','blocked')), " +
+          'due_at INTEGER, parent_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);' +
+          'CREATE INDEX IF NOT EXISTS idx_tasks_room ON tasks(room_id, status, updated_at)',
+      ),
+  },
+  {
+    version: 201,
+    name: 'messages_fts + triggers + bounded backfill',
+    up: (db) => {
+      db.exec(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, tokenize='porter unicode61');" +
+          'CREATE TABLE IF NOT EXISTS fts_backfill (name TEXT PRIMARY KEY, next_rowid INTEGER NOT NULL, upto INTEGER NOT NULL);' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END;' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; END;' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF text ON messages BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END',
+      );
+      db.exec("INSERT OR IGNORE INTO fts_backfill (name, next_rowid, upto) SELECT 'messages', 0, COALESCE(MAX(rowid), 0) FROM messages");
+      backfillMessagesFts(db, MIGRATION_BACKFILL_ROWS, true);
+    },
+  },
+  {
+    version: 202,
+    name: 'bot_reports',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS bot_reports (' +
+          "id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, room_id TEXT, type TEXT NOT NULL CHECK(type IN ('blocked','feedback')), " +
+          "kind TEXT, site TEXT, reason TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved','dismissed')), created_at INTEGER NOT NULL);" +
+          'CREATE INDEX IF NOT EXISTS idx_bot_reports_bot ON bot_reports(bot_id, type, created_at)',
+      ),
+  },
+]);
+
+// 240  messages_fts only indexes the kinds searchHistory reads (text, handoff, routine, trigger), so tool/approval/form
+//      cards and system rows no longer cost index space and trigger work. The update trigger fires only when the
+//      text or kind changed. Rows of other kinds that 201 already indexed are removed. Migration 201 itself is
+//      shipped on this branch and stays as it is.
+const FTS_KINDS = "('text','handoff','routine','trigger')";
+registerMigrations([240, 249], [
+  {
+    version: 240,
+    name: 'messages_fts: index searchable kinds only',
+    up: (db) => {
+      db.exec(
+        'DROP TRIGGER IF EXISTS messages_fts_ai; DROP TRIGGER IF EXISTS messages_fts_au;' +
+          'CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages WHEN new.kind IN ' + FTS_KINDS + ' BEGIN INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END;' +
+          'CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages WHEN old.text IS NOT new.text OR old.kind IS NOT new.kind ' +
+          'BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; INSERT INTO messages_fts (rowid, text) SELECT new.rowid, new.text WHERE new.kind IN ' + FTS_KINDS + '; END',
+      );
+      db.exec('DELETE FROM messages_fts WHERE rowid IN (SELECT rowid FROM messages WHERE kind NOT IN ' + FTS_KINDS + ')');
+    },
+  },
+]);
+
+// Machines (B4). One row per machine the owner set a policy for (never | ask | always); no row means 'ask'.
+// A table rather than a settings field: machines are keyed by id and there will be more than the two that
+// exist today. Approval rules also gain an optional machine scope and an expiry (NULL = any machine / never).
+registerMigrations([190, 199], [
+  {
+    version: 190,
+    name: 'machine_policies table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS machine_policies (
+        machine TEXT PRIMARY KEY,
+        policy TEXT NOT NULL CHECK(policy IN ('never','ask','always')),
+        updated_at INTEGER NOT NULL
+      );
+    `),
+  },
+  {
+    version: 191,
+    name: 'approval_policies.machine + expires_at',
+    up: (db) => {
+      addColumnIfMissing(db, 'approval_policies', 'machine', 'TEXT');
+      addColumnIfMissing(db, 'approval_policies', 'expires_at', 'INTEGER');
+    },
+  },
+]);
+
+// Credential vault (G4). Name, origin and username of each saved login; the secret is in the encrypted vault file
+// (data/credentials.json, key in vault.key), keyed by `credentials.id`, never in this table.
+registerMigrations([210, 219], [
+  {
+    version: 210,
+    name: 'credentials',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS credentials (' +
+          "id TEXT PRIMARY KEY, name TEXT NOT NULL, origin TEXT NOT NULL, username TEXT NOT NULL DEFAULT '', " +
+          'created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_used_at INTEGER);' +
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_name ON credentials(name COLLATE NOCASE)',
+      ),
   },
 ]);

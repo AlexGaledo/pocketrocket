@@ -272,6 +272,18 @@ describe('capability split (P9.1)', () => {
     expect((await req('DELETE', '/api/approval-policies/' + made.json.id, { token: TOKEN })).status).toBe(200);
   });
 
+  it('a phone may read room tasks but not write them, and never reaches vault, tools, export/import or reports', () => {
+    expect(deviceMayAccess('GET', '/api/rooms/r1/tasks')).toBe(true);
+    expect(deviceMayAccess('GET', '/api/rooms/r1/tasks/')).toBe(true);
+    for (const [m, p] of [
+      ['POST', '/api/rooms/r1/tasks'], ['PATCH', '/api/rooms/r1/tasks/t1'], ['DELETE', '/api/rooms/r1/tasks/t1'],
+      ['GET', '/api/credentials'], ['POST', '/api/credentials'], ['PATCH', '/api/credentials/c1'], ['DELETE', '/api/credentials/c1'],
+      ['GET', '/api/mcp-servers'], ['POST', '/api/mcp-servers'], ['PATCH', '/api/mcp-servers/x'], ['DELETE', '/api/mcp-servers/x'], ['POST', '/api/mcp-servers/x/check'],
+      ['GET', '/api/bots/b1/export'], ['POST', '/api/bots/import'],
+      ['GET', '/api/bot-reports'], ['PATCH', '/api/bot-reports/r1'], ['GET', '/api/feedback'],
+    ] as const) expect(deviceMayAccess(m, p), m + ' ' + p).toBe(false);
+  });
+
   it('the allowlist is closed by default for unknown routes', () => {
     expect(deviceMayAccess('GET', '/api/some-new-phase-route')).toBe(false);
     expect(deviceMayAccess('POST', '/api/routines/x/run')).toBe(true);

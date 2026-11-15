@@ -7,6 +7,8 @@ import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
 import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './models.js';
 import type { RecorderStatus } from './teach.js';
+import type { Task } from './tasks.js';
+import { FormAnswersSchema } from './cards.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -29,6 +31,8 @@ export type ServerEvent =
   | { type: 'usage.updated'; botId: string; roomId: string; totals: UsageTotals }
   | { type: 'account.changed'; account: AccountState }
   | { type: 'error'; message: string; context?: string }
+  /** Liveness probe (B6), every {@link WS_PING_MS}. The client answers with a `pong` client event; old clients just ignore it. */
+  | { type: 'ping'; t: number }
   // ---- P3: routines v2 ----
   /** A routine was created, changed or deleted (REST or a bot tool); clients refetch GET /api/routines. */
   | { type: 'routines.changed' }
@@ -65,16 +69,42 @@ export type ServerEvent =
    * The PC runner's pairing, online state or a job changed. Carries no job content (paired phones get every
    * event); the desktop's Settings > PC runner refetches GET /api/pc-runner and /api/pc-runner/jobs.
    */
-  | { type: 'pc-runner.changed'; jobId?: string };
+  | { type: 'pc-runner.changed'; jobId?: string }
+  /** A task on a room's board was created or changed (REST or a bot tool). Carries the whole task. */
+  | { type: 'task.changed'; roomId: string; task: Task };
+
+/** How often the hub pings each WebSocket client (B6). The client calls the link stale after two missed pings. */
+export const WS_PING_MS = 20_000;
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('message.send'), roomId: z.string(), text: z.string().min(1) }),
+  z.object({
+    type: z.literal('message.send'),
+    roomId: z.string(),
+    /** May be empty when `attachments` is not (a picture sent on its own). */
+    text: z.string(),
+    /**
+     * Pictures from `POST /api/media?for=attachment` (U2a), at most {@link MAX_ATTACHMENTS}. The hub checks every one
+     * and refuses the whole send when any is unknown or not an allowed image; the cap is enforced there too, so the
+     * refusal can name the client's id (`context`). Left out, the message has no pictures.
+     */
+    attachments: z.array(z.string().max(80)).max(32).optional(),
+    /**
+     * Optional id the client made up for this send (B5). The hub posts one message per (room, id) however many
+     * times it is repeated, so a client may replay its outbox after a reconnect. Clients that omit it still work.
+     */
+    clientMsgId: z.string().min(1).max(64).optional(),
+  }).refine((e) => e.text.trim().length > 0 || (e.attachments?.length ?? 0) > 0, { message: 'Message is empty', path: ['text'] }),
+  /** Answer to a server `ping` (B6). Carries nothing; it only proves the path is alive. */
+  z.object({ type: z.literal('pong') }),
   z.object({
     type: z.literal('approval.decide'),
     approvalId: z.string(),
     decision: z.enum(['allow', 'always', 'deny']),
   }),
+  /** U4: the owner's answers to a request_form card (formId is the card's message id). The hub checks them against the stored fields. */
+  z.object({ type: z.literal('form.submit'), formId: z.string().max(64), answers: FormAnswersSchema }),
+  z.object({ type: z.literal('form.cancel'), formId: z.string().max(64) }),
   z.object({ type: z.literal('turn.interrupt'), turnId: z.string() }),
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;
@@ -90,6 +120,19 @@ const AvatarSchema = z.string().max(MAX_AVATAR_LENGTH).transform((v): string => 
 export const MAX_MEDIA_BYTES = 512 * 1024;
 export const MediaUploadSchema = z.object({
   data: z.string().max(Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
+});
+
+/** U2a: pictures a person attaches to a chat message. Larger than an avatar; the browser downscales before upload. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/**
+ * The most one picture may weigh. Pictures are base64-inlined into the Claude turn and the API refuses an image over
+ * about 5 MB (counted after encoding, which adds a third), so the raw cap sits below it with headroom.
+ */
+export const MAX_ATTACHMENT_IMAGE_BYTES = 3.5 * 1024 * 1024;
+/** Most pictures on one message. */
+export const MAX_ATTACHMENTS = 4;
+export const AttachmentUploadSchema = z.object({
+  data: z.string().max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
 });
 
 /** The longest a bot's description may be, however it is written. */
@@ -164,5 +207,9 @@ export const ApprovalPolicyInputSchema = z.object({
   tool: z.string().min(1).max(120).optional(),
   pattern: z.string().min(1).max(500).optional(),
   decision: z.enum(['allow', 'deny']).default('allow'),
+  /** Limit the rule to one machine (`pc`, `vps`); omit for any. */
+  machine: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).nullable().optional(),
+  /** Epoch ms after which the rule no longer applies; omit for never. */
+  expiresAt: z.number().int().positive().nullable().optional(),
 });
 export type ApprovalPolicyInput = z.infer<typeof ApprovalPolicyInputSchema>;

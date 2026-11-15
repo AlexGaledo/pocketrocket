@@ -56,6 +56,8 @@ export const BOTS_DIR = path.join(DATA_DIR, 'bots');
 export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
 /** Uploaded pictures. Outside WORKSPACE_DIR and BOTS_DIR, so it is in no bot's roots. */
 export const MEDIA_DIR = path.join(DATA_DIR, 'media');
+/** Copies of the pictures a person attached, one folder per bot, written by the hub only and read by the bot as a read-only root (U2a). */
+export const ATTACHMENTS_DIR = path.join(DATA_DIR, 'attachments');
 export const DB_PATH = path.join(DATA_DIR, 'pocketrocket.db');
 /** The owner's routing rules. No bot may write it (`permissions/readOnlyRoots.ts`). */
 export const ROUTING_PATH = path.join(DATA_DIR, 'routing.md');
@@ -350,6 +352,8 @@ export function setRoomRootsResolver(fn: (botId: string, roomId: string) => stri
 // which deploy/backup.sh leaves out of every archive so a leaked backup holds no usable token.
 export const VAULT_KEY_PATH = path.join(DATA_DIR, 'vault.key');
 export const INTEGRATIONS_PATH = path.join(DATA_DIR, 'integrations.json');
+// G4: saved logins for fill_credential. Secrets live encrypted in credentials.json under the same vault.key.
+export const CREDENTIALS_PATH = path.join(DATA_DIR, 'credentials.json');
 
 // ---------------------------------------------------------------------------------------------------
 // P9: phone, devices, push.

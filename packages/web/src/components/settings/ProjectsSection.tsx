@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { FolderGit2, Plus, TriangleAlert } from 'lucide-react';
 import { useStore } from '../../store';
 import { api, type ProjectInfo, type ProjectLint } from '../../lib/api';
-import { Badge, Button, Input, Label, Switch } from '../ui';
+import { Badge, Button, EmptyState, Input, Label, Switch } from '../ui';
 import { Card, Group, InlineError, SectionHeader } from './parts';
 
 export function ProjectsSection() {
@@ -62,7 +62,7 @@ export function ProjectsSection() {
         </Card>
       </Group>
       {error && <InlineError>{error}</InlineError>}
-      {projects?.length === 0 && <p className="text-ui text-muted">No projects yet.</p>}
+      {projects?.length === 0 && <EmptyState title="No projects yet" className="py-6" />}
       {projects?.map((p) => <ProjectCard key={p.slug} project={p} onChanged={load} onError={setError} />)}
     </>
   );

@@ -93,7 +93,7 @@ export function createMcpHandler(registry: TurnRegistry) {
     const tools = token ? registry.tools(token) : undefined;
     if (!tools) {
       res.writeHead(401, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Unknown or expired turn token' }, id: null }));
+      res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Unknown or expired turn token. This call was not run. Do not retry it; this turn has ended, so finish without the tool or say so in the room.' }, id: null }));
       return;
     }
     const server = buildServer(tools, registry.guard(token!));

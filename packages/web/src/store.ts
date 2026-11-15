@@ -4,18 +4,21 @@ import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, 
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
-import type { ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
+import type { Skill, ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
+import { notifyEvent } from './lib/notifyEvents';
 import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
+import { getItem, setItem } from './lib/persist';
+import { newClientId, readJournal, writeJournal, type OutboxEntry } from './lib/outbox';
 import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
 import type { SectionId } from './components/dialogs/SettingsDialog';
 
 export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
 /** What the main pane shows over the chat. Null is the chat. */
-export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' };
+export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
@@ -43,6 +46,8 @@ const recentReceive = new Map<string, number>();
 const olderRetryAt = new Map<string, number>();
 /** Approvals this page answered, so a WS `error` about one (context = approval id) lands on its card. */
 const decided = new Set<string>();
+/** Forms whose answer or cancel is in flight; a hub error naming one of them is routed to its card. */
+const formsSent = new Set<string>();
 
 /** True when a response body is a full AccountState rather than a bare `{ ok }`. */
 function isAccountState(v: unknown): v is AccountState {
@@ -97,8 +102,28 @@ function applyLocalSettings(s: Settings) {
   applyFont(s.font);
 }
 
+/** How long a message written to the socket may go unechoed before it shows as not sent (B5). */
+export const SEND_ACK_MS = 15_000;
+/** clientId -> timer that turns an unechoed `sent` entry into `failed` (or back to `sending` if the link is down). */
+const ackTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function clearAck(clientId: string) {
+  const t = ackTimers.get(clientId);
+  if (t) clearTimeout(t);
+  ackTimers.delete(clientId);
+}
+
 interface State {
   connected: boolean;
+  /** True once this page has had a connection, so a later loss reads as "Reconnecting" rather than a first "Connecting". */
+  hasConnected: boolean;
+  /** The send journal (B5): messages written by the user that the hub has not echoed back yet, oldest first. */
+  outbox: OutboxEntry[];
+  /** Resend what is waiting, in order, stopping at the first entry the socket will not take. */
+  flushOutbox: () => void;
+  /** Failed entry: try again. */
+  retrySend: (clientId: string) => void;
+  /** Drop an entry from the journal without sending it. */
+  discardSend: (clientId: string) => void;
   /** When the connection last went down (or the page loaded without one); null while connected. */
   disconnectedAt: number | null;
   /** The diagnosed cause while disconnected; null until a probe has said anything. */
@@ -170,6 +195,10 @@ interface State {
   signedIn: boolean;
   /** The hub's refusal of an answer, by approval id ("Only a browser signed in…"), shown on that card. */
   approvalErrors: Record<string, string>;
+  /** Why the hub refused a form's answers (by form id); `at` makes a repeat refusal a new value. */
+  formErrors: Record<string, { message: string; at: number }>;
+  /** Marks a form answer/cancel as sent, so a refusal reaches its card. Clears any earlier refusal. */
+  formSent: (formId: string) => void;
   _playedConnectedSound: boolean;
   // ---- P7 ----
   /** Latest knowledge repo status from the `knowledge.status` event; null until one arrives. */
@@ -190,6 +219,12 @@ interface State {
   pcRunnerRev: number;
   /** Bumped per bot on `training.changed`, so its Training section refetches. */
   trainingRev: Record<string, number>;
+  /** Bumped per room on WS `task.changed`; an open Tasks board refetches when its room's number moves. */
+  tasksRev: Record<string, number>;
+  // ---- U3 ----
+  /** The skill pool, for the Needs you inbox (skills waiting for review). Null until GET /api/skills answers, or if it refuses. */
+  inboxSkills: Skill[] | null;
+  loadInboxSkills: () => Promise<void>;
 
   setConnected: (v: boolean) => void;
   setHubIssue: (issue: HubIssue | null) => void;
@@ -208,7 +243,8 @@ interface State {
   loadMessages: (roomId: string) => Promise<void>;
   /** Prepends the page just before the oldest loaded message. No-op while one is loading or none are left. */
   loadOlder: (roomId: string) => Promise<void>;
-  sendMessage: (text: string) => void;
+  /** `attachments` are media refs already uploaded; a message may be pictures only. */
+  sendMessage: (text: string, attachments?: string[]) => void;
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
   openScreen: (botId?: string | null) => void;
@@ -233,12 +269,14 @@ let toastSeq = 0;
 
 export const useStore = create<State>((set, get) => ({
   connected: false,
+  hasConnected: false,
+  outbox: readJournal(),
   disconnectedAt: Date.now(),
   hubIssue: null,
   bots: [],
   rooms: [],
   botStates: {},
-  activeRoomId: localStorage.getItem('pocketrocket.activeRoom'),
+  activeRoomId: getItem('pocketrocket.activeRoom'),
   messages: {},
   previews: {},
   searchTarget: null,
@@ -253,7 +291,7 @@ export const useStore = create<State>((set, get) => ({
   triggersRev: 0,
   memory: {},
   panelOpen: false,
-  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && localStorage.getItem('pocketrocket.sidebar') !== '0',
+  sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && getItem('pocketrocket.sidebar') !== '0',
   paneW: readPaneWidths(window.innerWidth),
   panelExpanded: false,
   panelBotId: null,
@@ -271,6 +309,12 @@ export const useStore = create<State>((set, get) => ({
   device: isDevice(),
   signedIn: false,
   approvalErrors: {},
+  formErrors: {},
+  formSent: (formId) => {
+    formsSent.add(formId);
+    const { [formId]: _c, ...formErrors } = get().formErrors;
+    set({ formErrors });
+  },
   _playedConnectedSound: false,
   knowledge: null,
   voiceRev: {},
@@ -280,11 +324,19 @@ export const useStore = create<State>((set, get) => ({
   skillsRev: 0,
   pcRunnerRev: 0,
   trainingRev: {},
+  tasksRev: {},
+  inboxSkills: null,
 
   setConnected: (connected) => {
     const was = get().connected;
-    if (connected) set({ connected, disconnectedAt: null, hubIssue: null });
+    if (connected) set({ connected, hasConnected: true, disconnectedAt: null, hubIssue: null });
     else if (was) set({ connected, disconnectedAt: Date.now() });
+    // Everything the user wrote while the link was down goes out now, before anything newer. A fresh link also
+    // resends what was written to the old one without an echo (once; the hub drops the repeat by clientMsgId).
+    if (connected && !was) {
+      for (const e of get().outbox) if (e.status === 'sent') { clearAck(e.clientId); patchOutbox(e.clientId, 'sending', 'sent'); }
+    }
+    if (connected) get().flushOutbox();
     if (connected && !was && isDesktopMode() && !get()._playedConnectedSound) {
       set({ _playedConnectedSound: true });
       play('connected');
@@ -296,7 +348,7 @@ export const useStore = create<State>((set, get) => ({
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
-        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, openApprovals: ev.openApprovals ?? [] });
+        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, formErrors: {}, openApprovals: ev.openApprovals ?? [] });
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
@@ -335,6 +387,8 @@ export const useStore = create<State>((set, get) => ({
       case 'message.new': {
         const m = ev.message;
         const list = s.messages[m.roomId] ?? [];
+        // The hub's copy of a message from the journal: the entry has done its job.
+        if (m.clientMsgId) settleSends([m.clientMsgId]);
         if (list.some((x) => x.id === m.id)) return;
         const unread = { ...s.unread };
         if (m.roomId !== s.activeRoomId && m.authorType !== 'user' && (m.kind === 'text' || m.kind === 'approval' || m.kind === 'takeover')) unread[m.roomId] = (unread[m.roomId] ?? 0) + 1;
@@ -350,6 +404,7 @@ export const useStore = create<State>((set, get) => ({
         // P2: a bot asking for the user's hands is as urgent as an approval card.
         if (m.kind === 'takeover') {
           play('approvalRequest');
+          void notifyEvent({ kind: 'takeover', roomId: m.roomId, botName: botById(s.bots, m.authorId)?.name ?? 'A bot', reason: m.text });
           if (m.roomId !== s.activeRoomId) {
             const bot = botById(s.bots, m.authorId);
             get().toast((bot?.name ?? 'A bot') + ' needs you on its screen', false, {
@@ -384,6 +439,8 @@ export const useStore = create<State>((set, get) => ({
           const lastReceive = recentReceive.get(ev.turnId);
           const doubleCounted = lastReceive !== undefined && Date.now() - lastReceive < 1500;
           if (!doubleCounted) play('done', { roomActive });
+          const last = [...(s.messages[ev.roomId] ?? [])].reverse().find((m) => m.turnId === ev.turnId && m.kind === 'text');
+          void notifyEvent({ kind: 'turn', roomId: ev.roomId, botName: botById(s.bots, ev.botId)?.name ?? 'A bot', lastText: last?.text });
         }
         recentReceive.delete(ev.turnId);
         return;
@@ -394,6 +451,7 @@ export const useStore = create<State>((set, get) => ({
       case 'approval.request': {
         set({ openApprovals: [...s.openApprovals.filter((a) => a.approvalId !== ev.approval.approvalId), { approvalId: ev.approval.approvalId, botId: ev.botId, roomId: ev.roomId }] });
         play('approvalRequest');
+        void notifyEvent({ kind: 'approval', roomId: ev.roomId, botName: botById(s.bots, ev.botId)?.name ?? 'A bot' });
         if (ev.roomId === s.activeRoomId) return;
         // Named and clickable, and it stays: a toast that fades after four seconds is easy to miss while a
         // bot sits blocked in a room the user is not looking at.
@@ -429,9 +487,21 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'error':
         // A refused answer belongs on its card, next to the button that was refused, not in a passing toast.
+        // Same for a refused form answer: the card re-enables its buttons and shows the hub's reason.
+        if (ev.context && formsSent.has(ev.context)) {
+          formsSent.delete(ev.context);
+          set({ formErrors: { ...s.formErrors, [ev.context]: { message: ev.message, at: Date.now() } } });
+          return;
+        }
         if (ev.context && decided.has(ev.context)) {
           decided.delete(ev.context);
           set({ approvalErrors: { ...s.approvalErrors, [ev.context]: ev.message } });
+          return;
+        }
+        // A refused send (a room that no longer exists) belongs on its own bubble, which then offers Retry.
+        if (ev.context && s.outbox.some((e) => e.clientId === ev.context)) {
+          patchOutbox(ev.context, 'failed');
+          clearAck(ev.context);
           return;
         }
         get().toast(ev.message, true);
@@ -477,6 +547,9 @@ export const useStore = create<State>((set, get) => ({
       case 'training.changed':
         set({ trainingRev: { ...s.trainingRev, [ev.botId]: (s.trainingRev[ev.botId] ?? 0) + 1 } });
         return;
+      case 'task.changed':
+        set({ tasksRev: { ...s.tasksRev, [ev.roomId]: (s.tasksRev[ev.roomId] ?? 0) + 1 } });
+        return;
       default:
         return;
     }
@@ -487,7 +560,7 @@ export const useStore = create<State>((set, get) => ({
     get().setActiveRoom(roomId);
   },
   setActiveRoom: (id) => {
-    if (id) localStorage.setItem('pocketrocket.activeRoom', id);
+    if (id) setItem('pocketrocket.activeRoom', id);
     const unread = { ...get().unread };
     if (id) delete unread[id];
     // Moving to another chat leaves a page. The same chat again (a reconnect's hello) must not.
@@ -506,6 +579,7 @@ export const useStore = create<State>((set, get) => ({
       const existing = get().messages[roomId] ?? [];
       const ids = new Set(msgs.map((m) => m.id));
       const merged = [...msgs, ...existing.filter((m) => !ids.has(m.id))].sort((a, b) => a.seq - b.seq);
+      settleSends(msgs.flatMap((m) => (m.clientMsgId ? [m.clientMsgId] : [])));
       // A reload after reconnect keeps older pages already fetched, so only a short newest page proves there is nothing more.
       const done = msgs.length < MESSAGE_PAGE || !!get().history[roomId]?.done;
       set({
@@ -539,11 +613,36 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  sendMessage: (text) => {
+  sendMessage: (text, attachments) => {
     const roomId = get().activeRoomId;
-    if (!roomId || !text.trim()) return;
-    if (wsSend({ type: 'message.send', roomId, text })) play('send');
-    else get().toast('Not connected', true);
+    const pics = attachments?.length ? attachments : undefined;
+    if (!roomId || (!text.trim() && !pics)) return;
+    // Journal first, then try the socket: a message is never only in memory.
+    const entry: OutboxEntry = { clientId: newClientId(), roomId, text, status: 'sending', createdAt: Date.now(), ...(pics ? { attachments: pics } : {}) };
+    setOutbox([...get().outbox, entry]);
+    play('send');
+    get().flushOutbox();
+  },
+  flushOutbox: () => {
+    for (const e of get().outbox) {
+      if (e.status !== 'sending') continue;
+      if (!wsSend({ type: 'message.send', roomId: e.roomId, text: e.text, clientMsgId: e.clientId, ...(e.attachments ? { attachments: e.attachments } : {}) })) return;
+      patchOutbox(e.clientId, 'sent');
+      // No echo: if the link is still up the hub is not taking it, otherwise it waits for the reconnect.
+      clearAck(e.clientId);
+      ackTimers.set(e.clientId, setTimeout(() => {
+        ackTimers.delete(e.clientId);
+        patchOutbox(e.clientId, get().connected ? 'failed' : 'sending', 'sent');
+      }, SEND_ACK_MS));
+    }
+  },
+  retrySend: (clientId) => {
+    patchOutbox(clientId, 'sending', 'failed');
+    get().flushOutbox();
+  },
+  discardSend: (clientId) => {
+    clearAck(clientId);
+    setOutbox(get().outbox.filter((e) => e.clientId !== clientId));
   },
   decide: (approvalId, decision) => {
     decided.add(approvalId);
@@ -573,7 +672,7 @@ export const useStore = create<State>((set, get) => ({
   closePage: () => set({ page: null }),
   toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
   setSidebarOpen: (open) => {
-    if (!matches(NARROW_SIDEBAR_QUERY)) localStorage.setItem('pocketrocket.sidebar', open ? '1' : '0');
+    if (!matches(NARROW_SIDEBAR_QUERY)) setItem('pocketrocket.sidebar', open ? '1' : '0');
     set({ sidebarOpen: open });
   },
   setPaneW: (pane, width) => {
@@ -636,6 +735,15 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  loadInboxSkills: async () => {
+    try {
+      set({ inboxSkills: await api.skills.list() });
+    } catch {
+      // A paired phone may not read the pool (403) and an old hub may not have it: the inbox just has no skill rows.
+      set({ inboxSkills: get().inboxSkills ?? [] });
+    }
+  },
+
   fetchProviders: async () => {
     try {
       const providers = await api.providers.list();
@@ -664,3 +772,29 @@ export const useStore = create<State>((set, get) => ({
 
 export const selectActiveRoom = (s: State) => s.rooms.find((r) => r.id === s.activeRoomId) ?? null;
 export const botById = (bots: Bot[], id: string | null | undefined) => (id ? bots.find((b) => b.id === id) : undefined);
+
+// ---------- send journal helpers (B5) ----------
+
+/** Replaces the journal in state and on disk. */
+function setOutbox(outbox: OutboxEntry[]) {
+  useStore.setState({ outbox });
+  writeJournal(outbox);
+}
+
+/** Sets one entry's status; with `only`, leaves it alone unless it currently has that status. */
+function patchOutbox(clientId: string, status: OutboxEntry['status'], only?: OutboxEntry['status']) {
+  const cur = useStore.getState().outbox;
+  const at = cur.find((e) => e.clientId === clientId);
+  if (!at || at.status === status || (only && at.status !== only)) return;
+  setOutbox(cur.map((e) => (e.clientId === clientId ? { ...e, status } : e)));
+}
+
+/** The hub has these messages, so their journal entries are done. */
+function settleSends(clientIds: string[]) {
+  const cur = useStore.getState().outbox;
+  if (!cur.length) return;
+  const done = new Set(clientIds);
+  if (!cur.some((e) => done.has(e.clientId))) return;
+  for (const id of done) clearAck(id);
+  setOutbox(cur.filter((e) => !done.has(e.clientId)));
+}

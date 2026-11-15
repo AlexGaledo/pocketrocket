@@ -1,19 +1,24 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, FolderOpen, Info, Monitor, Send, Settings2, ShieldAlert, Square, Users, Zap } from 'lucide-react';
+import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, FolderOpen, Info, Monitor, Paperclip, Send, Settings2, ShieldAlert, Square, Users, X, Zap } from 'lucide-react';
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
 import { RocketMark } from './RocketMark';
 import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload } from '@pocketrocket/shared';
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, UserAvatar, cn, fmtTime } from './ui';
+import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { RuleOffer, TakeoverCard } from './ComputerControl';
+import { CtaButtons, FormCard } from './Cards';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
 import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
 import { selectScreenSize } from '../lib/screenView';
 import { useMediaUrl } from '../lib/media';
+import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
+import { MAX_ATTACHMENTS, refusalFor, reencodeImage, uploadAttachment } from '../lib/attach';
+import { IMAGE_TYPES, ImageRefused } from '../lib/media';
+import type { OutboxEntry } from '../lib/outbox';
 
 export function ChatPane() {
   const room = useStore(selectActiveRoom);
@@ -136,17 +141,19 @@ export function ChatPane() {
 /** Grey message shapes while a chat loads, so the page doesn't flash an empty "Loading…" and then jump. */
 function TranscriptSkeleton({ label }: { label: string }) {
   return (
-    <div role="status" aria-label={label} className="mx-auto flex w-full max-w-[var(--page-max)] flex-col gap-5 motion-safe:animate-pulse">
-      {[64, 40, 52].map((w, i) => (
-        <div key={i} className="flex gap-3">
-          <div className="h-[30px] w-[30px] shrink-0 rounded-full bg-card2" />
-          <div className="flex flex-1 flex-col gap-2 pt-1">
-            <div className="h-3 w-24 rounded-full bg-card2" />
-            <div className="h-3 rounded-full bg-card2" style={{ width: w + '%' }} />
+    <SkeletonGroup label={label} className="mx-auto w-full max-w-[var(--page-max)]">
+      <div className="flex flex-col gap-5">
+        {[64, 40, 52].map((w, i) => (
+          <div key={i} className="flex gap-3">
+            <Skeleton className="h-[30px] w-[30px] shrink-0" />
+            <div className="flex flex-1 flex-col gap-2 pt-1">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3" style={{ width: w + '%' }} />
+            </div>
           </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </SkeletonGroup>
   );
 }
 
@@ -167,10 +174,12 @@ function Transcript({ roomId }: { roomId: string }) {
 
   const isDm = useStore((s) => s.rooms.find((r) => r.id === roomId)?.kind === 'dm');
   const streams = useMemo(() => Object.entries(streaming).filter(([, v]) => v.roomId === roomId && v.text), [streaming, roomId]);
+  const outbox = useStore((s) => s.outbox);
+  const pending = useMemo(() => outbox.filter((e) => e.roomId === roomId), [outbox, roomId]);
 
   useEffect(() => {
     if (stick && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [messages, streams, stick]);
+  }, [messages, streams, pending, stick]);
   useEffect(() => { if (stick) setUnseen(null); }, [stick]);
 
   // New messages land at the end of the list; older pages land at the start. Only the former count as unseen.
@@ -260,7 +269,7 @@ function Transcript({ roomId }: { roomId: string }) {
       )}
       <div ref={ref} onScroll={onScroll} className="flex-1 overflow-x-clip overflow-y-auto overscroll-contain px-6 py-4 [overflow-anchor:none]">
         <div className="mx-auto flex max-w-[var(--page-max)] flex-col gap-6">
-          {!messages?.length && (
+          {!messages?.length && !pending.length && (
             loaded
               ? <div className="py-12 text-center text-ui text-muted">Nothing here yet. Say what you need.</div>
               : <TranscriptSkeleton label="Loading messages" />
@@ -280,6 +289,7 @@ function Transcript({ roomId }: { roomId: string }) {
               </div>
             ) : null;
           })}
+          {pending.length > 0 && <PendingSends entries={pending} bots={bots} />}
         </div>
       </div>
       {unseen && (
@@ -294,6 +304,46 @@ function Transcript({ roomId }: { roomId: string }) {
           <ArrowDown size={14} aria-hidden /> {unseen === 'approval' ? 'Approval waiting' : unseen === 'takeover' ? 'Needs you' : 'New messages'}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * What the user has sent that the hub has not echoed yet: shown at once, in the user's bubble style but dimmed,
+ * with its state spelled out in words (not colour alone) and Retry / Discard when it did not go.
+ */
+function PendingSends({ entries, bots }: { entries: OutboxEntry[]; bots: Bot[] }) {
+  const userName = useStore((s) => s.settings.userName);
+  const userAvatar = useStore((s) => s.settings.userAvatar);
+  const connected = useStore((s) => s.connected);
+  const retrySend = useStore((s) => s.retrySend);
+  const discardSend = useStore((s) => s.discardSend);
+  return (
+    <div className="flex justify-end gap-3 pl-16 @max-[560px]:pl-6">
+      <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
+        {entries.map((e) => (
+          <div key={e.clientId} className="flex max-w-[85%] flex-col items-end gap-1">
+            <div className={cn('md rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body', e.status !== 'sent' && 'opacity-70')}>
+              {e.text ? <RichText text={e.text} bots={bots} /> : null}
+              {e.attachments?.length ? <Attachments refs={e.attachments} /> : null}
+            </div>
+            <div role="status" className={cn('flex items-center gap-2 pr-1 text-hint', e.status === 'failed' ? 'text-bad' : 'text-dim')}>
+              {e.status === 'failed' ? (
+                <>
+                  <span>Not sent</span>
+                  <Button size="sm" variant="ghost" onClick={() => retrySend(e.clientId)}>Retry</Button>
+                  <Button size="sm" variant="ghost" onClick={() => discardSend(e.clientId)}>Discard</Button>
+                </>
+              ) : e.status === 'sent' ? (
+                <span>Sent</span>
+              ) : (
+                <span>{connected ? 'Sending…' : 'Waiting to reconnect…'}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <UserAvatar name={userName} avatar={userAvatar} size={30} />
     </div>
   );
 }
@@ -351,7 +401,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
         <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
           {group.items.map((m) => (
             <div key={m.id} data-seq={m.seq} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body">
-              <RichText text={m.text} bots={bots} />
+              {m.text ? <RichText text={m.text} bots={bots} /> : null}
               {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
             </div>
           ))}
@@ -392,6 +442,7 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
   switch (m.kind) {
     case 'approval': return <ApprovalCard m={m} />;
     case 'takeover': return <TakeoverCard m={m} />;
+    case 'form': return <FormCard m={m} />;
     case 'handoff': return <HandoffCard m={m} bots={bots} />;
     default: {
       // A bot outside this chat reporting back: its work is in its own chat.
@@ -401,6 +452,7 @@ function Item({ m, bots }: { m: Message; bots: Bot[] }) {
           <RichText text={m.text} bots={bots} />
           {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
           {work && <OpenChat roomId={work} />}
+          {m.kind === 'text' && <CtaButtons payload={m.payload} />}
         </div>
       );
     }
@@ -601,6 +653,9 @@ function ImageLightbox({ mediaRef, onClose }: { mediaRef: string; onClose: () =>
 
 // ---------- composer: the floating pill ----------
 
+/** A picture on its way: re-encoded and uploaded before the message is queued, so the outbox only ever holds refs. */
+interface PendingPic { id: string; file: File; preview: string; status: 'working' | 'ready' | 'failed'; ref?: string; blob?: Blob; error?: string }
+
 function Composer({ members }: { members: Bot[] }) {
   const sendMessage = useStore((s) => s.sendMessage);
   const interrupt = useStore((s) => s.interrupt);
@@ -612,7 +667,95 @@ function Composer({ members }: { members: Bot[] }) {
   const showPicker = useStore((s) => !s.device && s.settings.provider === 'claude');
   // A paired phone may not change settings, and the hub would refuse it.
   const showPermissions = useStore((s) => !s.device);
-  const [text, setText] = useState('');
+  // One draft per room (the composer remounts per room): restored here, saved a moment after typing stops,
+  // saved at once when the room changes or the pane closes, and cleared on send.
+  const [text, setText] = useState(() => (roomId ? readDraft(roomId) : ''));
+  const textRef = useRef(text);
+  textRef.current = text;
+  useEffect(() => {
+    if (!roomId) return;
+    const t = setTimeout(() => writeDraft(roomId, text), DRAFT_SAVE_MS);
+    return () => clearTimeout(t);
+  }, [roomId, text]);
+  useEffect(() => {
+    if (!roomId) return;
+    return () => writeDraft(roomId, textRef.current);
+  }, [roomId]);
+  // Pictures waiting to go (U2a). Not drafted: they live until sent or removed, and a room switch drops them.
+  const [pics, setPics] = useState<PendingPic[]>([]);
+  const picsRef = useRef(pics);
+  picsRef.current = pics;
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const shell = useRef<HTMLDivElement>(null);
+  const patchPic = (id: string, patch: Partial<PendingPic>) => setPics((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const runUpload = async (id: string, file: File, blob?: Blob) => {
+    patchPic(id, { status: 'working', error: undefined });
+    try {
+      const b = blob ?? await reencodeImage(file);
+      patchPic(id, { blob: b });
+      patchPic(id, { status: 'ready', ref: await uploadAttachment(b) });
+    } catch (e) {
+      patchPic(id, { status: 'failed', error: e instanceof ImageRefused ? e.message : 'Could not upload that picture.' });
+    }
+  };
+  const addFiles = (files: File[]) => {
+    if (!files.length) return;
+    const room = MAX_ATTACHMENTS - picsRef.current.length;
+    const allowed = (f: File) => (IMAGE_TYPES as readonly string[]).includes(f.type);
+    const ok = files.filter(allowed);
+    const bad = files.find((f) => !allowed(f));
+    const take = ok.slice(0, Math.max(0, room));
+    setNotice(bad ? refusalFor(bad) : ok.length > take.length ? 'Up to ' + MAX_ATTACHMENTS + ' pictures per message.' : null);
+    const fresh = take.map((file) => ({ id: Math.random().toString(36).slice(2), file, preview: URL.createObjectURL(file), status: 'working' as const }));
+    if (!fresh.length) return;
+    setPics((cur) => [...cur, ...fresh]);
+    for (const p of fresh) void runUpload(p.id, p.file);
+  };
+  const dropPic = (id: string) => {
+    const p = picsRef.current.find((x) => x.id === id);
+    if (p) URL.revokeObjectURL(p.preview);
+    setPics((cur) => cur.filter((x) => x.id !== id));
+    setNotice(null);
+  };
+  useEffect(() => () => picsRef.current.forEach((p) => URL.revokeObjectURL(p.preview)), []);
+  // Drop anywhere on the chat pane (the composer's parent), not only on the composer itself.
+  useEffect(() => {
+    const pane = shell.current?.parentElement;
+    if (!pane) return;
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+    const enter = (e: DragEvent) => { if (hasFiles(e)) { e.preventDefault(); depth++; setDragging(true); } };
+    const over = (e: DragEvent) => { if (hasFiles(e)) e.preventDefault(); };
+    const leave = (e: DragEvent) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDragging(false); } };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      addFiles(Array.from(e.dataTransfer?.files ?? []));
+    };
+    pane.addEventListener('dragenter', enter);
+    pane.addEventListener('dragover', over);
+    pane.addEventListener('dragleave', leave);
+    pane.addEventListener('drop', drop);
+    return () => {
+      pane.removeEventListener('dragenter', enter);
+      pane.removeEventListener('dragover', over);
+      pane.removeEventListener('dragleave', leave);
+      pane.removeEventListener('drop', drop);
+    };
+  }, []);
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files);
+    if (!files.length) return;
+    e.preventDefault();
+    addFiles(files);
+  };
+  const busyPics = pics.some((p) => p.status === 'working');
+  const failedPics = pics.some((p) => p.status === 'failed');
+  const canSend = (!!text.trim() || pics.length > 0) && !busyPics && !failedPics;
   const [mentionIdx, setMentionIdx] = useState(0);
   // Escape hides the popup for the @word being typed; typing on reopens it.
   const [mentionDismissed, setMentionDismissed] = useState(false);
@@ -649,9 +792,14 @@ function Composer({ members }: { members: Bot[] }) {
     setTimeout(() => ref.current?.focus(), 0);
   };
   const submit = () => {
-    if (!text.trim()) return;
-    sendMessage(text.trim());
+    if (!canSend) return;
+    sendMessage(text.trim(), pics.flatMap((p) => (p.ref ? [p.ref] : [])));
+    pics.forEach((p) => URL.revokeObjectURL(p.preview));
+    setPics([]);
+    setNotice(null);
     setText('');
+    textRef.current = '';
+    if (roomId) writeDraft(roomId, '');
   };
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // While an IME is composing (Japanese, Chinese, Korean…), Enter confirms the candidate; it must not send.
@@ -676,7 +824,7 @@ function Composer({ members }: { members: Bot[] }) {
     : 'Message ' + (members[0]?.title ? members[0].name + ' · ' + members[0].title : members[0]?.name ?? ''));
 
   return (
-    <div className="relative shrink-0 px-3 pb-5 pt-2 sm:px-6">
+    <div ref={shell} className="relative shrink-0 px-3 pb-5 pt-2 sm:px-6">
       <div className="relative mx-auto max-w-[var(--page-max)]">
         {suggestions.length > 0 && (
           <div className="absolute bottom-full left-0 mb-2 w-[320px] max-w-full rounded-xl bg-panel p-1.5 shadow-[var(--shadow)]">
@@ -687,12 +835,31 @@ function Composer({ members }: { members: Bot[] }) {
             ))}
           </div>
         )}
-        <div className="flex flex-col gap-1 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent">
+        <div className={cn('flex flex-col gap-1 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent', dragging && 'ring-2 ring-accent')}>
+          {dragging && <div role="status" className="text-hint text-accent">Drop pictures to attach</div>}
+          {pics.length > 0 && (
+            <ul aria-label="Pictures to send" className="flex flex-wrap gap-2 pt-1">
+              {pics.map((p, i) => (
+                <li key={p.id} className="flex items-center gap-1.5">
+                  <span className="relative block h-14 w-14 shrink-0 overflow-hidden rounded-md ring-1 ring-line">
+                    <img src={p.preview} alt={'Picture ' + (i + 1) + ' to send'} className={cn('h-full w-full object-cover', p.status !== 'ready' && 'opacity-50')} />
+                  </span>
+                  <span role="status" className={cn('text-hint', p.status === 'failed' ? 'text-bad' : 'text-dim', p.status === 'working' && 'motion-safe:animate-pulse')}>
+                    {p.status === 'working' ? 'Uploading…' : p.status === 'failed' ? p.error ?? 'Not uploaded' : ''}
+                  </span>
+                  {p.status === 'failed' && <Button size="sm" variant="ghost" onClick={() => void runUpload(p.id, p.file, p.blob)}>Retry</Button>}
+                  <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={'Remove picture ' + (i + 1)} onClick={() => dropPic(p.id)}><X size={14} /></Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {notice && <div role="status" className="text-hint text-warn">{notice}</div>}
           <textarea
             ref={ref}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKey}
+            onPaste={onPaste}
             rows={1}
             placeholder={hint}
             aria-label={room?.kind === 'group' ? 'Message #' + room.name : 'Message ' + (members[0]?.name ?? '')}
@@ -703,12 +870,24 @@ function Composer({ members }: { members: Bot[] }) {
             className={cn('w-full resize-none bg-transparent pt-1.5 pb-1 text-body placeholder:text-dim focus-visible:outline-none', !text && hint.length > 24 && '@max-[480px]:min-h-[64px]')}
           />
           <div className="flex items-center justify-end gap-1.5">
+            <input
+              ref={fileInput}
+              type="file"
+              hidden
+              multiple
+              accept={IMAGE_TYPES.join(',')}
+              onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }}
+            />
+            <Tooltip content="Attach pictures">
+              <Button variant="ghost" size="icon" aria-label="Attach pictures" disabled={pics.length >= MAX_ATTACHMENTS} onClick={() => fileInput.current?.click()}><Paperclip size={15} /></Button>
+            </Tooltip>
+            <span className="mr-auto" />
             {showPermissions && <PermissionPicker textarea={ref} />}
             {showPicker && room && <ModelPicker room={room} members={members} busy={activeTurns.length > 0} textarea={ref} />}
             {activeTurns.length > 0 && (
               <Button variant="ghost" size="icon" title="Stop running bots" onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
             )}
-            <Button variant="primary" size="icon" className="h-9 w-9" title="Send (Enter)" onClick={submit} disabled={!text.trim()}><Send size={15} /></Button>
+            <Button variant="primary" size="icon" className="h-9 w-9" title="Send (Enter)" onClick={submit} disabled={!canSend}><Send size={15} /></Button>
           </div>
         </div>
       </div>

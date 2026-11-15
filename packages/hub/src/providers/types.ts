@@ -21,6 +21,15 @@ export interface ToolOutput {
   isError?: boolean;
 }
 
+/** A picture the person attached, saved where the bot can open it (U2a). */
+export interface TurnImage {
+  /** Absolute path inside the bot's own folder. */
+  path: string;
+  mediaType: 'image/png' | 'image/jpeg' | 'image/webp';
+  /** The bytes, for providers that take image input. Never logged. Absent when the picture is too big to inline: it is then reachable by `path` only. */
+  data?: Buffer;
+}
+
 /** Everything an adapter needs to run one turn. Built by BotRunner; adapters never touch the DB. */
 export interface TurnContext {
   turnId: string;
@@ -29,8 +38,10 @@ export interface TurnContext {
   members: Bot[];
   /** From PromptBuilder. The adapter decides how to deliver it (system prompt append, prompt prefix, ...). */
   systemPrompt: string;
-  /** Injected room text for this turn. */
+  /** Injected room text for this turn. Already names each picture's path (see agent/attachments.ts). */
   input: string;
+  /** Pictures the person attached since this bot last looked. Adapters that accept image input send them; the rest rely on the paths in `input`. */
+  images?: TurnImage[];
   /** Provider session / thread id to resume, when the stored one belongs to this provider. */
   resumeToken: string | null;
   workspaceDir: string;

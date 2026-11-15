@@ -172,9 +172,10 @@ export class MemoryService {
    * Case-insensitive term search over the notes. Every term must appear in a note (body or file name) for it
    * to match; hits rank by how often the terms occur (a file-name hit counts extra) and carry a few lines.
    */
-  searchNotes(botId: string, query: string, limit = 8): NoteHit[] {
+  searchNotes(botId: string, query: string, limit = 8, tag?: string): NoteHit[] {
     const terms = [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((t) => t.length >= 2))].slice(0, 12);
-    if (!terms.length) return [];
+    const wantTag = tag?.trim().toLowerCase().replace(/^#/, '');
+    if (!terms.length && !wantTag) return [];
     const dir = this.notesDir(botId);
     const hits: NoteHit[] = [];
     for (const n of this.listNotes(botId)) {
@@ -184,6 +185,7 @@ export class MemoryService {
       } catch {
         continue;
       }
+      if (wantTag && !noteTags(body).includes(wantTag)) continue;
       const lower = body.toLowerCase();
       const name = n.name.toLowerCase();
       if (!terms.every((t) => lower.includes(t) || name.includes(t))) continue;
@@ -221,6 +223,18 @@ export interface NoteHit {
   score: number;
   /** Up to three matching lines, each at most 200 chars. */
   lines: string[];
+}
+
+/**
+ * Tags in a note's front-matter: a leading `---` block with a `tags: a, b` (or `tags: [a, b]`) line. Lower-cased,
+ * at most 10, each up to 32 characters of letters, digits, `-` and `_`.
+ */
+export function noteTags(body: string): string[] {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(body);
+  if (!m) return [];
+  const line = /^tags:[ \t]*(.*)$/im.exec(m[1]);
+  if (!line) return [];
+  return [...new Set(line[1].replace(/^\[|\]$/g, '').split(',').map((t) => t.trim().toLowerCase().replace(/^#/, '')).filter((t) => /^[\p{L}\p{N}_-]{1,32}$/u.test(t)))].slice(0, 10);
 }
 
 /** `"Q3 Launch / Plan!"` -> `q3-launch-plan`. Never empty, never a path. */

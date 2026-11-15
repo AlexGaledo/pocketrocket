@@ -6,7 +6,7 @@ import {
 } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
-import { Button, Input, Label, Select, Textarea, cn, confirmAction, fmtUsd } from './ui';
+import { Button, Input, Label, Select, Textarea, Tooltip, cn, confirmAction, fmtUsd } from './ui';
 
 /**
  * P5: the Triggers half of Automations (the fleet page, and the Bot page filtered to one bot). A trigger wakes a bot in a room when an outside event arrives
@@ -234,9 +234,9 @@ export function TriggersSection({ botId }: { botId: string | null }) {
                     <div className="truncate text-dim">{t.source === 'slack' ? 'Listening' : 'Checked ' + ago(poll.lastPolledAt)}</div>
                   )}
                 </button>
-                <Button size="icon" variant="ghost" title="Send a sample event" aria-label={'Send a sample event to ' + t.name} onClick={() => test(t)}><Play size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Recent runs" aria-label={'Recent runs of ' + t.name} aria-pressed={!!history} onClick={() => toggleFires(t)}><History size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Delete" aria-label={'Delete ' + t.name} onClick={() => remove(t)}><Trash2 size={13} /></Button>
+                <Tooltip content="Send a sample event"><Button size="icon" variant="ghost" aria-label={'Send a sample event to ' + t.name} onClick={() => test(t)}><Play size={13} /></Button></Tooltip>
+                <Tooltip content="Recent runs"><Button size="icon" variant="ghost" aria-label={'Recent runs of ' + t.name} aria-pressed={!!history} onClick={() => toggleFires(t)}><History size={13} /></Button></Tooltip>
+                <Tooltip content="Delete"><Button size="icon" variant="ghost" aria-label={'Delete ' + t.name} onClick={() => remove(t)}><Trash2 size={13} /></Button></Tooltip>
               </div>
               {history && (
                 <ul className="mt-2 flex flex-col gap-0.5 pt-1 text-hint text-muted">

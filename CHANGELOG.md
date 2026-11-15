@@ -9,6 +9,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
 
+### Review fixes
+
+- Pictures attached to a message are now limited to 3.5 MB each (the browser shrinks them to fit); a bigger one is refused instead of failing the whole turn.
+- Bot export now also removes other file paths (any drive, network shares, `/srv/...`-style paths) and tells you which skills were left out for being over 64 KB or past the 20-skill limit.
+- `write_note` no longer says "Saved" while ignoring tags: it explains when tags cannot be added. Forms are not offered to routine and trigger runs. Old attached pictures and the pictures of deleted bots are cleaned up after 7 days.
+
+### Saved logins for bots
+
+- A new **Logins** section in Settings saves a login (a name, the exact site, a username and a password or secret). A bot can then sign in with `fill_credential` by name: the hub types it into the field in the bot's browser, and the bot only ever hears "filled". The secret is write-only (never shown again, never in a bot's chat, logs, cards or any API answer) and is stored encrypted in `data/credentials.json` under the same key as your integration tokens.
+- It asks you on a card every single time, also when approvals are bypassed, and only a browser signed in with your password can say yes; there is no "for this session" and no rule that pre-approves it. A login only works on the exact site it was saved for (same scheme, host and port): on any other page, after a redirect, or with two tabs in front, it refuses and types nothing. A password goes only into a password field.
+- Saving, changing or deleting a login also needs a signed-in browser, and is recorded in the audit log without the secret.
+- A login cannot be saved for `localhost`, `127.0.0.1` or other addresses on this computer, because a bot can run its own local server. `fill_credential` with the username field now types the saved username, never the password.
+
+### Forms and buttons in chat
+
+- A bot can now ask you for a few answers in one card with `request_form`: text boxes, a pick-one list and yes/no, up to 8 fields, with length limits. The card sits in the chat, survives a reload, and your answers go straight back to the bot, which carries on with them. Cancel, or no answer in 10 minutes, tells the bot plainly that you said no. Forms cannot ask for passwords, keys, tokens or codes: such a form is refused, and an answer that looks like a key is refused too.
+- A bot can put up to 3 buttons under a message. A button either sends its text as a normal reply from you (the text is shown under the button before you click) or opens a web link in a new tab with the site name written next to it. Only plain http and https links are allowed. A button never changes a setting or approves anything.
+- Everything a bot writes on these cards is shown as plain text, never as formatting or HTML.
+- An open form now counts in **Needs you** (the inbox, the tab count and the bot's status) like an approval. Its row only opens the chat: you fill the form on the card.
+- A paired phone can read a room's tasks; saved logins, tools, bot sharing and reports stay desktop only.
+
+### Share a bot, and screens for tasks, tools and reports
+
+- You can save a bot as a file (Bot settings > Export) and make a new bot from one (the + menu > Import a bot). The file holds the bot's name, role, picture and skills, and its memory notes only if you switch that on. It never holds logins, keys, tokens, approval rules, tool permissions, budgets or file paths, and anything in the text that looks like a key or a path on your computer is taken out before the file is made. Importing always creates a new bot, never changes one you have, gives a taken handle a number (`@ada-2`), and shows you what is inside first. Skills that arrive wait for your approval on the Skills tab. A bot made from a file starts without a shell (Bash) and without page fetching (WebFetch); you can turn them on later in its settings. The import preview now shows all of its instructions, because the bot will follow them. Files over 1 MB, or with fields the app does not know, are refused.
+- A Tasks page (in the sidebar) shows each chat's to-do list in four columns, updating live as bots add and move tasks.
+- Settings has a Tools page for outside tool servers: add, check, change approval and remove them. Tokens and secrets can be saved or replaced but are never shown again.
+- Settings has a Reports page listing when bots said a site stopped them, with Resolve and Dismiss.
+
+### Tasks, history search and bot reports
+
+- Each room has a local task board: bots get `create_task`, `update_task` and `list_tasks`, and there is a REST API under `/api/rooms/:id/tasks` (200 open tasks per room, 200-character titles, 4 KB notes). A task is only a note: it never grants an approval or changes a setting.
+- Bots can search the chat history of the rooms they are in with `search_history` (full-text, stemmed) and look across memory, notes and history with `recall_memory`. Notes can carry `tags:` in front-matter and `search_notes` can filter by tag. Older messages are indexed in the background after an upgrade.
+- Bots can tell you when a site stopped them with `report_blocked` (a room note plus a review list at `GET /api/bot-reports`) and leave feedback with `send_feedback` (a local file, readable at `GET /api/feedback`). Both refuse secrets and are limited to 10 an hour per bot. Nothing leaves your machine.
+
+### Web UI security headers and MCP server API
+
+- The hub now sends a Content-Security-Policy, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer` with the web app. `POCKETROCKET_CSP=report-only|enforce|off` picks the mode; the default is `report-only` (violations show in the browser console, nothing is blocked) until the policy has been run against the production build. The theme snippet moved from `index.html` to `/theme-init.js` so scripts need no `unsafe-inline`. Inline scripts in a previewed HTML file will not run once the policy is enforced.
+- New `GET/POST/PATCH/DELETE /api/mcp-servers` and `POST /api/mcp-servers/:name/check` manage `data/mcp-servers.json` without hand-editing. Tokens and env values are write-only (listings show whether a token is set and the variable names). Adding or changing a server that runs a command needs a browser signed in with your password, like a PC job approval; url servers and deletes take the hub token. A hand-edited file keeps working and is never overwritten when it does not parse. No UI yet.
+
+### Needs you inbox and desktop notifications
+
+- A **Needs you** entry at the top of the sidebar opens one list of everything waiting on you across all bots and rooms: approvals, requests to take over a bot's screen, and skills or skill changes waiting for review. Each row shows the bot, what is waiting and for how long; a plain approval can be allowed or denied right there, and Open jumps to the room. The count shows on the sidebar entry and in the window title.
+- In the desktop app, a notification appears when a bot needs your approval, needs you on its screen, or finishes, but only while the window is in the background. The text is generic ("A bot needs you") unless you turn on **Settings > Notifications > Include message text**. The section is only listed in the desktop app. Phones keep using Web Push.
+- Loading placeholders in the chat and sidebar, a few empty lists, and the icon buttons in the fleet pages, bot page, screen panel and triggers now use the shared Skeleton, EmptyState and Tooltip components (the same look, with hover and keyboard-focus labels on the buttons).
+
+### Machines
+
+- Bots can now ask which computers they may run on (`list_machines`) and name one in `run_on_pc`. Each machine gets its own on/off policy in Settings, and approval rules can be scoped to a machine and given an expiry. Existing rules keep applying to every machine.
+
+### Bot pop-out windows
+
+- Each bot row has a pop-out button that opens that bot's chat in its own small window, so you can keep a few bots in view while you work. In the desktop app the window is built by the app itself and gets no extra permissions; in a browser it is an ordinary small window.
+
+### Clearer refusals for bots
+
+- Every refusal a bot reads (declined card, timeout, read-only mode, a rule you set, an unavailable tool) now says what happened, tells it not to retry, and says what to do instead, so bots stop looping on a "no". The hub tool lists the permission gate uses now come from one shared registry, with a test that fails if a new tool is left out. Wording only; no approval behaviour changed.
+
+### Attach pictures to a message
+
+- The composer has a paperclip button, and you can paste a screenshot or drop pictures onto the chat. Up to 4 PNG, JPEG or WebP pictures per message, each shown as a thumbnail you can remove before sending, with an uploading or failed state and Retry. GIFs, PDFs and other files are refused with a plain message for now.
+- Before upload the browser redraws each picture, which removes EXIF data such as photo location, and scales anything past 2048 px on its longest side. The hub checks the real file type from the bytes, accepts up to 10 MB per picture, and refuses the whole message if any picture is unknown. Sending goes through the same outbox as text, so a retry resends the already uploaded pictures and never posts twice.
+- Bots get your pictures with the message. On Claude they arrive as images in the turn; on other providers the message gives a file path the bot can open. Anything shown or written in a picture is passed as untrusted data. The copies live in a hub-owned folder (`data/attachments/<bot>`) that the bot can read but its own file tools cannot change.
+- Pictures attached to messages are no longer swept away by the daily media cleanup.
+
+### Messages that don't get lost
+
+- Sending while the hub is unreachable no longer drops the text. The message shows in the chat at once, marked "Waiting to reconnect", and goes out in order when the connection is back. A message the hub never confirms shows "Not sent" with Retry and Discard. Unsent messages survive closing the tab.
+- Each chat remembers what you were typing: the draft comes back when you return to the room and clears when you send.
+- The hub tells a repeated send from a new one (an optional `clientMsgId` on `message.send`, stored on the message), so a retry after a reconnect never posts twice or starts a second turn. Older clients that send no id work as before. Existing databases get the new column and index on start.
+- The connection now notices a link that has gone quiet (cable pulled, laptop woken from sleep): the hub pings every 20 seconds, and after two missed pings the app shows "Reconnecting…" in the profile menu and the top banner and reconnects with the usual backoff.
+- All browser storage goes through one guarded helper, so blocked or full storage can no longer throw. Existing settings keep their keys and values.
+
+### UI primitives
+
+- New shared UI primitives in `ui.tsx`: Banner, Popover, Tooltip, Kbd, EmptyState and Skeleton (documented in `docs/DEVELOPMENT.md`). Adds `@radix-ui/react-popover` and `@radix-ui/react-tooltip`. Nothing uses them yet.
+
+### Desktop hardening
+
+- The desktop app now sets a Content Security Policy on its own pages (the connection screen and the Server terminal): no inline or eval script, and no network access beyond the app's own commands.
+- Groundwork for local desktop notifications: the app ships the notification plugin, and the hub page may raise a notification only while the window is not focused. Nothing triggers one yet.
+
 ### Cheaper default models
 
 - A bot that creates another bot no longer hands it its own model: without an explicit pick the new bot gets Sonnet 5, so an Opus lead no longer fills a room with Opus workers. The create/update bot tools tell bots to use Sonnet for workers, Haiku for simple or routine bots, and Opus only when you ask or a lead truly needs it.

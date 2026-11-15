@@ -642,6 +642,7 @@ fn connect(app: AppHandle, state: AppState, splash: bool) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_title(&window_title(&cfg));
     }
+    close_popouts(&app);
     std::thread::spawn(move || run_connection(app, state, cfg, gen, old));
 }
 
@@ -966,6 +967,119 @@ fn open_terminal(app: &AppHandle) {
         .build();
 }
 
+/// A bot id becomes part of a window label, so only [A-Za-z0-9_-] is accepted (the hub's own ids always are).
+fn valid_bot_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// U1: the hub page asks for a bot pop-out with `window.open("<hub>/?popout=<botId>")`. That arrives in
+/// on_new_window, so it needs no IPC command and no capability: the page cannot open anything but this one
+/// kind of window, on the hub origin, for a validated id. Returns the id, or None for any other URL.
+fn popout_request(url: &Url) -> Option<(String, Option<String>)> {
+    let hub = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+        && url.port_or_known_default() == Some(HUB_PORT.load(Ordering::Relaxed));
+    if !hub {
+        return None;
+    }
+    let get = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.to_string());
+    let id = get("popout")?;
+    if !valid_bot_id(&id) {
+        return None;
+    }
+    // Optional room to show; same charset, otherwise dropped (the page then picks the bot's own chat).
+    let room = get("room").filter(|r| valid_bot_id(r));
+    Some((id, room))
+}
+
+/// Last position and size of each bot's pop-out in this session, so reopening puts it back.
+static POPOUT_GEOM: Mutex<Vec<(String, (i32, i32, u32, u32))>> = Mutex::new(Vec::new());
+
+fn remember_popout(window: &tauri::Window) {
+    let label = window.label().to_string();
+    let (Ok(pos), Ok(size)) = (window.outer_position(), window.inner_size()) else { return };
+    // A minimized window reports a far off-screen position; do not remember that.
+    if pos.x < -10000 || pos.y < -10000 || size.width < 100 || size.height < 100 {
+        return;
+    }
+    let mut g = POPOUT_GEOM.lock().unwrap_or_else(|e| e.into_inner());
+    g.retain(|(l, _)| *l != label);
+    g.push((label, (pos.x, pos.y, size.width, size.height)));
+}
+
+/// U1: open (or focus) the chat window for one bot. Pointed at the hub like the main window, with the same
+/// navigation lock. Never holds the state lock while talking to the window.
+fn open_bot_popout(app: &AppHandle, bot_id: &str, room_id: Option<&str>) {
+    if !valid_bot_id(bot_id) {
+        return;
+    }
+    let label = format!("bot-{bot_id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let (port, token, quitting) = match app.try_state::<AppState>() {
+        Some(st) => {
+            let inner = st.0.lock().unwrap();
+            (inner.config.port, inner.token.clone(), inner.quitting)
+        }
+        None => return,
+    };
+    if quitting {
+        return;
+    }
+    // The token rides only in the fragment, as for the main window; the page strips it after reading it.
+    let mut url = format!("http://127.0.0.1:{port}/?desktop=1&popout={bot_id}");
+    if let Some(r) = room_id.filter(|r| valid_bot_id(r)) {
+        url.push_str(&format!("&room={r}"));
+    }
+    if !token.is_empty() {
+        url.push_str(&format!("#token={token}"));
+    }
+    let Ok(parsed) = url.parse::<Url>() else { return };
+    let h = app.clone();
+    let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+        .title("PocketRocket - bot chat")
+        .inner_size(460.0, 720.0)
+        .min_inner_size(320.0, 420.0)
+        .on_navigation(|url| {
+            if stays_in_webview(url) {
+                return true;
+            }
+            open_in_browser(url);
+            false
+        })
+        .on_new_window(move |url, _features| {
+            match popout_request(&url) {
+                Some((id, room)) => {
+                    let h = h.clone();
+                    std::thread::spawn(move || open_bot_popout(&h, &id, room.as_deref()));
+                }
+                None => open_in_browser(&url),
+            }
+            NewWindowResponse::Deny
+        })
+        .build();
+    if let Ok(w) = built {
+        let saved = POPOUT_GEOM.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(l, _)| *l == label).map(|(_, g)| *g);
+        if let Some((x, y, cw, ch)) = saved {
+            let _ = w.set_size(tauri::PhysicalSize::new(cw, ch));
+            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
+}
+
+/// The popouts hold the old hub token, so a reconnect (new token) closes them; the chat's "Pop out" opens a fresh one.
+fn close_popouts(app: &AppHandle) {
+    for (label, w) in app.webview_windows() {
+        if label.starts_with("bot-") {
+            let _ = w.destroy();
+        }
+    }
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -1152,6 +1266,8 @@ pub fn run() {
         }))
         // Rust-side confirm dialogs only; no capability grants the pages dialog access.
         .plugin(tauri_plugin_dialog::init())
+        // Local desktop notifications. Granted only to the hub origin, and only the notify commands (capabilities/hub-notify.json).
+        .plugin(tauri_plugin_notification::init())
         .manage(state.clone())
         .manage(term::Term::default())
         .invoke_handler(tauri::generate_handler![
@@ -1202,6 +1318,7 @@ pub fn run() {
                 .find(|w| w.label == "main")
                 .cloned()
                 .ok_or("window \"main\" is missing from tauri.conf.json")?;
+            let popout_app = app.handle().clone();
             let main_window = WebviewWindowBuilder::from_config(app.handle(), &win_cfg)?
                 .on_navigation(|url| {
                     if stays_in_webview(url) {
@@ -1210,8 +1327,15 @@ pub fn run() {
                     open_in_browser(url);
                     false
                 })
-                .on_new_window(|url, _features| {
-                    open_in_browser(&url);
+                .on_new_window(move |url, _features| {
+                    match popout_request(&url) {
+                        // U1: a bot pop-out from the hub page; built off this thread (window work can deadlock here).
+                        Some((id, room)) => {
+                            let h = popout_app.clone();
+                            std::thread::spawn(move || open_bot_popout(&h, &id, room.as_deref()));
+                        }
+                        None => open_in_browser(&url),
+                    }
                     NewWindowResponse::Deny
                 })
                 .build()?;
@@ -1346,6 +1470,11 @@ pub fn run() {
                 }
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label().starts_with("bot-") {
+                    // A pop-out only closes itself: no tray hiding, no quit, no hub or bot stopped.
+                    remember_popout(window);
+                    return;
+                }
                 if window.label() != "main" {
                     return;
                 }
@@ -1383,6 +1512,20 @@ mod tests {
 
     fn u(s: &str) -> Url {
         Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn popout_requests_are_hub_only_and_validated() {
+        HUB_PORT.store(7788, Ordering::Relaxed);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=bot_1-a")), Some(("bot_1-a".into(), None)));
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=b&room=r-1")), Some(("b".into(), Some("r-1".into()))));
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=b&room=../x")), Some(("b".into(), None)));
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=a%20b")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=..%2Fx")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:9999/?popout=x")), None);
+        assert_eq!(popout_request(&u("https://evil.com/?popout=x")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/")), None);
     }
 
     #[test]

@@ -16,3 +16,17 @@ export * from './training.js';
 export * from './files.js';
 // PC runner
 export * from './pcRunner.js';
+// Machines (B4)
+export * from './machines.js';
+// Hub tool registry
+export * from './tools.js';
+// Tasks
+export * from './tasks.js';
+// Credential vault (G4)
+export * from './credentials.js';
+
+// Form and call-to-action cards (U4, U5)
+export * from './cards.js';
+
+// Bot export / import files
+export * from './botExport.js';

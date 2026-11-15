@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
 import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
-import { CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
+import path from 'node:path';
+import { ATTACHMENTS_DIR, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
 import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -10,6 +11,7 @@ import type { SkillService } from '../services/SkillService.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { imageNote, materializeImages } from './attachments.js';
 import { EMPTY_USAGE, type ProviderInit, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
@@ -23,12 +25,15 @@ import { desktopTools, SHARED_BROWSER_NOTE, SHARED_TAB_NOTE, viewScreenTool } fr
 import type { ComputerEndpoint, ComputerManager } from '../services/ComputerManager.js';
 import type { IntegrationService } from '../services/IntegrationService.js';
 import { createIntegrationTools } from '../integrations/tools.js';
+import { credentialTools } from './credentialTools.js';
+import type { CredentialStore } from '../services/CredentialStore.js';
 import type { ProjectService } from '../services/ProjectService.js';
 import { folderAccessDenied } from '../permissions/projectGuard.js';
 import type { RoomFiles } from '../rooms/roomFiles.js';
 import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGuard.js';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
+import type { FormBroker } from '../services/FormBroker.js';
 import { turnFailureNote } from './turnFailure.js';
 import { outsideMcpFor, registerOutsideMcpSecrets, vpsMountable } from '../services/outsideMcp.js';
 import { loadKeyRegistry } from '../services/keyRegistry.js';
@@ -44,6 +49,8 @@ export interface TurnRequest {
   hop: number;
   causeId: string;
   injected: string;
+  /** Media refs of the pictures a person attached in the unread window (U2a). */
+  images?: string[];
   /** The newest message a person wrote in `injected`. The only text that can ask the router for a stronger model. */
   latestUserText?: string;
   /** On a routine's turn: the routine's own prompt. The only other text that can invoke a skill that asks for Opus. */
@@ -126,6 +133,8 @@ export class BotRunner {
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
   pcRunner?: PcRunner;
+  /** G4: saved logins for `fill_credential`. Set by createHub; absent in most unit tests. */
+  credentials?: CredentialStore;
   /** The one-shot Haiku call that writes the running room summary when a session rotates. Tests replace it. */
   summarize: (prompt: string, systemPrompt: string) => Promise<PassOutcome> = runPass;
 
@@ -145,6 +154,9 @@ export class BotRunner {
     /** Uploaded pictures; `send_message`'s `image_path` is refused when absent (most unit tests). */
     private media?: MediaStore,
   ) {}
+
+  /** U4: waits for the owner's answers to request_form cards. Set by the hub; without it the tool is not offered. */
+  forms?: FormBroker;
 
   interrupt(turnId: string) {
     const ac = this.aborts.get(turnId);
@@ -294,10 +306,12 @@ export class BotRunner {
       desktop: false,
       // `auto` is a valid choice wherever the provider has a list to route within (P8).
       models: providerModels.length ? [...providerModels.map((m) => m.id), AUTO_MODEL] : [],
+      forms: this.forms,
+      strictApprovals: !!req.strictApprovals,
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
       // Every provider, not just the best-effort ones: CLI providers reach hub tools over MCP and never go
       // through the SDK's permission callback, so the gate has to live with the tool (audit 2026-09-09, B6).
-      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal, { evenUnderBypass: a.evenUnderBypass }),
+      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal, { evenUnderBypass: a.evenUnderBypass, machine: a.machine }),
       confirmOutsideHandoff: (a) => this.broker.askOutsideHandoff(permCtx, a.input, a.reason, ac.signal),
       // Offered on every Claude turn and refused here when this turn may not move up: a tool list that changes between
       // turns of one session invalidates the whole prompt cache.
@@ -345,6 +359,14 @@ export class BotRunner {
       }));
     }
 
+    // G4: typing a saved login into this bot's browser. Only where there is a browser, and only with a card each time.
+    if (browserOn && computer && this.credentials) {
+      tools.push(...credentialTools({
+        store: this.credentials, db: this.repos.db, bot, roomId: room.id, cdpUrl: computer.cdpUrl,
+        confirm: (a) => this.broker.askCredentialFill(permCtx, a, ac.signal),
+      }));
+    }
+
     // P4: integration tools, only for connections granted to this bot. Writes ask on every call (also under bypass).
     if (this.integrations) {
       tools.push(...createIntegrationTools(this.integrations, bot.id, (a) => this.broker.askIntegrationWrite(permCtx, a.tool, a.input, a.reason, ac.signal)));
@@ -385,6 +407,7 @@ export class BotRunner {
     const outsideMcp = vpsMountable(outsideMcpFor(bot.handle, room), keyRegistry);
     // Bearer tokens and stdio env values (the owner's API keys): scrubbed from tool output, chat and logs.
     registerOutsideMcpSecrets(outsideMcp);
+    const images = materializeImages(this.media, ATTACHMENTS_DIR, bot.id, req.images);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -411,7 +434,8 @@ export class BotRunner {
         canMoveUp: provider.id === 'claude' && isAuto(bot),
         canProposeRouting: !!routing,
       }),
-      input: seed ? seed + '\n\n' + req.injected : req.injected,
+      input: (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images),
+      ...(images.length ? { images } : {}),
       resumeToken,
       sessionCostUsd: resumeToken ? state.costTotal : 0,
       cacheReadBudget: TURN_CACHE_READ_CAP > 0 ? TURN_CACHE_READ_CAP : undefined,
@@ -438,7 +462,7 @@ export class BotRunner {
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
-      readOnlyDirs: bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : undefined,
+      readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length ? [path.dirname(images[0].path)] : [])],
       projectDirs: folderDir ? [folderDir] : [],
       shipGuard: this.repos.botSkillIds(bot.id).some((id) => this.repos.getSkill(id)?.name === SHIP_GUARD_SKILL) ? defaultBranchPushDenied : undefined,
       projectGuard: this.projects || this.roomFiles

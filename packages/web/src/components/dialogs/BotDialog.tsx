@@ -5,6 +5,7 @@ import { useStore } from '../../store';
 import { iconGlyph } from '../../lib/botIcon';
 import { BotIconPicker } from './BotIconPicker';
 import { Button, Dialog, Field, Input, Label, Select, Textarea, cn, confirmAction } from '../ui';
+import { ExportBotControls } from './BotFileDialogs';
 
 /** Starter bots. `userName` is settings.userName, so the coordinator reports to whoever runs this hub. */
 const presets = (userName: string): { label: string; v: Partial<BotInput> }[] => [
@@ -105,6 +106,7 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
         {/* Below the toggles, not a Label hint: hints truncate on a narrow window, and this line is the warning. */}
         <p className="mt-1.5 text-hint text-dim">Browser: web. Desktop: whole screen. Bash: sees other bots' logins.</p>
       </div>
+      {bot && !device && <ExportBotControls bot={bot} />}
       <div className="mt-5 flex items-center justify-between">
         <div>{bot && <Button variant="danger" size="sm" onClick={remove} disabled={busy}>Delete bot</Button>}</div>
         <div className="flex gap-2">

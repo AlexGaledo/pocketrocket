@@ -12,7 +12,9 @@ import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrock
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
 import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
-import type { PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
+import type { MachineInfo, MachinePolicy, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { BotExportResult, BotImportResult, Task, TaskStatus } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -71,7 +73,45 @@ function fileToBase64(file: Blob): Promise<string> {
   });
 }
 
+/** A bot's own account of being stopped (GET /api/bot-reports). */
+export interface BotReportRow {
+  id: string; botId: string; roomId: string | null; kind: 'captcha' | 'login' | 'blocked' | 'other'; site: string; reason: string;
+  status: 'pending' | 'resolved' | 'dismissed'; createdAt: number;
+}
+/** One outside MCP server as the hub lists it. Tokens and env values are never in it, only whether they are set. */
+export interface McpServerRow {
+  name: string; kind: 'http' | 'stdio' | 'invalid'; status: 'configured' | 'invalid'; problems: string[];
+  url?: string; urlHasQuery?: boolean; tokenSet?: boolean; command?: string; args?: string[]; argsMasked?: boolean; envKeys?: string[];
+  rooms: string[]; bots: string[]; approve: 'every-call' | 'writes' | 'none'; readTools: string[]; needs: string[];
+  lastCheck: { ok: boolean; result: string; at: number } | null;
+}
+export interface McpServerInput {
+  name: string; url?: string; token?: string; command?: string; args?: string[]; env?: Record<string, string>;
+  rooms?: string[]; bots?: string[]; approve?: McpServerRow['approve'];
+}
+export interface McpServerPatch {
+  token?: string | null; approve?: McpServerRow['approve']; rooms?: string[]; bots?: string[];
+}
+export interface TaskInput { title: string; assigneeBotId?: string | null }
+
 export const api = {
+  tasks: {
+    list: (roomId: string) => req<Task[]>('GET', '/api/rooms/' + encodeURIComponent(roomId) + '/tasks?all=1'),
+    create: (roomId: string, t: TaskInput) => req<Task>('POST', '/api/rooms/' + encodeURIComponent(roomId) + '/tasks', t),
+    update: (roomId: string, id: string, patch: { status?: TaskStatus; assigneeBotId?: string | null; title?: string }) =>
+      req<Task>('PATCH', '/api/rooms/' + encodeURIComponent(roomId) + '/tasks/' + encodeURIComponent(id), patch),
+  },
+  botReports: {
+    list: () => req<BotReportRow[]>('GET', '/api/bot-reports'),
+    set: (id: string, status: BotReportRow['status']) => req<BotReportRow>('PATCH', '/api/bot-reports/' + encodeURIComponent(id), { status }),
+  },
+  mcpServers: {
+    list: () => req<{ servers: McpServerRow[] }>('GET', '/api/mcp-servers'),
+    add: (s: McpServerInput) => req<McpServerRow>('POST', '/api/mcp-servers', s),
+    patch: (name: string, p: McpServerPatch) => req<McpServerRow>('PATCH', '/api/mcp-servers/' + encodeURIComponent(name), p),
+    remove: (name: string) => req<{ ok: true }>('DELETE', '/api/mcp-servers/' + encodeURIComponent(name)),
+    check: (name: string) => req<{ ok: boolean; result: string; at: number }>('POST', '/api/mcp-servers/' + encodeURIComponent(name) + '/check', {}),
+  },
   /**
    * A room's file folder (hub token only; a paired phone gets 403). Paths are relative to the room's folder with '/'
    * separators, '' being the folder itself. `files.changed` events name the folder whose listing changed.
@@ -146,6 +186,8 @@ export const api = {
   // A picture, base64 in JSON. Reading one back is lib/media.ts, which wants a blob rather than JSON.
   media: {
     upload: (data: string) => req<{ ref: string }>('POST', '/api/media', { data }),
+    /** A picture for a chat message: the hub's larger cap (10 MB), same checks on the bytes. */
+    uploadAttachment: (data: string) => req<{ ref: string }>('POST', '/api/media?for=attachment', { data }),
   },
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
@@ -157,6 +199,10 @@ export const api = {
     setMemory: (id: string, text: string) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/memory', { text }),
     skills: (id: string) => req<string[]>('GET', '/api/bots/' + id + '/skills'),
     setSkills: (id: string, skillIds: string[]) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/skills', { skillIds }),
+    /** U10: the bot as a shareable file. Never holds secrets, paths or permissions. */
+    export: (id: string, includeMemory: boolean) => req<BotExportResult>('GET', '/api/bots/' + id + '/export' + (includeMemory ? '?memory=1' : '')),
+    /** U10: always makes a new bot. `file` is the parsed JSON the user picked. */
+    import: (file: unknown, includeMemory: boolean) => req<BotImportResult>('POST', '/api/bots/import' + (includeMemory ? '?memory=1' : ''), file),
     resetSession: (id: string, roomId: string) => req<{ ok: true }>('POST', '/api/bots/' + id + '/reset-session', { roomId }),
   },
   routing: {
@@ -265,6 +311,15 @@ export const api = {
     /** Shown once and never stored here: the caller keeps it in component state only. Replaces the old token. */
     mintToken: () => req<{ token: string }>('POST', '/api/pc-runner/token', {}),
     turnOff: () => req<{ ok: true; cancelled: number }>('DELETE', '/api/pc-runner'),
+    machines: () => req<MachineInfo[]>('GET', '/api/pc-runner/machines'),
+    setMachinePolicy: (id: string, policy: MachinePolicy) => req<MachineInfo>('PUT', '/api/pc-runner/machines/' + encodeURIComponent(id), { policy }),
+  },
+  // Saved logins for fill_credential. The secret is write-only: it is sent here and never comes back.
+  credentials: {
+    list: () => req<{ credentials: CredentialInfo[] }>('GET', '/api/credentials'),
+    create: (c: Omit<CredentialCreate, 'username'> & { username?: string }) => req<CredentialInfo>('POST', '/api/credentials', c),
+    update: (id: string, c: CredentialPatch) => req<CredentialInfo>('PATCH', '/api/credentials/' + encodeURIComponent(id), c),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/credentials/' + encodeURIComponent(id)),
   },
   devices: {
     list:() => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),

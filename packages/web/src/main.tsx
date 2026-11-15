@@ -3,17 +3,22 @@ import ReactDOM from 'react-dom/client';
 import { App } from './components/App';
 import { connectWs } from './lib/ws';
 import { pairFromHash } from './lib/auth';
+import { currentPopout } from './lib/popout';
+import { PopoutShell } from './components/PopoutShell';
 import '@fontsource-variable/google-sans/wght.css';
 import '@fontsource-variable/figtree/wght.css';
 import '@fontsource-variable/geist-mono/wght.css';
 import './index.css';
 
 // P9: a phone that opened `#pair=<code>` from the QR trades it for a device token before the first connect.
+// U1: a bot pop-out window shows one bot's chat instead of the whole app.
+const popout = currentPopout();
+
 void pairFromHash().finally(() => {
   connectWs();
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <App />
+      {popout ? <PopoutShell route={popout} /> : <App />}
     </React.StrictMode>,
   );
 });

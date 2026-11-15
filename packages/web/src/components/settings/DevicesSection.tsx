@@ -11,7 +11,7 @@ import { BellRing, RefreshCw, Smartphone } from 'lucide-react';
 import { useStore } from '../../store';
 import { api, type DeviceInfo, type PairingCode } from '../../lib/api';
 import { currentSubscription, disablePush, enablePush, pushSupport } from '../../lib/push';
-import { Badge, Button, Field, Input, Label, Select, Switch } from '../ui';
+import { Badge, Button, EmptyState, Field, Input, Label, Select, Switch } from '../ui';
 import { QrCode } from '../QrCode';
 import { Card, Group, InlineError, SectionHeader } from './parts';
 
@@ -58,7 +58,7 @@ function PairAndList() {
       <Group title="Paired devices" aside={<Button size="sm" variant="ghost" onClick={load}><RefreshCw size={13} aria-hidden /> Refresh</Button>}>
         <Card className="py-2">
           {error && <InlineError>{error}</InlineError>}
-          {devices && devices.length === 0 && <p className="py-2 text-ui text-muted">No devices yet.</p>}
+          {devices && devices.length === 0 && <EmptyState title="No devices yet" className="py-4" />}
           <ul className="divide-y divide-line">
             {devices?.map((d) => (
               <DeviceRow

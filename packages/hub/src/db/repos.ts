@@ -96,6 +96,7 @@ export class Repos {
       this.db.run('DELETE FROM auto_memory WHERE bot_id=?', id);
       this.db.run('DELETE FROM bot_skills WHERE bot_id=?', id);
       this.db.run('DELETE FROM routines WHERE bot_id=?', id);
+      this.db.run('UPDATE tasks SET assignee_bot_id=NULL WHERE assignee_bot_id=?', id);
       this.db.run('UPDATE rooms SET coordinator_bot_id=NULL WHERE coordinator_bot_id=?', id);
     });
   }
@@ -165,6 +166,7 @@ export class Repos {
       this.db.run('DELETE FROM sessions WHERE room_id=?', id);
       this.db.run('DELETE FROM auto_memory WHERE room_id=?', id);
       this.db.run('DELETE FROM routines WHERE room_id=?', id);
+      this.db.run('DELETE FROM tasks WHERE room_id=?', id);
       this.db.run('DELETE FROM approvals WHERE room_id=?', id);
     });
   }
@@ -186,6 +188,7 @@ export class Repos {
       createdAt: r.created_at as number,
       ...(r.model ? { model: r.model as string, modelReason: (r.model_reason as string) ?? undefined } : {}),
       ...(r.attachments ? { attachments: JSON.parse(r.attachments as string) as string[] } : {}),
+      ...(r.client_msg_id ? { clientMsgId: r.client_msg_id as string } : {}),
     };
   }
   insertMessage(m: Omit<Message, 'id' | 'seq' | 'createdAt'> & { id?: string }): Message {
@@ -193,11 +196,14 @@ export class Repos {
       const seq =
         this.db.get<{ s: number }>('SELECT COALESCE(MAX(seq),0)+1 AS s FROM messages WHERE room_id=?', m.roomId)?.s ?? 1;
       const msg: Message = { ...m, id: m.id ?? nanoid(12), seq, createdAt: now() };
+      // The id column only exists from migration 180, so a message without one is written as it always was.
+      const withId = msg.clientMsgId ? ',client_msg_id' : '';
       this.db.run(
-        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments' + withId + ') VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?' + (withId ? ',?' : '') + ')',
         msg.id, msg.roomId, msg.seq, msg.authorType, msg.authorId, msg.kind, msg.text,
         msg.payload ? JSON.stringify(msg.payload) : null, msg.causeId, msg.hop, msg.turnId, msg.createdAt,
         msg.model ?? null, msg.modelReason ?? null, msg.attachments?.length ? JSON.stringify(msg.attachments) : null,
+        ...(msg.clientMsgId ? [msg.clientMsgId] : []),
       );
       return msg;
     });
@@ -208,6 +214,20 @@ export class Repos {
     const m = { ...cur, ...patch };
     this.db.run('UPDATE messages SET text=?, payload=? WHERE id=?', m.text, m.payload ? JSON.stringify(m.payload) : null, id);
     return m;
+  }
+  /** Every picture reference on any message, so the media sweep keeps them (U2a). */
+  attachmentRefs(): string[] {
+    const out: string[] = [];
+    for (const r of this.db.all('SELECT attachments FROM messages WHERE attachments IS NOT NULL')) {
+      try { out.push(...(JSON.parse(r.attachments as string) as string[])); } catch { /* unreadable: nothing to keep */ }
+    }
+    return out;
+  }
+
+  /** The message a client already sent under `clientMsgId` in this room (B5), if any. */
+  findByClientMsgId(roomId: string, clientMsgId: string): Message | undefined {
+    const r = this.db.get('SELECT * FROM messages WHERE room_id=? AND client_msg_id=?', roomId, clientMsgId);
+    return r && this.rowToMessage(r);
   }
   getMessage(id: string): Message | undefined {
     const r = this.db.get('SELECT * FROM messages WHERE id=?', id);
@@ -526,7 +546,8 @@ export class Repos {
       // P2: a parked card or takeover (its turn ended and waits for the user) survives a restart.
       this.db.run("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending' AND parked_at IS NULL", now());
       const open = "((kind='approval' AND json_extract(payload, '$.status')='pending' AND json_extract(payload, '$.parked') IS NOT 1) OR " +
-        "(kind='takeover' AND json_extract(payload, '$.status')='waiting'))";
+        "(kind='takeover' AND json_extract(payload, '$.status')='waiting') OR " +
+        "(kind='form' AND json_extract(payload, '$.status')='pending'))";
       const ids = this.db.all<{ id: string }>('SELECT id FROM messages WHERE ' + open).map((r) => r.id);
       this.db.run("UPDATE messages SET payload=json_set(payload, '$.status', 'expired') WHERE " + open);
       return ids.map((id) => this.getMessage(id)).filter((m): m is Message => !!m);

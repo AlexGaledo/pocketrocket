@@ -7,7 +7,7 @@ import { MODELS, type CauseKind, type Routine, type RoutineRun, type UsageGroup,
 import { MONTHS, SCHEDULE_PRESETS, WEEKDAYS, cronToPreset, describeCron, presetToCron, zonedParts, type SchedulePreset, type ScheduleParts } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Button, Input, Label, Select, Textarea, cn, confirmAction, fmtUsd } from './ui';
+import { Avatar, Button, Input, Label, Select, Textarea, Tooltip, cn, confirmAction, fmtUsd } from './ui';
 import { TriggersSection } from './TriggersSection';
 
 /** The scrolling column under a page's header, as wide as the chat column. */
@@ -19,11 +19,11 @@ export function PageBody({ children }: { children: ReactNode }) {
   );
 }
 
-function FleetHeader({ title, sub }: { title: string; sub: string }) {
+export function FleetHeader({ title, sub }: { title: string; sub: string }) {
   const closePage = useStore((s) => s.closePage);
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
-      <Button variant="ghost" size="icon" title="Back to chat" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button>
+      <Tooltip content="Back to chat"><Button variant="ghost" size="icon" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button></Tooltip>
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-body font-semibold">{title}</h1>
         <div className="truncate text-hint text-muted">{sub}</div>
@@ -220,9 +220,9 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
                   <div className="truncate text-muted">{scheduleLabel(r, tz)}</div>
                   <div className="truncate text-muted">@{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
                 </button>
-                <Button size="icon" variant="ghost" title="Run now. This does real work." aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Run history" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Delete" aria-label={'Delete ' + r.name} onClick={() => remove(r)}><Trash2 size={13} /></Button>
+                <Tooltip content="Run now. This does real work."><Button size="icon" variant="ghost" aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button></Tooltip>
+                <Tooltip content="Run history"><Button size="icon" variant="ghost" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button></Tooltip>
+                <Tooltip content="Delete"><Button size="icon" variant="ghost" aria-label={'Delete ' + r.name} onClick={() => remove(r)}><Trash2 size={13} /></Button></Tooltip>
               </div>
               {history && (
                 <ul className="mt-2 pt-1 text-hint text-muted">

@@ -94,7 +94,7 @@ describe('askOutsideMcp', () => {
     const r = await s.broker.askOutsideMcp(s.ctx, 'supabase', 'execute_sql', { sql: 'select 1; ' + 'x'.repeat(9000) }, signal());
     a.off();
     expect(r.allowed).toBe(false);
-    expect(r.message).toMatch(/^Input too large to show for approval \(\d+ chars\); split the call\.$/);
+    expect(r.message).toMatch(/too large to show for approval \(\d+ chars\)\. Do not retry it; split it into smaller calls\.$/);
     expect(a.cards).toHaveLength(0);
   });
 });

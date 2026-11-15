@@ -1,4 +1,5 @@
 import type { Settings } from '@pocketrocket/shared';
+import { setItem } from './persist';
 
 export type ThemeMode = Settings['theme'];
 
@@ -19,21 +20,13 @@ export function resolveDark(mode: ThemeMode): boolean {
 /** Applies the theme to <html> and mirrors it to localStorage so first paint (before settings load) can use it. */
 export function applyTheme(mode: ThemeMode) {
   document.documentElement.classList.toggle('dark', resolveDark(mode));
-  try {
-    localStorage.setItem('pocketrocket.theme', mode);
-  } catch {
-    /* ignore */
-  }
+  setItem('pocketrocket.theme', mode);
 }
 
 /** Sets the app font, and mirrors it to localStorage so first paint uses it too. */
 export function applyFont(font: Settings['font']) {
   document.documentElement.dataset.font = font;
-  try {
-    localStorage.setItem('pocketrocket.font', font);
-  } catch {
-    /* ignore */
-  }
+  setItem('pocketrocket.font', font);
 }
 
 let mediaListenerAttached = false;

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { z } from 'zod';
-import { ApprovalPolicyInputSchema, ControlInputSchema, type ApprovalPolicy } from '@pocketrocket/shared';
+import { ApprovalPolicyInputSchema, ControlInputSchema, PC_MACHINE_ID, VPS_MACHINE_ID, type ApprovalPolicy } from '@pocketrocket/shared';
 import { readBody } from './body.js';
 import type { Repos } from '../db/repos.js';
 import { getApprovalRecord, type ApprovalStore, type StoredPolicy } from '../db/approvalStore.js';
@@ -83,10 +83,12 @@ export function createTakeoverApi(deps: { repos: Repos; control: ComputerControl
       tool = input.tool;
       pattern = input.pattern;
     }
+    if (input.machine && input.machine !== PC_MACHINE_ID && input.machine !== VPS_MACHINE_ID) throw new HttpError(400, 'Unknown machine');
+    if (input.expiresAt && input.expiresAt <= Date.now()) throw new HttpError(400, 'expiresAt is in the past');
     bot(botId);
     // P4: sending or posting as the user to a third party asks on every call; no rule can pre-approve it.
     if (INTEGRATION_WRITES.has(tool)) throw new HttpError(400, 'Integration writes always ask; they cannot become a rule');
-    const p = store.addPolicy({ botId, tool, pattern: pattern.trim(), decision: input.decision, scope: 'always' });
+    const p = store.addPolicy({ botId, tool, pattern: pattern.trim(), decision: input.decision, scope: 'always', machine: input.machine ?? null, expiresAt: input.expiresAt ?? null });
     policiesChanged();
     return toPublic(p);
   });
