@@ -29,6 +29,16 @@ const AUTO_OK = new Set(['WebSearch', 'WebFetch']);
 const ALL_BUILTINS = ['Read','Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit', 'Task'];
 /** The CLI's own names for a bot-facing built-in. */
 const sdkNames = (t: string) => (t === 'Task' ? ['Task', 'Agent'] : [t]);
+/**
+ * Playwright MCP tools a bot never gets. Each can read what a page holds outside the snapshot, including a
+ * password fill_credential just typed: browser_evaluate runs page JavaScript, browser_run_code_unsafe runs
+ * Playwright code in the server process, and browser_network_request returns request bodies (a sign-in POST).
+ * disallowedTools wins over the `mcp__browser__*` entry in allowedTools, in bypass mode too.
+ */
+export const BLOCKED_BROWSER_TOOLS = ['browser_evaluate', 'browser_run_code_unsafe', 'browser_network_request'].map((t) => 'mcp__browser__' + t);
+/** Anchored, so browser_network_request does not also catch browser_network_requests (a URL list only). */
+export const BLOCKED_BROWSER_MATCHER = '^(?:' + BLOCKED_BROWSER_TOOLS.join('|') + ')$';
+export const BLOCKED_BROWSER_REASON = 'This browser tool is turned off for bots: it can read what a page holds, including saved passwords. Use browser_snapshot to read the page.';
 
 /**
  * The SDK's `maxBudgetUsd` flag for one run. The SDK checks it against the session's cumulative cost, which on a
@@ -396,6 +406,15 @@ export class ClaudeProvider implements AgentProvider {
           },
         ],
       },
+      // Second line behind disallowedTools for BLOCKED_BROWSER_TOOLS: a hook deny holds in bypass mode too.
+      ...(browserOn
+        ? [{
+            matcher: BLOCKED_BROWSER_MATCHER,
+            hooks: [
+              async () => ({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: BLOCKED_BROWSER_REASON } }),
+            ],
+          }]
+        : []),
       ...outsideGuard,
       ...controlGuard,
       ...knowledgeGuard,
@@ -458,7 +477,7 @@ export class ClaudeProvider implements AgentProvider {
       // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
       tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)).flatMap(sdkNames), ...(pluginDir ? ['Skill'] : [])],
       allowedTools: [...allowed, 'mcp__pocketrocket__*', ...(browserOn ? ['mcp__browser__*'] : [])],
-      disallowedTools: disallowed,
+      disallowedTools: [...disallowed, ...(browserOn ? BLOCKED_BROWSER_TOOLS : [])],
       mcpServers,
       strictMcpConfig: true,
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
