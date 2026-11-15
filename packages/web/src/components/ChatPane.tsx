@@ -9,7 +9,7 @@ import { api } from '../lib/api';
 import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
-import { RuleOffer, TakeoverCard } from './ComputerControl';
+import { AlwaysAllow, RuleOffer, TakeoverCard } from './ComputerControl';
 import { CtaButtons, FormCard } from './Cards';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
 import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
@@ -531,6 +531,8 @@ function ApprovalCard({ m }: { m: Message }) {
   const bots = useStore((s) => s.bots);
   // P2: answering here may lead to a rule offer. Only here and now: a transcript reloaded later does not re-offer.
   const [answered, setAnswered] = useState(false);
+  // "Always allow": the pattern editor is open, then a permanent rule was saved (no "make it a rule" offer after).
+  const [always, setAlways] = useState<'closed' | 'open' | 'saved'>('closed');
   const pending = p.status === 'pending';
   const device = useStore((s) => s.device);
   // A job on the PC: only a browser signed in with the owner's password may allow it; anyone may deny it.
@@ -545,7 +547,7 @@ function ApprovalCard({ m }: { m: Message }) {
   // Asked on every call (a PC job, an outside MCP tool): no "for this session", and no rule offer after.
   const once = !!p.once || p.toolName === 'run_on_pc';
   const pcJob = p.toolName === 'run_on_pc' ? pcJobInput(p) : null;
-  const outcome = p.status === 'allow' ? (handoff ? 'Sent' : proposal ? 'Added' : 'Allowed once') : p.status === 'always' ? (once ? 'Allowed once' : 'Allowed for this session') : p.status === 'deny' ? (handoff ? 'Kept here' : proposal ? 'Not added' : 'Denied') : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired after restart. Ask the bot to retry.' : null;
+  const outcome = p.status === 'allow' ? (handoff ? 'Sent' : proposal ? 'Added' : 'Allowed once') : p.status === 'always' ? (once ? 'Allowed once' : 'Allowed for that session') : p.status === 'deny' ? (handoff ? 'Kept here' : proposal ? 'Not added' : 'Denied') : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired after restart. Ask the bot to retry.' : null;
   return (
     <div className={cn('max-w-[640px] overflow-hidden rounded-lg ring-1', p.danger ? 'ring-bad/40' : pending ? 'ring-warn/40' : 'ring-line')}>
       <div className="flex items-center gap-2 px-4 pt-3 text-ui">
@@ -577,14 +579,16 @@ function ApprovalCard({ m }: { m: Message }) {
             ? <SignInToApprove />
             : <Button size="sm" variant="primary" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'allow'); }}>{handoff ? 'Send it' : proposal ? 'Add it' : 'Allow once'}</Button>}
           {/* A paired device answers once; the hub refuses a standing grant from one (and approval rules). */}
-          {!device && !yesOrNo && !once && <Button size="sm" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'always'); }}>Allow for this session</Button>}
+          {!device && !yesOrNo && !once && !p.danger && !needsSignIn && always === 'closed' && <Button size="sm" className="touch-target" onClick={() => setAlways('open')}>Always allow…</Button>}
           <Button size="sm" variant={yesOrNo ? 'outline' : 'danger'} className="touch-target" onClick={() => decide(p.approvalId, 'deny')}>{handoff ? 'Keep it here' : proposal ? 'Leave it out' : 'Deny'}</Button>
-          {device && !yesOrNo && !once && <span className="basis-full text-hint text-muted">Session-wide allow is desktop only.</span>}
+          {always === 'open' && <AlwaysAllow p={p} botName={botById(bots, m.authorId)?.name ?? 'this bot'} onCancel={() => setAlways('closed')} onSaved={() => setAlways('saved')} />}
+          {device && !yesOrNo && !once && <span className="basis-full text-hint text-muted">Always allow is desktop only.</span>}
           {once && !needsSignIn && <span className="basis-full text-hint text-muted">Asked every time.</span>}
           {refused && <p role="alert" className="basis-full text-hint leading-snug text-bad">{refused}</p>}
         </div>
       )}
-      {answered && !device && !yesOrNo && !once && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}
+      {always === 'saved' && <div className="px-4 pb-3 text-hint text-muted">Rule saved. Revoke in Settings › Bots.</div>}
+      {answered && always !== 'saved' && !device && !yesOrNo && !once && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}
     </div>
   );
 }
