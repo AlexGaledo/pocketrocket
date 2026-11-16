@@ -165,6 +165,23 @@ describe('ComputerManager', () => {
     expect(s2.cm.status('a').state).toBe('asleep');
   });
 
+  it('restarts a live computer whose browser stopped answering, instead of handing it out', async () => {
+    let browserUp = true;
+    const { cm, sys } = setup({ probe: async () => browserUp });
+    expect((await cm.ensureRunning('a')).ok).toBe(true);
+    sys.calls.length = 0;
+    browserUp = false;
+    setTimeout(() => { browserUp = true; }, 5);
+    const r = await cm.ensureRunning('a');
+    expect(r.ok).toBe(true);
+    expect(sys.calls.map((c) => c.split(' ')[0])).toEqual(['stop', 'start']);
+    expect(cm.status('a').state).toBe('live');
+    // A healthy one is left alone.
+    sys.calls.length = 0;
+    expect((await cm.ensureRunning('a')).ok).toBe(true);
+    expect(sys.calls).toEqual([]);
+  });
+
   it('stops an idle computer after the idle time, keeping its slot', async () => {
     const { cm, sys, advance } = setup();
     const r = await cm.acquire('a');
