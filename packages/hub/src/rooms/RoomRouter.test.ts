@@ -276,3 +276,39 @@ describe('RoomRouter cut-off turns', () => {
     expect(reqs).toHaveLength(1);
   });
 });
+
+describe('RoomRouter reports', () => {
+  it('sends a handed-off bot report that names nobody back to the coordinator', async () => {
+    const { repos, router, bot } = setup();
+    const lead = bot('lead');
+    const rev = bot('rev');
+    const room = repos.createRoom({ kind: 'group', name: 'g', memberIds: [lead.id, rev.id], coordinatorBotId: lead.id });
+    const reqs: TurnRequest[] = [];
+    router.runner = {
+      runTurn: async (req: TurnRequest): Promise<TurnResult> => {
+        reqs.push(req);
+        if (req.bot.id === rev.id) return { ok: true, turnId: 't', finalText: 'Verdict: go after one long render.', costUsd: 0 };
+        const first = reqs.filter((r) => r.bot.id === lead.id).length === 1;
+        return { ok: true, turnId: 't', finalText: first ? '@rev please review' : 'Thanks, rendering now.', costUsd: 0 };
+      },
+    } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'ship it');
+    await until(() => reqs.filter((r) => r.bot.id === lead.id).length === 2);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reqs.map((r) => r.bot.handle)).toEqual(['lead', 'rev', 'lead']);
+    expect(reqs[2].hop).toBe(2);
+  });
+
+  it('does not bounce a direct answer to the person back to the coordinator', async () => {
+    const { repos, router, bot } = setup();
+    const lead = bot('lead');
+    const rev = bot('rev');
+    const room = repos.createRoom({ kind: 'group', name: 'g', memberIds: [lead.id, rev.id], coordinatorBotId: lead.id });
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: 'Here you go.', costUsd: 0 }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, '@rev quick question');
+    await until(() => reqs.length === 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reqs).toHaveLength(1);
+  });
+});
