@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Daily snapshot of PocketRocket's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
-# Installed as /etc/cron.daily/pocketrocket-backup by setup-vps.sh. Keeps the 7 newest archives.
+# Installed as /etc/cron.daily/pocketrocket-backup by setup-vps.sh. Keeps the 3 newest archives (KEEP in
+# /etc/default/pocketrocket-backup changes that). Each one is a full copy of data/ (~5 GB on the live server),
+# so on 2026-11-16 seven of them filled the 96 GB disk and the last three came out cut off. Now the old ones go
+# before the new one is written, a run with too little free space is skipped, and an archive only gets its
+# final name once tar has finished, so a cut-off one never takes a good one's place.
 # Per-bot computers (data/computers/<id>/: home, browser profile, files) are included, minus their caches.
 #
 # Optional and off by default: incremental, deduplicated snapshots with restic into a repository on this VPS
@@ -91,17 +95,36 @@ if [ -n "${RESTIC_REPOSITORY:-}" ] && [ -n "${RESTIC_PASSWORD_FILE:-}" ] && comm
   args=()
   for e in "${EXCLUDES[@]}"; do args+=(--exclude "$ROOT/$e"); done
   restic backup --quiet --tag pocketrocket "${args[@]}" "$ROOT/data" "${EXTRA_PATHS[@]}"
-  restic forget --quiet --tag pocketrocket --keep-daily 7 --prune
+  restic forget --quiet --tag pocketrocket --keep-daily "${KEEP:-3}" --prune
   echo "backup: restic snapshot in $RESTIC_REPOSITORY"
   exit 0
 fi
 
+KEEP="${KEEP:-3}"
+[[ "$KEEP" =~ ^[1-9][0-9]?$ ]] || { echo "backup: KEEP must be 1-99, got '$KEEP'" >&2; exit 2; }
 mkdir -p "$OUT"
 chmod 700 "$OUT"
 find "$OUT" -maxdepth 1 -name 'data-*.tgz' -exec chmod 600 {} +
+# Leftovers of a run that died mid-write.
+find "$OUT" -maxdepth 1 -name 'data-*.tgz.partial' -delete
+# Make room first: keep KEEP-1 old archives, so with the new one there are KEEP.
+ls -1t "$OUT"/data-*.tgz 2>/dev/null | tail -n +"$KEEP" | xargs -r rm -f
+# Room for one more: the newest archive's size plus 2 GB, or 6 GB when there is none yet.
+last="$(ls -1t "$OUT"/data-*.tgz 2>/dev/null | head -n 1 || true)"
+if [ -n "$last" ]; then last_kb="$(du -k "$last" | cut -f1)"; else last_kb=6291456; fi
+need_kb=$(( last_kb + 2097152 ))
+free_kb="$(df -Pk "$OUT" | awk 'NR==2 {print $4}')"
+if [ "$free_kb" -lt "$need_kb" ]; then
+  echo "backup: skipped, $((free_kb / 1048576)) GB free in $OUT and a backup needs about $((need_kb / 1048576)) GB" >&2
+  exit 1
+fi
 stamp="$(date +%F-%H%M)"
 args=()
 for e in "${EXCLUDES[@]}"; do args+=(--exclude="$e"); done
-tar -czf "$OUT/data-$stamp.tgz" "${args[@]}" -C "$ROOT" data "${EXTRA[@]}"
-ls -1t "$OUT"/data-*.tgz | tail -n +8 | xargs -r rm -f
+if ! tar -czf "$OUT/data-$stamp.tgz.partial" "${args[@]}" -C "$ROOT" data "${EXTRA[@]}"; then
+  rm -f "$OUT/data-$stamp.tgz.partial"
+  echo "backup: tar failed, nothing kept from this run" >&2
+  exit 1
+fi
+mv "$OUT/data-$stamp.tgz.partial" "$OUT/data-$stamp.tgz"
 echo "backup: $OUT/data-$stamp.tgz ($(du -h "$OUT/data-$stamp.tgz" | cut -f1))"

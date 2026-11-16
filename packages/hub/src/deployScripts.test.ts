@@ -88,9 +88,15 @@ describe('backups (P4, P9)', () => {
     expect(backup).toMatch(/tar -czf [^\n]* -C "\$ROOT" data "\$\{EXTRA\[@\]\}"/);
     expect(backup).toMatch(/restic backup [^\n]*"\$ROOT\/data" "\$\{EXTRA_PATHS\[@\]\}"/);
     expect(backup).toMatch(/\$CLAUDE_HOME\/projects/);
-    // Retention is unchanged: 7 archives.
-    expect(backup).toMatch(/tail -n \+8/);
-    expect(backup).toMatch(/--keep-daily 7/);
+    // Retention: KEEP archives (3 by default; 7 full copies filled the disk on 2026-11-16). Old ones go before the
+    // new one is written, a run without room is skipped, and only a finished tar gets the final name.
+    expect(backup).toMatch(/KEEP="\$\{KEEP:-3\}"/);
+    expect(backup).toMatch(/tail -n \+"\$KEEP" \| xargs -r rm -f/);
+    expect(backup.indexOf('tail -n +"$KEEP"')).toBeLessThan(backup.indexOf('tar -czf'));
+    expect(backup).toMatch(/backup: skipped/);
+    expect(backup).toMatch(/tar -czf "\$OUT\/data-\$stamp\.tgz\.partial"/);
+    expect(backup).toMatch(/mv "\$OUT\/data-\$stamp\.tgz\.partial" "\$OUT\/data-\$stamp\.tgz"/);
+    expect(backup).toMatch(/--keep-daily "\$\{KEEP:-3\}"/);
   });
 
   it('vapid.json is owner-only when minted and again when loaded with looser modes', () => {
