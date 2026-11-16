@@ -14,7 +14,7 @@ import { buildTranscript, type PassOutcome } from './AutoMemory.js';
  * with {@link buildSeed}: the hub's running summary, the room's current.md and the last few messages.
  */
 
-export type RotateReason = 'size' | 'idle' | 'unknown';
+export type RotateReason = 'size' | 'idle' | 'unknown' | 'cutoff';
 
 export interface RotationLimits {
   contextTokens: number;
@@ -47,6 +47,7 @@ export function rotationNote(botName: string, why: RotateReason, contextTokens: 
   const lead =
     why === 'size' ? botName + "'s conversation context grew large" + size :
     why === 'idle' ? botName + "'s conversation went idle with a large context" + size :
+    why === 'cutoff' ? botName + "'s last turn was cut off before it finished" :
     botName + "'s conversation context predates size tracking";
   return lead + '; starting a fresh session to save tokens. A summary and the recent messages carry over.';
 }

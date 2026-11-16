@@ -71,6 +71,8 @@ export interface TurnRequest {
   strictApprovals?: boolean;
   /** P2: the routine run this turn belongs to, so a parked turn can still close it when it resumes. */
   runId?: string;
+  /** The last turn here was cut off (token brake, step limit): start a fresh, small session instead of resuming the big one. */
+  freshSession?: boolean;
 }
 export interface TurnResult {
   ok: boolean;
@@ -191,7 +193,7 @@ export class BotRunner {
     let seed = '';
     // The room's own file folder (current.md lives there); also used below for the turn's working roots.
     const folder = this.roomFiles?.forBot(room, bot.id) ?? null;
-    const rotateWhy = resumeToken && provider.id === 'claude' ? rotationReason(state, Date.now()) : null;
+    const rotateWhy = resumeToken && provider.id === 'claude' ? (req.freshSession ? 'cutoff' : rotationReason(state, Date.now())) : null;
     if (rotateWhy) {
       resumeToken = null;
       // Forgotten now, so a rotated run that dies before it reports a session cannot leave the old one to resume.

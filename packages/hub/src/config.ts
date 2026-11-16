@@ -216,6 +216,12 @@ export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 30)
  */
 export const MAX_TURN_CONTINUATIONS = Number(process.env.MAX_TURN_CONTINUATIONS ?? 1);
 /**
+ * A turn cut off by the token brake, or by the step limit after its continuations, was not finished: nobody hears back
+ * and a hand-off chain stops there. RoomRouter queues the same bot again in a fresh, small session (seeded with the
+ * room summary) up to this many times per request, then hands the job to the room's coordinator.
+ */
+export const CUTOFF_RETRIES = Number(process.env.CUTOFF_RETRIES ?? 2);
+/**
  * Context-size brake. Every step of a turn re-sends the whole session, so cost per step grows with history.
  * When the last model call of a turn saw more than this many input tokens (input + cache read + cache write),
  * the next turn starts a fresh session seeded with memory, the room summary and recent messages instead of
