@@ -2,7 +2,7 @@
   "name": "@pocketrocket/site",
   "private": true,
   "license": "MIT",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "scripts": {
     "build": "echo static",
     "test": "node --test test/subscribe.test.cjs"
