@@ -381,6 +381,13 @@ export class RoomRouter {
           // A bot this turn already woke with handoff or send_message is not woken again because the final message
           // names it too ("handed this to @x"): that second turn costs a full context load for nothing new.
           const targets = parseMentions(result.finalText, this.members(freshRoom), bot.id).filter((t) => !wokeByTool.has(t.id));
+          // Work a bot was handed ends in a report. One that names nobody would otherwise reach no one and the chain
+          // stops there, so it goes to the coordinator, who decides what is next. Hops still bound it.
+          const coord = freshRoom.coordinatorBotId;
+          if (!targets.length && !wokeByTool.size && req.hop > 0 && coord && coord !== bot.id) {
+            const c = this.members(freshRoom).find((m) => m.id === coord);
+            if (c) targets.push(c);
+          }
           if (targets.length) this.dispatchFromBot({ ...req, room: freshRoom }, targets);
         }
       }
