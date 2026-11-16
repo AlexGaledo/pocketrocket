@@ -1,7 +1,7 @@
 import { pickCoordinator } from './coordinator.js';
 import { MAX_ATTACHMENTS } from '@pocketrocket/shared';
 import type { Bot, BotState, CauseKind, Message, Room, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
-import { CAUSE_COST_CAP_USD, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
+import { CAUSE_COST_CAP_USD, CUTOFF_RETRIES, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
 import { quoteTags } from './transcript.js';
 import type { Repos } from '../db/repos.js';
@@ -33,12 +33,19 @@ interface LaneItem {
   // ---- P5 ----
   /** Most this item's turn may spend (a trigger's remaining daily budget); the cause cap still applies. */
   budgetUsd?: number;
+  /** Re-queued after a cut-off turn: run it in a fresh session. */
+  freshSession?: boolean;
 }
 interface Lane {
   running: boolean;
   pending: LaneItem[];
   /** The owner removed this bot from the room while a turn ran; whatever that turn says hands nothing on. */
   left?: boolean;
+}
+
+/** A turn that stopped because it ran out of room (token brake, step limit), not because it broke. */
+export function isCutOff(error: string | undefined): boolean {
+  return !!error && /^(token_budget|error_max_turns)/.test(error);
 }
 
 const STATE_RANK: Record<BotState, number> = { idle: 0, done: 1, thinking: 2, working: 3, waiting: 4, blocked: 5, error: 6 };
@@ -83,6 +90,8 @@ export function capBacklog(lines: string[], maxMessages = BACKLOG_MAX_MESSAGES, 
 
 export class RoomRouter {
   private lanes = new Map<string, Lane>();
+  /** Cut-off retries so far, per request and bot (afterCutOff). */
+  private cutOffs = new Map<string, number>();
   private states = new Map<string, Map<string, BotState>>(); // botId -> roomId -> state
   /**
    * botId:roomId -> the roster that bot's session last saw, and which session. The roster rides the injected
@@ -226,6 +235,41 @@ export class RoomRouter {
     return valid.map((v) => v.handle);
   }
 
+  /**
+   * A turn the token brake or the step limit stopped is unfinished work, not a failure: nobody else will pick it up.
+   * The same bot goes again in a fresh session, up to CUTOFF_RETRIES times per request; after that the coordinator
+   * is woken to decide, so the chain never just stops. Routine runs are left to their schedule.
+   */
+  private afterCutOff(bot: Bot, roomId: string, req: TurnRequest, items: LaneItem[]) {
+    if (items.some((i) => i.runId)) return;
+    const room = this.repos.getRoom(roomId);
+    if (!room || !room.memberIds.includes(bot.id)) return;
+    const key = req.causeId + ':' + bot.id;
+    const tries = (this.cutOffs.get(key) ?? 0) + 1;
+    this.cutOffs.set(key, tries);
+    if (this.cutOffs.size > 500) this.cutOffs.delete(this.cutOffs.keys().next().value!);
+    if (tries <= CUTOFF_RETRIES) {
+      this.note(room, '@' + bot.handle + ' was cut off before finishing, so it continues in a fresh session (' + tries + '/' + CUTOFF_RETRIES + ').', req.causeId, req.hop);
+      this.enqueue(bot, room, {
+        causeId: req.causeId, hop: req.hop, triggerSeq: this.repos.maxSeq(room.id), causeKind: req.causeKind, freshSession: true,
+        note: '(Your last turn was cut off before you finished, because it read too much. You are in a fresh session now. ' +
+          'Check the files and the room to see what is already done, then finish the task and report. Keep this turn small: ' +
+          'read only the files you need, never node_modules, build output or long logs.)',
+      });
+      return;
+    }
+    const coord = room.coordinatorBotId && room.coordinatorBotId !== bot.id ? this.repos.getBot(room.coordinatorBotId) : undefined;
+    if (!coord) {
+      this.note(room, '@' + bot.handle + ' was cut off ' + tries + ' times on this request and stopped. Send a new message to continue.', req.causeId, req.hop);
+      return;
+    }
+    this.followUp(room, coord, {
+      causeId: req.causeId, hop: req.hop,
+      note: '(@' + bot.handle + ' was cut off ' + tries + ' times before finishing its task and has stopped. Check what it got done ' +
+        '(files, room), then decide: split the rest into smaller tasks, give it to someone else, or finish it yourself.)',
+    });
+  }
+
   private note(room: Room, text: string, causeId: string | null, hop: number) {
     const msg = this.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text, payload: null, causeId, hop, turnId: null });
     events.emitEvent({ type: 'message.new', message: msg });
@@ -305,7 +349,7 @@ export class RoomRouter {
           // The composer's pick is for what a person starts here. Hand-offs and schedules keep each bot's own model.
           const chatModel = items.some((i) => i.causeKind === 'user' && i.hop === 0) ? room.chatModel ?? undefined : undefined;
           const images = this.userImages(bot, room, session.lastSeenSeq);
-          req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
+          req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), ...(items.some((i) => i.freshSession) ? { freshSession: true } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
           sessionBefore = session.sdkSessionId;
           result = await this.runner.runTurn(req);
         } finally {
@@ -330,6 +374,7 @@ export class RoomRouter {
         try { this.skillReflection?.afterTurn(bot.id, room.id, result); } catch (e) { console.error('[skill-reflection]', e); }
         // P2: a parked turn is not finished; its routine run stays open until the resumed turn ends.
         for (const i of items) if (!(result.parked && i.runId)) i.onDone?.(result);
+        if (!result.ok && !left && isCutOff(result.error)) this.afterCutOff(bot, roomId, req, items);
         if (result.ok && result.finalText && !left) {
           // re-read members: the turn may have created or added bots
           const freshRoom = this.repos.getRoom(roomId) ?? room;

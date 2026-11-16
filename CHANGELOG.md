@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A bot whose turn is cut off (token brake, or the step limit after its continuation) no longer leaves its hand-off chain dead. It continues in a fresh, small session up to `CUTOFF_RETRIES` times (default 2), then the room's coordinator is woken to split, reassign or finish the work.
+
 ## [0.3.0] - 2026-11-16
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.

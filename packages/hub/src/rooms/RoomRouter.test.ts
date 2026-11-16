@@ -236,3 +236,43 @@ describe('RoomRouter per-turn context (kept out of the cached system prompt)', (
     expect(reqs.find((r) => r.bot.id === b.id)!.injected).toContain('(Hop budget: ' + (MAX_HOPS - 1));
   });
 });
+
+describe('RoomRouter cut-off turns', () => {
+  it('continues a cut-off bot in a fresh session, then hands the job to the coordinator', async () => {
+    const { repos, router, bot } = setup();
+    const lead = bot('lead');
+    const dev = bot('dev');
+    const room = repos.createRoom({ kind: 'group', name: 'g', memberIds: [lead.id, dev.id], coordinatorBotId: lead.id });
+    const reqs: TurnRequest[] = [];
+    router.runner = {
+      runTurn: async (req: TurnRequest): Promise<TurnResult> => {
+        reqs.push(req);
+        if (req.bot.id === dev.id) return { ok: false, turnId: 't', finalText: '', costUsd: 0, error: 'token_budget: stopped after reading 3,000,001 cached tokens' };
+        return { ok: true, turnId: 't', finalText: '', costUsd: 0 };
+      },
+    } as unknown as BotRunner;
+    router.onUserMessage(room.id, '@dev build it');
+    // first turn + CUTOFF_RETRIES fresh ones, then the coordinator is woken once
+    await until(() => reqs.some((r) => r.bot.id === lead.id));
+    const devTurns = reqs.filter((r) => r.bot.id === dev.id);
+    expect(devTurns).toHaveLength(3);
+    expect(devTurns[0].freshSession).toBeUndefined();
+    expect(devTurns[1].freshSession).toBe(true);
+    expect(devTurns[1].injected).toContain('cut off');
+    const leadTurn = reqs.find((r) => r.bot.id === lead.id)!;
+    expect(leadTurn.injected).toContain('@dev was cut off 3 times');
+    expect(leadTurn.causeId).toBe(devTurns[0].causeId);
+  });
+
+  it('leaves other failures alone', async () => {
+    const { repos, router, bot } = setup();
+    const dev = bot('dev');
+    const room = repos.createRoom({ kind: 'dm', name: 'd', memberIds: [dev.id], coordinatorBotId: null });
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: false, turnId: 't', finalText: '', costUsd: 0, error: 'Interrupted' }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'hi');
+    await until(() => reqs.length === 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reqs).toHaveLength(1);
+  });
+});
