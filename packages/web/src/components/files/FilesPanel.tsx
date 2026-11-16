@@ -15,6 +15,7 @@ import { FilePreview } from './FilePreview';
 import { canPickFolder, emptyDirs, gatherFromDrop, gatherFromInput, splitRel, tooBig, type Gathered } from './folderUpload';
 import { KIND_LABEL, baseName, fileKind, fmtBytes, fmtModified, fmtModifiedFull, joinPath, parentPath, resolveFileLink } from './fileKinds';
 import { getJson, setJson } from '../../lib/persist';
+import { saveBlob } from '../../lib/saveBlob';
 
 type View = 'grid' | 'list';
 type SortKey = 'name' | 'size' | 'mtime';
@@ -40,22 +41,6 @@ function sortEntries(entries: FileEntry[], sort: Sort): FileEntry[] {
     : sort.key === 'size' ? (a: FileEntry, b: FileEntry) => a.size - b.size || collator.compare(a.name, b.name)
     : (a: FileEntry, b: FileEntry) => a.mtime - b.mtime || collator.compare(a.name, b.name);
   return [...entries].sort((a, b) => (a.kind === b.kind ? by(a, b) * sort.dir : a.kind === 'dir' ? -1 : 1));
-}
-
-/**
- * Saves a fetched file the way a link with `download` would. Re-typed as octet-stream first, so the URL is only ever
- * something to save: were it opened as a page, a text/html or SVG type would run in the app's origin.
- */
-function saveBlob(blob: Blob, name: string) {
-  const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  // The click has started the download by now; a moment's grace for a slow browser, then the URL goes.
-  setTimeout(() => URL.revokeObjectURL(url), 5_000);
 }
 
 const message = (e: unknown) => (e as Error)?.message || 'Unknown error';

@@ -11,6 +11,8 @@ import { getItem, removeItem, setItem } from './persist';
 
 const TOKEN_KEY = 'pocketrocket.token';
 const DESKTOP_KEY = 'pocketrocket.desktop';
+/** Comma-separated features the desktop app that opened this page handles (older apps send none). */
+const DESKTOP_CAPS_KEY = 'pocketrocket.desktopCaps';
 
 function boot() {
   try {
@@ -21,7 +23,10 @@ function boot() {
       history.replaceState(null, '', location.pathname + location.search);
     }
     const params = new URLSearchParams(location.search);
-    if (params.get('desktop') === '1') setItem(DESKTOP_KEY, '1', 'session');
+    if (params.get('desktop') === '1') {
+      setItem(DESKTOP_KEY, '1', 'session');
+      setItem(DESKTOP_CAPS_KEY, params.get('caps') ?? '', 'session');
+    }
   } catch {
     /* history unavailable (e.g. sandboxed iframe) — fall back to no-auth */
   }
@@ -35,6 +40,11 @@ export function getToken(): string | null {
 
 export function isDesktopMode(): boolean {
   return getItem(DESKTOP_KEY, 'session') === '1';
+}
+
+/** True when the desktop app showing this page can do `cap` (e.g. 'localcopy': save a chat file on this PC and open it). */
+export function desktopCan(cap: string): boolean {
+  return isDesktopMode() && (getItem(DESKTOP_CAPS_KEY, 'session') ?? '').split(',').includes(cap);
 }
 
 /**

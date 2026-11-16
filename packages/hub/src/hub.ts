@@ -32,6 +32,7 @@ import { ContextRepo } from './db/contextRepo.js';
 import { ProjectService } from './services/ProjectService.js';
 import { createProjectsApi } from './api/projects.js';
 import { createRest } from './api/rest.js';
+import { createScreenOpener } from './services/screenOpen.js';
 import { startHistoryBackfill } from './db/historyIndex.js';
 import { attachWs } from './api/ws.js';
 import { FormBroker } from './services/FormBroker.js';
@@ -253,11 +254,14 @@ export function createHub(opts: HubOptions = {}): Hub {
 
   // P2: take over / hand back / pause, and resuming turns that parked on the user.
   const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
+  const usesComputer = (botId: string) => {
+    const tools = repos.getBot(botId)?.allowedTools ?? [];
+    return tools.includes('Browser') || tools.includes('Desktop');
+  };
+  // Opens a chat link or room file in a bot's server browser, for the person to watch in Screen.
+  const screenOpener = createScreenOpener({ repos, computers, usesComputer });
   computers.wire({
-    usesComputer: (botId) => {
-      const tools = repos.getBot(botId)?.allowedTools ?? [];
-      return tools.includes('Browser') || tools.includes('Desktop');
-    },
+    usesComputer,
     personHolds: (botId) => control.get(botId).control !== 'agent',
   });
   const restoredTakeovers = control.restoreParked();
@@ -352,7 +356,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   let mediaTimer: NodeJS.Timeout | null = null;
   const rest = createRest({
     media,
-    repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers, routing,
+    repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers, screenOpener, routing,
     viewOnly: (scope) => control.viewOnly(scope),
   });
   const handleMcp = createMcpHandler(turns);
@@ -367,7 +371,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     const folder = room ? roomFiles.forBot(room, botId) : null;
     return folder ? [folder.dir] : [];
   });
-  const filesApi = createFilesApi({ repos, roomFiles });
+  const filesApi = createFilesApi({ repos, roomFiles, screenOpener });
   // The owner's PC: run_on_pc jobs, owner-approved on a card, picked up by the helper on the PC.
   const pcRunner = new PcRunner({ db, file: path.join(DATA_DIR, 'pc-runner.json'), ...opts.pcRunner });
   runner.pcRunner = pcRunner;

@@ -13,6 +13,7 @@ import type { RoomFiles } from '../rooms/roomFiles.js';
 import { isInside } from '../permissions/pathRules.js';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { logError } from '../providers/redact.js';
+import { ScreenOpenError, type ScreenOpener } from '../services/screenOpen.js';
 
 /** Base64 of the biggest upload, plus room for the JSON around it. */
 const UPLOAD_BODY_BYTES = Math.ceil(MAX_FILE_UPLOAD_BYTES / 3) * 4 + 64 * 1024;
@@ -126,14 +127,16 @@ const parentOf = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastInde
  *   GET    /api/rooms/:id/files/raw?path=&download=1  the file's bytes (50 MB cap)
  *   POST   /api/rooms/:id/files/upload                { path, name, dataBase64, overwrite? } (25 MB cap)
  *   POST   /api/rooms/:id/files/folder                { path, name }
+ *   POST   /api/rooms/:id/files/browse                { path, botId? } open it in a bot's server browser
+ *   GET    /api/rooms/:id/files/where?path=           an absolute server path (a bot's link) as a path in the folder
  *   PATCH  /api/rooms/:id/files                       { from, to } rename or move
  *   DELETE /api/rooms/:id/files?path=&recursive=true  a folder with anything in it needs recursive
  */
-export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles }) {
+export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles; screenOpener?: ScreenOpener }) {
   const { repos, roomFiles } = deps;
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://localhost');
-    const m = /^\/api\/rooms\/([^/]+)\/files(?:\/(raw|upload|folder))?\/?$/.exec(url.pathname);
+    const m = /^\/api\/rooms\/([^/]+)\/files(?:\/(raw|upload|folder|browse|where))?\/?$/.exec(url.pathname);
     if (!m) return false;
     if (principalOf(req)?.kind !== 'hub') return send(res, 403, { error: 'Only the desktop app can do this' });
     const method = req.method ?? 'GET';
@@ -218,6 +221,30 @@ export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles }) {
         fs.writeFileSync(target.abs, bytes, { flag: p.data.overwrite ? 'w' : 'wx' });
         changed('uploaded', target.rel, [dir.rel, ...dir.made.map(parentOf)], target.rel + ' (' + bytes.length + ' bytes)');
         return send(res, 200, { ok: true, path: target.rel });
+      }
+
+      if (action === 'where' && method === 'GET') {
+        const raw = url.searchParams.get('path') ?? '';
+        if (!path.isAbsolute(raw) || raw.includes('\0')) throw new FilesError(400, 'An absolute path is needed');
+        const abs = path.resolve(raw);
+        if (!isInside(abs, [root])) throw new FilesError(404, "That file is outside this chat's folder");
+        const rel = path.relative(root, abs).split(path.sep).join('/');
+        const st = statOr404(resolveIn(root, rel).abs);
+        return send(res, 200, { path: rel, kind: st.isDirectory() ? 'dir' : 'file' });
+      }
+
+      if (action === 'browse' && method === 'POST') {
+        const p = (body ?? {}) as { path?: unknown; botId?: unknown };
+        if (typeof p.path !== 'string' || (p.botId !== undefined && typeof p.botId !== 'string')) throw new FilesError(400, 'path: a file path is needed');
+        if (!deps.screenOpener) throw new FilesError(404, 'Not available on this hub');
+        const { abs } = resolveIn(root, p.path);
+        if (!statOr404(abs).isFile()) throw new FilesError(400, 'Not a file');
+        try {
+          return send(res, 200, await deps.screenOpener.open({ file: abs }, { roomId, botId: p.botId as string | undefined }));
+        } catch (e) {
+          if (e instanceof ScreenOpenError) throw new FilesError(e.status, e.message);
+          throw e;
+        }
       }
 
       if (action === 'folder' && method === 'POST') {

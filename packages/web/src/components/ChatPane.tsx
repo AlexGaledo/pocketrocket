@@ -7,7 +7,7 @@ import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
 import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
-import { Markdown } from './Markdown';
+import { LinkBot, Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { AlwaysAllow, RuleOffer, TakeoverCard } from './ComputerControl';
 import { CtaButtons, FormCard } from './Cards';
@@ -422,16 +422,18 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
             <span className="text-hint text-dim">{fmtTime(first.createdAt)}</span>
           </div>
         )}
-        <div className="flex flex-col gap-2">
-          {segments(group.items).map((seg) =>
-            seg.kind === 'work' ? <WorkLine key={seg.key} items={seg.items} startedAt={seg.startedAt} endedAt={seg.endedAt} /> : (
-              <div key={seg.item.id} className="flex flex-col gap-1">
-                <Item m={seg.item} bots={bots} />
-                {chipAfter(group.items, seg.item) && <ModelChip m={seg.item} />}
-              </div>
-            ),
-          )}
-        </div>
+        <LinkBot.Provider value={bot?.id}>
+          <div className="flex flex-col gap-2">
+            {segments(group.items).map((seg) =>
+              seg.kind === 'work' ? <WorkLine key={seg.key} items={seg.items} startedAt={seg.startedAt} endedAt={seg.endedAt} /> : (
+                <div key={seg.item.id} className="flex flex-col gap-1">
+                  <Item m={seg.item} bots={bots} />
+                  {chipAfter(group.items, seg.item) && <ModelChip m={seg.item} />}
+                </div>
+              ),
+            )}
+          </div>
+        </LinkBot.Provider>
         {isDm && <span className="mt-1 block pl-1 text-hint text-dim">{fmtTime(first.createdAt)}</span>}
       </div>
     </div>

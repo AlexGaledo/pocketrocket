@@ -16,6 +16,7 @@ mod proc;
 mod scan;
 mod ssh;
 mod term;
+mod localcopy;
 
 use proc::{kill_tree, no_window, own_process_group, Tail};
 use serde::{Deserialize, Serialize};
@@ -195,9 +196,9 @@ fn hub_url(port: u16, token: &str) -> String {
     // desktop=1 always (the web UI uses it for desktop-only affordances, the token prompt included); the
     // hub only accepts the token in the fragment, which never leaves the webview.
     if token.is_empty() {
-        format!("http://127.0.0.1:{port}/?desktop=1")
+        format!("http://127.0.0.1:{port}/?desktop=1&caps=localcopy")
     } else {
-        format!("http://127.0.0.1:{port}/?desktop=1#token={token}")
+        format!("http://127.0.0.1:{port}/?desktop=1&caps=localcopy#token={token}")
     }
 }
 
@@ -992,6 +993,40 @@ fn popout_request(url: &Url) -> Option<(String, Option<String>)> {
     Some((id, room))
 }
 
+/// A new window the hub page asked for that is not a bot pop-out: an "Open on my PC" file copy (see localcopy.rs),
+/// or a web link for the default browser.
+fn new_window_elsewhere(app: &AppHandle, url: &Url) {
+    let port = HUB_PORT.load(Ordering::Relaxed);
+    if let Some(why) = localcopy::refusal(url, port) {
+        tell(app, "Couldn't open that file", why);
+        return;
+    }
+    let Some(req) = localcopy::request(url, port) else {
+        open_in_browser(url);
+        return;
+    };
+    let app = app.clone();
+    // Network and disk work, off the UI thread.
+    std::thread::spawn(move || {
+        let token = app.state::<AppState>().0.lock().unwrap_or_else(|e| e.into_inner()).token.clone();
+        let Ok(documents) = app.path().document_dir() else {
+            tell(&app, "Couldn't open that file", "Your Documents folder wasn't found.");
+            return;
+        };
+        if let Err(why) = localcopy::save_and_open(&documents, port, &token, &req) {
+            tell(&app, "Couldn't open that file", &why);
+        }
+    });
+}
+
+/// A desktop notification from the app itself (the hub page raises its own through the plugin).
+fn tell(app: &AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
+        eprintln!("{title}: {body} ({e})");
+    }
+}
+
 /// Last position and size of each bot's pop-out in this session, so reopening puts it back.
 static POPOUT_GEOM: Mutex<Vec<(String, (i32, i32, u32, u32))>> = Mutex::new(Vec::new());
 
@@ -1031,7 +1066,7 @@ fn open_bot_popout(app: &AppHandle, bot_id: &str, room_id: Option<&str>) {
         return;
     }
     // The token rides only in the fragment, as for the main window; the page strips it after reading it.
-    let mut url = format!("http://127.0.0.1:{port}/?desktop=1&popout={bot_id}");
+    let mut url = format!("http://127.0.0.1:{port}/?desktop=1&caps=localcopy&popout={bot_id}");
     if let Some(r) = room_id.filter(|r| valid_bot_id(r)) {
         url.push_str(&format!("&room={r}"));
     }
@@ -1057,7 +1092,7 @@ fn open_bot_popout(app: &AppHandle, bot_id: &str, room_id: Option<&str>) {
                     let h = h.clone();
                     std::thread::spawn(move || open_bot_popout(&h, &id, room.as_deref()));
                 }
-                None => open_in_browser(&url),
+                None => new_window_elsewhere(&h, &url),
             }
             NewWindowResponse::Deny
         })
@@ -1334,7 +1369,7 @@ pub fn run() {
                             let h = popout_app.clone();
                             std::thread::spawn(move || open_bot_popout(&h, &id, room.as_deref()));
                         }
-                        None => open_in_browser(&url),
+                        None => new_window_elsewhere(&popout_app, &url),
                     }
                     NewWindowResponse::Deny
                 })
@@ -1533,7 +1568,7 @@ mod tests {
         HUB_PORT.store(7788, Ordering::Relaxed);
         assert!(stays_in_webview(&u("http://tauri.localhost/index.html")));
         assert!(stays_in_webview(&u("tauri://localhost/index.html")));
-        assert!(stays_in_webview(&u("http://127.0.0.1:7788/?desktop=1#token=abc")));
+        assert!(stays_in_webview(&u("http://127.0.0.1:7788/?desktop=1&caps=localcopy#token=abc")));
         assert!(stays_in_webview(&u("http://localhost:7788/settings")));
 
         assert!(!stays_in_webview(&u("http://127.0.0.1:3000/")));
@@ -1547,8 +1582,8 @@ mod tests {
 
     #[test]
     fn hub_url_always_says_desktop() {
-        assert_eq!(hub_url(7788, ""), "http://127.0.0.1:7788/?desktop=1");
-        assert_eq!(hub_url(7788, "abc"), "http://127.0.0.1:7788/?desktop=1#token=abc");
+        assert_eq!(hub_url(7788, ""), "http://127.0.0.1:7788/?desktop=1&caps=localcopy");
+        assert_eq!(hub_url(7788, "abc"), "http://127.0.0.1:7788/?desktop=1&caps=localcopy#token=abc");
     }
 
     #[test]
