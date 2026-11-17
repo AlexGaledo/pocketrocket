@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_AVATAR_LENGTH, isMediaRef } from './models.js';
+import { MAX_AVATAR_LENGTH, SEND_MODES, isMediaRef } from './models.js';
 
 // ---------- Providers (global choice) ----------
 // The hub runs every bot through ONE provider at a time (settings.provider). Models are chosen per bot
@@ -64,9 +64,18 @@ export interface ProviderInfo {
    * picker says as much rather than presenting it as a peer of the two that were.
    */
   maturity: 'verified' | 'untested';
+  /**
+   * A message sent to a busy bot can join its running turn (steering). Claude: true once the installed CLI has
+   * reported the `interrupt_receipt_v1` capability, so false until its first turn. Other providers: false, and a
+   * message to a busy bot waits in the queue. Absent from hubs older than steering: treat as false.
+   */
+  steer?: boolean;
   check: ProviderCheck;
   models: ModelInfo[];
 }
+
+/** What every adapter declares up front; `steer`, `check` and `models` are filled in live. */
+export type ProviderStaticInfo = Omit<ProviderInfo, 'check' | 'models' | 'steer'>;
 
 /** GET /api/providers */
 export interface ProvidersResponse {
@@ -139,6 +148,11 @@ export const SettingsSchema = z.object({
    * the alert off.
    */
   spendAlertThresholdUsd: z.number().min(0).max(1000).default(5),
+  /**
+   * Steering: what a message to a busy bot does when the sender did not pick (`message.send.mode` left out).
+   * `join` = it joins the running turn where the provider can; `queue` = it waits for the turn to end.
+   */
+  busyMessages: z.enum(SEND_MODES).default('join'),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

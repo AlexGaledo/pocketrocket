@@ -28,6 +28,8 @@ function setup(bots = 1) {
       if (blockTurns) await new Promise<void>((r) => open.push(r));
       return { ok: true, turnId: 't' + reqs.length, finalText: '', costUsd: 0 };
     },
+    // A provider that cannot steer: a message to a busy bot queues.
+    steer: () => ({ status: 'queued', reason: 'provider' }),
   } as unknown as BotRunner;
   const pairs = Array.from({ length: bots }, (_, i) => {
     const bot = repos.createBot({ name: 'B' + i, handle: 'b' + i, title: '', description: '', avatar: '🤖', model: 'm', allowedTools: [], maxBudgetUsd: 1 });

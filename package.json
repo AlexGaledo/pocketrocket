@@ -9,7 +9,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "pnpm -r build",
     "start": "pnpm --filter @pocketrocket/hub start",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && node --test \"scripts/*.test.mjs\"",
     "hub:bundle": "node scripts/build-hub.mjs",
     "desktop:fetch-node": "node scripts/fetch-node.mjs",
     "desktop:icon": "node scripts/make-icon.mjs",

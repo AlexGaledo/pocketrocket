@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import {
   createSdkMcpServer, query, tool,
-  type Options, type PermissionResult, type Query, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput,
+  type Options, type PermissionResult, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
+import type { ModelInfo, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
 import { BASH_MAX_OUTPUT_CHARS, CLAUDE_EXE, MAX_MCP_OUTPUT_TOKENS, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
@@ -16,7 +17,7 @@ import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '
 import { secretFileAccess } from '../permissions/secretFiles.js';
 import { denyMessage } from '../permissions/messages.js';
 import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
-import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnImage, TurnOutcome, TurnSink } from './types.js';
+import type { AgentProvider, HubTool, ProviderInit, SteerInput, SteerResult, TurnContext, TurnImage, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
 // EVERYWHERE and bypasses canUseTool, so file/shell tools must never appear there: reads inside
@@ -86,7 +87,7 @@ const MODELS: ModelInfo[] = [
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', note: 'cheapest, fastest' },
 ];
 
-export const CLAUDE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
+export const CLAUDE_INFO: ProviderStaticInfo = {
   id: 'claude',
   label: 'Claude',
   blurb: 'Runs on your server with your Claude subscription.',
@@ -193,11 +194,72 @@ export function userContent(input: string, images: readonly TurnImage[]) {
   ];
 }
 
+/**
+ * The init capability steering relies on: `interrupt()` answers with a receipt naming the uuid-stamped messages that
+ * would still run, so Stop can stop them too. Without it a steer queues instead (spike 1.0: CLI 2.1.326 has it).
+ */
+export const STEER_CAPABILITY = 'interrupt_receipt_v1';
+/**
+ * After Stop with a steer still queued in the CLI: how long to wait for the interrupted turn's result (it carries the
+ * run's cost) before closing anyway. The CLI starts the queued steer about a second after that result (spike 1.0),
+ * and the query is closed as soon as that result is read, so the steer never gets to run.
+ */
+export const STOP_RESULT_WAIT_MS = 5_000;
+
+/** A run's input: the opening message, then whatever `push` adds, until `close`. */
+export function inputChannel() {
+  const queue: SDKUserMessage[] = [];
+  let wake: (() => void) | undefined;
+  let closed = false;
+  async function* messages(): AsyncGenerator<SDKUserMessage> {
+    for (;;) {
+      while (queue.length) yield queue.shift()!;
+      if (closed) return;
+      await new Promise<void>((r) => (wake = r));
+      wake = undefined;
+    }
+  }
+  return {
+    messages: messages(),
+    push(m: SDKUserMessage) {
+      if (closed) return false;
+      queue.push(m);
+      wake?.();
+      return true;
+    },
+    close() {
+      closed = true;
+      wake?.();
+    },
+  };
+}
+
+type SdkUuid = NonNullable<SDKUserMessage['uuid']>;
+const userMessage = (text: string, images: readonly TurnImage[], uuid: string): SDKUserMessage =>
+  ({ type: 'user', message: { role: 'user', content: userContent(text, images) }, parent_tool_use_id: null, uuid: uuid as SdkUuid });
+
+/** One turn as `steer` and `interrupt` see it, across the outdated-CLI replay. */
+interface LiveTurn {
+  /** Every steer this turn was given, by uuid (live pushes and `carriedSteers`). */
+  known: Map<string, SteerInput>;
+  /** Uuids a result or reply named: in the session's transcript. */
+  consumed: Set<string>;
+  /** Set while a run reads: pushes a live steer. */
+  push?: (s: SteerInput) => void;
+  /** Stops the current run (interrupt, receipt, close). */
+  stop?: () => void;
+  /** This run's init came in, and whether it advertised `STEER_CAPABILITY`. */
+  initSeen: boolean;
+  steerable: boolean;
+  /** The current run decided to end: no more pushes. */
+  ending: boolean;
+}
+
 export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const;
   readonly label = 'Claude';
   readonly info = CLAUDE_INFO;
-  private active = new Map<string, Query>();
+  private live = new Map<string, LiveTurn>();
   /** Last `system/init` message seen; feeds check() and GET /api/health. */
   lastInit: ProviderInit = {};
 
@@ -251,34 +313,68 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   interrupt(turnId: string): boolean {
-    const q = this.active.get(turnId);
-    if (!q) return false;
-    void q.interrupt().catch(() => undefined);
+    const live = this.live.get(turnId);
+    if (!live?.stop) return false;
+    live.stop();
     return true;
   }
 
-  async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
-    const first = await this.runOnce(ctx, sink);
-    // A model newer than the installed CLI fails on the first request, before any tool runs. Update the CLI
-    // and replay the turn once instead of sending the user to a terminal. Only replayed when no tool was
-    // called, so nothing runs twice.
-    if (!first.outdatedCli || first.usedTools || ctx.signal.aborted) return first.outcome;
-    sink.onState('working');
-    const update = await updateClaudeCli();
-    if (!update.ok) {
-      const detail = update.output.split('\n').filter((l) => l.trim()).pop();
-      return {
-        ...first.outcome,
-        error: first.outcome.error + ' Automatic `claude update` failed' + (detail ? ' (' + detail + ')' : '') +
-          '. Run `claude update` in a terminal, then try again.',
-      };
-    }
-    if (ctx.signal.aborted) return first.outcome;
-    sink.onState('thinking');
-    return (await this.runOnce(ctx, sink)).outcome;
+  /** Steering needs the interrupt receipt. Known from the last init, so false until the first turn. */
+  canSteer(): boolean {
+    return !!this.lastInit.capabilities?.includes(STEER_CAPABILITY);
   }
 
-  private async runOnce(ctx: TurnContext, sink: TurnSink): Promise<{ outcome: TurnOutcome; outdatedCli: boolean; usedTools: boolean }> {
+  steer(turnId: string, input: SteerInput): SteerResult {
+    const live = this.live.get(turnId);
+    // No run reading yet (start-up, the replay's CLI update) or already ending: the caller queues it.
+    if (!live?.push || live.ending || !live.initSeen) return { status: 'queued', reason: 'between-runs' };
+    if (!live.steerable) return { status: 'queued', reason: 'provider' };
+    live.known.set(input.uuid, input);
+    live.push(input);
+    return { status: 'accepted' };
+  }
+
+  async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
+    const live: LiveTurn = { known: new Map(), consumed: new Set(), initSeen: false, steerable: false, ending: false };
+    for (const s of ctx.carriedSteers ?? []) live.known.set(s.uuid, s);
+    this.live.set(ctx.turnId, live);
+    const done = (outcome: TurnOutcome): TurnOutcome => {
+      if (!live.known.size) return outcome;
+      const uuids = [...live.known.keys()];
+      return { ...outcome, steers: { consumed: uuids.filter((u) => live.consumed.has(u)), pending: uuids.filter((u) => !live.consumed.has(u)) } };
+    };
+    try {
+      const first = await this.runOnce(ctx, sink, live, ctx.carriedSteers ?? []);
+      // A model newer than the installed CLI fails on the first request, before any tool runs. Update the CLI
+      // and replay the turn once instead of sending the user to a terminal. Only replayed when no tool was
+      // called, so nothing runs twice.
+      if (!first.outdatedCli || first.usedTools || ctx.signal.aborted) return done(first.outcome);
+      sink.onState('working');
+      const update = await updateClaudeCli();
+      if (!update.ok) {
+        const detail = update.output.split('\n').filter((l) => l.trim()).pop();
+        return done({
+          ...first.outcome,
+          error: first.outcome.error + ' Automatic `claude update` failed' + (detail ? ' (' + detail + ')' : '') +
+            '. Run `claude update` in a terminal, then try again.',
+        });
+      }
+      if (ctx.signal.aborted) return done(first.outcome);
+      sink.onState('thinking');
+      // The failed run never reached the model, so every steer this turn was given goes into the replay's opening
+      // message, whatever the failed run's result named.
+      const carry = [...live.known.values()];
+      for (const s of carry) live.consumed.delete(s.uuid);
+      return done((await this.runOnce(ctx, sink, live, carry)).outcome);
+    } finally {
+      live.ending = true;
+      this.live.delete(ctx.turnId);
+    }
+  }
+
+  private async runOnce(
+    ctx: TurnContext, sink: TurnSink, live: LiveTurn, carry: SteerInput[],
+  ): Promise<{ outcome: TurnOutcome; outdatedCli: boolean; usedTools: boolean }> {
     const started = Date.now();
     const bot = ctx.bot;
     const pluginDir = ctx.pluginDir ?? null;
@@ -311,14 +407,24 @@ export class ClaudeProvider implements AgentProvider {
         : { type: 'http', url: s.url, ...(s.token ? { headers: { Authorization: 'Bearer ' + s.token } } : {}) };
     }
 
-    let resolveDone: () => void = () => undefined;
-    const done = new Promise<void>((r) => (resolveDone = r));
-    const input = ctx.input;
-    const images = ctx.images ?? [];
-    async function* prompt(): AsyncGenerator<SDKUserMessage> {
-      yield { type: 'user', message: { role: 'user', content: userContent(input, images) }, parent_tool_use_id: null };
-      await done;
-    }
+    // The opening message carries steers an earlier run never consumed, so they are consumed with it. Its uuid is how
+    // results say they answered it; live steers are pushed after it, each under its own uuid.
+    const channel = inputChannel();
+    const openerUuid = randomUUID();
+    const openerText = [ctx.input, ...carry.map((s) => s.text)].join('\n\n');
+    channel.push(userMessage(openerText, [...(ctx.images ?? []), ...carry.flatMap((s) => s.images ?? [])], openerUuid));
+    /** Live steers pushed into this run; the run reads on until a result names each of them. */
+    const runSteers = new Set<string>();
+    const consume = (uuids: readonly string[] | undefined) => {
+      for (const u of uuids ?? []) {
+        if (u === openerUuid) for (const s of carry) live.consumed.add(s.uuid);
+        else if (live.known.has(u)) live.consumed.add(u);
+      }
+    };
+    const outstanding = () => [...runSteers].filter((u) => !live.consumed.has(u));
+    live.initSeen = false;
+    live.steerable = false;
+    live.ending = false;
 
     const decide = async (
       name: string,
@@ -556,26 +662,64 @@ export class ClaudeProvider implements AgentProvider {
     let braked = false;
     const runningCacheRead = () => [...calls.values()].reduce((n, c) => n + c.cacheRead, 0);
 
-    const q = query({ prompt: prompt(), options });
-    this.active.set(ctx.turnId, q);
-    const onAbort = () => { void q.interrupt().catch(() => undefined); };
+    const q = query({ prompt: channel.messages, options });
+    let stopping = false;
+    let closed = false;
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
+    const closeQuery = () => {
+      if (closed) return;
+      closed = true;
+      live.ending = true;
+      channel.close();
+      q.close();
+    };
+    // Stop and the token brake: interrupt, read the receipt, then close. A uuid-stamped steer still queued in the CLI
+    // "WILL run" after a plain interrupt (sdk.d.ts, SDKControlInterruptResponse), so the query is closed before it
+    // can. The interrupted result is waited for (briefly) only because it carries the run's cost.
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      live.ending = true;
+      void (async () => {
+        let receipt: { still_queued?: string[] } | undefined;
+        try {
+          receipt = await q.interrupt();
+        } catch {
+          /* the query already ended */
+        }
+        const stillQueued = (receipt?.still_queued ?? []).filter((u) => live.known.has(u));
+        for (const u of stillQueued) live.consumed.delete(u);
+        if (!closed && (stillQueued.length || outstanding().length)) closeTimer = setTimeout(closeQuery, STOP_RESULT_WAIT_MS);
+      })();
+    };
+    live.stop = stop;
+    live.push = (s) => {
+      runSteers.add(s.uuid);
+      channel.push(userMessage(s.text, s.images ?? [], s.uuid));
+    };
+    const onAbort = () => stop();
     ctx.signal.addEventListener('abort', onAbort, { once: true });
     try {
       for await (const m of q as AsyncIterable<SDKMessage>) {
         if (m.type === 'system' && m.subtype === 'init') {
-          this.lastInit = { apiKeySource: m.apiKeySource, model: m.model, version: m.claude_code_version, tools: m.tools, skills: m.skills };
+          const capabilities = (m as { capabilities?: string[] }).capabilities;
+          this.lastInit = { apiKeySource: m.apiKeySource, model: m.model, version: m.claude_code_version, tools: m.tools, skills: m.skills, capabilities };
+          live.initSeen = true;
+          live.steerable = !!capabilities?.includes(STEER_CAPABILITY);
           sink.onInit?.(this.lastInit);
           if (m.session_id) sink.onSession(m.session_id);
           continue;
         }
         if (m.type === 'stream_event') {
           if (m.parent_tool_use_id) continue;
+          consume(m.user_message_uuids);
           const ev = m.event as { type: string; delta?: { type?: string; text?: string } };
           if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) sink.onDelta(ev.delta.text);
           continue;
         }
         if (m.type === 'assistant') {
           if (m.parent_tool_use_id) continue;
+          consume(m.user_message_uuids);
           const mu = m.message.usage as (Parameters<typeof callInputTokens>[0] & { output_tokens?: number | null }) | undefined;
           if (mu) {
             calls.set(m.message.id ?? 'call-' + calls.size, {
@@ -585,7 +729,7 @@ export class ClaudeProvider implements AgentProvider {
             contextTokens = callInputTokens(mu);
             if (!braked && ctx.cacheReadBudget !== undefined && runningCacheRead() > ctx.cacheReadBudget) {
               braked = true;
-              void q.interrupt().catch(() => undefined);
+              stop();
             }
           }
           for (const block of m.message.content) {
@@ -617,32 +761,54 @@ export class ClaudeProvider implements AgentProvider {
         }
         if (m.type === 'result') {
           gotResult = true;
-          // total_cost_usd is the session's running total across resumes, not this run's.
+          // The run's first result is always the opening message's turn, whatever the CLI lists.
+          consume([openerUuid]);
+          const listed = (m as { user_message_uuids?: string[] }).user_message_uuids;
+          consume(listed);
+          // total_cost_usd is the session's running total across resumes (and this run's results), not this run's.
           sessionCostUsd = m.total_cost_usd ?? 0;
           costUsd = runCostUsd(sessionCostUsd, resumed, ctx.sessionCostUsd);
+          // ok/error come from the last result. Tokens and time are per result, so a steer the CLI answered in a
+          // turn of its own adds to them.
           ok = m.subtype === 'success';
-          if (!ok) error = m.subtype + ((m as { errors?: string[] }).errors?.length ? ': ' + (m as { errors?: string[] }).errors!.join('; ') : '');
+          error = ok ? undefined : m.subtype + ((m as { errors?: string[] }).errors?.length ? ': ' + (m as { errors?: string[] }).errors!.join('; ') : '');
           const resultText = (m as { result?: string }).result;
           if (!outdatedCli && isOutdatedCliError(resultText)) outdatedCli = resultText!.trim();
           if (!outdatedCli && error && isOutdatedCliError(error)) outdatedCli = error;
           const u = m.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
           usage = {
-            inputTokens: u?.input_tokens ?? 0, outputTokens: u?.output_tokens ?? 0,
-            cacheReadTokens: u?.cache_read_input_tokens ?? 0, cacheWriteTokens: u?.cache_creation_input_tokens ?? 0,
+            inputTokens: usage.inputTokens + (u?.input_tokens ?? 0),
+            outputTokens: usage.outputTokens + (u?.output_tokens ?? 0),
+            cacheReadTokens: usage.cacheReadTokens + (u?.cache_read_input_tokens ?? 0),
+            cacheWriteTokens: usage.cacheWriteTokens + (u?.cache_creation_input_tokens ?? 0),
           };
           modelUsage = (m as { modelUsage?: unknown }).modelUsage;
-          durationMs = m.duration_ms;
-          resolveDone();
-          break;
+          durationMs += m.duration_ms ?? 0;
+          // Read on only while a pushed steer is still unanswered and the CLI says which messages it answered. Stop,
+          // an error result (max turns, budget) or a CLI that lists nothing ends the run here: the steers no result
+          // named return as pending, and the query is closed below so the CLI does not run them on its own.
+          if (stopping || !ok || !listed || outdatedCli || !outstanding().length) {
+            live.ending = true;
+            break;
+          }
+          continue;
         }
       }
     } catch (e) {
-      error = error ?? String((e as Error).message ?? e);
-      if (!outdatedCli && isOutdatedCliError(error)) outdatedCli = error;
+      // Closing the query (Stop) can end the read with an error; that is not the turn's.
+      if (!closed) {
+        error = error ?? String((e as Error).message ?? e);
+        if (!outdatedCli && isOutdatedCliError(error)) outdatedCli = error;
+      }
     } finally {
-      resolveDone();
+      live.ending = true;
+      live.push = undefined;
+      live.stop = undefined;
+      if (closeTimer) clearTimeout(closeTimer);
       ctx.signal.removeEventListener('abort', onAbort);
-      this.active.delete(ctx.turnId);
+      // A steer the CLI holds that no result named would otherwise run as a turn of its own.
+      if (stopping || outstanding().length) closeQuery();
+      else channel.close();
     }
     // The CLI reports this API error as a "successful" result, so the turn is marked failed here.
     if (outdatedCli) {

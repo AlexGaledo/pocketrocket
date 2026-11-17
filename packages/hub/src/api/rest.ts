@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
-  BotInputSchema, MaintenanceHoldInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
+  BotInputSchema, MaintenanceHoldInputSchema, RoomInputSchema, RoomMessageInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
   TASK_STATUSES, isMediaRef, mediaHash,
   type BusyInfo, type HealthInfo, type ProviderId, type Room, type TaskStatus,
 } from '@pocketrocket/shared';
@@ -435,8 +435,9 @@ export function createRest(deps: RestDeps) {
     return q.length < 2 ? [] : repos.searchMessages(q.slice(0, 200), 50);
   });
   add('POST', '/api/rooms/:id/messages', ({ params, body }) => {
-    const { text } = parse(z.object({ text: z.string().min(1) }), body);
-    return router.onUserMessage(params.id, text);
+    // `mode` as on WS message.send: join a busy bot's running turn, or queue. The answer's payload says which.
+    const { text, mode } = parse(RoomMessageInputSchema, body);
+    return router.onUserMessage(params.id, text, undefined, undefined, mode);
   });
 
   // ---- skills
