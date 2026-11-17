@@ -17,6 +17,8 @@ mod scan;
 mod ssh;
 mod term;
 mod localcopy;
+#[cfg(test)]
+mod updater_config;
 
 use proc::{kill_tree, no_window, own_process_group, Tail};
 use serde::{Deserialize, Serialize};
@@ -1303,6 +1305,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // Local desktop notifications. Granted only to the hub origin, and only the notify commands (capabilities/hub-notify.json).
         .plugin(tauri_plugin_notification::init())
+        // Signed self-updates (endpoint + pubkey in tauri.conf.json > plugins.updater). Registration only: no capability
+        // grants updater:* and no command wraps it, so only Rust can check or install, never the hub page.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state.clone())
         .manage(term::Term::default())
         .invoke_handler(tauri::generate_handler![
