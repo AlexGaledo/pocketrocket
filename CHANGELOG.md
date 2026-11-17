@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Releases are built into a draft and published only when every platform is done. Each release now carries `latest.json` for the desktop updater, a `SHA256SUMS.txt`, and build-provenance attestations you can check with `gh attestation verify <file> -R AlexGaledo/pocketrocket`. A new release appears as a prerelease first and becomes the latest one after it passes an update test.
+
 ### Fixed
 
 - A bot whose turn is cut off (token brake, or the step limit after its continuation) no longer leaves its hand-off chain dead. It continues in a fresh, small session up to `CUTOFF_RETRIES` times (default 2), then the room's coordinator is woken to split, reassign or finish the work.
