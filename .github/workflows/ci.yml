@@ -76,6 +76,9 @@ jobs:
       - name: cargo check
         run: cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml
 
+      - name: cargo test
+        run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
+
   # P9: the desktop app also ships for Linux (AppImage + deb) and macOS (dmg). Same check, native runners.
   desktop-check-unix:
     name: Desktop (cargo check, ${{ matrix.os }})
