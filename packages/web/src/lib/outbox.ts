@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENTS, isMediaRef } from '@pocketrocket/shared';
+import { MAX_ATTACHMENTS, SEND_MODES, isMediaRef, type SendMode } from '@pocketrocket/shared';
 import { getJson, setJson, versionedKey } from './persist';
 
 /**
@@ -15,6 +15,8 @@ export interface OutboxEntry {
   clientId: string; roomId: string; text: string; status: OutboxStatus; createdAt: number;
   /** Media refs of pictures already uploaded (U2a). The upload happens before the entry exists, so a retry only resends refs. */
   attachments?: string[];
+  /** Steering: `queue` (Ctrl+Enter or the send menu) or `join`. Left out, the hub's busyMessages setting decides. Kept so a retry sends the same choice. */
+  mode?: SendMode;
 }
 
 export const OUTBOX_KEY = versionedKey('outbox', 1);
@@ -27,8 +29,9 @@ function isEntry(v: unknown): v is OutboxEntry {
   if (typeof v !== 'object' || v === null) return false;
   const e = v as Record<string, unknown>;
   const hasPics = e.attachments === undefined || isRefs(e.attachments);
+  const modeOk = e.mode === undefined || (SEND_MODES as readonly unknown[]).includes(e.mode);
   return typeof e.clientId === 'string' && e.clientId.length > 0 && e.clientId.length <= 64
-    && hasPics && typeof e.roomId === 'string' && typeof e.text === 'string' && (e.text.length > 0 || e.attachments !== undefined)
+    && hasPics && modeOk && typeof e.roomId === 'string' && typeof e.text === 'string' && (e.text.length > 0 || e.attachments !== undefined)
     && typeof e.status === 'string' && STATUSES.includes(e.status) && typeof e.createdAt === 'number';
 }
 

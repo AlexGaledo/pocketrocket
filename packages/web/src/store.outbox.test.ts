@@ -287,3 +287,21 @@ describe('send journal with attachments (U2a)', () => {
     expect(useStore.getState().outbox.map((e) => [e.clientId, e.status])).toEqual([['ok', 'sending']]);
   });
 });
+
+describe('steering send mode', () => {
+  it('sends mode queue for Ctrl+Enter (or the menu), leaves it out for Enter, and keeps it across a reload', async () => {
+    const first = await boot();
+    first.useStore.setState({ activeRoomId: 'r1' });
+    first.useStore.getState().sendMessage('later', undefined, 'queue');
+    first.useStore.getState().sendMessage('now', undefined, 'join');
+    first.useStore.getState().sendMessage('plain');
+    const { useStore, connectWs } = await boot();
+    expect(useStore.getState().outbox.map((e) => e.mode)).toEqual(['queue', 'join', undefined]);
+    connectWs();
+    const sock = FakeSocket.instances[0];
+    sock.open();
+    const sent = sock.sent.filter((e): e is Send => e.type === 'message.send');
+    expect(sent.map((e) => [e.text, e.mode])).toEqual([['later', 'queue'], ['now', 'join'], ['plain', undefined]]);
+    expect('mode' in sent[2]).toBe(false);
+  });
+});
