@@ -335,6 +335,11 @@ export class PermissionBroker {
     return out;
   }
 
+  /** Cards a running turn is waiting on right now; parked ones are not counted (GET /api/busy). */
+  liveCardCount(): number {
+    return this.pending.size;
+  }
+
   /** Parked cards still waiting (REST, tests). */
   parked(): ParkedApproval[] {
     return this.opts.store?.listParked() ?? [];

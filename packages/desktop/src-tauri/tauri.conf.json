@@ -58,5 +58,14 @@
         }
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "OWNER_STEP_PASTE_UPDATER_PUBKEY",
+      "endpoints": ["https://github.com/AlexGaledo/pocketrocket/releases/latest/download/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

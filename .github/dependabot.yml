@@ -14,3 +14,7 @@ updates:
     directory: "/packages/desktop/src-tauri"
     schedule:
       interval: "weekly"
+    ignore:
+      # Pinned with `=` in Cargo.toml: 2.13+ needs tauri ^2.12 and this repo locks tauri 2.11.
+      # Bump it by hand together with tauri (and tauri-plugin-notification).
+      - dependency-name: "tauri-plugin-updater"
