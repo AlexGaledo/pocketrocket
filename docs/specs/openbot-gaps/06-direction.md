@@ -1,7 +1,7 @@
 # OpenBot gaps: concluded direction
 
 Concluded 2026-11-17 from `00-openbot-recon.md`, specs `01`-`04` (revised after review the same day),
-`05-owner-decisions.md` (authoritative), and the three reviews (`review-backend.md`, `review-design.md`,
+`05-owner-decisions.md` (authoritative, including Round 3 after the readiness review), and the three reviews (`review-backend.md`, `review-design.md`,
 `review-infra.md`). Code references are against `origin/main` @ 694db1a. Migration blocks and the key decisions are
 recorded in `docs/specs/decisions.md`.
 
@@ -25,7 +25,7 @@ Effort is the total agent effort after the reviews' re-estimates (S < half a day
 
 | Gap | Sub-feature | Verdict | Licensing / terms status | Compat effort | Owner decision (05) |
 |---|---|---|---|---|---|
-| 2 | Steering into a running turn | **Go** (Claude); others queue with a reason | Clean: our own adapter over the SDK's documented streaming input | BE M/L + M + M, DS M | Joins the turn; Alt+Enter queues; hand-offs queue (§02 #1) |
+| 2 | Steering into a running turn | **Go** (Claude); others queue with a reason | Clean: our own adapter over the SDK's documented streaming input | BE M/L + M + M, DS M | Joins the turn; Ctrl+Enter or the Send menu queues; hand-offs queue (§02 #1, Round 3 #2); Stop re-queues unanswered steers (Round 3 #3) |
 | 2 | Steering automation turns | **Go**, strict and on their budget | n/a | in the above | Allowed (§02 #2) |
 | 2 | Queue controls | **Go**, no reorder | n/a | BE S + M + S + S, DS M | Cancel, edit, send now, pause (§02 #6) |
 | 2 | Workflows | **Go**: `{nodes, edges}` graph, v1 linear, canvas + Steps list | React Flow MIT (keep its attribution link); OpenBot not copied | BE 4 passes (S-M each), DS 3 x M + S, IN S | Canvas, lazy-loaded; list view on the same data (§02 #3) |
@@ -33,18 +33,18 @@ Effort is the total agent effort after the reviews' re-estimates (S < half a day
 | 2 | Codex steering (app-server) | **Parked** | Codex CLI Apache-2.0 | L, not scheduled | Parked (§02 #5) |
 | 1 | Provider per bot + keep the agent | **Go** | n/a | BE S-M x 7, DS M + S | — |
 | 1 | Claude limit detection + plan meter | **Go** | n/a | BE S/M + S x 3, DS S + S | — |
-| 1 | Gemini through `agy acp` | **Go**, attended turns only on the Google login | `agy` proprietary: never bundled or downloaded; staff allow a private single-user client running the unmodified `agy acp`, not unattended automation (forum, not binding) | BE L (split) + S, IN S | Person-started only; runs unattended if a Gemini API key is set (§01 #1); ships after live test (§01 #4) |
+| 1 | Gemini through `agy acp` | **Go**, attended turns only on the Google login | `agy` proprietary: never bundled or downloaded; a forum reply (author's staff status unverified) allows a private single-user client running the unmodified `agy acp`, not unattended automation (not binding) | BE L (split) + S, IN S | Person-started only; runs unattended if a Gemini API key is set (§01 #1); ships after live test (§01 #4) |
 | 1 | Failover on usage limit | **Go**, card flow | Unattended failover onto Gemini would breach Google's rule; the card press makes it attended | BE M/L, DS M | Ask with a card (§01 #2); backup always strict (§01 #3) |
 | 1 | Codex / Grok / OpenCode adapters | **Frozen**, dev-only | Codex Apache-2.0, Grok Build Apache-2.0, OpenCode MIT; OpenCode on Claude or Google OAuth is prohibited | none | Dev-only, frozen (§01 #6) |
 | 1 | Local models (Ollama etc.) | **Deferred** | Ollama MIT; LM Studio freeware | M, unverifiable (no GPU) | — |
 | 1 | Pooled / rotated accounts | **No** | Breaks Anthropic's individual-use and account-sharing terms and Google's "automated account rotation" exclusion | — | — |
-| 1 | Managed CLI download / pinning | **No** download; version check only | Claude Code and `agy` are closed; Google forbids redistribution | in P2-2 | — |
+| 1 | Managed CLI download / pinning | **No** download; version check only | Claude Code and `agy` are closed source with no licence to redistribute | in P2-2 | — |
 | 3 | Telegram notifications | **Go now**, content-free | Bot API ToS fine for notify; token in the URL path must be redacted | BE S + M + S, DS S-M, IN S | Scope now (§03 #6) |
 | 3 | Telegram owner-only chat | **Later** | §4.4 encryption at rest: not needed while owner-only, needed before allowlists | BE M x 2 + S x 2, DS M | Auto-reply, owner only, Allow once later (§03 #2-#5) |
 | 3 | Discord / Slack channel mode | **Later** | Discord bot apps only (no self-bots); Slack internal apps exempt from the 1/min history limit; no LLM training on either | M each | Wait (§03 #6) |
 | 3 | Teams two-way | **No** (stays a trigger) | Needs a public HTTPS endpoint | — | — |
-| 3 | WhatsApp | **No** | Meta §4.7 bans general AI assistants; unofficial clients breach WhatsApp's Terms | — | None; revisit after a paid launch (§03 #1) |
-| 4 | Auto-updater | **Go** | Tauri MIT/Apache; GitHub Releases free | IN S + M + M, BE S, DS S | Daily check, ask first, never mid-turn (§04 #6) |
+| 3 | WhatsApp | **No** | Meta §4.7 bans "general-purpose artificial intelligence assistants"; unofficial clients breach WhatsApp's Terms | — | None; revisit after a paid launch (§03 #1) |
+| 4 | Auto-updater | **Go** | Tauri MIT/Apache; GitHub Releases free | IN S + M + M, BE S, DS S | Daily check, ask first, never mid-turn (§04 #6); ships in v0.3.0 (Round 3 #1) |
 | 4 | Windows signing | **Unsigned + attested now**; SignPath applied | SignPath bars proprietary components; the bundled Agent SDK is "All rights reserved", so expect "no" unless it is fetched at first run | IN S (+ L if A10) | Unsigned now, SignPath in parallel, unbundle only after the answer (§04 #1) |
 | 4 | Linux / macOS installers | **Go** (verify; macOS stays unsigned) | Notarization costs 99 USD/yr: later | IN M | — |
 | 4 | Server one-line installer | **Go** | n/a | IN S + L | — |
@@ -60,17 +60,22 @@ Effort is the total agent effort after the reviews' re-estimates (S < half a day
 - **OpenBot, clean room.** OpenBot is PolyForm Noncommercial 1.0.0. Agents may read its source and docs to learn behaviour;
   no code, identifiers, strings, UI copy, layouts or assets enter PocketRocket. The design review did not open OpenBot's UI.
 - **Anthropic subscription rule.** Driving the user's own unmodified `claude.exe` login is the defensible pattern, and
-  PocketRocket already prunes the SDK's vendored CLI (`scripts/build-hub.mjs:110-129`). But the Agent SDK page says
+  PocketRocket already prunes the SDK's vendored CLI (`scripts/build-hub.mjs:110-129`). The Claude Code legal-and-compliance
+  page says Agent SDK developers "should use API key authentication" and may not route requests "through Free, Pro, Max, or
+  Ultra plan credentials on behalf of their users", but this does not prevent "an end user from signing in to the
+  unmodified Claude Code binary with their own Claude subscription". **PocketRocket fits that carve-out**: each user signs in
+  to their own unmodified `claude.exe`, and we never hold, pool or forward their credentials. The Agent SDK page adds that
   third-party developers may not offer claude.ai login or rate limits "unless previously approved", and plan limits assume
-  "ordinary, individual usage". So: no pooled accounts, no team seats on one Max login, and any paid or hosted tier is BYO
+  "ordinary, individual usage", so **unattended routines and workflows on a subscription stay grey**. So: no pooled accounts, no team seats on one Max login, and any paid or hosted tier is BYO
   API key under Commercial Terms or written approval. Re-check both pages before any paid release.
-- **Google Antigravity rule.** `agy` is proprietary; clause 6 of the Antigravity terms bars third-party access, but Google
-  staff (2026-11-09) allowed a private, single-user interactive client that launches the unmodified `agy acp` with its own
-  OAuth, excluding unattended automation, multi-user serving and account rotation. Forum answers are not binding. Hence:
+- **Google Antigravity rule.** `agy` is proprietary; clause 6 of the Antigravity terms bars third-party access, but a forum
+  reply (2026-11-09; author's staff status unverified) allowed a private, single-user interactive client that launches the
+  unmodified `agy acp` with its own OAuth, excluding unattended automation, multi-user serving and account rotation. Forum
+  replies are not binding. Hence:
   attended turns only on the Google login, unattended only when `agy` reports API-key auth, and the API key is the
   recommended path on a VPS. Gemini CLI (Apache-2.0) no longer serves Pro/Ultra logins.
-- **Meta WhatsApp ban.** Business Platform terms §4.7 strictly prohibit general-purpose AI assistants as the primary
-  function, and unofficial linked-device libraries breach WhatsApp's Terms and risk the user's number. No WhatsApp.
+- **Meta WhatsApp ban.** Business Platform terms §4.7 strictly prohibit "general-purpose artificial intelligence assistants"
+  as the primary function, and unofficial linked-device libraries breach WhatsApp's Terms and risk the user's number. No WhatsApp.
 - **Telegram §4.4.** Bot developers must encrypt stored user data at rest, apart from its key. Phase A stores no message
   content, so it does not apply. Owner-only chat stores as usual; encrypt before allowlists or any hosted use. The owner who
   made the bot is the developer of record and needs a privacy policy for anything beyond personal use.
@@ -89,28 +94,39 @@ pr-infra release lane (M3) runs in parallel from the start because it uses a dif
 named in brackets. Sizes per the revised specs.
 
 ### M1. Steering on Claude [02 Phase 1]
-- **pr-backend:** 1.0 spike (S), 1.1 + 1.2 adapter and runner in one PR (M/L + M), 1.3 router, contiguous cursor, steer
-  journal rows, migration 250 (M).
-- **pr-design-system:** 1.4 send-mode menu, status line under the bubble, `canSteer` copy, aria-labels (M).
+- **pr-backend:** 1.0 spike (S), 1.1 + 1.2 adapter and runner in one PR (M/L + M; `canSteer` from the
+  `interrupt_receipt_v1` init capability, a run-in-progress flag separate from `laneTurns`, steers on the turn's starting
+  provider), 1.3 router: cursor kept at `startSeq` with one consumed-steer filter, steer journal rows, unanswered steers
+  re-queued after Stop, `busy` on REST `POST /api/rooms/:id/messages`, migration 250 (M).
+- **pr-design-system:** 1.4 send-mode menu (Ctrl+Enter queues), status line under the bubble, `canSteer` copy, Stop labelled
+  as room-wide (`ChatPane.tsx:893-895`), after-Stop note for re-queued steers, aria-labels (M).
 - **planner:** 1.5 CHANGELOG and GUIDE (S).
 - **Depends on:** nothing. 1.4 ships with 1.3.
 - **Owner must:** be present for the **live Claude Max spike** (1.0), then do the manual steer test on a long task.
 
-### M2. Queue controls and update hooks [02 Phase 2, 04 A3]
+### M2. Queue controls [02 Phase 2]
 - **pr-backend:** 2.3 "stopped by you" (S), 2.2 queue pause (S), 2.1a queue read + device allowlist (S), 2.1b cancel, edit,
-  send now with message-level cancel (M), 04-A3 `/api/busy` + maintenance hold (S).
+  send now with message-level cancel, reusing 1.3's filter helper (M). (04-A3 moved to M3, since it ships in v0.3.0.)
 - **pr-design-system:** 2.4 chip row and popover (M).
-- **Depends on:** M1 (same lane code). A3 unblocks M3's A4.
+- **Depends on:** M1 (same lane code).
 - **Owner must:** manual check of cancel/edit/send now at 360 px.
 
 ### M3. $0 release pipeline and updater [04 Phase A] (pr-infra lane, parallel from M1)
-- **pr-infra:** A1 updater wiring at `=2.12.0` + Dependabot rule (S), A2 draft → finalize pipeline with attestations (M),
-  A4 shell update UX: 24 h check, notification, on-demand dialog, hold → busy → clean stop (M), A7 docs and outbound hosts (S).
+- **pr-infra:** A1 updater wiring at `=2.12.0` + Dependabot rule, no `createUpdaterArtifacts` in the config (tag builds
+  pass it with `--config`), release-URL-only endpoint override, `cargo test` in CI (S); A2 draft → finalize pipeline with
+  attestations, `release` environment kept off the dispatch dry-run steps (M); A4 shell update UX: 24 h check in every
+  mode, notification, `OkCancelCustom` dialog, local mode only: hold → `blocking` 0 → `/api/maintenance/stop` → hard-kill
+  fallback; remote mode never holds a VPS hub; attach mode or a 404 just asks (M); A7 docs and outbound hosts (S).
+- **pr-backend:** 04-A3 `GET /api/busy` returning one `blocking` number (running turns + live unparked cards; pending lanes,
+  parked cards and waiting runs for display only), count getters for `BotRunner.activeTurns` and `PermissionBroker.pending`,
+  capped hold re-checked after `acquire()`, `POST /api/maintenance/release` and `/stop`, hub token or owner session (S/M).
 - **pr-design-system:** A5 desktop About copy (S); splash and site token parity (S, separate PR).
-- **Depends on:** A0 (owner) before A2; A3 (M2) before A4.
+- **Depends on:** A0 (owner) before A2; A3 before A4.
 - **Owner must:** **A0**: generate the updater key offline, store it twice, create the GitHub `release` environment with
-  yourself as **required reviewer**; then the staged rollout check on a clean Windows VM (once with Smart App Control on,
-  once with a turn running) before flipping the first prerelease to latest.
+  yourself as **required reviewer**; then, after v0.3.0, the first real update test: install v0.3.0 on a clean Windows VM,
+  point the endpoint override at a **v0.3.1-rc.1** prerelease, and update (once with Smart App Control on, once with a turn
+  running) before flipping a prerelease to latest.
+- **Cut: v0.3.0** = everything already on `main` + M3 (05 Round 3 #1).
 
 ### M4. Workflows v1 [02 Phase 3]
 - **pr-design-system:** 3.0 `ActionCard` extraction (S) first; then 3.5a workflow page, StepCard, Steps list, inspector (M),
@@ -121,7 +137,7 @@ named in brackets. Sizes per the revised specs.
 - **pr-infra:** 3.6 CI bundle budget (S).
 - **Depends on:** M1 merged (3.2a touches the same `RoomRouter` blocks); 3.5a after 3.1; 3.5c after 3.3 and 3.0.
 - **Owner must:** build one real workflow (for example the Monday summary) and approve a step from Needs-you.
-- **Cut: v0.3.0** = M1, M2, M4, M9 (the updater ships earlier as v0.2.1; see the owner answers at the end).
+- **Cut: v0.4.0** = M1, M2, M4, M9 (the updater ships earlier in v0.3.0; see the owner answers at the end).
 
 ### M5. Claude limits and plan meter [01 Phase 0]
 - **pr-backend:** P0-1 limit parsing to `ok:false` (S/M), P0-2 ProviderHealth (S), P0-3 failure note (S), P0-4
@@ -154,14 +170,14 @@ named in brackets. Sizes per the revised specs.
   meter (S).
 - **Depends on:** M5, M7 (P2-4 passed), M4 (3.0 `ActionCard`, 3.2a lane fields, parked card kinds).
 - **Owner must:** set a backup on one bot and press the card once on a real limit.
-- **Proposed cut: v0.4.0** = M5-M8 (Claude + Gemini, per 05 §01 #4).
+- **Cut: v0.5.0** = M5-M8 (Claude + Gemini, per 05 §01 #4 and Round 3 #1).
 
 ### M9. Telegram notifications [03 Phase A]
 - **pr-backend:** A1 client + token redaction (S), A2 link flow with lifecycle and owner checks (M), A3 per-sink PushService
   (S).
 - **pr-design-system:** A4 Telegram card under Notifications (S-M).
 - **pr-infra + planner:** A5 outbound list, GUIDE, `keys.sh` revoke line (S).
-- **Depends on:** nothing in M1-M8; pr-backend filler after M2, ships in v0.3.0 (owner answer 2).
+- **Depends on:** nothing in M1-M8; pr-backend filler after M2, ships in v0.4.0 (owner answer 2, renumbered in Round 3).
 - **Owner must:** create a bot with BotFather, link it, and confirm the notification text is content-free on the phone.
 
 ### M10. Trust, platforms and licence [04 A8, A9, A10, D1]
@@ -183,8 +199,8 @@ named in brackets. Sizes per the revised specs.
 | Item | Why |
 |---|---|
 | Pooled or rotated subscription accounts | A terms violation for Anthropic and Google, not a feature gap. |
-| Bundling or auto-downloading Claude Code or `agy` | Both are closed; Google forbids redistribution; principle 1. We detect, hint and version-check. |
-| WhatsApp (official or unofficial) | Meta §4.7 AI-provider ban; unofficial clients breach WhatsApp's Terms and risk the user's number (05 §03 #1). |
+| Bundling or auto-downloading Claude Code or `agy` | Both are closed source with no licence to redistribute; principle 1. We detect, hint and version-check. |
+| WhatsApp (official or unofficial) | Meta §4.7 ban on "general-purpose artificial intelligence assistants"; unofficial clients breach WhatsApp's Terms and risk the user's number (05 §03 #1). |
 | A relay service or inbound webhooks | Breaks principle 1 and decision Q5; costs money to run. |
 | Teams two-way bot | Needs a public HTTPS endpoint. |
 | Telegram chat, Discord, Slack channel mode now | Owner scoped gap 3 to notifications (05 §03 #6). Planned in spec 03 Phases B-E. |
@@ -207,14 +223,19 @@ named in brackets. Sizes per the revised specs.
 - **`agy` behaviour** (P2-4): whether it asks for writes and shell (else the backup is read-only), how it reports its auth
   method, the API-key variable name, where it stores its login on Windows and on a headless VPS, whether it has a
   device-code login, its default install path, whether it installs as a `.cmd`/`.ps1` shim, its limit error shape.
-- **Google's position** rests on forum staff answers that are not binding and partly conflict.
+- **Google's position** rests on forum replies whose authors' staff status is unverified; they are not binding and partly
+  conflict.
 - **SignPath's answer** on the bundled Agent SDK.
-- **Tauri details**: whether the pinned dialog plugin allows custom button labels; whether `--bundles dmg` produces the
+- **Tauri details**: (resolved: the locked `tauri-plugin-dialog` 2.7.3 supports custom labels via `OkCancelCustom`); whether `--bundles dmg` produces the
   `.app.tar.gz` and `.sig`; relaunch after a passive update with the same token and data (clean VM); Smart App Control
   blocking (clean VM with SAC on).
 - **Docker Desktop host networking** (4.34+) with a `127.0.0.1` bind in the container: unverified, so not documented.
 - **cla-assistant.io** treatment of `Co-Authored-By: Claude` trailers.
 - **React Flow chunk size**: the ~57 KB gzip is a third-party figure; measure with `vite build`.
+- **React Flow major version**: the spec assumed 12.x; the latest is **13.0.1**. Decide the pin (12 vs 13) before task 3.5b
+  (02 risk 9).
+- **`interrupt_receipt_v1`** capability name and its typings lines (`sdk.d.ts:4279`, `:5531`) come from the readiness
+  review; confirm against the installed SDK in spike 1.0.
 - **Codex CLI image generation** on a ChatGPT login: unverified; only matters if Codex returns to scope.
 - **Discord Developer Terms and Policy** could not be fetched (403); check before any Discord phase.
 - **Known bug that shapes copy**: pending approvals are lost on a crash, so updater and resume copy must not promise that
@@ -226,17 +247,25 @@ named in brackets. Sizes per the revised specs.
 
 ## Owner answers to the residual questions (2026-11-17)
 
+Round 2:
 1. **React Flow attribution:** keep the link, styled quietly with our tokens (low contrast, corner).
-2. **Telegram notifications:** ship in **v0.3.0**, as pr-backend filler right after M2.
-3. **Version cuts:** **the updater ships first, on its own, as v0.2.1** so every later release reaches users through it.
+2. **Telegram notifications:** ship with steering, as pr-backend filler right after M2 (now **v0.4.0**).
+3. **Version cuts:** **the updater ships first** so every later release reaches users through it.
 
-Release cuts that follow:
+Round 3 (after the readiness review; `05-owner-decisions.md`):
+1. **Versions shift up by one.** `main` is already 0.3.0 (`package.json:5`, `Cargo.toml:3`, `tauri.conf.json:5`,
+   `CHANGELOG.md:15`) and only v0.2.0 was released, so the updater rides in v0.3.0 with everything already on `main`.
+2. **Queue shortcut: Ctrl+Enter**, plus the Send-button menu. Alt+Enter is the desktop full-screen toggle
+   (`packages/desktop/src-tauri/src/lib.rs:1134-1166`).
+3. **Stop with unanswered steers:** re-queue them; the bot answers them right after Stop, and the copy says so.
+
+Release cuts:
 
 | Release | Contents |
 |---|---|
-| **v0.2.1** | M3 (updater, draft-then-finalize pipeline, attestations) plus 04-A3 `/api/busy` + maintenance hold, pulled forward from M2 because the updater's idle check needs it |
-| **v0.3.0** | M1 steering, M2 queue controls, M4 workflows v1, M9 Telegram notifications |
-| **v0.4.0** | M5 Claude limits, M6 provider per bot, M7 Gemini, M8 failover card |
+| **v0.3.0** | Everything already on `main` (CHANGELOG `[0.3.0] - 2026-11-16` plus Unreleased) + M3: updater (A1, A2, A4) and 04-A3 `/api/busy`, maintenance hold and clean stop. **v0.3.1-rc.1** follows at once for the first real update test |
+| **v0.4.0** | M1 steering, M2 queue controls, M4 workflows v1, M9 Telegram notifications |
+| **v0.5.0** | M5 Claude limits, M6 provider per bot, M7 Gemini, M8 failover card |
 | later | M10 trust and platforms (A9 and the SignPath application can start now), M11 server distribution |
 
 Start order therefore: pr-infra A0/A1/A2 and pr-backend A3 first (owner does A0), M1 spike in parallel.

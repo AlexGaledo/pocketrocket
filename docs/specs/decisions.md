@@ -48,7 +48,7 @@ folder. The decisions other work must respect:
 | Clean room | Agents may read OpenBot source (PolyForm Noncommercial) to learn behaviour; never copy code, identifiers, strings or assets. |
 | Licence and money | **MIT + CLA** from the first outside PR. Free now. If ever sold: **managed self-host** (customer's own cloud and API key, setup/support fee); no multi-tenant hosting, no seats. Distribution budget **$0/yr**. |
 | Ship order | **Steering + workflows first**, then providers. |
-| Steering | A message to a busy bot **joins the running turn**; Alt+Enter queues; bot hand-offs always queue. Automation turns can be steered and stay strict. Non-steering providers queue with a reason. Queue controls: cancel, edit, send now, pause; no reorder. |
+| Steering | A message to a busy bot **joins the running turn**; Ctrl+Enter or the Send menu queues (Alt+Enter is the desktop full-screen toggle); bot hand-offs always queue. Stop re-queues unanswered steers and the bot answers them right after. Automation turns can be steered and stay strict. Non-steering providers queue with a reason. Queue controls: cancel, edit, send now, pause; no reorder. |
 | Workflows | **React Flow canvas (`@xyflow/react`, MIT), lazy-loaded**, over a `{nodes, edges}` graph that a Steps list also renders; v1 linear only. Image/video steps deferred. |
 | Providers | Next release ships **Claude + Gemini** (Gemini after a live test); Codex/Grok/OpenCode stay dev-only and frozen. Gemini on the Google login runs **only attended turns**; unattended turns run only when `agy` reports API-key auth. |
 | Failover | **Ask with a card**; the limited turn ends at once with the reset time; a press queues a new turn on the one owner-set backup, **always strict**. Nothing switches silently. |

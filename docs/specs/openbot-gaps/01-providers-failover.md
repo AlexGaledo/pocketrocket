@@ -20,7 +20,7 @@ Ship priority across gaps: steering + workflows first, **providers second**. Dis
 | One generic **ACP** adapter | **Go** (recommended path) | ACP v1 is stable, Apache-2.0, supports HTTP MCP servers, permission requests and context usage. It is the only route to Gemini for a Google AI Pro login (`agy acp`). |
 | Hand-written codex / grok / opencode adapters | **Keep, freeze** | They stay dev-only and `untested` (no accounts). No new work. Move each one to ACP once someone can test it. |
 | **Local models** (Ollama, LM Studio, OpenAI-compatible) | **Go-with-limits, deferred** | Use the existing OpenCode adapter with a local base URL rather than writing our own agent loop. The owner has no GPU, so it cannot be verified: ship as `untested` or leave it out. |
-| **Pooled / multiple accounts** per provider | **No-go** | Rotating subscriptions to get around limits breaks Anthropic's "ordinary, individual usage" rule and account-sharing ban, and Google staff explicitly exclude "automated account rotation". An API-key-only variant is possible but low value. |
+| **Pooled / multiple accounts** per provider | **No-go** | Rotating subscriptions to get around limits breaks Anthropic's "ordinary, individual usage" rule and account-sharing ban, and a Google forum reply (author's staff status unverified) explicitly excludes "automated account rotation". An API-key-only variant is possible but low value. |
 | **Managed download + version pinning** of CLIs | **No-go** for download; **go** for a version check | Antigravity CLI and Claude Code are closed source, and auto-installing them conflicts with their terms and with principle 1. Instead: detect the CLI, show the official install command, and warn when the installed version is outside the tested range. Costs $0. |
 | **Context monitor + compaction** | **Go** | Claude already has it (`contextTokens` plus session rotation, `BotRunner.ts:190-219`, `config.ts:230-238`), but no UI and Claude only. The UI goes on the Bot page, not the right panel (revised after review). ACP `usage_update {used,size}` extends it to Gemini. |
 
@@ -35,9 +35,9 @@ bundled CLI copy (`scripts/build-hub.mjs:110-128`).
 
 | Provider / CLI | CLI licence | Redistribute / auto-download? | Free personal app may drive the user's own subscription login? | If PocketRocket is sold / hosted / has team seats |
 |---|---|---|---|---|
-| **Anthropic Claude Code + Agent SDK** (Pro/Max) | Proprietary; use under Consumer Terms (Pro/Max) or Commercial Terms [A2] | Only under **Commercial Terms**, unmodified binary, all auth methods kept [A2]. We don't bundle it; keep it that way. | **Grey, tolerated.** The legal page lets "an end user [sign] in to the unmodified Claude Code binary with their own Claude subscription", and plan limits "assume ordinary, individual usage of Claude Code **and the Agent SDK**" [A2]. But the SDK overview says: "Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products, including agents built on the Claude Agent SDK" [A1]. Consumer Terms ban automated access "except ... where we otherwise explicitly permit it" [A3]. | **Blocker for selling/hosting on subscriptions.** Hosting needs Commercial Terms; each end user must use their own credentials; we may not "pay for, resell, or intermediate" usage [A2]. Team seats on one shared Max login = account sharing [A3]. A paid tier needs **API keys (BYO)** or written approval from Anthropic. |
+| **Anthropic Claude Code + Agent SDK** (Pro/Max) | Proprietary; use under Consumer Terms (Pro/Max) or Commercial Terms [A2] | Only under **Commercial Terms**, unmodified binary, all auth methods kept [A2]. We don't bundle it; keep it that way. | **Grey, tolerated.** The legal page says developers building on the Agent SDK "should use API key authentication" and may not route requests "through Free, Pro, Max, or Ultra plan credentials on behalf of their users", but that this does not prevent "an end user from signing in to the unmodified Claude Code binary with their own Claude subscription" [A2]. PocketRocket fits the carve-out: the user signs in to their own unmodified `claude.exe` and we never hold or forward their credentials. Plan limits "assume ordinary, individual usage of Claude Code **and the Agent SDK**" [A2], so **unattended routines and workflows on a subscription stay grey**. But the SDK overview says: "Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products, including agents built on the Claude Agent SDK" [A1]. Consumer Terms ban automated access "except ... where we otherwise explicitly permit it" [A3]. | **Blocker for selling/hosting on subscriptions.** Hosting needs Commercial Terms; each end user must use their own credentials; we may not "pay for, resell, or intermediate" usage [A2]. Team seats on one shared Max login = account sharing [A3]. A paid tier needs **API keys (BYO)** or written approval from Anthropic. |
 | **OpenAI Codex CLI** (ChatGPT plan) | **Apache-2.0** (github.com/openai/codex) | Allowed by licence | **Likely yes.** OpenAI documents ChatGPT plan usage for "open-source and locally hosted apps" through Sign in with ChatGPT, including the Codex app-server [O1]. ChatGPT Terms govern [O2]. Owner can't test. | Paid or remotely hosted apps must fill in OpenAI's **interest form** [O1]. |
-| **Google Antigravity CLI `agy`** (Google AI Pro/Ultra) | **Proprietary**, closed source [G4][G5] | **No** (closed; OpenBot downloads it at runtime for this reason, per recon) | **Yes, narrowly.** Clause 6: "Using third party software, tools, or services to access the Service ... is a breach" [G2]. But Google staff (2026-11-09) said a "private, single-user interactive client" that launches the **unmodified `agy acp`** binary with its own OAuth is fine. That excludes "unattended background automation, multi-user serving, and automated account rotation", and wrapping `agy` inside another agent loop [G3]. Other staff replies are narrower [G6]. Forum answers are **not binding**. | **Blocker.** Multi-user, hosted or paid use isn't covered. A paid tier needs a **Gemini API key** (Gemini API Terms) [G1]. |
+| **Google Antigravity CLI `agy`** (Google AI Pro/Ultra) | **Proprietary**, closed source [G4][G5] | **No** (closed; OpenBot downloads it at runtime for this reason, per recon) | **Yes, narrowly.** Clause 6: "Using third party software, tools, or services to access the Service ... is a breach" [G2]. But a forum reply (2026-11-09; author's staff status unverified) said a "private, single-user interactive client" that launches the **unmodified `agy acp`** binary with its own OAuth is fine. That excludes "unattended background automation, multi-user serving, and automated account rotation", and wrapping `agy` inside another agent loop [G3]. Other replies are narrower [G6]. Forum answers are **not binding**. | **Blocker.** Multi-user, hosted or paid use isn't covered. A paid tier needs a **Gemini API key** (Gemini API Terms) [G1]. |
 | **Google Gemini CLI** | **Apache-2.0** | Allowed by licence | **Dead for Pro/Ultra**: since **2026-06-18** it serves only API keys and Code Assist Standard/Enterprise [G4]. Its ToS page warns that third-party access to "the services powering Gemini CLI" via OAuth can lead to suspension [G1]. There have been mass suspensions of OpenClaw/OpenCode users reusing that OAuth [G7]. | API-key mode only. |
 | **xAI Grok Build CLI** | **Apache-2.0** (xai-org/grok-build) | Allowed by licence | **Unclear.** Third-party guides say unattended / headless use should use `XAI_API_KEY`, not the SuperGrok login [X1]. No official text found. Owner can't test. | Unknown; assume API key only. |
 | **GitHub Copilot CLI** | Proprietary "GitHub Copilot CLI License" | **Yes, conditionally**: unmodified, as part of an app with "material functionality beyond the Software", with the licence included [C1] | **Yes.** `copilot --acp` is pitched for third-party tools [C2]. Needs Copilot Pro/Pro+/Business/Enterprise, and an org admin must enable the CLI [C3]. | No licence blocker found. Copilot plan terms not reviewed. |
@@ -53,8 +53,9 @@ bundled CLI copy (`scripts/build-hub.mjs:110-128`).
 1. **Driving the user's own unmodified CLI login is the defensible pattern** for Anthropic and Google. Bundling
    a CLI, proxying its tokens, or rotating accounts is not. PocketRocket already follows the first part
    (`build-hub.mjs:110-128`).
-2. **Unattended automation is the weak spot.** Google excludes it outright for `agy` [G3]. Anthropic's limits
-   assume "ordinary, individual usage" [A2]. PocketRocket routines and triggers are unattended. This affects
+2. **Unattended automation is the weak spot.** The Google forum reply excludes it outright for `agy` [G3]. Anthropic's
+   limits assume "ordinary, individual usage" [A2], and its legal page steers SDK developers to "API key authentication"
+   while carving out an end user signing in to the unmodified Claude Code binary [A2]. PocketRocket routines and triggers are unattended. This affects
    Gemini bots now and Claude if usage ever looks abusive.
 3. **Any paid, hosted or team-seat version cannot run on consumer subscriptions** (Anthropic [A1][A2], Google
    [G3], OpenAI [O1]). It would need BYO API keys or written approval. This doesn't block the free MIT tool.
@@ -68,10 +69,10 @@ bundled CLI copy (`scripts/build-hub.mjs:110-128`).
 - [O2] Codex with a ChatGPT plan: https://help.openai.com/en/articles/11369540
 - [G1] Gemini CLI terms and privacy: https://github.com/google-gemini/gemini-cli/blob/main/docs/resources/tos-privacy.md
 - [G2] Antigravity Additional Terms, clause 6: https://antigravity.google/terms
-- [G3] Google AI forum, "Personal app using the official agy acp binary" (staff answer 2026-11-09): https://discuss.ai.google.dev/t/personal-app-using-the-official-agy-acp-binary-with-google-ai-pro-permitted/198889
+- [G3] Google AI forum, "Personal app using the official agy acp binary" (forum reply 2026-11-09; author's staff status unverified): https://discuss.ai.google.dev/t/personal-app-using-the-official-agy-acp-binary-with-google-ai-pro-permitted/198889
 - [G4] Google Developers Blog, "Transitioning Gemini CLI to Antigravity CLI" (2026-05-19): https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/
 - [G5] FOSS Force (2026-05-22): https://fossforce.com/2026/05/gemini-clis-short-life-and-googles-antigravity-bait-and-switch/
-- [G6] Narrower staff replies: https://discuss.ai.google.dev/t/clarification-on-antigravity-cli-use-on-a-remote-aws-server-and-subscription-terms/187945 and https://discuss.ai.google.dev/t/hello-google-antigravity-team/187681
+- [G6] Narrower forum replies (staff status unverified): https://discuss.ai.google.dev/t/clarification-on-antigravity-cli-use-on-a-remote-aws-server-and-subscription-terms/187945 and https://discuss.ai.google.dev/t/hello-google-antigravity-team/187681
 - [G7] The Register (2026-02-23): https://www.theregister.com/2026/02/23/google_antigravity_compute_burden/
 - [X1] Grok Build guides (third party, unofficial): https://www.layer3labs.io/guides/grok-build-pricing
 - [C1] GitHub Copilot CLI License: https://github.com/github/copilot-cli/blob/main/LICENSE.md
@@ -80,7 +81,7 @@ bundled CLI copy (`scripts/build-hub.mjs:110-128`).
 - ACP: https://agentclientprotocol.com/protocol/overview, https://agentclientprotocol.com/protocol/session-setup, https://agentclientprotocol.com/protocol/schema, https://github.com/agentclientprotocol/agent-client-protocol
 - Licences checked through the GitHub API (2026-11-17): openai/codex, anomalyco/opencode, cline/cline, MoonshotAI/kimi-cli, mistralai/mistral-vibe, github/copilot-cli, google-gemini/gemini-cli, xai-org/grok-build, agentclientprotocol/agent-client-protocol, ollama/ollama.
 
-*Not legal advice. Forum staff answers can change. Re-check [A1], [A2] and [G2] before any paid release.*
+*Not legal advice. Forum replies are not binding and can change. Re-check [A1], [A2] and [G2] before any paid release.*
 
 ---
 
@@ -89,7 +90,7 @@ bundled CLI copy (`scripts/build-hub.mjs:110-128`).
 - **Status:** protocol version `1` is stable, Apache-2.0, with TS SDK `@agentclientprotocol/sdk`. JSON-RPC 2.0. The agent runs as a
   subprocess of the client. The Zed/JetBrains registry launched on 2026-01-28.
 - **Agents with ACP:** Claude (through the Apache-2.0 `claude-agent-acp` adapter), GitHub Copilot CLI (`copilot --acp`),
-  Antigravity (`agy acp`, confirmed by Google staff [G3]), Gemini CLI, Cline, Mistral Vibe, Goose, OpenCode, among others. Codex has
+  Antigravity (`agy acp`, per a Google forum reply [G3]), Gemini CLI, Cline, Mistral Vibe, Goose, OpenCode, among others. Codex has
   no first-party ACP (`zed-industries/codex-acp` is archived). Codex's own surface is the app-server.
 - **What it gives us:**
   - `session/new|load|resume` take `mcpServers`. Stdio is mandatory. **HTTP** works when the agent advertises
@@ -268,8 +269,8 @@ dropped. The flow must not hold a turn slot: waiting inside `runTurn` would hold
 ### Option B: hand-write a Gemini adapter (like codex.ts / grok.ts)
 - Spawn `agy -p` / headless per turn and parse its own output.
 - **Pros:** no new protocol dependency.
-- **Cons:** Google staff split on whether `agy --print` driven by another app is allowed [G6]. The ACP route has the clearer
-  staff answer [G3]. One more bespoke parser to maintain, and it doesn't help Copilot, Cline and the rest.
+- **Cons:** Google forum replies split on whether `agy --print` driven by another app is allowed [G6]. The ACP route has the clearer
+  reply [G3]. One more bespoke parser to maintain, and it doesn't help Copilot, Cline and the rest.
 
 ### Option C: route every non-Claude provider through OpenCode
 - OpenCode already supports many providers, including Ollama, LM Studio and OpenAI-compatible endpoints, and we have a verified adapter.

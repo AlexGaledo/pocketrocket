@@ -73,14 +73,16 @@ each delivery has a status (queued, running, completed, interrupted, cancelled).
 
 ### Design: steering (Phase 1). Revised after review 2026-11-17
 
-Owner decisions applied (05 §02): #1 a message to a busy bot **joins the running turn**, Alt+Enter queues, bot-to-bot
+Owner decisions applied (05 §02 and Round 3): #1 a message to a busy bot **joins the running turn**, **Ctrl+Enter**
+queues (Alt+Enter is taken by the desktop full-screen toggle, `packages/desktop/src-tauri/src/lib.rs:1134-1166`), bot-to-bot
 hand-offs always queue; #2 automation turns (routine, trigger, workflow) can be steered and keep strict approvals and
 their budget; #5 providers that cannot steer queue with a note saying why.
 
 **UX (pr-design-system, from review-design).**
 - When a target is busy, a **send-mode menu** sits next to Send (a `Menu` on a 40 px `[▾]` target): "Join the running
-  turn · Enter" and "Queue for after · Alt+Enter", with a footer link to the default in Settings › Bots. Alt+Enter stays
-  the shortcut, but phones and pointer users need the visible menu. The menu is hidden when no target can steer.
+  turn · Enter" and "Queue for after · Ctrl+Enter", with a footer link to the default in Settings › Bots. Ctrl+Enter is
+  the shortcut (05 Round 3 #2; no other Ctrl+Enter binding exists in `packages/web`), but phones and pointer users need the
+  visible menu. The menu is hidden when no target can steer.
 - The placeholder depends on a per-bot `canSteer` flag from the hub: "Ada is working. Your message joins in." when it can
   steer, today's "Ada reads this when it finishes" (`ChatPane.tsx:827-831`) when it cannot. In a group room the composer
   cannot know which bot a message reaches (coordinator or `@mention`), so the placeholder stays general and the per-message
@@ -96,6 +98,12 @@ their budget; #5 providers that cannot steer queue with a note saying why.
 - The steering result is never promised before the hub confirms it: between `lane.pending.splice(0)` (`RoomRouter.ts:319`)
   and `laneTurns.set` (`BotRunner.ts:568`) a lane is running but has no turn (semaphore wait, rotation summary, classifier,
   computer start). A message sent then is queued, and the line says only "Queued", never "this bot cannot take messages".
+- **Stop is room-wide.** The composer's Stop button interrupts **every** running turn in the room
+  (`ChatPane.tsx:893-895`, `activeTurns.forEach(([t]) => interrupt(t))`), not only the bot a steer joined. Its tooltip and
+  `aria-label` say "Stop all running bots in this room".
+- **Stop with unanswered steers** (05 Round 3 #3): steers the bot had not answered yet are **re-queued and the bot answers
+  them right after Stop**. Stop does not drop them. The note after Stop says so in words, for example
+  `Stopped. Ada will answer your 1 new message next.`; with none pending it stays "stopped by you" (task 2.3).
 - When the running turn is a hand-off or an automation, the status line says so ("Joined Ada's routine turn; it uses that
   routine's budget"), because the steer spends that cause's budget (owner decision #2).
 
@@ -114,11 +122,18 @@ their budget; #5 providers that cannot steer queue with a note saying why.
 1. `providers/types.ts:162-180`: optional
    `steer?(turnId: string, input: { text: string; images?: string[]; uuid: string }): boolean`. `true` means only
    "pushed", not "answered". `ProviderInfo` gains `steer: boolean` so the UI can compute `canSteer`.
+   **For Claude, `canSteer` is derived, not hard-coded:** it is true only when the CLI's `system/init` frame advertises the
+   `interrupt_receipt_v1` capability (SDK typings `sdk.d.ts:4279` and `:5531`, per the readiness review). Without the
+   receipt, Stop cannot tell which steers are still queued, so an older CLI queues every busy message with reason
+   `'provider'`.
 2. `TurnOutcome` gains `steers: { consumed: string[]; pending: string[] }` (uuids taken from `user_message_uuids` on results
    and assistant frames, and from the interrupt receipt's `still_queued`). `TurnResult` gains `unansweredSteers`.
-3. `message.update` carries `payload.steered = turnId` **or** `payload.queued = { reason: 'setting' | 'shortcut' | 'provider' | 'between-runs' }`.
-4. `message.send` gains optional `busy?: 'steer' | 'queue'` (`shared/src/protocol.ts:108` area); `SettingsStore` gains
-   `busyMessages: 'steer' | 'queue'`, default `'steer'`.
+3. `message.update` carries **per-bot maps**, because one message can reach several lanes and steer into one while it
+   queues for another: `payload.steered: Record<botId, turnId>` and
+   `payload.queued: Record<botId, { reason: 'setting' | 'shortcut' | 'provider' | 'between-runs' }>`.
+4. `message.send` gains optional `busy?: 'steer' | 'queue'` (`shared/src/protocol.ts:108` area). The REST route
+   `POST /api/rooms/:id/messages` (`api/rest.ts:414`) gains the same optional `busy` field, so scripted and device senders
+   behave like the composer. `SettingsStore` gains `busyMessages: 'steer' | 'queue'`, default `'steer'`.
 
 **Hub changes.**
 1. **Claude adapter** (`providers/claude.ts:313-321`, `:559-644`): replace the one-shot generator with a per-turn input
@@ -127,16 +142,25 @@ their budget; #5 providers that cannot steer queue with a note saying why.
    - The read loop no longer `break`s on the first `result` (`:635-636`). It ends once every pushed uuid appears in some
      result's `user_message_uuids`, or a `result` arrives with nothing outstanding. A steer after the final result returns
      `false`.
+   - **Result without `user_message_uuids`.** If a `result` frame lacks the field (older CLI, error result), the adapter
+     cannot tell what was answered: it **ends on that result** and returns **every** pushed steer uuid as
+     `steers.pending`, so the router re-queues them rather than guessing.
    - **Several results per query.** Cost comes from the last result's cumulative `total_cost_usd` (`:620-622`), but `usage`
      tokens and `durationMs` are per result and must be **summed** (today `:628-634` overwrites them). `ok`/`error` come
      from the last result.
    - **Stop = interrupt receipt, then close.** On abort the adapter calls `q.interrupt()`, reads the receipt's
      `still_queued` uuids, then calls `q.close()` and stops reading. Without the close, uuid-stamped queued messages
      "WILL run" in the CLI (sdk.d.ts:4283) and Stop would run the steer as a new turn. The surviving uuids return as
-     `steers.pending`. The token brake's internal interrupt (`claude.ts:586-589`) does the same.
-2. **BotRunner** (`agent/BotRunner.ts:120-180`, `:600-760`): `steer(botId, roomId, input)` looks the lane up in `laneTurns`
-   and returns `false` when no turn runs, between runs (stale-session retry `:615-632`, move-up `:636-637`, continuation loop
-   `:676`), or when the provider has no `steer`. When the runner continues (move-up, continuation, stale retry, the
+     `steers.pending`, and the router re-queues them so the bot answers them right after Stop (05 Round 3 #3). The token
+     brake's internal interrupt (`claude.ts:586-589`) does the same.
+   - **Outdated-CLI replay** (`claude.ts:276-278`, the second `runOnce` after the first attempt fails on an old CLI): the
+     replay's input carries the pending steers, so a steer pushed into the failed first attempt is not lost.
+2. **BotRunner** (`agent/BotRunner.ts:120-180`, `:600-760`): `steer(botId, roomId, input)` looks the lane up in `laneTurns`.
+   `laneTurns` stays set for the whole turn (`:568` to `:727`), including the gaps between provider runs, so it cannot say
+   whether a query is live. Add a **separate run-in-progress flag** per lane, set when a provider run starts and cleared when
+   it returns; `steer()` returns `false` when it is clear (stale-session retry `:615-632`, move-up `:636-637`, continuation
+   loop `:676`), or when the provider has no `steer`. `steer()` calls **the provider the turn started on** (kept with the
+   run), never `this.providers.active()` (`:165`, `:186`), which may change mid-turn. When the runner continues (move-up, continuation, stale retry, the
    outdated-CLI replay at `claude.ts:260-279`) it carries `steers.pending` into the next run's input; whatever is still
    pending when the turn ends returns on `TurnResult.unansweredSteers`.
 3. **RoomRouter** (`rooms/RoomRouter.ts`):
@@ -144,11 +168,13 @@ their budget; #5 providers that cannot steer queue with a note saying why.
      not enqueue; write a `lane_journal` row with `status = 'steered'` (migration block 250) and remember the seq on the lane.
    - When the turn ends, delete the steer rows of consumed uuids, and **re-enqueue `unansweredSteers` as normal user items**
      with the note "Your message runs next". Without this an unconsumed steer is lost, because the router skipped `enqueue`.
-   - **Cursor rule (replaces `max(startSeq, steeredSeq)`).** At `:370`, advance `lastSeenSeq` only over a **contiguous
-     prefix**: the largest `s` such that every conversation message from someone else in `(startSeq, s]` is a steer the
-     provider consumed. Anything else (an Alt+Enter queued message, another bot's report that sits in `lane.pending`, group
-     chatter) stays unread, so `buildInjected(messagesAfter(lastSeenSeq))` (`:455-466`) still shows it next turn. DB-only,
-     no new state. Skip when `frozen` (`:366`).
+   - **Cursor rule (replaces both the `max(startSeq, steeredSeq)` draft and the contiguous-prefix draft).** Keep
+     `lastSeenSeq = startSeq` exactly as today (`:370`). Instead of moving the cursor, **filter consumed steers out** with one
+     helper, `isConsumedSteer(botId, roomId, messageId)` (backed by the `lane_journal` steer rows), used by every reader of
+     `messagesAfter(lastSeenSeq)`: `buildInjected` (`:455-466`), `userImages` (`:447-453`) and `latestUserText` (`:345`).
+     Everything else after `startSeq` (a Ctrl+Enter queued message, another bot's report in `lane.pending`, group chatter)
+     stays unread and shows next turn; a consumed steer never repeats. Skip when `frozen` (`:366`). Task 2.1b reuses the
+     same helper for cancelled messages, so there is one filter, not two.
    - **Crash mid-steer.** The steer's own journal row lets FollowUp resume it even when the parent item has already used its
      one resume (`FollowUp.ts:89-96`, `MAX_RESUMES = 1` at `:10`). A resumed session may show the steer twice (in the CLI
      transcript and as unread); `RESUME_NOTE` already tells the bot to check what is done.
@@ -174,7 +200,8 @@ Owner decision 05 §02 #6: **cancel, edit, send now, pause; no reorder.** A lane
   with `onDone({ok:false, error:'cancelled'})`, as `botLeftRoom` does (`:504-514`). One message can target two lanes, so the
   message itself is marked `messages.cancelled_at` only when no lane still holds it. Because the cursor reads
   `messagesAfter(lastSeenSeq)`, `buildInjected`, `userImages` (`:447-453`) and `latestUserText` (`:345`) must filter
-  cancelled messages, or the next turn still shows them.
+  cancelled messages, or the next turn still shows them. They do it through the **same helper** Phase 1 adds for consumed
+  steers (widened to skip cancelled messages too), not a second filter.
 - **Edit** happens in the popover (a `Textarea`, Save, Cancel). The hub refuses it, and sends `editable:false` with a
   reason, once any bot has read the message, once any lane steered it, or once any member's session cursor is past its seq.
 - **Send now** keeps the queue and interrupts the running turn, then runs the queue. It asks first through `confirmAction`
@@ -216,7 +243,7 @@ one step card with the canvas.
 ### Research: canvas libraries (read 2026-11-17)
 | Library | Licence | Paid part | Size | Fit |
 |---|---|---|---|---|
-| **React Flow** (`@xyflow/react` 12.x) | MIT | "Pro" ($169-289/mo) sells examples, templates and support. No library feature is locked. A small attribution link shows by default and can be hidden with `proOptions`. | ~57 KB gzip (third-party figure, depscope) plus its CSS | Best React option. Lazy-load it on the Automations page only. Themeable through CSS variables, so it can map to our tokens. |
+| **React Flow** (`@xyflow/react` 12.x; latest is 13.0.1, see risk 9) | MIT | "Pro" ($169-289/mo) sells examples, templates and support. No library feature is locked. A small attribution link shows by default and can be hidden with `proOptions`. | ~57 KB gzip (third-party figure, depscope) plus its CSS | Best React option. Lazy-load it on the Automations page only. Themeable through CSS variables, so it can map to our tokens. |
 | Rete.js v2 | MIT | none | larger; plugin-based | Built for dataflow editors, more than we need |
 | Hand-rolled SVG | ours | none | ~0 | Enough for a read-only diagram of a linear flow |
 Sources: [React Flow Pro](https://reactflow.dev/pro), [npm @xyflow/react](https://www.npmjs.com/package/@xyflow/react),
@@ -369,17 +396,17 @@ pass, L needs splitting. Sizes follow the reviews' re-estimates.
 | # | Owner | Files | Change | Acceptance criteria | Verify | Size |
 |---|---|---|---|---|---|---|
 | 1.0 | BE + **owner** | scratch script (not shipped) | Spike on Claude Max with SDK `^0.3.278`, owner present. Push a second `SDKUserMessage` (with `uuid`) while the bot runs `Bash sleep 20`. Record: fold timing, `user_message_uuids` on each result, what `priority` changes, several results per query, Stop with a queued steer (receipt `still_queued`, then `close()`), `error_max_turns` with a queued steer, whether `maxTurns` resets per folded turn, and the minimum CLI version | Written finding in the PR, plus captured fixtures for 1.1 tests | manual, on Claude Max | S |
-| 1.1 | BE | `providers/types.ts:147-180`, `providers/claude.ts:253-279,313-321,559-644` | `steer()` on `AgentProvider`; `ProviderInfo.steer`. Claude adapter: per-turn input channel, uuid-stamped pushes, loop until every uuid is answered, **usage tokens and duration summed across results**, cost from the last cumulative result, `TurnOutcome.steers {consumed, pending}`, **Stop = `interrupt()` receipt then `close()`**, same for the token brake (`:586-589`) | A steer pushed mid-tool is answered in the same turn. A steer after the final result returns `false`. Stop with a queued steer stops, and returns the uuid as `pending`. Two results sum their tokens | unit tests with a fake `query()` emitting two results and an interrupt receipt | M/L |
-| 1.2 | BE | `agent/BotRunner.ts:120-180,600-760` | `BotRunner.steer(botId, roomId, input)`; returns `false` between runs (stale retry `:615-632`, move-up `:636-637`, continuation `:676`) and for providers without `steer`. Carries `pending` steers into the next run on move-up, continuation, stale retry and the outdated-CLI replay; returns the rest as `TurnResult.unansweredSteers` | No steer lands in a dead query; no pending steer is dropped across a retry | unit tests | M |
-| 1.3 | BE | `rooms/RoomRouter.ts:161,186-212,366-370`, `db/migrations.ts` (block 250), `shared/src/protocol.ts`, `shared/src/models.ts`, `services/SettingsStore.ts` | `dispatchUser` steers busy targets (person, hop 0 only), else enqueues. Steer journal rows (`lane_journal.status = 'steered'`). **Contiguous-prefix cursor rule.** Re-enqueue `unansweredSteers` with "runs next". Reassign a consumed steer's `cause_id`. `message.send.busy`, `settings.busyMessages`, `payload.steered` / `payload.queued.reason` | No duplicate in the next turn. An Alt+Enter message or a pending hand-off sent during the turn is still unread next turn. Bot hops never steer. Hub killed mid-turn: the steer is answered once on resume even when the parent item gave up. Routine-started turn stays strict | tests in `rooms/*.test.ts` (fake runner), including restart | M |
-| 1.4 | DS | `components/ChatPane.tsx:315,813-896`, `store.ts`, `settings/*` | Send-mode menu next to Send (Alt+Enter shortcut kept); `canSteer` placeholder; status line under the bubble (not `SystemLine`); "continued" WorkLine on the same `turnId`; `aria-label` + `Tooltip` on Stop and Send; Settings default | Keyboard-only and phone flows work. AA contrast. No new motion. Copy never promises a join the hub did not confirm | manual: Claude Max, long task, steer it; screen reader pass | M |
-| 1.5 | planner | `CHANGELOG.md` Unreleased, `docs/GUIDE.md` | Document steering, the per-provider limits and "Stop also drops pending steers into the queue" | | review | S |
+| 1.1 | BE | `providers/types.ts:147-180`, `providers/claude.ts:253-279,313-321,559-644` | `steer()` on `AgentProvider`; `ProviderInfo.steer`. Claude adapter: per-turn input channel, uuid-stamped pushes, loop until every uuid is answered, **usage tokens and duration summed across results**, cost from the last cumulative result, `TurnOutcome.steers {consumed, pending}`, **Stop = `interrupt()` receipt then `close()`**, same for the token brake (`:586-589`). **`canSteer` from the init capability `interrupt_receipt_v1`**; a result without `user_message_uuids` ends the read loop and returns all pushed uuids as `pending`. The outdated-CLI replay (`:276-278`) carries pending steers | A steer pushed mid-tool is answered in the same turn. A steer after the final result returns `false`. Stop with a queued steer stops, and returns the uuid as `pending`. Two results sum their tokens. No capability → `canSteer` false. A result lacking the field → all pushed uuids pending. A steer pushed before the replay is answered by the replay | unit tests with a fake `query()` emitting two results and an interrupt receipt | M/L |
+| 1.2 | BE | `agent/BotRunner.ts:120-180,568-727,600-760` | `BotRunner.steer(botId, roomId, input)` gated on a **separate run-in-progress flag** (not `laneTurns`, which stays set `:568-727`); returns `false` between runs (stale retry `:615-632`, move-up `:636-637`, continuation `:676`) and for providers without `steer`. Steers through **the turn's starting provider**, never `providers.active()`. Carries `pending` steers into the next run on move-up, continuation and stale retry; returns the rest as `TurnResult.unansweredSteers` | No steer lands in a dead query; no pending steer is dropped across a retry; changing the active provider mid-turn does not redirect a steer | unit tests | M |
+| 1.3 | BE | `rooms/RoomRouter.ts:161,186-212,345,366-370,447-466`, `api/rest.ts:414`, `db/migrations.ts` (block 250), `shared/src/protocol.ts`, `shared/src/models.ts`, `services/SettingsStore.ts` | `dispatchUser` steers busy targets (person, hop 0 only), else enqueues. Steer journal rows (`lane_journal.status = 'steered'`). **Cursor stays `lastSeenSeq = startSeq`; one `isConsumedSteer` helper filters `buildInjected`, `userImages`, `latestUserText`.** Re-enqueue `unansweredSteers` (including after Stop) with "runs next". Reassign a consumed steer's `cause_id`. `message.send.busy` plus the same `busy` field on REST `POST /api/rooms/:id/messages`, `settings.busyMessages`, per-bot maps `payload.steered` / `payload.queued` | No duplicate in the next turn. A Ctrl+Enter message or a pending hand-off sent during the turn is still unread next turn. After Stop the unanswered steer runs next. Bot hops never steer. Hub killed mid-turn: the steer is answered once on resume even when the parent item gave up. Routine-started turn stays strict | tests in `rooms/*.test.ts` (fake runner), including restart | M |
+| 1.4 | DS | `components/ChatPane.tsx:315,813-896`, `store.ts`, `settings/*` | Send-mode menu next to Send (**Ctrl+Enter** queues); `canSteer` placeholder; status line under the bubble (not `SystemLine`); "continued" WorkLine on the same `turnId`; `aria-label` + `Tooltip` on Stop ("Stop all running bots in this room") and Send; the after-Stop note names re-queued steers; Settings default | Keyboard-only and phone flows work. AA contrast. No new motion. Copy never promises a join the hub did not confirm | manual: Claude Max, long task, steer it; screen reader pass | M |
+| 1.5 | planner | `CHANGELOG.md` Unreleased, `docs/GUIDE.md` | Document steering, Ctrl+Enter, the per-provider limits, that Stop stops every bot in the room, and that unanswered steers are answered right after Stop | | review | S |
 
 ### Phase 2: queue controls
 | # | Owner | Files | Change | Acceptance | Verify | Size |
 |---|---|---|---|---|---|---|
 | 2.1a | BE | `rooms/RoomRouter.ts`, `api/rest.ts`, `api/guard.ts:321`, `shared/src/protocol.ts` | `GET /api/rooms/:id/queue` (added to `DEVICE_ALLOW`), `queue.changed` event per lane with `{botId, roomId, paused, items[{journalId, messageId, text, editable}]}` | A paired phone sees the queue; a device cannot reach any other new route | tests | S |
-| 2.1b | BE | `rooms/RoomRouter.ts:345,447-466,504-514`, `db/migrations.ts` (block 250), `db/repos.ts` | `queue.cancel {journalId}` per lane, `messages.cancelled_at` when no lane holds it, filters in `buildInjected`/`userImages`/`latestUserText`. `queue.edit` with the refusal rules (read, steered, any cursor past it). `queue.sendNow {botId, roomId}` (interrupt, then run) | Cancelled and edited items survive a restart in their new state. A cancelled message never reaches the next turn. Edit refused once read or steered | tests incl. restart | M |
+| 2.1b | BE | `rooms/RoomRouter.ts:345,447-466,504-514`, `db/migrations.ts` (block 250), `db/repos.ts` | `queue.cancel {journalId}` per lane, `messages.cancelled_at` when no lane holds it, filtered through the **1.3 helper** in `buildInjected`/`userImages`/`latestUserText`. `queue.edit` with the refusal rules (read, steered, any cursor past it). `queue.sendNow {botId, roomId}` (interrupt, then run) | Cancelled and edited items survive a restart in their new state. A cancelled message never reaches the next turn. Edit refused once read or steered | tests incl. restart | M |
 | 2.2 | BE | `RoomRouter.ts:300-305,598-602`, `services/ComputerControl.ts` | Pause/resume a bot's queue with a reason, separate from computer takeover | Paused bot runs nothing; resume drains | test | S |
 | 2.3 | BE | `agent/BotRunner.ts:750`, `agent/turnFailure.ts` | An owner interrupt or send-now posts "stopped by you", not a failure | No red error note on Stop | test | S |
 | 2.4 | DS | `ChatPane.tsx`, `store.ts` (`queues: Record<laneKey, LaneQueue>`) | Chip row + popover (Edit, Cancel, Pause queue, Send now… via `confirmAction`). Bubbles show only "Queued". `Queue paused` label distinct from `Paused` | Works at 360 px and from the keyboard. Edit refusal explains why | manual | M |
@@ -394,7 +421,7 @@ pass, L needs splitting. Sizes follow the reviews' re-estimates.
 | 3.3 | BE | `WorkflowRunner.ts`, card payload in `shared`, Needs-you | Person-only approval card kind on the parked-card store (Approve / Reject / Send back once), 24 h expiry | A 3 a.m. run waits for a morning answer. A bot, a cta or chat text cannot answer | tests | M |
 | 3.4 | BE | `api/rest.ts`, `agent/botTools.ts` (`gate()` `:216`) | REST CRUD plus "Run now" (`manual: true`). Bot tools `create_workflow`/`update_workflow` behind fleet approval | Bot proposal shows a fleet card | `fleetApproval.test.ts` | S |
 | 3.5a | DS | `FleetPages.tsx:35-42`, new `components/workflows/{WorkflowPage,StepCard,StepsList,Inspector}.tsx`, page routing | `{kind:'workflow'}` page, `FleetHeader`, Canvas/Steps tabs, StepCard, Steps list (`<ol>`), inspector (column at `lg`, Dialog below), Workflows section on Automations | Usable without docs; keyboard and phone; status in words | manual, axe | M |
-| 3.5b | DS | `components/workflows/WorkflowCanvas.tsx` (lazy), `package.json` (`@xyflow/react` 12, pinned) | Lazy React Flow canvas: `base.css` only, `--xy-*` token map, auto-layout, "+" insert on edges, no handles, no drag, node menu, read-only below 640 px, attribution restyled, chunk-load error reloads once | `@xyflow` absent from the entry chunk; reduced motion respected; both themes | `vite build` chunk report, manual | M |
+| 3.5b | DS | `components/workflows/WorkflowCanvas.tsx` (lazy), `package.json` (`@xyflow/react` pinned to an exact version; **12 vs 13 decided before this task starts**, risk 9) | Lazy React Flow canvas: `base.css` only, `--xy-*` token map, auto-layout, "+" insert on edges, no handles, no drag, node menu, read-only below 640 px, attribution restyled, chunk-load error reloads once | `@xyflow` absent from the entry chunk; reduced motion respected; both themes | `vite build` chunk report, manual | M |
 | 3.5c | DS | workflow page, `ChatPane.tsx`, Needs-you, Usage page (`FleetPages.tsx:248`) | Run view on canvas and list (per-step Badge and cost), run history, the approval card on `ActionCard` in chat and Needs-you, `workflow` cause label in Usage | A waiting run is obvious and answerable from Needs-you | manual | M |
 | 3.6 | IN | new `scripts/bundle-budget.mjs`, `.github/workflows/ci.yml` | After `pnpm -r build`, assert no `@xyflow` code in the entry chunk and the entry chunk under a budget | CI fails if the canvas leaks into the entry chunk | CI | S |
 
@@ -420,7 +447,8 @@ pass, L needs splitting. Sizes follow the reviews' re-estimates.
 2. **Several results per query.** Cost, the token brake (`claude.ts:586-589`), `sessionCostUsd` and summed usage must handle
    two or more. Tests in 1.1.
 3. **Cursor bugs.** Advancing `lastSeenSeq` wrongly hides messages (the `max(startSeq, steeredSeq)` draft rule did) or
-   repeats them. The contiguous-prefix rule and tests in 1.3 cover both.
+   repeats them. Keeping `lastSeenSeq = startSeq` and filtering consumed steers through one helper (1.3) avoids moving the
+   cursor at all; tests in 1.3 cover both directions.
 4. **Cost attribution.** A steer spends the running turn's cause, possibly a hop-4 hand-off near its cap or a routine's
    budget. Accepted by the owner (05 §02 #2); the status line says so.
 5. **Provider gap.** Only Claude steers. Gemini queues until Google ships a headless steer.
@@ -428,9 +456,13 @@ pass, L needs splitting. Sizes follow the reviews' re-estimates.
 7. **Canvas expectations.** A canvas invites branches and loops; v1 refuses them with a clear message, and the Steps view
    stays the accessible editor.
 8. **First lazy chunk.** Stale chunk hashes after an update; handled by reload-once (3.5b) and the CI budget (3.6).
+9. **React Flow major version.** The spec was written against 12.x, but the latest release is **13.0.1**. Before 3.5b,
+   check 13's breaking changes against our use (`base.css`, `--xy-*` variables, custom nodes, `proOptions`, React 19 and
+   zustand peers) and record the pin (exact 12.x or 13.0.x) in the 3.5b PR. Decision is open.
 
 ## Owner decisions (answered 2026-11-17, `05-owner-decisions.md`)
-1. Busy bot: the message **joins the running turn**; Alt+Enter queues; bot-to-bot hand-offs always queue.
+1. Busy bot: the message **joins the running turn**; **Ctrl+Enter** or the Send menu queues (Round 3); bot-to-bot hand-offs
+   always queue. Stop re-queues unanswered steers and the bot answers them right after (Round 3).
 2. Automation turns can be steered; they keep strict approvals and their budget.
 3. Editor: **React Flow canvas, lazy-loaded**, over a plain step graph that a list view also renders.
 4. Image and video: **deferred**; GUIDE note only.

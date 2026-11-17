@@ -27,8 +27,8 @@ EUR 7.20-18/seat/mo; enterprise on request.
 1. **Providers + failover.** Provider per agent; "Change the provider, keep the agent" (workspace and
    conversation kept). When a plan hits its limit or a provider is down, the agent moves to a backup
    model on another provider, with a note in chat. Providers: Codex (Codex App Server, stdio JSONL),
-   Claude (Agent SDK), Gemini (Google Antigravity CLI, downloaded at runtime because Google's licence
-   forbids redistribution), Grok CLI, OpenCode, Cursor (`cursor-agent acp`), Cline (`cline --acp`),
+   Claude (Agent SDK), Gemini (Google Antigravity CLI, downloaded at runtime; OpenBot says Google's licence
+   does not allow redistribution, which we have not verified against a licence text), Grok CLI, OpenCode, Cursor (`cursor-agent acp`), Cline (`cline --acp`),
    Kimi (`kimi acp`), Devin (`devin acp`), Copilot (`copilot --acp`), Mistral (`vibe-acp`), Hermes
    (`hermes acp`), any ACP agent (Goose, Qwen Code), OpenAI-compatible endpoints, Ollama, LM Studio.
    CLIs downloaded and version-pinned by the app; `OPENBOT_*_PATH` overrides; "uses the existing local

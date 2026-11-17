@@ -91,7 +91,7 @@ All prices were checked 2026-11-17. "Now" means fits the $0 budget.
 | **PolyForm Noncommercial 1.0.0** (OpenBot) | No | Noncommercial use only. Hobby, research, charities, education and government are allowed; any commercial purpose is outside the grant. There is a 32-day cure period. https://polyformproject.org/licenses/noncommercial/1.0.0 | It would bar freelancers and staff from using PocketRocket at work without a paid licence. That contradicts the current free positioning and needs licence enforcement. | No |
 
 **Can an MIT project relicense later?** Yes, for new versions, if every copyright holder agrees, or if all contributions
-came in under a CLA that grants relicensing. Copies already released under MIT (v0.2.0, v0.3.0 and every public commit)
+came in under a CLA that grants relicensing. Copies already released under MIT (v0.2.0, v0.3.0 once tagged, and every public commit)
 **stay MIT forever**, so anyone may fork the last MIT version. Today the owner is the only human author (see the table
 above). The 3 Claude-co-authored commits are AI-assisted output committed by the owner, and dependabot only bumps
 version numbers. Relicensing is therefore cleanly in the owner's hands **now**. That ends with the first merged outside
@@ -107,20 +107,29 @@ PR unless a CLA is in place first. This is not legal advice; a lawyer should con
 ### a1. Tauri updater (go). Revised after review 2026-11-17
 
 Owner decision 05 §04 #6: **daily check at launch, ask before installing**, never during a turn or open approval.
+Ships in **v0.3.0** together with everything already on `main` (05 Round 3 #1; `main` is already versioned 0.3.0 at
+`package.json:5`, `Cargo.toml:3`, `tauri.conf.json:5`, and only v0.2.0 was released).
 
 **Wiring (A1).**
 - `Cargo.toml`: `tauri-plugin-updater = "=2.12.0"`. 2.13.x and 2.14.x require `tauri ^2.12`; **2.12.0 is the last version
   that accepts the locked tauri 2.11.6** (resolved by pr-infra with `cargo metadata`; adds about 30 crates). Add a
   Dependabot `ignore` for updater 2.13+, or a group that moves tauri, notification and updater together.
-- `tauri.conf.json`: `bundle.createUpdaterArtifacts: true`; `plugins.updater.pubkey`; endpoint
+- `tauri.conf.json`: `plugins.updater.pubkey`; endpoint
   `https://github.com/AlexGaledo/pocketrocket/releases/latest/download/latest.json`; Windows `installMode: "passive"`
   (per-user install, `:52`, so no UAC).
 - The plugin is registered in Rust only. The check is a Rust-internal call, not a `#[tauri::command]`, so there is no IPC
   surface, and no capability file (including `hub-notify.json`) gains `updater:*`. The CSP (`tauri.conf.json:29`) is
   unaffected.
-- With `createUpdaterArtifacts: true`, `cargo tauri build` **fails without `TAURI_SIGNING_PRIVATE_KEY`**. `DEVELOPMENT.md`
-  gets the local override `cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'`. `ci.yml` runs only
-  `cargo check`, so it is unaffected.
+- **`createUpdaterArtifacts` is not set in `tauri.conf.json`.** With it on, `cargo tauri build` fails without
+  `TAURI_SIGNING_PRIVATE_KEY`, which would break every local build and the manual-dispatch dry run. Instead the **tag build
+  steps only** pass `--config '{"bundle":{"createUpdaterArtifacts":true}}'`. Local builds, `pnpm desktop:build` and dry runs
+  work with no key and produce no `.sig`.
+- **Endpoint override for testing.** An env var (for example `POCKETROCKET_UPDATE_ENDPOINT`) replaces the endpoint, but the
+  shell accepts it only when it is an `https://github.com/AlexGaledo/pocketrocket/releases/...` URL (`latest/download/` or
+  `download/vX.Y.Z/`); anything else is ignored with a log line. This lets the owner point an installed build at a
+  prerelease's `latest.json` without a special build. A unit test covers accept and reject.
+- **CI gains `cargo test`.** `ci.yml` runs only `cargo check` today (`.github/workflows/ci.yml:76` Windows, `:118` Linux/macOS),
+  so the endpoint and override tests would never run. Add a `cargo test` step after each `cargo check`.
 
 **Release pipeline: draft, then finalize (A2).** The draft's "set `uploadUpdaterJson: true` and verify it merges" is not
 safe: `tauri-action` merges `latest.json` with read-modify-delete-upload and no lock, the Linux and macOS jobs run in
@@ -136,8 +145,12 @@ platform entry is bad.
   `.AppImage` (**never the `.deb`**), `darwin-aarch64` → `.app.tar.gz`, plus CHANGELOG notes and `pub_date`, and **fails** if
   any entry lacks a URL or signature; writes `SHA256SUMS.txt` over every asset; attests both files; uploads them; publishes
   as a **prerelease** (which `releases/latest` ignores). The assembler is unit-tested in `pnpm test` with fixture `.sig` files.
-- **Staged rollout (owner, each release):** a test build pointed at `.../releases/download/vX.Y.Z/latest.json` updates from
-  the previous version on a clean Windows VM; then `gh release edit vX.Y.Z --prerelease=false --latest`. Testing on a "test
+- **Staged rollout (owner, each release):** an installed build with the endpoint override set to
+  `.../releases/download/vX.Y.Z/latest.json` updates from the previous version on a clean Windows VM; then
+  `gh release edit vX.Y.Z --prerelease=false --latest`.
+- **First real test needs two updater builds.** v0.2.0 has no updater, so v0.3.0 cannot be updated *to* by anyone. Plan a
+  **v0.3.1-rc.1 prerelease right after v0.3.0**: install v0.3.0 on the clean VM, point the override at the RC's
+  `latest.json`, and update. Only then is the owner VM test real. Testing on a "test
   fork" does not work: both release jobs are gated on `github.repository == 'AlexGaledo/pocketrocket'` with owner and repo
   hardcoded.
 - Attestation: `actions/attest-build-provenance` pinned to v4.2.2 (`4d101475d8b20a2381f78447822ac1eab6504dd8`);
@@ -146,38 +159,58 @@ platform entry is bad.
 **Signing key custody.**
 - Generate offline with a password (`cargo tauri signer generate`); keep key and password in the password manager plus one
   offline copy; write restore and planned-rotation steps in `RELEASING.md`.
-- **Signing key in the `release` environment only**: owner as required reviewer, deployments only from `v*` tags and manual
-  dispatch (free on a public repo). `TAURI_SIGNING_PRIVATE_KEY` and its password go in **step-level** `env` on the build
+- **Signing key in the `release` environment only**: owner as required reviewer, deployment branch/tag rule `v*` (free on a
+  public repo). A GitHub environment **cannot filter by event**, only by branch or tag, so the manual-dispatch **dry-run
+  steps must not reference `environment: release`**: they build without the key (and without `createUpdaterArtifacts`) and
+  never publish. `TAURI_SIGNING_PRIVATE_KEY` and its password go in **step-level** `env` on the build
   steps, never job-level, so `pnpm install`, tests and postinstall scripts never see them. Rust build scripts in the same
   step still can; the full fix is signing in a separate job, which SignPath would force anyway.
 - Correction: a **planned** rotation needs no reinstall (a release signed with the old key can carry the new pubkey). Only a
   **lost** key strands installs.
 
-**Update UX in the shell (A4, local mode only).**
+**Update UX in the shell (A4).**
+- **The check runs in every desktop mode** (`local`, `remote`, `attach`; `lib.rs:6`, `:140`): the desktop app itself needs
+  updating whatever hub it talks to. Only the hold and the busy gate depend on the mode (see below).
 - Check at launch **and every 24 h while running**: P9 made close-to-tray the default in local mode (`lib.rs:62-63`), so the
   app can run for weeks.
 - An automatic check never opens a modal over work. When an update is found: a system notification ("PocketRocket 0.4.1 is
   ready") and the app menu and tray item become "Install update 0.4.1…"; a third item "What's new in 0.4.1" opens the release
   page. The native dialog opens only from that item or "Check for updates" (which uses the plugin instead of
   `RELEASES_URL`, `lib.rs:550`, `:1394`, `:1475`). Two buttons: `Install and restart` / `Later`, or
-  `Install when bots are idle` / `Later` while busy; pr-infra checks whether the pinned dialog plugin allows custom labels,
-  else Yes/No with the question worded to fit. Remember a skipped version in `config.json`. Offline is silent on the
+  `Install when bots are idle` / `Later` while busy. **Resolved:** the locked `tauri-plugin-dialog` 2.7.3
+  (`Cargo.lock`) supports custom labels through `MessageDialogButtons::OkCancelCustom`. Remember a skipped version in `config.json`. Offline is silent on the
   automatic check.
 - Copy: "Installing restarts the app; running replies will stop." Do not promise "pick up where they left off" until the
   crash-loss bug (pending approvals lost on a crash) is fixed.
-- **Idle-only install with a maintenance hold.** The shell calls `POST /api/maintenance/hold {minutes}` (hub token only): the
-  router stops starting new turns (items stay journaled; like `freeze()` but reversible) until released or expired, so a
-  routine cannot fire between the check and the installer stopping `node.exe`. It then polls `GET /api/busy` until 0.
-- **`/api/busy` counts only work a restart would lose:** running turns (`BotRunner.activeTurns`), live **unparked** cards and
-  lanes with pending items. Parked cards (up to 24 h, `MAX_PARK_MS`), journaled lane items and waiting workflow runs survive a
-  restart, so they are reported separately for the dialog text and do not block. Otherwise one parked routine card would
-  block updates for a day. New routes are refused to devices by default (`DEVICE_ALLOW`, `api/guard.ts:321`).
+- **Idle-only install with a maintenance hold (local mode only).** The shell calls `POST /api/maintenance/hold {minutes}`:
+  the router stops starting new turns (items stay journaled; like `freeze()` but reversible) until
+  `POST /api/maintenance/release` or expiry, so a routine cannot fire between the check and the installer stopping
+  `node.exe`. `minutes` is capped (for example 1-30; larger values are clamped). The hold is checked **again after a lane
+  acquires its turn slot** (`RoomRouter.ts:307`, `await this.acquire()`), because a lane already waiting on the semaphore
+  when the hold began would otherwise start anyway. The shell then polls `GET /api/busy` until `blocking` is 0.
+- **`/api/busy` returns one `blocking` number** = running turns + live **unparked** approval cards: the only work a restart
+  would lose. It also reports `pendingLanes`, `parkedCards` and `waitingRuns` **for display only**. Pending lane items are
+  journaled and resume after a restart (`RoomRouter.ts:283-286` writes the journal row; `FollowUp.ts:77-115` resumes it), parked
+  cards last up to 24 h (`MAX_PARK_MS`) and waiting workflow runs restart, so none of them block; otherwise one parked
+  routine card would block updates for a day. The counts need getters: `BotRunner.activeTurns` (`BotRunner.ts:120`) and
+  `PermissionBroker.pending` (`PermissionBroker.ts:123`) are private, so add `activeTurnCount()` and `liveCardCount()`
+  and wire them into the route in `hub.ts`.
+- **Auth for the three maintenance routes and `/api/busy`:** hub token (bearer) or the owner's browser session, as for
+  every other route under `checkToken` (`api/guard.ts:186`). Paired devices are refused: the routes stay out of
+  `DEVICE_ALLOW` (`api/guard.ts:321`).
+- **Clean stop: `POST /api/maintenance/stop`** reuses `hub.shutdown()` (`hub.ts:770`, which freezes the router and closes
+  providers and the database) and replies before it exits. The shell calls it, waits up to about 5 s for the child to exit,
+  then **falls back to the existing hard kill** (`kill_child` at `lib.rs:1531-1538`, `kill_tree` / `taskkill /t /f` at
+  `proc.rs:94-100`).
 - On Windows the updater exits the app before the installer runs; the Job Object (KILL_ON_JOB_CLOSE, `proc.rs`) kills node,
   `claude.exe` and ssh, and the NSIS pre-install hook (`nsis/hooks.nsh`) is a backstop for orphaned pre-0.3 `node.exe`. No
-  bundled `.node` addons, so nothing locks `$INSTDIR\hub\`. The real risk is an abrupt stop, so `on_before_exit` asks the hub
-  to stop cleanly and waits up to about 5 s; on macOS and Linux the app calls `restart()` after the same clean stop.
-- **Remote mode:** a desktop update does not touch a server hub; the busy gate applies in local mode only, and the server is
-  updated through B2. The splash page's calls (`/api/health`, `/api/providers/claude/check`) must stay backward compatible
+  bundled `.node` addons, so nothing locks `$INSTDIR\hub\`. The real risk is an abrupt stop, so `on_before_exit` calls
+  `/api/maintenance/stop` and falls back to the hard kill after the timeout; on macOS and Linux the app calls `restart()`
+  after the same clean stop.
+- **Remote mode:** a desktop update does not touch a server hub. The shell **never holds or stops a VPS hub**; it installs
+  after the normal two-button question (the SSH tunnel simply reconnects). The server is updated through B2.
+- **Attach mode, or a hub that answers 404** on `/api/busy` (an older hub): no hold and no busy gate; the shell **just asks
+  the user** ("Bots may be working. Install and restart now?"). The splash page's calls (`/api/health`, `/api/providers/claude/check`) must stay backward compatible
   with older server hubs.
 - About (A5) inside the desktop app: version plus "Updates are checked daily by the desktop app. Use the PocketRocket menu ›
   Check for updates." The webview never triggers an install; any "update ready" line would be a read-only event from Rust.
@@ -311,10 +344,10 @@ All tasks fit $0. Sizes: S < 1 day, M 1-3 days, L > 3 days for one agent.
 | # | Owner | Files | Change | Acceptance criteria | Verify | Size |
 | --- | --- | --- | --- | --- | --- | --- |
 | A0 | **owner** + pr-infra | GitHub settings, password manager, `docs/RELEASING.md` | Generate the updater key offline with a password; store key + password in the password manager and one offline copy; create the `release` environment (owner as required reviewer, `v*` tags and manual dispatch only) holding the two secrets; document restore and planned rotation | Environment exists with the reviewer rule; RELEASING has restore/rotation steps | Inspect repo settings | S |
-| A1 | pr-infra | `src-tauri/Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, `src/lib.rs`, `.github/dependabot.yml`, `docs/DEVELOPMENT.md` | `tauri-plugin-updater = "=2.12.0"`, Dependabot ignore (2.13+) or a tauri group, `createUpdaterArtifacts`, pubkey, endpoint, `installMode: "passive"`, Rust-only registration, local-build override documented | `cargo check` passes; tauri stays 2.11.6; `grep -r updater capabilities/` is empty; a test asserts the endpoint is https on the github.com release path | `cargo check`, `cargo test` | S |
-| A2 | pr-infra | `.github/workflows/release.yml`, new `scripts/updater-json.mjs` (+ test), `docs/RELEASING.md` | Draft release → finalize job: `environment: release`, step-level signing key, `releaseDraft: true`, `releaseId` to the Unix matrix, no job writes `latest.json`; finalize assembles and checks `latest.json` (explicit platform → asset map), writes `SHA256SUMS.txt`, attests both, publishes as prerelease; installers attested in their build jobs (attest action pinned to v4.2.2 SHA, permissions only on attesting jobs); macOS `app,dmg` if needed. Folds in the draft's A6 | A tag yields one complete `latest.json` with the three platform keys; a missing `.sig` fails finalize; nothing is public until finalize succeeds | Tag a prerelease in the main repo; `jq` the keys; `gh attestation verify` each asset | M |
-| A3 | pr-backend | `packages/hub/src/api/rest.ts`, `api/guard.ts`, `rooms/RoomRouter.ts`, tests | `GET /api/busy` (hub token only): `{ running, liveCards, pendingLanes }` that block, plus `parkedCards`, `waitingRuns` for display. `POST /api/maintenance/hold {minutes}` / release: router starts no new turns, items stay journaled | Counts only restart-losable work; 401 without the token; devices refused; a routine due during a hold waits and runs after release | vitest | S |
-| A4 | pr-infra | `src/lib.rs` (`:62-63`, `:550`, `:1394`, `:1475`), `config.json` handling, `RELEASING.md` | Check at launch and every 24 h (local mode); notification + "Install update X…" and "What's new in X" menu/tray items; native dialog on demand with the two-button copy; on install: hold → poll `/api/busy` until 0 → `on_before_exit` clean hub stop (≤ 5 s) → install; skipped version remembered; offline silent; remote mode skips the busy gate | No install starts while a turn runs or a live card is open; a tray-only user sees an update within 24 h | Manual on a clean VM: update with and without a running turn; SAC-on run once | M |
+| A1 | pr-infra | `src-tauri/Cargo.toml`, `Cargo.lock`, `tauri.conf.json`, `src/lib.rs`, `.github/dependabot.yml`, `.github/workflows/ci.yml:76,118`, `docs/DEVELOPMENT.md` | `tauri-plugin-updater = "=2.12.0"`, Dependabot ignore (2.13+) or a tauri group, pubkey, endpoint, `installMode: "passive"`, Rust-only registration. **No `createUpdaterArtifacts` in the config file.** Endpoint override env var limited to the repo's release URLs. **`cargo test` step added to both CI desktop jobs** | `cargo check` passes; a local `cargo tauri build` works with no key; tauri stays 2.11.6; `grep -r updater capabilities/` is empty; tests assert the endpoint is https on the github.com release path and the override rejects any other URL; CI runs `cargo test` | `cargo check`, `cargo test`, CI run | S |
+| A2 | pr-infra | `.github/workflows/release.yml`, new `scripts/updater-json.mjs` (+ test), `docs/RELEASING.md` | Draft release → finalize job: `environment: release` on tag runs only (**not on manual-dispatch dry-run steps**; environments cannot filter by event), `createUpdaterArtifacts` passed with `--config` in tag builds only, step-level signing key, `releaseDraft: true`, `releaseId` to the Unix matrix, no job writes `latest.json`; finalize assembles and checks `latest.json` (explicit platform → asset map), writes `SHA256SUMS.txt`, attests both, publishes as prerelease; installers attested in their build jobs (attest action pinned to v4.2.2 SHA, permissions only on attesting jobs); macOS `app,dmg` if needed. Folds in the draft's A6 | A tag yields one complete `latest.json` with the three platform keys; a missing `.sig` fails finalize; nothing is public until finalize succeeds | Tag a prerelease in the main repo; `jq` the keys; `gh attestation verify` each asset | M |
+| A3 | pr-backend | `packages/hub/src/api/rest.ts`, `api/guard.ts`, `rooms/RoomRouter.ts:307`, `agent/BotRunner.ts:120`, `permissions/PermissionBroker.ts:123`, `hub.ts:770`, tests | `GET /api/busy` → `{ blocking, pendingLanes, parkedCards, waitingRuns }`, where **`blocking` = running turns + live unparked cards** and the rest is display-only. Count getters for the private `BotRunner.activeTurns` and `PermissionBroker.pending`, wired in `hub.ts`. `POST /api/maintenance/hold {minutes}` (capped) and `POST /api/maintenance/release`: router starts no new turns, items stay journaled; **hold re-checked after `acquire()`**. `POST /api/maintenance/stop` reuses `hub.shutdown()`. Auth: hub token or owner session; devices refused | A pending lane or parked card does not raise `blocking`; a running turn or live card does. 401 without token or session; a device token gets 403. A routine due during a hold waits and runs after release or expiry. A lane already waiting on the semaphore does not start during a hold. An over-cap `minutes` is clamped. `stop` exits the hub cleanly | vitest | S/M |
+| A4 | pr-infra | `src/lib.rs` (`:6`, `:62-63`, `:140`, `:550`, `:1394`, `:1475`, `:1531-1538`), `src/proc.rs:94-100`, `config.json` handling, `RELEASING.md` | Check at launch and every 24 h **in all modes**; notification + "Install update X…" and "What's new in X" menu/tray items; native dialog (`OkCancelCustom`) on demand with the two-button copy; on install in **local mode**: hold → poll `/api/busy` until `blocking` is 0 → `POST /api/maintenance/stop`, wait ≤ 5 s, else hard kill → install. **Remote mode: never hold a VPS hub. Attach mode or a 404: just ask.** Skipped version remembered; offline silent | No install starts while a local turn runs or a live card is open; a remote-mode install never calls the server's maintenance routes; a tray-only user sees an update within 24 h; a hung hub is still killed | Manual on a clean VM: v0.3.0 → v0.3.1-rc.1 via the endpoint override, with and without a running turn; SAC-on run once; one remote-mode update | M |
 | A5 | pr-design-system | `packages/web/src/components/settings/AboutSection.tsx:15`, `packages/desktop/ui/index.html:9-38` | Desktop-aware About copy; splash line for restart-after-update; **separate PR**: splash and site token parity (`desktop/ui/index.html` and `site/styles.css` still use the old cool palette `#f7f7f8` / `#4f7df3`) or record why not | AA; keyboard; no new motion | Visual check in both themes | S + S |
 | A7 | pr-infra | `README.md`, `packages/site` FAQ, `docs/RELEASING.md`, `docs/PRODUCTION-CHECKLIST.md` | "Verify your download" (attestation first, checksum second); SmartScreen + Smart App Control FAQ; macOS 15 "Open Anyway"; AppImage on Ubuntu 23.10+; deb users update by hand; fix checklist line 130 (repo is public); add `github.com`, `objects.githubusercontent.com` and `api.telegram.org` to the outbound list | Steps work on a clean machine | Manual follow-through | S |
 | A8 | pr-infra | `docs/PRODUCTION-CHECKLIST.md` row 169, `release.yml` matrix | Real installs: AppImage and deb on Ubuntu 22.04 + 24.04, dmg on macOS 15; add an `ubuntu-22.04-arm` AppImage | Hub starts and onboarding reaches "Connect Claude" on each | Row 169 flips to ☑ with notes | M |
@@ -358,8 +391,9 @@ never (decide with C3).
 
 ## Order and dependencies. Revised after review 2026-11-17
 
-1. **A0 → A1 → A2** (the most valuable $0 work; pr-infra only). **A3** (pr-backend, S) any time before **A4**; A4 after A2
-   and A3. **A5** alongside A4.
+1. **A0 → A1 → A2** (the most valuable $0 work; pr-infra only). **A3** (pr-backend, S/M) any time before **A4**; A4 after A2
+   and A3. **A5** alongside A4. A1-A4 ship as **v0.3.0** with everything already on `main` (05 Round 3 #1); cut
+   **v0.3.1-rc.1** right after so the owner can run the first real update test.
 2. **A7, A8** in parallel with step 1. **A9** now (calendar time). **A10** only after SignPath answers and the owner agrees.
 3. **B1 → B2**, then **B3**.
 4. **D1** before the first outside PR is merged.
