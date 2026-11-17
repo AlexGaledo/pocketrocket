@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
+import type { ModelInfo, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
 import { SecretsStore } from '../services/SecretsStore.js';
 import type { AgentProvider, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
 import { buildArgs, ensureGrokHome, GROK_HOME, parseModelsOutput, removeAuthMirror, removeRulesFile, resolveGrokExe, treeKill, turnEnv, writeRulesFile } from './grok/cli.js';
@@ -8,7 +8,7 @@ import { addSecret, redact } from './redact.js';
 import { estimateCostUsd } from './grok/pricing.js';
 import { NdjsonParser, renderToolOutput, tokensFrom, type GrokEvent, type GrokUsageBlock } from './grok/stream.js';
 
-export const GROK_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
+export const GROK_INFO: ProviderStaticInfo = {
   id: 'grok',
   label: 'Grok',
   blurb: 'xAI Grok. Sign in to Grok or paste an xAI API key.',

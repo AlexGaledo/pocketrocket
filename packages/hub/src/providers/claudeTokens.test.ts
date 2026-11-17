@@ -24,6 +24,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
         }
       },
       interrupt: async () => { interrupted++; stop = true; },
+      close: () => { stop = true; },
     };
   },
 }));

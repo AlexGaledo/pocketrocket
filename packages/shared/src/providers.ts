@@ -64,9 +64,18 @@ export interface ProviderInfo {
    * picker says as much rather than presenting it as a peer of the two that were.
    */
   maturity: 'verified' | 'untested';
+  /**
+   * A message sent to a busy bot can join its running turn (steering). Claude: true once the installed CLI has
+   * reported the `interrupt_receipt_v1` capability, so false until its first turn. Other providers: false, and a
+   * message to a busy bot waits in the queue. Absent from hubs older than steering: treat as false.
+   */
+  steer?: boolean;
   check: ProviderCheck;
   models: ModelInfo[];
 }
+
+/** What every adapter declares up front; `steer`, `check` and `models` are filled in live. */
+export type ProviderStaticInfo = Omit<ProviderInfo, 'check' | 'models' | 'steer'>;
 
 /** GET /api/providers */
 export interface ProvidersResponse {
