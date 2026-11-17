@@ -1,8 +1,16 @@
 # Releasing PocketRocket
 
 PocketRocket ships as a Windows NSIS installer, built and attached to a GitHub Release by
-`.github/workflows/release.yml`. There is no auto-updater in v1 — the app's Help menu just opens
-the Releases page.
+`.github/workflows/release.yml`. The desktop app updates itself from the release's signed `latest.json`
+(`tauri-plugin-updater`, checked at launch and every 24 h; the install is always the user's choice and, in
+local mode, waits until `GET /api/busy` reports nothing blocking). A build whose `plugins.updater.pubkey` is still
+the placeholder never checks and its tray item reads "Updates not configured".
+
+**Testing an update before it goes out:** publish the release as a prerelease (which `releases/latest` ignores),
+then start an older installed build with
+`POCKETROCKET_UPDATE_ENDPOINT=https://github.com/AlexGaledo/pocketrocket/releases/download/vX.Y.Z-rc.N/latest.json`.
+Any value outside `https://github.com/AlexGaledo/pocketrocket/releases/` is ignored (and logged); the download is
+still verified against the pubkey.
 
 ## Checklist
 
@@ -68,7 +76,9 @@ the Releases page.
 
 ## Yanking a release
 
-There's no unpublish-and-notify flow (no auto-updater to signal). To pull a bad release:
+There's no unpublish-and-notify flow. Installed apps that already saw the bad version keep offering it until
+they next check; deleting the release makes `latest/download/latest.json` point at the previous one. To pull a bad
+release:
 
 1. `gh release delete vx.y.z --cleanup-tag` (or via the GitHub UI: Release → Delete, and delete the
    tag) to stop new downloads.

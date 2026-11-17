@@ -17,7 +17,9 @@ mod scan;
 mod ssh;
 mod term;
 mod localcopy;
-#[cfg(test)]
+mod update;
+// pubkey_is_set is used at runtime (update.rs); the rest is the release gate, used by tests only
+#[cfg_attr(not(test), allow(dead_code))]
 mod updater_config;
 
 use proc::{kill_tree, no_window, own_process_group, Tail};
@@ -47,11 +49,14 @@ pub struct Config {
     /// [`close_to_tray`]. Absent from older config.json files.
     #[serde(default)]
     pub close_to_tray: Option<bool>,
+    /// A4: the update version the person answered "Later" to; the automatic check does not notify about it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped_update: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { mode: "local".into(), ssh_host: "".into(), port: 7788, hub_dir: None, close_to_tray: None }
+        Self { mode: "local".into(), ssh_host: "".into(), port: 7788, hub_dir: None, close_to_tray: None, skipped_update: None }
     }
 }
 
@@ -910,6 +915,10 @@ async fn save_config(app: AppHandle, state: State<'_, AppState>, mut config: Con
     if config.close_to_tray.is_none() {
         config.close_to_tray = state.0.lock().unwrap().config.close_to_tray;
     }
+    // Nor the skipped update version.
+    if config.skipped_update.is_none() {
+        config.skipped_update = state.0.lock().unwrap().config.skipped_update.clone();
+    }
     save_config_file(&app, &config);
     let mode = config.mode.clone();
     {
@@ -1396,7 +1405,7 @@ pub fn run() {
             let m_reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;
-            let m_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
+            let m_updates = MenuItem::with_id(app, update::MENU_CHECK, "Check for updates", true, None::<&str>)?;
             let m_about = MenuItem::with_id(app, "about", "About PocketRocket", true, None::<&str>)?;
             let t_keep = CheckMenuItem::with_id(app, "tray_keep", "Keep running when window closes", true, keep, None::<&str>)?;
             let t_quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
@@ -1414,6 +1423,8 @@ pub fn run() {
             app.manage(LocalOnlyItems(m_data.clone(), m_log.clone()));
             sync_mode_menu(&handle, &initial_mode);
             app.manage(TrayCheck(t_keep.clone()));
+            // A4: the update item and the daily check. Built before the tray, so the menu handler always finds it.
+            app.manage(update::Updates::new(&handle, tray_menu.clone(), m_updates.clone())?);
             let tray_state = state.clone();
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("PocketRocket")
@@ -1438,6 +1449,7 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            update::start_background_checks(handle.clone());
 
             // First run: start nothing until the person has picked where to run (the splash asks).
             if !first_run {
@@ -1477,7 +1489,8 @@ pub fn run() {
                     show_main_window(app);
                     show_splash(app);
                 }
-                "check_updates" => { if let Ok(u) = Url::parse(RELEASES_URL) { open_in_browser(&u); } }
+                // A4: a real check (or, with an update found, the install question). Never from the webview.
+                id @ (update::MENU_CHECK | update::MENU_NOTES) => update::on_menu(app, id),
                 "about" => {
                     show_main_window(app);
                     let (runtime, data, log) = {

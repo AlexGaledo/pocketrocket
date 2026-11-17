@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Safe updates groundwork: `GET /api/busy` says whether stopping the hub now would lose work (a running turn or an open approval card), `POST /api/maintenance/hold` keeps new bot turns from starting for up to 30 minutes (messages still queue and run afterwards) and `POST /api/maintenance/stop` shuts the hub down cleanly. Hub token or owner session only; see `docs/CONFIGURATION.md` section 8.
+- The desktop app updates itself. It checks at launch and every 24 hours in every mode, and when an update is out it shows one notification and turns the tray's **Check for updates** into **Update to vX.Y.Z…** (plus **What's new in vX.Y.Z**); it never opens a dialog over your work. Picking it asks **Install and restart** / **Later**. In this-PC mode the install waits until no bot is mid-reply and no approval is open (cancel from the same menu item), stops the hub cleanly and restarts; server mode updates only the desktop app; attach mode and older hubs ask you to check first; a Linux .deb install opens the release page instead. **Check for updates** now really checks and says when you're up to date. `POCKETROCKET_UPDATE_ENDPOINT` can point a test build at a release candidate on this repo's releases.
 
 ### Fixed
 
