@@ -93,6 +93,7 @@ export class Repos {
       this.db.run('DELETE FROM bots WHERE id=?', id);
       this.db.run('DELETE FROM room_members WHERE bot_id=?', id);
       this.db.run('DELETE FROM sessions WHERE bot_id=?', id);
+      this.db.run('DELETE FROM lane_pauses WHERE bot_id=?', id);
       this.db.run('DELETE FROM auto_memory WHERE bot_id=?', id);
       this.db.run('DELETE FROM bot_skills WHERE bot_id=?', id);
       this.db.run('DELETE FROM routines WHERE bot_id=?', id);
@@ -164,6 +165,7 @@ export class Repos {
       this.db.run('DELETE FROM room_members WHERE room_id=?', id);
       this.db.run('DELETE FROM messages WHERE room_id=?', id);
       this.db.run('DELETE FROM sessions WHERE room_id=?', id);
+      this.db.run('DELETE FROM lane_pauses WHERE room_id=?', id);
       this.db.run('DELETE FROM auto_memory WHERE room_id=?', id);
       this.db.run('DELETE FROM routines WHERE room_id=?', id);
       this.db.run('DELETE FROM tasks WHERE room_id=?', id);
@@ -189,6 +191,8 @@ export class Repos {
       ...(r.model ? { model: r.model as string, modelReason: (r.model_reason as string) ?? undefined } : {}),
       ...(r.attachments ? { attachments: JSON.parse(r.attachments as string) as string[] } : {}),
       ...(r.client_msg_id ? { clientMsgId: r.client_msg_id as string } : {}),
+      ...(r.cancelled_at ? { cancelledAt: r.cancelled_at as number } : {}),
+      ...(r.edited_at ? { editedAt: r.edited_at as number } : {}),
     };
   }
   insertMessage(m: Omit<Message, 'id' | 'seq' | 'createdAt'> & { id?: string }): Message {
@@ -214,6 +218,18 @@ export class Repos {
     const m = { ...cur, ...patch };
     this.db.run('UPDATE messages SET text=?, payload=? WHERE id=?', m.text, m.payload ? JSON.stringify(m.payload) : null, id);
     return m;
+  }
+  /** Queue controls: the owner cancelled a queued message before any bot read it. Returns the time set. */
+  markMessageCancelled(id: string): number {
+    const at = now();
+    this.db.run('UPDATE messages SET cancelled_at=? WHERE id=?', at, id);
+    return at;
+  }
+  /** Queue controls: the owner's edit of a message still queued. Returns the time set. */
+  editMessageText(id: string, text: string): number {
+    const at = now();
+    this.db.run('UPDATE messages SET text=?, edited_at=? WHERE id=?', text, at, id);
+    return at;
   }
   /** Every picture reference on any message, so the media sweep keeps them (U2a). */
   attachmentRefs(): string[] {
@@ -622,29 +638,57 @@ export class Repos {
   journalRemove(ids: string[]) {
     for (const id of ids) this.db.run('DELETE FROM lane_journal WHERE id=?', id);
   }
-  /** Steering: a steer the turn answered becomes a 'consumed' marker (see `consumedSteerIds`). */
+  /** Steering: a steer the turn answered becomes a 'consumed' marker (see `hiddenMessageIds`). */
   journalMarkConsumed(id: string) {
     this.db.run("UPDATE lane_journal SET status='consumed' WHERE id=?", id);
   }
-  /** Message ids of the steers a bot's turns in a room already answered, while its read cursor is still behind them. */
-  consumedSteerIds(botId: string, roomId: string): Set<string> {
+  /** Queue controls: a queued item the owner cancelled becomes a 'cancelled' marker (see `hiddenMessageIds`). */
+  journalMarkCancelled(id: string) {
+    this.db.run("UPDATE lane_journal SET status='cancelled' WHERE id=?", id);
+  }
+  /**
+   * Message ids a bot's next turn in a room must not be shown while its read cursor is still behind them: steers its
+   * turns already answered, and messages the owner cancelled from its queue.
+   */
+  hiddenMessageIds(botId: string, roomId: string): Set<string> {
     return new Set(
       this.db
-        .all<{ message_id: string }>("SELECT message_id FROM lane_journal WHERE bot_id=? AND room_id=? AND status='consumed' AND message_id IS NOT NULL", botId, roomId)
+        .all<{ message_id: string }>("SELECT message_id FROM lane_journal WHERE bot_id=? AND room_id=? AND status IN ('consumed','cancelled') AND message_id IS NOT NULL", botId, roomId)
         .map((r) => r.message_id),
     );
   }
-  /** Drops the consumed-steer markers the lane's read cursor has now passed (`trigger_seq` is the message's seq). */
+  /** Drops the consumed and cancelled markers the lane's read cursor has now passed (`trigger_seq` is the message's seq). */
   journalPruneConsumed(botId: string, roomId: string, lastSeenSeq: number) {
-    this.db.run("DELETE FROM lane_journal WHERE bot_id=? AND room_id=? AND status='consumed' AND trigger_seq<=?", botId, roomId, lastSeenSeq);
+    this.db.run("DELETE FROM lane_journal WHERE bot_id=? AND room_id=? AND status IN ('consumed','cancelled') AND trigger_seq<=?", botId, roomId, lastSeenSeq);
+  }
+  /** Whether any lane pushed this message into a running turn (steered, answered or not). */
+  journalSteered(messageId: string): boolean {
+    return !!this.db.get("SELECT 1 AS x FROM lane_journal WHERE message_id=? AND status IN ('steered','consumed') LIMIT 1", messageId);
+  }
+  /** Whether any bot's read cursor in this room is at or past `seq`: some turn already read the message. */
+  anyCursorAt(roomId: string, seq: number): boolean {
+    return !!this.db.get('SELECT 1 AS x FROM sessions WHERE room_id=? AND last_seen_seq>=? LIMIT 1', roomId, seq);
+  }
+
+  // ---------- queue controls: paused lanes (migration 251) ----------
+  lanePaused(botId: string, roomId: string): boolean {
+    return !!this.db.get('SELECT 1 AS x FROM lane_pauses WHERE bot_id=? AND room_id=?', botId, roomId);
+  }
+  setLanePaused(botId: string, roomId: string, paused: boolean) {
+    if (paused) this.db.run('INSERT OR IGNORE INTO lane_pauses (bot_id, room_id, paused_at) VALUES (?,?,?)', botId, roomId, now());
+    else this.db.run('DELETE FROM lane_pauses WHERE bot_id=? AND room_id=?', botId, roomId);
+  }
+  /** Bots whose queue is paused in this room. */
+  pausedBots(roomId: string): string[] {
+    return this.db.all<{ bot_id: string }>('SELECT bot_id FROM lane_pauses WHERE room_id=?', roomId).map((r) => r.bot_id);
   }
   /**
    * Every row still to run (queued, running or steered-but-unanswered), oldest first, and removes them: the caller
-   * re-enqueues what it still wants. Consumed-steer markers are not work and stay.
+   * re-enqueues what it still wants. Consumed-steer and cancelled markers are not work and stay.
    */
   journalTakeAll(): LaneJournalRow[] {
     return this.db.tx(() => {
-      const rows = this.db.all("SELECT * FROM lane_journal WHERE status<>'consumed' ORDER BY created_at, rowid").map((r) => ({
+      const rows = this.db.all("SELECT * FROM lane_journal WHERE status IN ('queued','steered') ORDER BY created_at, rowid").map((r) => ({
         id: r.id as string,
         botId: r.bot_id as string,
         roomId: r.room_id as string,
@@ -658,7 +702,7 @@ export class Repos {
         status: r.status as LaneJournalStatus,
         messageId: (r.message_id as string) ?? null,
       }));
-      this.db.run("DELETE FROM lane_journal WHERE status<>'consumed'");
+      this.db.run("DELETE FROM lane_journal WHERE status IN ('queued','steered')");
       return rows;
     });
   }
@@ -689,12 +733,15 @@ export interface LaneJournalRow {
   note: string | null;
   attempts: number;
   createdAt: number;
-  /** Migration 250: `queued` (a lane item), `steered` (pushed into a running turn, unanswered), `consumed` (answered). */
+  /**
+   * Migration 250: `queued` (a lane item), `steered` (pushed into a running turn, unanswered), `consumed` (answered),
+   * `cancelled` (the owner cancelled the queued item; a marker that hides the message from this lane, like `consumed`).
+   */
   status: LaneJournalStatus;
-  /** Steer rows: the person's message. */
+  /** Steer rows and queued items that came from one message (a person's, a routine's or a trigger's). */
   messageId: string | null;
 }
-export type LaneJournalStatus = 'queued' | 'steered' | 'consumed';
+export type LaneJournalStatus = 'queued' | 'steered' | 'consumed' | 'cancelled';
 
 /** Per-session token-efficiency state (migration 170); see Repos.getSessionState. */
 export interface SessionState {

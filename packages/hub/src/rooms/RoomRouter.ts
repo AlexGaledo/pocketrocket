@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { pickCoordinator } from './coordinator.js';
-import { MAX_ATTACHMENTS } from '@pocketrocket/shared';
-import type { Bot, BotState, CauseKind, DeliveryPayload, Message, QueueReason, Room, SendMode, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
+import { MAX_ATTACHMENTS, QUEUE_PREVIEW_CHARS } from '@pocketrocket/shared';
+import type { Bot, BotState, CauseKind, DeliveryPayload, LaneQueue, Message, QueueItem, QueueReason, Room, SendMode, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, CUTOFF_RETRIES, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
 import { quoteTags } from './transcript.js';
@@ -36,6 +36,8 @@ interface LaneItem {
   budgetUsd?: number;
   /** Re-queued after a cut-off turn: run it in a fresh session. */
   freshSession?: boolean;
+  /** Queue controls: the message behind this item (a person's, a routine's or a trigger's), journaled. */
+  messageId?: string;
 }
 interface Lane {
   running: boolean;
@@ -44,6 +46,10 @@ interface Lane {
   left?: boolean;
   /** Steering: messages pushed into the running turn, by steer uuid. Settled when the turn ends. */
   steered: Map<string, SteeredItem>;
+  /** The running turn's start seq (its unread window ends there); undefined while no turn is in progress. */
+  turnStartSeq?: number;
+  /** The owner pressed Send now: the turn was stopped so the queue runs next (the stop note says so). */
+  sendNow?: boolean;
 }
 interface SteeredItem {
   message: Message;
@@ -53,15 +59,27 @@ interface SteeredItem {
 
 /**
  * The messages after `lastSeenSeq` that a bot's next turn in a room is shown as unread, minus the steers its turns
- * already answered. The read cursor stays at a turn's start (a message that arrives mid-turn is unread for the next
- * one), so without this filter a steer would be shown twice. Every reader of the unread window goes through here:
- * the injected transcript, the attached pictures and the text the model router reads. (Queue cancel, 02 task 2.1b,
- * widens this one filter rather than adding a second.)
+ * already answered and the messages the owner cancelled. The read cursor stays at a turn's start (a message that
+ * arrives mid-turn is unread for the next one), so without this filter a steer would be shown twice. Every reader of
+ * the unread window goes through here: the injected transcript, the attached pictures and the text the model router
+ * reads. Queue cancel (02 task 2.1b) hides a message from every bot once nobody holds it (`cancelledAt`), and from
+ * the one lane it was cancelled in straight away (a 'cancelled' journal marker), even while another bot still has it.
  */
 export function unreadForLane(repos: Repos, botId: string, roomId: string, lastSeenSeq: number): Message[] {
-  const hidden = repos.consumedSteerIds(botId, roomId);
-  const msgs = repos.messagesAfter(roomId, lastSeenSeq);
-  return hidden.size ? msgs.filter((m) => !hidden.has(m.id)) : msgs;
+  const hidden = repos.hiddenMessageIds(botId, roomId);
+  return repos.messagesAfter(roomId, lastSeenSeq).filter((m) => !m.cancelledAt && !hidden.has(m.id));
+}
+
+/** The note after the owner stopped a turn that left nothing re-queued (02 task 2.3). */
+export function stoppedNote(botName: string, sendNow: boolean): string {
+  return botName + ' was stopped by you' + (sendNow ? '; its queued messages run now.' : '.');
+}
+
+/** A queue control the hub refused; `status` is the HTTP status REST answers with. */
+export class QueueError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
 }
 
 /** The line posted when a turn ends with steers it never answered: they run next. */
@@ -194,7 +212,10 @@ export class RoomRouter {
     events.emitEvent({ type: 'message.new', message: withCause });
     const delivery = this.dispatchUser(room, withCause, mode);
     if (!delivery) return withCause;
-    return this.setDelivery(withCause, delivery);
+    const updated = this.setDelivery(withCause, delivery);
+    // The queue was pushed when the item went in, before its reason was stored: push it again with the reason.
+    for (const botId of Object.keys(delivery.queued ?? {})) this.emitQueue(botId, roomId);
+    return updated;
   }
 
   /** Stores a message's per-bot steering outcome and tells clients. */
@@ -214,7 +235,7 @@ export class RoomRouter {
     msg.causeId = msg.id;
     events.emitEvent({ type: 'message.new', message: msg });
     const runId = (payload as { runId?: string } | null)?.runId;
-    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone, causeKind, runId });
+    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone, causeKind, runId, messageId: msg.id });
     return msg;
   }
 
@@ -250,6 +271,9 @@ export class RoomRouter {
     const steered: Record<string, string> = {};
     const queued: Record<string, { reason: QueueReason }> = {};
     for (const t of targets) {
+      // A paused queue (02 task 2.2) holds the message whatever else happens, except that a turn already running
+      // may still take it in: pause stops new turns, not the one in progress.
+      const paused = this.repos.lanePaused(t.id, room.id);
       // Only a busy lane gets a steering outcome; an idle bot simply starts a turn.
       if (this.lanes.get(t.id + ':' + room.id)?.running) {
         const r = this.trySteer(t, room, msg, mode);
@@ -257,9 +281,9 @@ export class RoomRouter {
           steered[t.id] = r.turnId;
           continue;
         }
-        queued[t.id] = { reason: r.reason };
-      }
-      this.enqueue(t, room, { causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq, causeKind: 'user' });
+        queued[t.id] = { reason: paused ? 'paused' : r.reason };
+      } else if (paused) queued[t.id] = { reason: 'paused' };
+      this.enqueue(t, room, { causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq, causeKind: 'user', messageId: msg.id });
     }
     if (!Object.keys(steered).length && !Object.keys(queued).length) return null;
     return { ...(Object.keys(steered).length ? { steered } : {}), ...(Object.keys(queued).length ? { queued } : {}) };
@@ -287,10 +311,10 @@ export class RoomRouter {
   /**
    * After a turn: a steer it answered becomes a 'consumed' marker (hidden from the next turn, see `unreadForLane`)
    * and joins the turn's thread; one it never answered (Stop, an error) is queued as an ordinary message so the bot
-   * answers it next, and the room is told.
+   * answers it next. Returns how many were queued again; the caller tells the room.
    */
-  private settleSteers(bot: Bot, room: Room, lane: Lane, req: TurnRequest, result: TurnResult, left: boolean) {
-    if (!lane.steered.size) return;
+  private settleSteers(bot: Bot, room: Room, lane: Lane, req: TurnRequest, result: TurnResult, left: boolean): number {
+    if (!lane.steered.size) return 0;
     const consumed = new Set(result.consumedSteers ?? []);
     const settled = [...lane.steered.entries()];
     lane.steered.clear();
@@ -317,10 +341,10 @@ export class RoomRouter {
         ...(Object.keys(steered).length ? { steered } : {}),
         queued: { ...(delivery.queued ?? {}), [bot.id]: { reason: 'requeued' } },
       });
-      this.enqueue(bot, room, { causeId: s.message.causeId ?? s.message.id, hop: 0, triggerSeq: s.message.seq, causeKind: 'user' });
+      this.enqueue(bot, room, { causeId: s.message.causeId ?? s.message.id, hop: 0, triggerSeq: s.message.seq, causeKind: 'user', messageId: s.message.id });
       requeued++;
     }
-    if (requeued) this.note(room, requeuedNote(bot.name, requeued, !!result.stopped), req.causeId, req.hop);
+    return requeued;
   }
 
   /** Bot -> bot routing (after a turn or from tools). Returns dispatched handles. */
@@ -394,10 +418,11 @@ export class RoomRouter {
     if (!lane) this.lanes.set(key, (lane = { running: false, pending: [], steered: new Map() }));
     item.journalId ??= this.repos.journalAdd({
       botId: bot.id, roomId: room.id, causeId: item.causeId, hop: item.hop, triggerSeq: item.triggerSeq,
-      runId: item.runId ?? null, note: item.note ?? null, attempts: item.attempts,
+      runId: item.runId ?? null, note: item.note ?? null, attempts: item.attempts, messageId: item.messageId ?? null,
     });
     lane.pending.push(item);
     if (!lane.running) void this.runLane(key, bot.id, room.id);
+    this.emitQueue(bot.id, room.id);
   }
 
   private async runLane(key: string, botId: string, roomId: string) {
@@ -412,6 +437,13 @@ export class RoomRouter {
         if (this.control?.isPaused(botId)) {
           this.setState(botId, roomId, 'waiting', 'paused');
           await this.control.waitUnpaused(botId);
+          this.setState(botId, roomId, 'idle');
+          continue;
+        }
+        // 02 task 2.2: the owner paused this queue. Its items wait (journaled, so a restart keeps them) until resumed.
+        if (this.repos.lanePaused(botId, roomId)) {
+          this.setState(botId, roomId, 'waiting', 'queue paused');
+          await this.queueResumed(key);
           this.setState(botId, roomId, 'idle');
           continue;
         }
@@ -432,17 +464,23 @@ export class RoomRouter {
         let sessionBefore: string | null = null;
         const wokeByTool = new Set<string>();
         try {
-          // A hold that began while this lane waited for a slot: hand the slot back and wait above.
-          if (this.heldUntil() !== null) continue;
+          // A hold or a queue pause that began while this lane waited for a slot: hand the slot back and wait above.
+          if (this.heldUntil() !== null || this.repos.lanePaused(botId, roomId)) continue;
           // The cost cap covers every cause (user message, routine, later triggers), not only bot hops: a
           // trigger whose thread already spent the cap is dropped with a note instead of starting a turn,
           // and a turn that does start may spend at most what is left of the cap.
           items = this.withinCostCap(bot, room, lane.pending.splice(0));
-          if (!items.length) continue;
+          if (!items.length) {
+            this.emitQueue(botId, roomId);
+            continue;
+          }
           const hop = Math.max(...items.map((i) => i.hop));
           const causeId = items[0].causeId;
           const session = this.repos.getSession(bot.id, room.id);
           startSeq = this.repos.maxSeq(room.id);
+          // From here this turn reads everything up to startSeq: queued messages in that window are no longer editable.
+          lane.turnStartSeq = startSeq;
+          this.emitRoomQueues(roomId, key);
           // The unread window, minus steers an earlier turn already answered (read once, used three times below).
           const unread = unreadForLane(this.repos, bot.id, room.id, session.lastSeenSeq);
           const members = this.members(room);
@@ -478,6 +516,7 @@ export class RoomRouter {
         } finally {
           this.release();
           this.toolDispatched.delete(key);
+          lane.turnStartSeq = undefined;
         }
         // Remember which session has seen which roster. A roster sent this turn reached whatever session the turn
         // ended on (a fresh or rotated one included); a session that changed without one has not seen any.
@@ -493,7 +532,14 @@ export class RoomRouter {
         this.repos.saveSession(bot.id, room.id, { lastSeenSeq: startSeq });
         // Consumed-steer markers the cursor has now passed are no longer needed; this turn's own steers settle after.
         this.repos.journalPruneConsumed(bot.id, room.id, startSeq);
-        this.settleSteers(bot, room, lane, req, result, !!left);
+        const requeued = this.settleSteers(bot, room, lane, req, result, !!left);
+        const sendNow = !!lane.sendNow;
+        lane.sendNow = false;
+        // One note after a stop: the re-queued steers it left (they run next), or else "stopped by you" (02 task 2.3).
+        if (requeued) this.note(room, requeuedNote(bot.name, requeued, !!result.stopped), req.causeId, req.hop);
+        else if (result.stoppedBy === 'owner' && !left) this.note(room, stoppedNote(bot.name, sendNow && lane.pending.length > 0), req.causeId, req.hop);
+        // The cursor moved: other lanes' queued messages this turn read are no longer editable.
+        this.emitRoomQueues(roomId, key);
         // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
         this.autoMemory?.afterTurn(bot.id, room.id, result);
         // P6: same idea per skill, for bots that opted in; never awaited either.
@@ -602,8 +648,191 @@ export class RoomRouter {
     if (w) w();
   }
 
+  /** The owner's Stop (WS `turn.interrupt`): the turn ends with "stopped by you", not a failure note. */
   interrupt(turnId: string) {
-    return this.runner.interrupt(turnId);
+    return this.runner.interrupt(turnId, 'owner');
+  }
+
+  // ---------- queue controls (02 Phase 2: cancel, edit, send now, pause; no reorder) ----------
+  /**
+   * The bots' queues in a room (GET /api/rooms/:id/queue): one entry per member whose lane has items waiting, a turn
+   * in progress, or a paused queue.
+   */
+  queueSnapshot(roomId: string): LaneQueue[] {
+    const room = this.repos.getRoom(roomId);
+    if (!room) throw new QueueError(404, 'Room not found');
+    return room.memberIds
+      .map((id) => this.laneQueue(id, roomId))
+      .filter((q) => q.items.length || q.paused || q.running);
+  }
+
+  /** One lane as clients see it. Items are in queue order; the lane's next turn takes all of them at once. */
+  laneQueue(botId: string, roomId: string): LaneQueue {
+    const lane = this.lanes.get(botId + ':' + roomId);
+    return {
+      botId, roomId,
+      paused: this.repos.lanePaused(botId, roomId),
+      running: lane?.turnStartSeq !== undefined,
+      items: (lane?.pending ?? []).filter((i) => i.journalId).map((i, n) => this.queueItem(botId, i, n + 1)),
+    };
+  }
+
+  private queueItem(botId: string, i: LaneItem, position: number): QueueItem {
+    const msg = i.messageId ? this.repos.getMessage(i.messageId) : undefined;
+    const own = msg?.authorType === 'user';
+    const kind: QueueItem['kind'] = msg
+      ? (msg.kind === 'routine' ? 'routine' : msg.kind === 'trigger' ? 'trigger' : 'message')
+      : (i.note ? 'followup' : 'handoff');
+    const editRefusal = own ? this.editRefusal(msg) : 'Only your own messages can be edited.';
+    const text = msg?.text ?? i.note ?? '';
+    return {
+      journalId: i.journalId!,
+      messageId: msg?.id ?? null,
+      kind,
+      authorType: msg?.authorType ?? null,
+      authorId: msg?.authorId ?? null,
+      preview: text.length > QUEUE_PREVIEW_CHARS ? text.slice(0, QUEUE_PREVIEW_CHARS - 1) + '…' : text,
+      reason: own ? ((msg.payload as DeliveryPayload | null)?.queued?.[botId]?.reason ?? null) : null,
+      position,
+      editable: !editRefusal,
+      ...(editRefusal ? { editRefusal } : {}),
+      cancellable: own,
+    };
+  }
+
+  /**
+   * Why a person's queued message can no longer be edited, or null when it still can: once any lane steered it,
+   * once any bot's read cursor is at or past it, or while a turn in the room is reading it.
+   */
+  private editRefusal(msg: Message): string | null {
+    if (msg.cancelledAt) return 'It was cancelled.';
+    if (this.repos.journalSteered(msg.id)) return 'It already joined a running turn.';
+    return this.readRefusal(msg);
+  }
+  private readRefusal(msg: Message): string | null {
+    if (this.repos.anyCursorAt(msg.roomId, msg.seq)) return 'A bot has already read it.';
+    for (const [key, lane] of this.lanes) {
+      if (key.endsWith(':' + msg.roomId) && lane.turnStartSeq !== undefined && lane.turnStartSeq >= msg.seq) return 'A bot is reading it now.';
+    }
+    return null;
+  }
+
+  /** The lane holding a queued item, by its journal row; throws when it is no longer queued (or not in `roomId`). */
+  private findQueued(journalId: string, roomId?: string): { botId: string; roomId: string; lane: Lane; index: number; item: LaneItem } {
+    for (const [key, lane] of this.lanes) {
+      const index = lane.pending.findIndex((i) => i.journalId === journalId);
+      if (index < 0) continue;
+      const [botId, laneRoom] = key.split(':');
+      if (roomId && laneRoom !== roomId) break;
+      return { botId, roomId: laneRoom, lane, index, item: lane.pending[index] };
+    }
+    throw new QueueError(404, 'That item is no longer queued.');
+  }
+  private ownMessage(item: LaneItem, what: string): Message {
+    const msg = item.messageId ? this.repos.getMessage(item.messageId) : undefined;
+    if (msg?.authorType !== 'user') throw new QueueError(403, 'Only your own messages can be ' + what + ' here.');
+    return msg;
+  }
+
+  /**
+   * Cancel (02 task 2.1b), per lane: the item leaves this bot's queue and its journal, and this bot is never shown
+   * the message (a 'cancelled' marker, see `unreadForLane`). Once no lane holds it and no bot has read it, the message
+   * itself is marked cancelled, which hides it from every bot. Only a person's own message: a hand-off, routine,
+   * trigger or follow-up has its own controls (or none) and is never dropped from here.
+   */
+  cancelQueued(journalId: string, roomId?: string): Message {
+    const q = this.findQueued(journalId, roomId);
+    const msg = this.ownMessage(q.item, 'cancelled');
+    q.lane.pending.splice(q.index, 1);
+    this.repos.journalMarkCancelled(journalId);
+    q.item.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'cancelled' });
+    const delivery = { ...((msg.payload as DeliveryPayload | null) ?? {}) };
+    const patch: Partial<Message> = {};
+    if (delivery.queued?.[q.botId]) {
+      const queued = { ...delivery.queued };
+      delete queued[q.botId];
+      const payload: DeliveryPayload = { ...(delivery.steered ? { steered: delivery.steered } : {}), ...(Object.keys(queued).length ? { queued } : {}) };
+      patch.payload = Object.keys(payload).length ? payload : null;
+      this.repos.updateMessage(msg.id, { payload: patch.payload });
+    }
+    const held = [...this.lanes.values()].some((l) => l.pending.some((i) => i.messageId === msg.id) || [...l.steered.values()].some((st) => st.message.id === msg.id));
+    if (!held && !this.repos.journalSteered(msg.id) && !this.readRefusal(msg)) patch.cancelledAt = this.repos.markMessageCancelled(msg.id);
+    if (Object.keys(patch).length) events.emitEvent({ type: 'message.update', id: msg.id, roomId: msg.roomId, patch });
+    this.emitQueue(q.botId, q.roomId);
+    return this.repos.getMessage(msg.id) ?? msg;
+  }
+
+  /**
+   * Edit (02 task 2.1b): the owner rewrites their own queued message before any bot read it. Refused (409, with the
+   * reason the snapshot also shows) once a lane steered it, a bot's cursor passed it, or a turn is reading it.
+   */
+  editQueued(journalId: string, text: string, roomId?: string): Message {
+    const q = this.findQueued(journalId, roomId);
+    const msg = this.ownMessage(q.item, 'edited');
+    const why = this.editRefusal(msg);
+    if (why) throw new QueueError(409, why);
+    const editedAt = this.repos.editMessageText(msg.id, text);
+    events.emitEvent({ type: 'message.update', id: msg.id, roomId: msg.roomId, patch: { text, editedAt } });
+    this.emitRoomQueues(msg.roomId);
+    return { ...msg, text, editedAt };
+  }
+
+  /**
+   * Send now (02 task 2.1b): stops the bot's running turn in this room (as the owner, so "stopped by you", not a
+   * failure) and lets its queue run as the next turn. Steers that turn had not answered are re-queued as on Stop. A
+   * paused queue is resumed. Returns whether a turn was stopped (false: none was running, the queue just starts).
+   */
+  sendNow(roomId: string, botId: string): { interrupted: boolean } {
+    const lane = this.lanes.get(botId + ':' + roomId);
+    if (!lane?.pending.length) throw new QueueError(409, 'Nothing is queued for this bot here.');
+    if (this.repos.lanePaused(botId, roomId)) this.setQueuePaused(roomId, botId, false);
+    lane.sendNow = true;
+    const interrupted = this.runner.interruptLane(botId, roomId, 'owner');
+    if (!interrupted) lane.sendNow = false;
+    return { interrupted };
+  }
+
+  /**
+   * Pause or resume a bot's queue in a room (02 task 2.2), or every member's when `botId` is left out. A paused queue
+   * starts no new turn (a running one finishes and may still take steers); the pause is stored, so it survives a
+   * restart. Separate from the computer-takeover pause (`LaneControl`).
+   */
+  setQueuePaused(roomId: string, botId: string | undefined, paused: boolean): LaneQueue[] {
+    const room = this.repos.getRoom(roomId);
+    if (!room) throw new QueueError(404, 'Room not found');
+    if (botId && !room.memberIds.includes(botId)) throw new QueueError(404, 'That bot is not in this room.');
+    const ids = botId ? [botId] : room.memberIds;
+    for (const id of ids) {
+      this.repos.setLanePaused(id, roomId, paused);
+      if (!paused) this.wakeQueue(id + ':' + roomId);
+      this.emitQueue(id, roomId);
+    }
+    return ids.map((id) => this.laneQueue(id, roomId));
+  }
+
+  private queueWaiters = new Map<string, (() => void)[]>();
+  private queueResumed(key: string): Promise<void> {
+    return new Promise((resolve) => {
+      const list = this.queueWaiters.get(key) ?? [];
+      list.push(resolve);
+      this.queueWaiters.set(key, list);
+    });
+  }
+  private wakeQueue(key: string) {
+    const list = this.queueWaiters.get(key);
+    this.queueWaiters.delete(key);
+    for (const w of list ?? []) w();
+  }
+
+  private emitQueue(botId: string, roomId: string) {
+    events.emitEvent({ type: 'queue.changed', queue: this.laneQueue(botId, roomId) });
+  }
+  /** Re-sends every lane in the room with items waiting (their editability may have changed), plus `alsoKey`'s. */
+  private emitRoomQueues(roomId: string, alsoKey?: string) {
+    for (const [key, lane] of this.lanes) {
+      const [botId, laneRoom] = key.split(':');
+      if (laneRoom === roomId && (lane.pending.length || key === alsoKey)) this.emitQueue(botId, roomId);
+    }
   }
 
   // ---------- maintenance hold (04-A3) ----------
@@ -662,12 +891,16 @@ export class RoomRouter {
    * does not keep talking in a chat it has left. Parked work is covered too: `resumeParked` refuses a non-member.
    */
   botLeftRoom(botId: string, roomId: string) {
+    // A paused queue does not outlive the bot's membership; a lane waiting on it wakes and finds nothing to run.
+    this.repos.setLanePaused(botId, roomId, false);
+    this.wakeQueue(botId + ':' + roomId);
     const lane = this.lanes.get(botId + ':' + roomId);
     if (!lane) return;
     for (const i of lane.pending.splice(0)) {
       if (i.journalId) this.repos.journalRemove([i.journalId]);
       i.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'removed from the room' });
     }
+    this.emitQueue(botId, roomId);
     if (!lane.running) return;
     lane.left = true;
     this.runner.interruptLane(botId, roomId);
@@ -678,7 +911,7 @@ export class RoomRouter {
     return !!lane && (lane.running || lane.pending.length > 0);
   }
   /** Re-queues a journaled item after a restart (FollowUp). It keeps its cause and hop; `attempts` is journaled. */
-  resume(bot: Bot, room: Room, item: { causeId: string; hop: number; triggerSeq: number; attempts: number; runId?: string; note?: string; onDone?: (r: TurnResult) => void }) {
+  resume(bot: Bot, room: Room, item: { causeId: string; hop: number; triggerSeq: number; attempts: number; runId?: string; note?: string; messageId?: string; onDone?: (r: TurnResult) => void }) {
     // It keeps its kind too: a routine cut off by a restart is still a routine, on the routine's model.
     this.enqueue(bot, room, { ...item, causeKind: item.hop > 0 ? 'bot' : this.resumedCauseKind(item.causeId) });
   }
@@ -749,7 +982,7 @@ export class RoomRouter {
     this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
     msg.causeId = msg.id;
     events.emitEvent({ type: 'message.new', message: msg });
-    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone: t.onDone, causeKind: 'trigger', budgetUsd: t.budgetUsd });
+    this.enqueue(bot, room, { causeId: msg.id, hop: 0, triggerSeq: msg.seq, onDone: t.onDone, causeKind: 'trigger', budgetUsd: t.budgetUsd, messageId: msg.id });
     return msg;
   }
 }

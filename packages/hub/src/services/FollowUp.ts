@@ -102,6 +102,7 @@ export class FollowUp {
       const runId = row.runId ?? undefined;
       router.resume(bot, room, {
         causeId: row.causeId, hop: row.hop, triggerSeq: row.triggerSeq, attempts: row.attempts + 1, runId,
+        ...(row.messageId ? { messageId: row.messageId } : {}),
         note: row.note ? row.note + '\n' + RESUME_NOTE : RESUME_NOTE,
         onDone: runId ? (res) => repos.finishRun(runId, res.ok ? 'success' : 'error', res.costUsd) : undefined,
       });

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, SEND_MODES, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval } from './models.js';
+import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, SEND_MODES, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval, type LaneQueue } from './models.js';
 import type { KnowledgeStatus } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
@@ -22,7 +22,11 @@ export type ServerEvent =
   | { type: 'message.update'; id: string; roomId: string; patch: Partial<Message> }
   | { type: 'turn.start'; turnId: string; botId: string; roomId: string; causeId: string; hop: number }
   | { type: 'turn.delta'; turnId: string; roomId: string; botId: string; text: string }
-  | { type: 'turn.end'; turnId: string; roomId: string; botId: string; messageId?: string; costUsd?: number; error?: string }
+  /**
+   * `stoppedBy: 'owner'`: the owner stopped it (Stop, or a queue's Send now); it carries no `error` then, because a stop
+   * the owner asked for is not a failure, and the room gets a "stopped by you" note instead of a failure note.
+   */
+  | { type: 'turn.end'; turnId: string; roomId: string; botId: string; messageId?: string; costUsd?: number; error?: string; stoppedBy?: 'owner' }
   | { type: 'bot.state'; botId: string; state: BotState; roomId?: string; note?: string }
   | { type: 'approval.request'; roomId: string; botId: string; messageId: string; approval: ApprovalPayload }
   | { type: 'approval.resolved'; approvalId: string; decision: ApprovalPayload['status'] }
@@ -71,10 +75,18 @@ export type ServerEvent =
    */
   | { type: 'pc-runner.changed'; jobId?: string }
   /** A task on a room's board was created or changed (REST or a bot tool). Carries the whole task. */
-  | { type: 'task.changed'; roomId: string; task: Task };
+  | { type: 'task.changed'; roomId: string; task: Task }
+  /**
+   * Queue controls (02 task 2.1a): a bot's queue in a room changed (an item queued, taken in by a turn, cancelled or
+   * edited, the queue paused or resumed). Carries the whole lane; an empty, unpaused lane means nothing is waiting.
+   */
+  | { type: 'queue.changed'; queue: LaneQueue };
 
 /** How often the hub pings each WebSocket client (B6). The client calls the link stale after two missed pings. */
 export const WS_PING_MS = 20_000;
+
+/** Longest text `queue.edit` takes (a REST message has no cap; this keeps one edit inside a WS frame). */
+export const MAX_QUEUE_EDIT_CHARS = 32_000;
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
@@ -112,6 +124,11 @@ export const ClientEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('form.submit'), formId: z.string().max(64), answers: FormAnswersSchema }),
   z.object({ type: z.literal('form.cancel'), formId: z.string().max(64) }),
   z.object({ type: z.literal('turn.interrupt'), turnId: z.string() }),
+  // ---- queue controls (02 Phase 2); a refusal comes back as `error` with `context` set to the journalId or botId ----
+  z.object({ type: z.literal('queue.cancel'), journalId: z.string().max(64) }),
+  z.object({ type: z.literal('queue.edit'), journalId: z.string().max(64), text: z.string().trim().min(1).max(MAX_QUEUE_EDIT_CHARS) }),
+  z.object({ type: z.literal('queue.sendNow'), roomId: z.string().max(64), botId: z.string().max(64) }),
+  z.object({ type: z.literal('queue.pause'), roomId: z.string().max(64), botId: z.string().max(64).optional(), paused: z.boolean() }),
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;
 
@@ -234,3 +251,13 @@ export const RoomMessageInputSchema = z.object({
   mode: z.enum(SEND_MODES).optional(),
 });
 export type RoomMessageInput = z.infer<typeof RoomMessageInputSchema>;
+
+// ---- queue controls (02 Phase 2): REST twins of the WS queue.* events, for scripts and paired phones ----
+/** POST /api/rooms/:id/queue/cancel */
+export const QueueCancelInputSchema = z.object({ journalId: z.string().max(64) });
+/** POST /api/rooms/:id/queue/edit */
+export const QueueEditInputSchema = z.object({ journalId: z.string().max(64), text: z.string().trim().min(1).max(MAX_QUEUE_EDIT_CHARS) });
+/** POST /api/rooms/:id/queue/send-now */
+export const QueueSendNowInputSchema = z.object({ botId: z.string().max(64) });
+/** POST /api/rooms/:id/queue/pause. No `botId`: every bot in the room. */
+export const QueuePauseInputSchema = z.object({ botId: z.string().max(64).optional(), paused: z.boolean() });

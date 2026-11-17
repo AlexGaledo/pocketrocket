@@ -634,4 +634,18 @@ registerMigrations([250, 259], [
       addColumnIfMissing(db, 'lane_journal', 'message_id', 'TEXT');
     },
   },
+  // Queue controls (Phase 2). A cancelled or edited queued message keeps that state across restarts. A lane row the
+  // owner cancelled stays as status 'cancelled' (like a consumed steer) until the lane's cursor passes it, so that
+  // bot is never shown the message even while another bot still holds it. A paused queue is a row in `lane_pauses`.
+  {
+    version: 251,
+    name: 'messages.cancelled_at + edited_at, lane_pauses (queue controls)',
+    up: (db) => {
+      addColumnIfMissing(db, 'messages', 'cancelled_at', 'INTEGER');
+      addColumnIfMissing(db, 'messages', 'edited_at', 'INTEGER');
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS lane_pauses (bot_id TEXT NOT NULL, room_id TEXT NOT NULL, paused_at INTEGER NOT NULL, PRIMARY KEY (bot_id, room_id))',
+      );
+    },
+  },
 ]);

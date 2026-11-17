@@ -193,9 +193,10 @@ export type SendMode = (typeof SEND_MODES)[number];
  * - `setting`: Settings > busyMessages is `queue`;
  * - `provider`: this bot's provider (or its installed CLI) cannot take messages mid-turn;
  * - `between-runs`: the bot was between steps (starting, retrying, continuing) and could not take it right then;
- * - `requeued`: it joined the turn, but the turn ended (Stop, an error) before the bot answered it, so it runs next.
+ * - `requeued`: it joined the turn, but the turn ended (Stop, an error) before the bot answered it, so it runs next;
+ * - `paused`: the owner paused this bot's queue in this room (queue controls, 02 task 2.2).
  */
-export type QueueReason = 'shortcut' | 'setting' | 'provider' | 'between-runs' | 'requeued';
+export type QueueReason = 'shortcut' | 'setting' | 'provider' | 'between-runs' | 'requeued' | 'paused';
 /**
  * On a person's message that reached at least one busy bot: per bot id, whether it joined that bot's running turn
  * (`steered`: the turn id) or waits for the next one (`queued`). Per bot, because one message can steer one lane
@@ -226,7 +227,51 @@ export interface Message {
   attachments?: string[];
   /** User messages only (B5): the id the sending client gave it, so the client can match its outbox entry. */
   clientMsgId?: string;
+  /** Queue controls (02 task 2.1b): the owner cancelled it before any bot read it. No bot is shown it. */
+  cancelledAt?: number;
+  /** Queue controls: the owner edited its text while it was still queued. */
+  editedAt?: number;
 }
+
+// ---------- queue controls (02 Phase 2) ----------
+/**
+ * What started a queued lane item: a person's `message`, a bot's `handoff`, a `routine` or `trigger` fire, or
+ * hub `followup` work (a cut-off retry, a nudge, a resume after an approval or a restart).
+ */
+export type QueueItemKind = 'message' | 'handoff' | 'routine' | 'trigger' | 'followup';
+/** One item waiting in a bot's lane in a room, in the order it was queued. */
+export interface QueueItem {
+  /** The lane item's journal row; what `queue.cancel` and `queue.edit` name. Changes after a hub restart. */
+  journalId: string;
+  /** The message behind it (a person's message, a routine or trigger prompt); null for a hand-off or follow-up. */
+  messageId: string | null;
+  kind: QueueItemKind;
+  authorType: AuthorType | null;
+  authorId: string | null;
+  /** The message's text cut to {@link QUEUE_PREVIEW_CHARS}, or the hub's note for a follow-up; '' when it has neither. */
+  preview: string;
+  /** Why the message waits for this bot (its `DeliveryPayload.queued` reason), or null when the bot was idle then. */
+  reason: QueueReason | null;
+  /** 1-based place in this lane. The lane's next turn takes every item at once, so this is order only, not turns. */
+  position: number;
+  /** Only a person's own message, before any bot read it or any turn took it in. */
+  editable: boolean;
+  /** Why `editable` is false, in words; absent when editable. */
+  editRefusal?: string;
+  /** Only a person's own message. Hand-offs, routines, triggers and follow-ups are not cancelled from here. */
+  cancellable: boolean;
+}
+/** A bot's queue in one room (`GET /api/rooms/:id/queue`, `queue.changed`). */
+export interface LaneQueue {
+  botId: string;
+  roomId: string;
+  /** The owner paused this queue: nothing new starts until resumed. A running turn finishes. Survives restarts. */
+  paused: boolean;
+  /** A turn is in progress in this lane (or about to start); `queue.sendNow` interrupts it. */
+  running: boolean;
+  items: QueueItem[];
+}
+export const QUEUE_PREVIEW_CHARS = 280;
 
 export interface Routine {
   id: string;
