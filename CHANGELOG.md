@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Safe updates groundwork: `GET /api/busy` says whether stopping the hub now would lose work (a running turn or an open approval card), `POST /api/maintenance/hold` keeps new bot turns from starting for up to 30 minutes (messages still queue and run afterwards) and `POST /api/maintenance/stop` shuts the hub down cleanly. Hub token or owner session only; see `docs/CONFIGURATION.md` section 8.
+- Steering (hub): a message you send to a Claude bot that is busy in that chat now joins its running turn, so it can change course at its next step instead of after it finishes. Send with `mode: "queue"` (Ctrl+Enter, once the app has it) to wait for the turn to end instead, or set Settings `busyMessages` to `queue` to make that the default. Hand-offs between bots, and providers that cannot take messages mid-turn (Codex, OpenCode, Grok), still queue. If the turn stops (Stop included) before the bot answers your message, it is queued and answered next, and the chat says so. A routine or trigger turn you steer keeps its approvals and budget.
 
 ### Fixed
 

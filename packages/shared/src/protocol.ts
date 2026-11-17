@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval } from './models.js';
+import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, SEND_MODES, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval } from './models.js';
 import type { KnowledgeStatus } from './models.js';
 import type { Settings, ProviderId } from './providers.js';
 import type { AccountState } from './account.js';
@@ -94,6 +94,12 @@ export const ClientEventSchema = z.discriminatedUnion('type', [
      * times it is repeated, so a client may replay its outbox after a reconnect. Clients that omit it still work.
      */
     clientMsgId: z.string().min(1).max(64).optional(),
+    /**
+     * Steering: what to do when a target bot is busy in this room. `join` (the default, or Settings > busyMessages)
+     * pushes it into the running turn where the provider can; `queue` (Ctrl+Enter) waits for the turn to end. The
+     * per-bot result arrives as `message.update` with a {@link DeliveryPayload}.
+     */
+    mode: z.enum(SEND_MODES).optional(),
   }).refine((e) => e.text.trim().length > 0 || (e.attachments?.length ?? 0) > 0, { message: 'Message is empty', path: ['text'] }),
   /** Answer to a server `ping` (B6). Carries nothing; it only proves the path is alive. */
   z.object({ type: z.literal('pong') }),
@@ -221,3 +227,10 @@ export const MaintenanceHoldInputSchema = z.object({
   minutes: z.number().int().min(1).max(MAX_MAINTENANCE_HOLD_MINUTES).default(10),
 });
 export type MaintenanceHoldInput = z.infer<typeof MaintenanceHoldInputSchema>;
+
+/** POST /api/rooms/:id/messages: the composer's send, for scripts and devices. `mode` as on WS `message.send`. */
+export const RoomMessageInputSchema = z.object({
+  text: z.string().min(1),
+  mode: z.enum(SEND_MODES).optional(),
+});
+export type RoomMessageInput = z.infer<typeof RoomMessageInputSchema>;

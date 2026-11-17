@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_AVATAR_LENGTH, isMediaRef } from './models.js';
+import { MAX_AVATAR_LENGTH, SEND_MODES, isMediaRef } from './models.js';
 
 // ---------- Providers (global choice) ----------
 // The hub runs every bot through ONE provider at a time (settings.provider). Models are chosen per bot
@@ -148,6 +148,11 @@ export const SettingsSchema = z.object({
    * the alert off.
    */
   spendAlertThresholdUsd: z.number().min(0).max(1000).default(5),
+  /**
+   * Steering: what a message to a busy bot does when the sender did not pick (`message.send.mode` left out).
+   * `join` = it joins the running turn where the provider can; `queue` = it waits for the turn to end.
+   */
+  busyMessages: z.enum(SEND_MODES).default('join'),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

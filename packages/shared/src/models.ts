@@ -181,6 +181,31 @@ export interface CtaButton { label: string; say?: string; href?: string }
 /** On a `text` message: up to {@link MAX_CTA_BUTTONS} buttons under it. */
 export interface CtaPayload { cta: CtaButton[] }
 
+/**
+ * Steering (02 Phase 1). What a person's message does when it reaches a bot that is busy in that room:
+ * `join` pushes it into the running turn (steer), `queue` waits for the turn to end (today's behaviour).
+ */
+export const SEND_MODES = ['join', 'queue'] as const;
+export type SendMode = (typeof SEND_MODES)[number];
+/**
+ * Why a message to a busy bot waits instead of joining its turn:
+ * - `shortcut`: the sender chose queue (Ctrl+Enter or the send menu);
+ * - `setting`: Settings > busyMessages is `queue`;
+ * - `provider`: this bot's provider (or its installed CLI) cannot take messages mid-turn;
+ * - `between-runs`: the bot was between steps (starting, retrying, continuing) and could not take it right then;
+ * - `requeued`: it joined the turn, but the turn ended (Stop, an error) before the bot answered it, so it runs next.
+ */
+export type QueueReason = 'shortcut' | 'setting' | 'provider' | 'between-runs' | 'requeued';
+/**
+ * On a person's message that reached at least one busy bot: per bot id, whether it joined that bot's running turn
+ * (`steered`: the turn id) or waits for the next one (`queued`). Per bot, because one message can steer one lane
+ * and queue in another. A bot that was idle has no entry. Sent with `message.update`.
+ */
+export interface DeliveryPayload {
+  steered?: Record<string, string>;
+  queued?: Record<string, { reason: QueueReason }>;
+}
+
 export interface Message {
   id: string;
   roomId: string;
@@ -189,7 +214,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, user id for people, null for system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | FormPayload | CtaPayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | FormPayload | CtaPayload | DeliveryPayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;

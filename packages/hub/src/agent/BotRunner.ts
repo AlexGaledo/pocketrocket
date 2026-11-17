@@ -12,7 +12,7 @@ import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { imageNote, materializeImages } from './attachments.js';
-import { EMPTY_USAGE, type ProviderInit, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
+import { EMPTY_USAGE, steerTurn, type AgentProvider, type ProviderInit, type SteerInput, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
@@ -88,6 +88,35 @@ export interface TurnResult {
    * handed back). It is resumed by a new turn later; RoomRouter keeps its routine run open.
    */
   parked?: boolean;
+  /** The turn was stopped (Stop, the owner removing the bot), not ended by the provider. */
+  stopped?: boolean;
+  /**
+   * Steering: uuids of the steers this turn was given (`BotRunner.steer`). `consumedSteers` reached the model;
+   * `unansweredSteers` never did (Stop, an error, a turn that ended first), so the router queues them again.
+   * Absent when the turn took no steer.
+   */
+  consumedSteers?: string[];
+  unansweredSteers?: string[];
+}
+/** A person's message for a running turn (RoomRouter): its transcript line and the pictures it carries. */
+export interface SteerRequest {
+  uuid: string;
+  text: string;
+  /** Media refs, materialized for the bot like a turn's own pictures. */
+  images?: string[];
+}
+/** `accepted` names the turn it joined; `queued` says why it could not (the router queues it instead). */
+export type LaneSteerResult = { status: 'accepted'; turnId: string } | { status: 'queued'; reason: 'provider' | 'between-runs' };
+
+/** A lane's running turn as `steer` and `interrupt` see it. */
+interface LaneTurn {
+  turnId: string;
+  /** The provider the turn started on. Steers and Stop go here even if the active provider changes mid-turn. */
+  provider: AgentProvider;
+  /** A provider run is reading right now. False in the gaps between runs (stale retry, move-up, continuation). */
+  running: boolean;
+  /** Steers given to this turn and not yet consumed, by uuid: carried into the next run, or returned unanswered. */
+  steers: Map<string, SteerInput>;
 }
 /**
  * True when a provider refused to resume because the session it was handed no longer exists on disk.
@@ -119,7 +148,9 @@ export interface RunnerHooks {
 export class BotRunner {
   private activeTurns = new Set<string>();
   /** `botId:roomId` to its running turn. A lane runs one turn at a time. */
-  private laneTurns = new Map<string, string>();
+  private laneTurns = new Map<string, LaneTurn>();
+  /** turnId to the provider it started on (Stop must reach that one, not whatever is active now). */
+  private turnProviders = new Map<string, AgentProvider>();
   private aborts = new Map<string, AbortController>();
   /** Last init info reported by the active provider (GET /api/health). */
   lastInit: ProviderInit = {};
@@ -162,14 +193,32 @@ export class BotRunner {
 
   interrupt(turnId: string) {
     const ac = this.aborts.get(turnId);
-    const stopped = this.providers.active().interrupt(turnId);
+    const stopped = (this.turnProviders.get(turnId) ?? this.providers.active()).interrupt(turnId);
     if (ac) ac.abort();
     return stopped || !!ac;
   }
   /** Stops the turn a bot is running in a room, if any. Returns whether there was one. */
   interruptLane(botId: string, roomId: string) {
-    const turnId = this.laneTurns.get(botId + ':' + roomId);
-    return turnId ? this.interrupt(turnId) : false;
+    const lane = this.laneTurns.get(botId + ':' + roomId);
+    return lane ? this.interrupt(lane.turnId) : false;
+  }
+  /**
+   * Steering: pushes a person's message into the turn this bot is running in this room. Only while a provider run
+   * is reading (never into the gaps between runs, where it would land in a dead query) and only through the
+   * provider the turn started on. `accepted` means pushed, not answered: the turn's result says which were consumed,
+   * and steers a run leaves unconsumed are carried into the next run of the same turn.
+   */
+  steer(botId: string, roomId: string, req: SteerRequest): LaneSteerResult {
+    const lane = this.laneTurns.get(botId + ':' + roomId);
+    // No turn yet (semaphore wait, rotation summary, classifier): the turn about to start will be on the active provider.
+    if (!(lane?.provider ?? this.providers.active()).steer) return { status: 'queued', reason: 'provider' };
+    if (!lane?.running) return { status: 'queued', reason: 'between-runs' };
+    const images = materializeImages(this.media, ATTACHMENTS_DIR, botId, req.images);
+    const input: SteerInput = { uuid: req.uuid, text: req.text + imageNote(images), ...(images.length ? { images } : {}) };
+    const r = steerTurn(lane.provider, lane.turnId, input);
+    if (r.status !== 'accepted') return r;
+    lane.steers.set(input.uuid, input);
+    return { status: 'accepted', turnId: lane.turnId };
   }
   isActive(turnId: string) {
     return this.activeTurns.has(turnId);
@@ -560,16 +609,31 @@ export class BotRunner {
 
     // Post the held reply as soon as each run returns, not after the turn's bookkeeping: a hand-off started in
     // this run can finish first, and its result must not land above the reply that announced it.
+    // Steering: each run gets the steers earlier runs left unconsumed (stale retry, move-up, continuation), and a
+    // steer is only pushed while a run is reading.
+    const lane: LaneTurn = { turnId, provider, running: false, steers: new Map() };
+    const consumedSteers: string[] = [];
     const runProvider = async (c: TurnContext, k: TurnSink) => {
+      const carried = [...lane.steers.values()];
+      lane.running = true;
       try {
-        return await provider.runTurn(c, k);
+        const o = await provider.runTurn(carried.length ? { ...c, carriedSteers: carried } : c, k);
+        for (const u of o.steers?.consumed ?? []) {
+          if (lane.steers.delete(u)) consumedSteers.push(u);
+        }
+        return o;
       } finally {
+        lane.running = false;
         flushPending();
       }
     };
+    /** What the router needs to settle this turn's steers. */
+    const steerResult = () =>
+      consumedSteers.length || lane.steers.size ? { consumedSteers: [...consumedSteers], unansweredSteers: [...lane.steers.keys()] } : {};
     this.activeTurns.add(turnId);
     this.aborts.set(turnId, ac);
-    this.laneTurns.set(bot.id + ':' + room.id, turnId);
+    this.turnProviders.set(turnId, provider);
+    this.laneTurns.set(bot.id + ':' + room.id, lane);
     let ok = false;
     let error: string | undefined;
     let costUsd = 0;
@@ -728,6 +792,8 @@ export class BotRunner {
     } finally {
       this.activeTurns.delete(turnId);
       this.aborts.delete(turnId);
+      this.turnProviders.delete(turnId);
+      lane.running = false;
       this.laneTurns.delete(bot.id + ':' + room.id);
       this.turns.unregister(mcpToken);
       removeSecret(mcpToken);
@@ -745,7 +811,7 @@ export class BotRunner {
       events.emitEvent({ type: 'message.new', message: msg });
       events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd });
       setState('done', 'parked');
-      return { ok: false, parked: true, turnId, finalText: texts.join('\n\n'), costUsd, model: route.model, modelReason: route.detail };
+      return { ok: false, parked: true, turnId, finalText: texts.join('\n\n'), costUsd, model: route.model, modelReason: route.detail, ...steerResult() };
     }
     if (!ok && !error) error = 'Turn ended without a result';
     if (error) error = redact(error);
@@ -758,7 +824,10 @@ export class BotRunner {
     }
     events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, error });
     setState(error ? 'error' : 'done');
-    return { ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail };
+    return {
+      ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail,
+      ...(ac.signal.aborted ? { stopped: true } : {}), ...steerResult(),
+    };
   }
 
   /**

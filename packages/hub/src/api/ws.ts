@@ -77,7 +77,7 @@ export function attachWs(
               const why = deps.media ? deps.media.checkAttachments(refs) : 'This hub cannot take pictures';
               if (why) throw new Error(why);
             }
-            deps.router.onUserMessage(ev.roomId, ev.text, ev.clientMsgId, refs.length ? [...new Set(refs)] : undefined);
+            deps.router.onUserMessage(ev.roomId, ev.text, ev.clientMsgId, refs.length ? [...new Set(refs)] : undefined, ev.mode);
           } catch (e) {
             // Tagged with the client's id so its outbox can show this one entry as failed.
             return send(ws, { type: 'error', message: (e as Error).message ?? String(e), ...(ev.clientMsgId ? { context: ev.clientMsgId } : {}) });
