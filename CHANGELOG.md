@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Safe updates groundwork: `GET /api/busy` says whether stopping the hub now would lose work (a running turn or an open approval card), `POST /api/maintenance/hold` keeps new bot turns from starting for up to 30 minutes (messages still queue and run afterwards) and `POST /api/maintenance/stop` shuts the hub down cleanly. Hub token or owner session only; see `docs/CONFIGURATION.md` section 8.
+
 ### Changed
 
 - Releases are built into a draft and published only when every platform is done. Each release now carries `latest.json` for the desktop updater, a `SHA256SUMS.txt`, and build-provenance attestations you can check with `gh attestation verify <file> -R AlexGaledo/pocketrocket`. A new release appears as a prerelease first and becomes the latest one after it passes an update test.

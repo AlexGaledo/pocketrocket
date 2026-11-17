@@ -174,6 +174,10 @@ export class BotRunner {
   isActive(turnId: string) {
     return this.activeTurns.has(turnId);
   }
+  /** Turns running right now (GET /api/busy). */
+  activeTurnCount(): number {
+    return this.activeTurns.size;
+  }
   /** Interrupt every in-flight turn (graceful shutdown). */
   interruptAll() {
     for (const id of [...this.activeTurns]) this.interrupt(id);

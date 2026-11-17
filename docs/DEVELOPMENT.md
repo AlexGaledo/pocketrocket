@@ -55,6 +55,29 @@ Node runtime: the desktop app looks for a system Node ≥ 22.13 on `PATH` first;
 it falls back to a Node 24 LTS binary bundled with the installer. Releasing is described in
 [RELEASING.md](RELEASING.md).
 
+### Updater
+
+The shell registers `tauri-plugin-updater` (pinned `=2.12.0`, the last version that accepts the tauri 2.11 this
+repo locks; Dependabot ignores it, so bump it by hand together with tauri). Its settings live in
+`tauri.conf.json > plugins.updater`: the endpoint
+`https://github.com/AlexGaledo/pocketrocket/releases/latest/download/latest.json`, `installMode: "passive"` on
+Windows, and `pubkey`.
+
+- **Only Rust can use it.** No capability grants `updater:*` and no `#[tauri::command]` wraps it, so the hub page
+  can neither check for nor install an update. Keep it that way.
+- **`pubkey` is a placeholder** (`OWNER_STEP_PASTE_UPDATER_PUBKEY`) until the owner generates the signing key
+  offline (`cargo tauri signer generate`) and pastes the *public* key there. The private key and its password
+  live only in the `release` environment's secrets, never in the repo.
+- **Local builds need no key.** The committed config does not set `bundle.createUpdaterArtifacts`, so
+  `pnpm desktop:build` and `cargo tauri build` work without `TAURI_SIGNING_PRIVATE_KEY`; only tag builds turn
+  it on (with `--config`). If you turn it on yourself, override it back with
+  `cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'`.
+- **Tag-build gate:** `src-tauri/src/updater_config.rs` checks the endpoint and the key. With
+  `POCKETROCKET_RELEASE_TAG` set, its test fails while the placeholder is still there:
+  `POCKETROCKET_RELEASE_TAG=vX.Y.Z cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml updater_config`.
+  It is not in `release.yml` yet: the draft/finalize release pipeline adds that call. Until then, run it by hand
+  before tagging.
+
 ## UI primitives
 
 Shared building blocks live in `packages/web/src/components/ui.tsx`. Use them before writing a local

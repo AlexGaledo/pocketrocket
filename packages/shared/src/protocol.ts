@@ -213,3 +213,11 @@ export const ApprovalPolicyInputSchema = z.object({
   expiresAt: z.number().int().positive().nullable().optional(),
 });
 export type ApprovalPolicyInput = z.infer<typeof ApprovalPolicyInputSchema>;
+
+/** Longest maintenance hold one call may ask for, in minutes. */
+export const MAX_MAINTENANCE_HOLD_MINUTES = 30;
+/** POST /api/maintenance/hold: no new bot turn starts until released or `minutes` pass (default 10). */
+export const MaintenanceHoldInputSchema = z.object({
+  minutes: z.number().int().min(1).max(MAX_MAINTENANCE_HOLD_MINUTES).default(10),
+});
+export type MaintenanceHoldInput = z.infer<typeof MaintenanceHoldInputSchema>;
