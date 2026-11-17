@@ -4,11 +4,13 @@
  * environment pins the value (GET /api/health → approvalsLocked) the control shows the value in force,
  * is read-only, and says where it is set; the hub would answer 409 to any change anyway.
  *
+ * Then what a message to a busy bot does by default (`settings.busyMessages`, steering).
+ *
  * Below it, per bot: auto-memory on/off and how many turns in a room between passes (PATCH /api/bots/:id).
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { Lock, ShieldAlert } from 'lucide-react';
-import { AUTO_MEMORY_EVERY, type Approvals, type Bot, type BotInput } from '@pocketrocket/shared';
+import { AUTO_MEMORY_EVERY, type Approvals, type Bot, type BotInput, type SendMode } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { Avatar, Badge, Button, Input, RadioCard, Switch } from '../ui';
@@ -79,6 +81,8 @@ export function BotsSection({ health, onHealthStale }: {
         )}
       </Group>
 
+      <BusyMessagesGroup />
+
       <Group title="Auto-memory">
         <p id={memoryHintId} className="mb-2 text-hint leading-snug text-muted">
           Bots save lasting facts. Only adds, never rewrites.
@@ -93,6 +97,30 @@ export function BotsSection({ health, onHealthStale }: {
       {/* P2 */}
       <ApprovalRules />
     </>
+  );
+}
+
+/**
+ * Steering: what Enter does with a message to a bot that is busy (`settings.busyMessages`). Ctrl+Enter and the menu
+ * beside Send still pick per message. Only providers that can take a message mid-turn join; the rest always queue.
+ */
+function BusyMessagesGroup() {
+  const value = useStore((s) => s.settings.busyMessages ?? 'join');
+  const updateSettings = useStore((s) => s.updateSettings);
+  const titleId = useId();
+  const choose = (next: SendMode) => { if (next !== value) void updateSettings({ busyMessages: next }); };
+  return (
+    <Group title="When a bot is busy" titleId={titleId}>
+      <div role="radiogroup" aria-labelledby={titleId} className="flex flex-col gap-2">
+        <RadioCard checked={value === 'join'} onSelect={() => choose('join')} title="Join the running turn" badge={<Badge tone="ok">Recommended</Badge>}>
+          Your message reaches the bot at its next step, so it can change course. Ctrl+Enter queues instead.
+        </RadioCard>
+        <RadioCard checked={value === 'queue'} onSelect={() => choose('queue')} title="Queue for after">
+          The bot reads your message when its reply ends. The menu beside Send can still join.
+        </RadioCard>
+      </div>
+      <p className="mt-3 text-hint text-muted">Only Claude can take a message mid-turn, with a recent Claude CLI. Other providers always queue.</p>
+    </Group>
   );
 }
 

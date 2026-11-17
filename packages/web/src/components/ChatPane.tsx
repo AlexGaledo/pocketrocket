@@ -6,7 +6,7 @@ import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Messag
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Menu, MenuContent, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
+import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { LinkBot, Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { AlwaysAllow, RuleOffer, TakeoverCard } from './ComputerControl';
@@ -19,6 +19,8 @@ import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
 import { MAX_ATTACHMENTS, refusalFor, reencodeImage, uploadAttachment } from '../lib/attach';
 import { IMAGE_TYPES, ImageRefused } from '../lib/media';
 import type { OutboxEntry } from '../lib/outbox';
+import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
+import type { DeliveryPayload, SendMode } from '@pocketrocket/shared';
 
 export function ChatPane() {
   const room = useStore(selectActiveRoom);
@@ -227,6 +229,8 @@ function Transcript({ roomId }: { roomId: string }) {
   };
 
   const groups = useMemo(() => groupMessages(messages ?? []), [messages]);
+  // Steering splits a bot's turn around the person's message; the later part's work line says "continued".
+  const earlier = useMemo(() => earlierTurns(groups), [groups]);
 
   // A search result: bring its message in if it is older than what is loaded, scroll to it once, and mark the
   // words with the CSS Highlight API, which paints over the text without touching what React rendered.
@@ -274,8 +278,8 @@ function Transcript({ roomId }: { roomId: string }) {
               ? <div className="py-12 text-center text-ui text-muted">Nothing here yet. Say what you need.</div>
               : <TranscriptSkeleton label="Loading messages" />
           )}
-          {groups.map((g) => (
-            <MessageGroup key={g.key} group={g} bots={bots} />
+          {groups.map((g, i) => (
+            <MessageGroup key={g.key} group={g} bots={bots} earlier={earlier[i]} />
           ))}
           {streams.map(([turnId, s]) => {
             const bot = botById(bots, s.botId);
@@ -387,7 +391,7 @@ function segments(items: Message[]): Segment[] {
   return out;
 }
 
-function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
+function MessageGroup({ group, bots, earlier }: { group: Group; bots: Bot[]; earlier?: Set<string> }) {
   const first = group.items[0];
   const userName = useStore((s) => s.settings.userName);
   const userAvatar = useStore((s) => s.settings.userAvatar);
@@ -399,12 +403,18 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
     return (
       <div className="flex justify-end gap-3 pl-16 @max-[560px]:pl-6">
         <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
-          {group.items.map((m) => (
-            <div key={m.id} data-seq={m.seq} className="md max-w-[85%] rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body">
-              {m.text ? <RichText text={m.text} bots={bots} /> : null}
-              {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
-            </div>
-          ))}
+          {group.items.map((m) => {
+            const delivery = deliveryOf(m);
+            return (
+              <div key={m.id} className="flex max-w-[85%] flex-col items-end gap-1">
+                <div data-seq={m.seq} className="md max-w-full rounded-xl rounded-br-xs bg-user px-4 py-2.5 text-body">
+                  {m.text ? <RichText text={m.text} bots={bots} /> : null}
+                  {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
+                </div>
+                {delivery && <DeliveryStatus delivery={delivery} bots={bots} />}
+              </div>
+            );
+          })}
           <span className="pr-1 text-hint text-dim">{fmtTime(first.createdAt)}</span>
         </div>
         <UserAvatar name={userName} avatar={userAvatar} size={30} />
@@ -425,7 +435,7 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
         <LinkBot.Provider value={bot?.id}>
           <div className="flex flex-col gap-2">
             {segments(group.items).map((seg) =>
-              seg.kind === 'work' ? <WorkLine key={seg.key} items={seg.items} startedAt={seg.startedAt} endedAt={seg.endedAt} /> : (
+              seg.kind === 'work' ? <WorkLine key={seg.key} items={seg.items} startedAt={seg.startedAt} endedAt={seg.endedAt} continued={!!seg.items[0].turnId && !!earlier?.has(seg.items[0].turnId)} /> : (
                 <div key={seg.item.id} className="flex flex-col gap-1">
                   <Item m={seg.item} bots={bots} />
                   {chipAfter(group.items, seg.item) && <ModelChip m={seg.item} />}
@@ -436,6 +446,22 @@ function MessageGroup({ group, bots }: { group: Group; bots: Bot[] }) {
         </LinkBot.Provider>
         {isDm && <span className="mt-1 block pl-1 text-hint text-dim">{fmtTime(first.createdAt)}</span>}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Steering: what the hub did with this message for each busy bot, in words under the bubble. Quiet like the
+ * timestamp; a polite live region, so a screen reader hears it when the hub's answer arrives.
+ */
+function DeliveryStatus({ delivery, bots }: { delivery: DeliveryPayload; bots: Bot[] }) {
+  const providerLabel = useStore((s) => s.providers?.providers.find((p) => p.id === s.settings.provider)?.label ?? null);
+  const lines = deliveryLines(delivery, bots, providerLabel);
+  return (
+    <div role="status" className="flex max-w-full flex-wrap justify-end gap-x-1.5 pr-1 text-right text-hint text-dim">
+      {lines.map((l, i) => (
+        <span key={l.botId}>{i > 0 && <span aria-hidden className="mr-1.5">·</span>}{l.text}</span>
+      ))}
     </div>
   );
 }
@@ -673,6 +699,11 @@ function Composer({ members }: { members: Bot[] }) {
   const showPicker = useStore((s) => !s.device && s.settings.provider === 'claude');
   // A paired phone may not change settings, and the hub would refuse it.
   const showPermissions = useStore((s) => !s.device);
+  const device = useStore((s) => s.device);
+  const openDialog = useStore((s) => s.openDialog);
+  // Steering: can a busy bot take this message mid-turn, and what Enter does with it by default.
+  const steerable = useStore((s) => canSteer(s.providers, s.settings));
+  const busyDefault: SendMode = useStore((s) => s.settings.busyMessages ?? 'join');
   // One draft per room (the composer remounts per room): restored here, saved a moment after typing stops,
   // saved at once when the room changes or the pane closes, and cleared on send.
   const [text, setText] = useState(() => (roomId ? readDraft(roomId) : ''));
@@ -785,6 +816,11 @@ function Composer({ members }: { members: Bot[] }) {
   }, []);
 
   const activeTurns = Object.entries(streaming).filter(([, v]) => v.roomId === roomId);
+  const busyBots = members.filter((m) => activeTurns.some(([, v]) => v.botId === m.id));
+  // Only while a bot that can steer is busy: otherwise there is nothing to choose and the composer stays as it was.
+  const choice = showSendChoice(busyBots.map((b) => b.id), () => steerable);
+  const busyName = busyBots.length === 1 ? busyBots[0].name : busyBots.length + ' bots';
+  const stopLabel = room?.kind === 'dm' ? 'Stop ' + (members[0]?.name ?? 'the bot') : 'Stop all running bots in this room';
   const mentionQuery = useMemo(() => {
     const m = text.slice(0, ref.current?.selectionStart ?? text.length).match(/(?:^|\s)@([a-z0-9_-]*)$/i);
     return m ? m[1].toLowerCase() : null;
@@ -797,9 +833,9 @@ function Composer({ members }: { members: Bot[] }) {
     setText(before + text.slice(pos));
     setTimeout(() => ref.current?.focus(), 0);
   };
-  const submit = () => {
+  const submit = (mode?: SendMode) => {
     if (!canSend) return;
-    sendMessage(text.trim(), pics.flatMap((p) => (p.ref ? [p.ref] : [])));
+    sendMessage(text.trim(), pics.flatMap((p) => (p.ref ? [p.ref] : [])), mode);
     pics.forEach((p) => URL.revokeObjectURL(p.preview));
     setPics([]);
     setNotice(null);
@@ -817,7 +853,10 @@ function Composer({ members }: { members: Bot[] }) {
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + suggestions.length) % suggestions.length); return; }
       if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); insertMention(suggestions[mentionIdx] ?? suggestions[0]); return; }
     }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+    // Enter sends (a busy bot that can steer takes it into its running turn, unless Settings says queue);
+    // Ctrl+Enter queues it for after. Alt+Enter is left alone: the desktop app uses it for full screen.
+    const send = sendKey(e);
+    if (send) { e.preventDefault(); submit(send.mode); }
   };
   useEffect(() => { setMentionIdx(0); setMentionDismissed(false); }, [mentionQuery]);
 
@@ -826,7 +865,7 @@ function Composer({ members }: { members: Bot[] }) {
   // Messages wait in the bot's queue for the turn to end, so say that rather than let typing look ignored.
   const hint = secretsHint ?? (room?.kind === 'group'
     ? (room.coordinatorBotId ? 'Ask here, or @mention a bot' : '@mention a bot')
-    : activeTurns.length ? (members[0]?.name ?? 'The bot') + ' reads this when it finishes'
+    : activeTurns.length ? (members[0]?.name ?? 'The bot') + (choice && busyDefault === 'join' ? ' is working. Your message joins in.' : ' reads this when it finishes')
     : 'Message ' + (members[0]?.title ? members[0].name + ' · ' + members[0].title : members[0]?.name ?? ''));
 
   return (
@@ -891,13 +930,86 @@ function Composer({ members }: { members: Bot[] }) {
             {showPermissions && <PermissionPicker textarea={ref} />}
             {showPicker && room && <ModelPicker room={room} members={members} busy={activeTurns.length > 0} textarea={ref} />}
             {activeTurns.length > 0 && (
-              <Button variant="ghost" size="icon" title="Stop running bots" onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
+              // Room-wide: every running turn here stops. Messages a bot had not answered yet are answered next.
+              <Tooltip content={stopLabel}>
+                <Button variant="ghost" size="icon" aria-label={stopLabel} onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
+              </Tooltip>
             )}
-            <Button variant="primary" size="icon" className="h-9 w-9" title="Send (Enter)" onClick={submit} disabled={!canSend}><Send size={15} /></Button>
+            <div className="flex shrink-0 items-center">
+              <Tooltip content={choice ? (busyDefault === 'join' ? 'Send: joins ' + busyName + "'s reply (Enter)" : 'Send: queued for after (Enter)') : 'Send (Enter)'}>
+                <Button variant="primary" size="icon" className={cn('h-9 w-9', choice && 'rounded-r-none')} aria-label="Send" aria-keyshortcuts={choice ? 'Enter Control+Enter' : 'Enter'} onClick={() => submit()} disabled={!canSend}><Send size={15} /></Button>
+              </Tooltip>
+              {choice && (
+                <SendModeMenu
+                  busyName={busyName}
+                  plural={busyBots.length > 1}
+                  busyDefault={busyDefault}
+                  disabled={!canSend}
+                  onSend={submit}
+                  onSettings={device ? null : () => openDialog({ kind: 'settings', section: 'bots' })}
+                  textarea={ref}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------- steering: the send-mode menu, attached to Send ----------
+/**
+ * Join the running turn or queue for after, for pointers and phones (no modifier keys). Shown only while a bot that
+ * can steer is busy. Choosing an item sends at once. Radix gives it arrow keys, Escape and focus return.
+ */
+function SendModeMenu({ busyName, plural, busyDefault, disabled, onSend, onSettings, textarea }: {
+  busyName: string; plural: boolean; busyDefault: SendMode; disabled: boolean; onSend: (mode: SendMode) => void;
+  onSettings: (() => void) | null; textarea: React.RefObject<HTMLTextAreaElement | null>;
+}) {
+  return (
+    <Menu.Root>
+      <Tooltip content="Join or queue">
+        <Menu.Trigger
+          aria-label="Send options: join the running turn or queue for after"
+          disabled={disabled}
+          className="flex h-9 w-7 items-center justify-center rounded-r-md border-l border-ink-fg/25 bg-ink text-ink-fg hover:opacity-90 disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel pointer-coarse:h-10 pointer-coarse:w-9"
+        >
+          <ChevronDown size={14} aria-hidden />
+        </Menu.Trigger>
+      </Tooltip>
+      <Menu.Portal>
+        <MenuContent
+          side="top"
+          align="end"
+          className="w-[min(300px,calc(100vw-1.5rem))]"
+          // Back to typing, except on touch, where focusing the box would bring the keyboard back up.
+          onCloseAutoFocus={(e) => { if (window.matchMedia('(pointer: fine)').matches) { e.preventDefault(); textarea.current?.focus(); } }}
+        >
+          <p className="px-2.5 py-1 text-hint text-muted">{busyName} {plural ? 'are' : 'is'} working</p>
+          <MenuItem className="items-start" onSelect={() => onSend('join')}>
+            <span className="min-w-0 flex-1">
+              <span className="block">Join the running turn</span>
+              <span className="block text-hint text-muted">Read at its next step</span>
+            </span>
+            {busyDefault === 'join' && <Kbd>Enter</Kbd>}
+          </MenuItem>
+          <MenuItem className="items-start" onSelect={() => onSend('queue')}>
+            <span className="min-w-0 flex-1">
+              <span className="block">Queue for after</span>
+              <span className="block text-hint text-muted">Read when the reply ends</span>
+            </span>
+            <Kbd>{busyDefault === 'queue' ? 'Enter' : 'Ctrl+Enter'}</Kbd>
+          </MenuItem>
+          {onSettings && (
+            <>
+              <MenuSeparator />
+              <MenuItem className="text-hint text-muted" onSelect={onSettings}>Change the default in Settings</MenuItem>
+            </>
+          )}
+        </MenuContent>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }
 

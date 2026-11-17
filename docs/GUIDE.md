@@ -65,6 +65,34 @@ notes to memory" when it saved anything, and its cost shows up in usage. Claude 
 Models: **Sonnet 5** (default), **Opus 5**, **Fable 5.1**, **Haiku 4.5** — picked per bot in the
 bot dialog.
 
+### Messaging a busy bot (steering)
+
+You don't have to wait for a bot to finish before you correct it.
+
+- **Enter** sends. If the bot is busy in that chat and can take messages mid-task, your message
+  **joins its running turn**: the bot reads it at its next step and can change course. The
+  placeholder says "*Ada* is working. Your message joins in." when that will happen.
+- **Ctrl+Enter** (Cmd+Enter on a Mac) **queues** the message instead, so the bot reads it once its
+  current reply ends. On a phone, or with a mouse, use the small arrow beside Send: **Join the
+  running turn** or **Queue for after**. The arrow only shows while a bot that can join is busy.
+  (Alt+Enter is not a send shortcut: in the desktop app it toggles full screen.)
+- **The default** is in Settings → Bots → *When a bot is busy*. Set it to *Queue for after* and Enter
+  queues too; the arrow beside Send can still join.
+- **Under your message** a short line says what happened, for each busy bot: "Joined Ada's reply",
+  "Queued for after Ada's reply", "Queued: Gemini can't take messages mid-task", or "Queued: Ada was
+  between steps" (the bot was starting or retrying a step right then). Nothing is shown when the bot
+  was idle. The bot's work after your message is labelled **continued**: it is the same turn, not a
+  new one.
+- **Stop** stops every running bot in the chat, not only the one you steered. A message that had
+  joined a turn but was not answered yet is **not lost**: it is queued and the bot answers it right
+  after Stop. The chat says so ("Stopped. Ada will answer your new message next."), and the line
+  under your message changes to "Queued: Ada answers this next".
+- **Which bots can join:** Claude bots, once the installed Claude CLI is recent enough to report which
+  messages it still has queued (the hub checks on the bot's first turn; until then messages queue).
+  Codex, OpenCode, Grok and Gemini bots always queue, with the reason shown under your message.
+  Messages between bots (hand-offs) always queue. A routine or trigger turn you join keeps its own
+  approvals and budget.
+
 ## Permissions & safety
 
 See [SECURITY.md](../SECURITY.md) for the token model and the full threat model — treat every bot

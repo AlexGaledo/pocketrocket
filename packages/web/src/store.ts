@@ -1,6 +1,6 @@
 import type { BotPreview } from '@pocketrocket/shared';
 import { create } from 'zustand';
-import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState } from '@pocketrocket/shared';
+import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState, SendMode } from '@pocketrocket/shared';
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
@@ -243,8 +243,11 @@ interface State {
   loadMessages: (roomId: string) => Promise<void>;
   /** Prepends the page just before the oldest loaded message. No-op while one is loading or none are left. */
   loadOlder: (roomId: string) => Promise<void>;
-  /** `attachments` are media refs already uploaded; a message may be pictures only. */
-  sendMessage: (text: string, attachments?: string[]) => void;
+  /**
+   * `attachments` are media refs already uploaded; a message may be pictures only. `mode` is what the message does
+   * if a target bot is busy (steering): left out, the hub's Settings > busyMessages decides.
+   */
+  sendMessage: (text: string, attachments?: string[], mode?: SendMode) => void;
   decide: (approvalId: string, decision: 'allow' | 'always' | 'deny') => void;
   interrupt: (turnId: string) => void;
   openScreen: (botId?: string | null) => void;
@@ -613,12 +616,12 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  sendMessage: (text, attachments) => {
+  sendMessage: (text, attachments, mode) => {
     const roomId = get().activeRoomId;
     const pics = attachments?.length ? attachments : undefined;
     if (!roomId || (!text.trim() && !pics)) return;
     // Journal first, then try the socket: a message is never only in memory.
-    const entry: OutboxEntry = { clientId: newClientId(), roomId, text, status: 'sending', createdAt: Date.now(), ...(pics ? { attachments: pics } : {}) };
+    const entry: OutboxEntry = { clientId: newClientId(), roomId, text, status: 'sending', createdAt: Date.now(), ...(pics ? { attachments: pics } : {}), ...(mode ? { mode } : {}) };
     setOutbox([...get().outbox, entry]);
     play('send');
     get().flushOutbox();
@@ -626,7 +629,7 @@ export const useStore = create<State>((set, get) => ({
   flushOutbox: () => {
     for (const e of get().outbox) {
       if (e.status !== 'sending') continue;
-      if (!wsSend({ type: 'message.send', roomId: e.roomId, text: e.text, clientMsgId: e.clientId, ...(e.attachments ? { attachments: e.attachments } : {}) })) return;
+      if (!wsSend({ type: 'message.send', roomId: e.roomId, text: e.text, clientMsgId: e.clientId, ...(e.attachments ? { attachments: e.attachments } : {}), ...(e.mode ? { mode: e.mode } : {}) })) return;
       patchOutbox(e.clientId, 'sent');
       // No echo: if the link is still up the hub is not taking it, otherwise it waits for the reconnect.
       clearAck(e.clientId);
