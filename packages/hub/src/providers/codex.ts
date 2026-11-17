@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { ModelInfo, ProviderAuth, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
+import type { ModelInfo, ProviderAuth, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
 import { SecretsStore } from '../services/SecretsStore.js';
 import { childEnv } from './env.js';
 import { addSecret, redact } from './redact.js';
@@ -33,7 +33,7 @@ import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, ty
  * https://developers.openai.com/codex/models.md, https://developers.openai.com/api/docs/pricing
  */
 
-export const CODEX_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
+export const CODEX_INFO: ProviderStaticInfo = {
   id: 'codex',
   label: 'OpenAI Codex',
   blurb: 'OpenAI Codex. Sign in with ChatGPT or an OpenAI API key.',

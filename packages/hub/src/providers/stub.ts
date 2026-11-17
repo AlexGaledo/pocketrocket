@@ -1,4 +1,4 @@
-import type { ModelInfo, ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
+import type { ModelInfo, ProviderCheck, ProviderId, ProviderStaticInfo } from '@pocketrocket/shared';
 import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, type TurnSink } from './types.js';
 
 /**
@@ -10,7 +10,7 @@ export class StubProvider implements AgentProvider {
   readonly id: ProviderId;
   readonly label: string;
   constructor(
-    readonly info: Omit<ProviderInfo, 'check' | 'models'>,
+    readonly info: ProviderStaticInfo,
     private staticModels: ModelInfo[],
     private hint: string,
   ) {

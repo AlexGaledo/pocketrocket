@@ -1,7 +1,6 @@
 import { createHub } from './hub.js';
 import { startWorkspaceWeb } from './api/workspaceWeb.js';
 import { WORKSPACE_DIR, WORKSPACE_WEB_PORT } from './config.js';
-import { logError } from './providers/redact.js';
 
 // The SDK warns every turn that bare allowedTools entries (WebSearch/WebFetch/mcp__pocketrocket__*) bypass
 // canUseTool. That is intentional here; file/shell tools are never pre-approved. Silence just that warning.
@@ -16,19 +15,6 @@ await hub.listen();
 // Lets the Browser tool open HTML/images/PDFs from the workspace (Playwright MCP blocks file://).
 await startWorkspaceWeb(WORKSPACE_DIR, WORKSPACE_WEB_PORT);
 
-let closing = false;
-const shutdown = async (signal: string) => {
-  if (closing) return;
-  closing = true;
-  console.log('[pocketrocket] ' + signal + ': shutting down');
-  const force = setTimeout(() => process.exit(0), 8000);
-  force.unref();
-  try {
-    await hub.shutdown();
-  } catch (e) {
-    logError('[shutdown]', e);
-  }
-  process.exit(0);
-};
-process.on('SIGINT', () => void shutdown('SIGINT'));
-process.on('SIGTERM', () => void shutdown('SIGTERM'));
+// The same graceful stop POST /api/maintenance/stop uses: shutdown(), then exit, forced after 8 s.
+process.on('SIGINT', () => void hub.stop('SIGINT'));
+process.on('SIGTERM', () => void hub.stop('SIGTERM'));

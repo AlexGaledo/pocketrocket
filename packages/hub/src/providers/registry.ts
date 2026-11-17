@@ -82,7 +82,7 @@ export function createProviders(deps: RegistryDeps): ProviderRegistry {
       const providers: ProviderInfo[] = [];
       for (const id of enabled) {
         const p = get(id);
-        providers.push({ ...p.info, check: await check(id), models: await p.models() });
+        providers.push({ ...p.info, steer: p.canSteer?.() ?? false, check: await check(id), models: await p.models() });
       }
       return { active: get(deps.settings.get().provider).id, providers };
     },

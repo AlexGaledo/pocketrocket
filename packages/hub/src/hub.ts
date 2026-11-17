@@ -6,6 +6,7 @@ import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, BOTS_DIR, ENABLED_PROVIDERS, MEDIA_DIR,
   ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH, PROJECTS_DIR, ROOMS_DIR, botFilesDir, setRoomRootsResolver,
 } from './config.js';
+import type { BusyInfo } from '@pocketrocket/shared';
 import { Db } from './db/db.js';
 import { reportOrphanBotDirs } from './services/orphanBotDirs.js';
 import { Repos } from './db/repos.js';
@@ -133,6 +134,8 @@ export interface HubOptions {
   credentials?: { file?: string; keyFile?: string };
   /** PC runner overrides (tests: a temp pc-runner.json, short timeouts, a fixed clock). */
   pcRunner?: Partial<Omit<PcRunnerOptions, 'db'>>;
+  /** What `stop()` ends with once the hub is shut down. Defaults to process.exit; tests pass a fake. */
+  exit?: (code: number) => void;
 }
 
 export interface Hub {
@@ -166,6 +169,13 @@ export interface Hub {
   pcRunner: PcRunner;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
+  /**
+   * Graceful stop: `shutdown()` (turns interrupted, lane journal kept so they resume on the next start), then
+   * exit. SIGINT/SIGTERM and POST /api/maintenance/stop all come here; a second call joins the first.
+   */
+  stop(reason: string): Promise<void>;
+  /** GET /api/busy. */
+  busy(): BusyInfo;
 }
 
 export function createHub(opts: HubOptions = {}): Hub {
@@ -354,7 +364,22 @@ export function createHub(opts: HubOptions = {}): Hub {
     try { sweepAttachments(ATTACHMENTS_DIR, new Set(repos.listBots().map((b) => b.id))); } catch (e) { logError('[attachments]', e); }
   };
   let mediaTimer: NodeJS.Timeout | null = null;
+  /** 04-A3: only running turns and live cards block; queued, parked and open-run work survives a restart. */
+  const busy = (): BusyInfo => {
+    const running = runner.activeTurnCount();
+    const liveCards = broker.liveCardCount();
+    return {
+      blocking: running + liveCards, running, liveCards,
+      pendingLanes: router.pendingLaneCount(), parkedCards: broker.parked().length, waitingRuns: repos.runningRuns().length,
+      heldUntil: router.heldUntil(),
+    };
+  };
+  const exit = opts.exit ?? ((code: number) => process.exit(code));
+  let stopping: Promise<void> | null = null;
   const rest = createRest({
+    busy,
+    // After this tick, so the 202 is written before shutdown closes every connection.
+    stop: () => { setImmediate(() => void hub.stop('maintenance stop')); },
     media,
     repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers, screenOpener, routing,
     viewOnly: (scope) => control.viewOnly(scope),
@@ -718,7 +743,24 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
-  return {
+  const hub: Hub = {
+    busy,
+    stop(reason: string) {
+      stopping ??= (async () => {
+        console.log('[pocketrocket] ' + reason + ': shutting down');
+        // A stuck shutdown must not keep the process alive (an updater is waiting on it).
+        const force = setTimeout(() => exit(0), 8000);
+        force.unref();
+        try {
+          await hub.shutdown();
+        } catch (e) {
+          logError('[shutdown]', e);
+        }
+        clearTimeout(force);
+        exit(0);
+      })();
+      return stopping;
+    },
     server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner,
     control, broker, approvals: approvalStore,
     skills, recorder, distiller, media,
@@ -805,6 +847,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       try { db.raw.close(); } catch { /* already closed */ }
     },
   };
+  return hub;
 }
 
 /** P2: the line a resumed bot gets when the user answers the approval card its turn parked on. */
