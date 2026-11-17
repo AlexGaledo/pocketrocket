@@ -272,6 +272,29 @@ export interface HealthInfo {
   approvalsLocked: boolean;
 }
 
+/**
+ * GET /api/busy (and the answer to the maintenance hold routes). The updater waits for `blocking` to reach 0
+ * before it stops the hub. Only work a restart would lose blocks: running turns and live (unparked) approval
+ * cards. Queued lane items are journaled and resume after a restart, parked cards and open routine runs survive
+ * one too, so those are reported for the dialog text only.
+ */
+export interface BusyInfo {
+  /** running + liveCards. The one number a client gates on. */
+  blocking: number;
+  /** Bot turns running right now. */
+  running: number;
+  /** Approval cards a running turn is waiting on (not parked). */
+  liveCards: number;
+  /** Bot/room lanes with queued items that have not started (display only). */
+  pendingLanes: number;
+  /** Parked approval cards; they survive a restart (display only). */
+  parkedCards: number;
+  /** Routine runs still open: running, queued or waiting on a parked card (display only). */
+  waitingRuns: number;
+  /** Epoch ms when the maintenance hold ends, or null when there is none. */
+  heldUntil: number | null;
+}
+
 // ---------- P8: model router and usage ----------
 /**
  * A bot whose model is `auto` lets the hub pick one per turn (`agent/ModelRouter.ts`): Haiku for background and
