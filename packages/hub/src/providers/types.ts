@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { Bot, ModelInfo, ProviderCheck, ProviderId, ProviderInfo, Room } from '@pocketrocket/shared';
+import type { Bot, ModelInfo, ProviderCheck, ProviderId, ProviderStaticInfo, Room } from '@pocketrocket/shared';
 import type { TurnUsage } from '../services/UsageTracker.js';
 import type { OutsideMcpServer } from '../services/outsideMcp.js';
 
@@ -121,6 +121,11 @@ export interface TurnContext {
   controlGuard?: () => string | null;
   /** Runs before each Browser or desktop call, after `controlGuard`: starts the computer if needed. A string refuses the call. */
   computerGate?: (toolName: string, input?: Record<string, unknown>) => Promise<string | null>;
+  /**
+   * Steers an earlier run of this turn was given but never consumed (see `TurnOutcome.steers`). A steering provider
+   * sends each as its own message after `input`, under its original uuid, so it is tracked like a live steer.
+   */
+  carriedSteers?: SteerInput[];
 }
 
 /** Persistence callbacks. BotRunner owns messages/events; adapters just report what happened. */
@@ -142,7 +147,26 @@ export interface ProviderInit {
   version?: string;
   tools?: string[];
   skills?: string[];
+  /** Claude: the CLI's protocol capabilities from system/init (`interrupt_receipt_v1`, ...). */
+  capabilities?: string[];
 }
+
+/** A person's message pushed into a running turn (steering). */
+export interface SteerInput {
+  /** Stamped on the SDK message; results name the uuids they answered, which is how a steer is known to be consumed. */
+  uuid: string;
+  /** Formatted like any other injected room line. */
+  text: string;
+  images?: TurnImage[];
+}
+
+/**
+ * The answer to a steer. `accepted` only means it was pushed into the live turn, not that the bot answered it:
+ * `TurnOutcome.steers` says which were consumed. `queued` means it was not pushed, so the caller queues it:
+ * `provider` = this provider (or its installed CLI) cannot take messages mid-turn; `between-runs` = no live turn
+ * with that id, or the turn is already ending or has not started reading yet.
+ */
+export type SteerResult = { status: 'accepted' } | { status: 'queued'; reason: 'provider' | 'between-runs' };
 
 export interface TurnOutcome {
   ok: boolean;
@@ -157,13 +181,20 @@ export interface TurnOutcome {
   contextTokens?: number;
   /** Stopped by the token brake (`cacheReadBudget`). */
   braked?: boolean;
+  /**
+   * Steering providers: uuids of the steers this run was given (pushed through `steer`, or carried in through
+   * `TurnContext.carriedSteers`). `consumed` = a result or reply named it, so it is in the session's transcript;
+   * `pending` = never consumed (Stop, the token brake, an error result, a turn that ended before the CLI took it),
+   * so the caller must deliver it again. Absent when the run had none.
+   */
+  steers?: { consumed: string[]; pending: string[] };
 }
 
 export interface AgentProvider {
   id: ProviderId;
   label: string;
   /** Static description for the picker card + settings UI. */
-  info: Omit<ProviderInfo, 'check' | 'models'>;
+  info: ProviderStaticInfo;
   models(): Promise<ModelInfo[]>;
   /** Synchronous snapshot of `models()` (registry cache); used where async is not possible. */
   modelsSync(): ModelInfo[];
@@ -176,7 +207,16 @@ export interface AgentProvider {
   check(): Promise<ProviderCheck>;
   runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome>;
   interrupt(turnId: string): boolean;
+  /** Push a person's message into the running turn `turnId`. Providers without it never steer: see `steerTurn`. */
+  steer?(turnId: string, input: SteerInput): SteerResult;
+  /** Whether `steer` can work at all right now (for `ProviderInfo.steer`). Absent = false. */
+  canSteer?(): boolean;
   shutdown?(): Promise<void>;
+}
+
+/** `provider.steer`, or `queued: provider` for the adapters that have no live input channel (Codex, OpenCode, Grok). */
+export function steerTurn(provider: AgentProvider, turnId: string, input: SteerInput): SteerResult {
+  return provider.steer ? provider.steer(turnId, input) : { status: 'queued', reason: 'provider' };
 }
 
 export const EMPTY_USAGE: TurnUsage = {
