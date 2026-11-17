@@ -65,9 +65,10 @@ Windows, and `pubkey`.
 
 - **Only Rust can use it.** No capability grants `updater:*` and no `#[tauri::command]` wraps it, so the hub page
   can neither check for nor install an update. Keep it that way.
-- **`pubkey` is a placeholder** (`OWNER_STEP_PASTE_UPDATER_PUBKEY`) until the owner generates the signing key
-  offline (`cargo tauri signer generate`) and pastes the *public* key there. The private key and its password
-  live only in the `release` environment's secrets, never in the repo.
+- **`pubkey` is the real updater public key** (minisign key id `79078A19B0FB7872`, generated 2026-11-18). The
+  private key and its password live only on the owner's PC (`~/.tauri/`, backed up) and in the `release`
+  environment's secrets, never in the repo. Rotating it means every installed app must be reinstalled by hand,
+  so don't.
 - **Local builds need no key.** The committed config does not set `bundle.createUpdaterArtifacts`, so
   `pnpm desktop:build` and `cargo tauri build` work without `TAURI_SIGNING_PRIVATE_KEY`; only tag builds turn
   it on (with `--config`). If you turn it on yourself, override it back with
