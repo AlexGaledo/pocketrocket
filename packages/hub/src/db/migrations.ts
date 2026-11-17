@@ -619,3 +619,19 @@ registerMigrations([210, 219], [
       ),
   },
 ]);
+
+// 250-259  Steering and queue controls (spec 02 Phase 1-2). A person's message pushed into a running turn gets a
+//          `lane_journal` row of its own (status 'steered'), so a hub that dies before the bot answers it re-queues it
+//          once after restart even when the turn's own item has used its one resume. Once a turn consumed it the row
+//          stays as 'consumed' (with the message id) until the lane's read cursor passes it: the cursor stays at the
+//          turn's start, so the next turn would otherwise be shown the steer again (RoomRouter `unreadForLane`).
+registerMigrations([250, 259], [
+  {
+    version: 250,
+    name: 'lane_journal.status + message_id (steering)',
+    up: (db) => {
+      addColumnIfMissing(db, 'lane_journal', 'status', "TEXT NOT NULL DEFAULT 'queued'");
+      addColumnIfMissing(db, 'lane_journal', 'message_id', 'TEXT');
+    },
+  },
+]);

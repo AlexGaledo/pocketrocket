@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { pickCoordinator } from './coordinator.js';
 import { MAX_ATTACHMENTS } from '@pocketrocket/shared';
-import type { Bot, BotState, CauseKind, Message, Room, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
+import type { Bot, BotState, CauseKind, DeliveryPayload, Message, QueueReason, Room, SendMode, TriggerEvent, TriggerPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, CUTOFF_RETRIES, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
 import { quoteTags } from './transcript.js';
@@ -41,6 +42,31 @@ interface Lane {
   pending: LaneItem[];
   /** The owner removed this bot from the room while a turn ran; whatever that turn says hands nothing on. */
   left?: boolean;
+  /** Steering: messages pushed into the running turn, by steer uuid. Settled when the turn ends. */
+  steered: Map<string, SteeredItem>;
+}
+interface SteeredItem {
+  message: Message;
+  /** Its own `lane_journal` row (status 'steered'), so a restart before it is answered re-queues it. */
+  journalId: string;
+}
+
+/**
+ * The messages after `lastSeenSeq` that a bot's next turn in a room is shown as unread, minus the steers its turns
+ * already answered. The read cursor stays at a turn's start (a message that arrives mid-turn is unread for the next
+ * one), so without this filter a steer would be shown twice. Every reader of the unread window goes through here:
+ * the injected transcript, the attached pictures and the text the model router reads. (Queue cancel, 02 task 2.1b,
+ * widens this one filter rather than adding a second.)
+ */
+export function unreadForLane(repos: Repos, botId: string, roomId: string, lastSeenSeq: number): Message[] {
+  const hidden = repos.consumedSteerIds(botId, roomId);
+  const msgs = repos.messagesAfter(roomId, lastSeenSeq);
+  return hidden.size ? msgs.filter((m) => !hidden.has(m.id)) : msgs;
+}
+
+/** The line posted when a turn ends with steers it never answered: they run next. */
+export function requeuedNote(botName: string, n: number, stopped: boolean): string {
+  return (stopped ? 'Stopped. ' : '') + botName + ' will answer your ' + (n === 1 ? 'new message' : n + ' new messages') + ' next.';
 }
 
 /** A turn that stopped because it ran out of room (token brake, step limit), not because it broke. */
@@ -145,7 +171,12 @@ export class RoomRouter {
   }
 
   // ---------- entry points ----------
-  onUserMessage(roomId: string, text: string, clientMsgId?: string, attachments?: string[]): Message {
+  /**
+   * A person's message. `mode` (steering) says what it does where a target bot is busy: `join` pushes it into the
+   * running turn, `queue` waits; left out, Settings > busyMessages decides. The returned message carries a
+   * {@link DeliveryPayload} when any target was busy (also sent as `message.update`).
+   */
+  onUserMessage(roomId: string, text: string, clientMsgId?: string, attachments?: string[], mode?: SendMode): Message {
     const room = this.repos.getRoom(roomId);
     if (!room) throw new Error('Room not found');
     // A repeat of a send the hub already took (a client replaying its outbox): no second message and no second
@@ -161,8 +192,16 @@ export class RoomRouter {
     this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
     withCause.causeId = msg.id;
     events.emitEvent({ type: 'message.new', message: withCause });
-    this.dispatchUser(room, withCause);
-    return withCause;
+    const delivery = this.dispatchUser(room, withCause, mode);
+    if (!delivery) return withCause;
+    return this.setDelivery(withCause, delivery);
+  }
+
+  /** Stores a message's per-bot steering outcome and tells clients. */
+  private setDelivery(msg: Message, payload: DeliveryPayload): Message {
+    const updated = this.repos.updateMessage(msg.id, { payload }) ?? { ...msg, payload };
+    events.emitEvent({ type: 'message.update', id: msg.id, roomId: msg.roomId, patch: { payload } });
+    return updated;
   }
 
   /**
@@ -183,7 +222,7 @@ export class RoomRouter {
     return room.memberIds.map((id) => this.repos.getBot(id)).filter((b): b is Bot => !!b);
   }
 
-  private dispatchUser(room: Room, msg: Message) {
+  private dispatchUser(room: Room, msg: Message, mode?: SendMode): DeliveryPayload | null {
     const members = this.members(room);
     let targets: Bot[];
     if (room.kind === 'dm' || members.length === 1) targets = members.slice(0, 1);
@@ -206,9 +245,82 @@ export class RoomRouter {
     }
     if (!targets.length) {
       this.note(room, 'Nobody was mentioned and this room has no coordinator. Mention a bot with @handle or set a coordinator.', msg.causeId, 0);
-      return;
+      return null;
     }
-    for (const t of targets) this.enqueue(t, room, { causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq, causeKind: 'user' });
+    const steered: Record<string, string> = {};
+    const queued: Record<string, { reason: QueueReason }> = {};
+    for (const t of targets) {
+      // Only a busy lane gets a steering outcome; an idle bot simply starts a turn.
+      if (this.lanes.get(t.id + ':' + room.id)?.running) {
+        const r = this.trySteer(t, room, msg, mode);
+        if (r.status === 'accepted') {
+          steered[t.id] = r.turnId;
+          continue;
+        }
+        queued[t.id] = { reason: r.reason };
+      }
+      this.enqueue(t, room, { causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq, causeKind: 'user' });
+    }
+    if (!Object.keys(steered).length && !Object.keys(queued).length) return null;
+    return { ...(Object.keys(steered).length ? { steered } : {}), ...(Object.keys(queued).length ? { queued } : {}) };
+  }
+
+  /**
+   * Steering: pushes a person's message into the turn `bot` is running here. Only for a person's own message at hop 0
+   * (dispatchUser): hand-offs, routines, triggers and follow-ups always queue, so a steer never wakes a bot or loops.
+   * The turn keeps its cause, hop, budget and strict approvals; an accepted steer gets its own journal row.
+   */
+  private trySteer(bot: Bot, room: Room, msg: Message, mode?: SendMode): { status: 'accepted'; turnId: string } | { status: 'queued'; reason: QueueReason } {
+    if (mode === 'queue') return { status: 'queued', reason: 'shortcut' };
+    if (!mode && settings.get().busyMessages === 'queue') return { status: 'queued', reason: 'setting' };
+    const uuid = randomUUID();
+    const r = this.runner.steer(bot.id, room.id, { uuid, text: formatMessage(this.repos, msg), ...(msg.attachments?.length ? { images: msg.attachments } : {}) });
+    if (r.status !== 'accepted') return r;
+    const journalId = this.repos.journalAdd({
+      botId: bot.id, roomId: room.id, causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq, runId: null, note: null,
+      status: 'steered', messageId: msg.id,
+    });
+    this.lanes.get(bot.id + ':' + room.id)!.steered.set(uuid, { message: msg, journalId });
+    return r;
+  }
+
+  /**
+   * After a turn: a steer it answered becomes a 'consumed' marker (hidden from the next turn, see `unreadForLane`)
+   * and joins the turn's thread; one it never answered (Stop, an error) is queued as an ordinary message so the bot
+   * answers it next, and the room is told.
+   */
+  private settleSteers(bot: Bot, room: Room, lane: Lane, req: TurnRequest, result: TurnResult, left: boolean) {
+    if (!lane.steered.size) return;
+    const consumed = new Set(result.consumedSteers ?? []);
+    const settled = [...lane.steered.entries()];
+    lane.steered.clear();
+    let requeued = 0;
+    for (const [uuid, s] of settled) {
+      const current = this.repos.getMessage(s.message.id) ?? s.message;
+      const delivery: DeliveryPayload = { ...((current.payload as DeliveryPayload | null) ?? {}) };
+      if (consumed.has(uuid)) {
+        this.repos.journalMarkConsumed(s.journalId);
+        // Its thread is now the turn that answered it, so threads and usage group there. Only when this was the
+        // message's one delivery: a message also queued for another bot stays its own thread.
+        if (!delivery.queued && Object.keys(delivery.steered ?? {}).length === 1 && current.causeId !== req.causeId) {
+          this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', req.causeId, s.message.id);
+          events.emitEvent({ type: 'message.update', id: s.message.id, roomId: room.id, patch: { causeId: req.causeId } });
+        }
+        continue;
+      }
+      this.repos.journalRemove([s.journalId]);
+      // A bot the owner removed from the room answers nothing more there.
+      if (left || !this.repos.getRoom(room.id)?.memberIds.includes(bot.id)) continue;
+      const steered = { ...(delivery.steered ?? {}) };
+      delete steered[bot.id];
+      this.setDelivery(current, {
+        ...(Object.keys(steered).length ? { steered } : {}),
+        queued: { ...(delivery.queued ?? {}), [bot.id]: { reason: 'requeued' } },
+      });
+      this.enqueue(bot, room, { causeId: s.message.causeId ?? s.message.id, hop: 0, triggerSeq: s.message.seq, causeKind: 'user' });
+      requeued++;
+    }
+    if (requeued) this.note(room, requeuedNote(bot.name, requeued, !!result.stopped), req.causeId, req.hop);
   }
 
   /** Bot -> bot routing (after a turn or from tools). Returns dispatched handles. */
@@ -279,7 +391,7 @@ export class RoomRouter {
   private enqueue(bot: Bot, room: Room, item: LaneItem) {
     const key = bot.id + ':' + room.id;
     let lane = this.lanes.get(key);
-    if (!lane) this.lanes.set(key, (lane = { running: false, pending: [] }));
+    if (!lane) this.lanes.set(key, (lane = { running: false, pending: [], steered: new Map() }));
     item.journalId ??= this.repos.journalAdd({
       botId: bot.id, roomId: room.id, causeId: item.causeId, hop: item.hop, triggerSeq: item.triggerSeq,
       runId: item.runId ?? null, note: item.note ?? null, attempts: item.attempts,
@@ -331,6 +443,8 @@ export class RoomRouter {
           const causeId = items[0].causeId;
           const session = this.repos.getSession(bot.id, room.id);
           startSeq = this.repos.maxSeq(room.id);
+          // The unread window, minus steers an earlier turn already answered (read once, used three times below).
+          const unread = unreadForLane(this.repos, bot.id, room.id, session.lastSeenSeq);
           const members = this.members(room);
           const notes = [...new Set(items.map((i) => i.note).filter((n): n is string => !!n))];
           const handBack = this.control?.takeNote(bot.id);
@@ -339,7 +453,7 @@ export class RoomRouter {
           const roster = rosterText(members, bot.id);
           const seen = this.rosterSeen.get(key);
           shownRoster = !session.sdkSessionId || !seen || seen.roster !== roster || seen.sessionId !== session.sdkSessionId ? roster : null;
-          const injected = this.buildInjected(bot, room, session.lastSeenSeq, items.map((i) => i.triggerSeq)) +
+          const injected = this.buildInjected(bot, room, unread, items.map((i) => i.triggerSeq)) +
             (notes.length ? '\n\n' + notes.join('\n') : '') +
             '\n\n(' + hopBudgetLine(hop) + ')' + (shownRoster ? '\n' + shownRoster : '');
           this.toolDispatched.set(key, { causeId, botIds: wokeByTool });
@@ -351,13 +465,13 @@ export class RoomRouter {
           // goes through approvals even when the hub runs in bypass mode.
           const strictApprovals = items.some((i) => this.requiresApprovals(i.causeId));
           // Only a person's own newest words can ask for a stronger model, never a forwarded trigger payload.
-          const latestUserText = this.repos.messagesAfter(room.id, session.lastSeenSeq).filter((m) => m.authorType === 'user').at(-1)?.text;
+          const latestUserText = unread.filter((m) => m.authorType === 'user').at(-1)?.text;
           // A routine's own prompt may invoke a skill. Its owner wrote it, unlike anything else in the transcript.
           const cause = causeKind === 'routine' ? this.repos.getMessage(causeId) : undefined;
           const routinePrompt = cause?.kind === 'routine' ? cause.text : undefined;
           // The composer's pick is for what a person starts here. Hand-offs and schedules keep each bot's own model.
           const chatModel = items.some((i) => i.causeKind === 'user' && i.hop === 0) ? room.chatModel ?? undefined : undefined;
-          const images = this.userImages(bot, room, session.lastSeenSeq);
+          const images = this.userImages(bot, unread);
           req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), ...(items.some((i) => i.freshSession) ? { freshSession: true } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, runId: items.find((i) => i.runId)?.runId };
           sessionBefore = session.sdkSessionId;
           result = await this.runner.runTurn(req);
@@ -377,6 +491,9 @@ export class RoomRouter {
         lane.left = false;
         this.repos.journalRemove(items.map((i) => i.journalId).filter((id): id is string => !!id));
         this.repos.saveSession(bot.id, room.id, { lastSeenSeq: startSeq });
+        // Consumed-steer markers the cursor has now passed are no longer needed; this turn's own steers settle after.
+        this.repos.journalPruneConsumed(bot.id, room.id, startSeq);
+        this.settleSteers(bot, room, lane, req, result, !!left);
         // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
         this.autoMemory?.afterTurn(bot.id, room.id, result);
         // P6: same idea per skill, for bots that opted in; never awaited either.
@@ -453,18 +570,15 @@ export class RoomRouter {
   }
 
   /** Pictures the person attached in the unread window, newest {@link MAX_ATTACHMENTS}; only what a person sent. */
-  private userImages(bot: Bot, room: Room, lastSeenSeq: number): string[] {
-    const refs = this.repos
-      .messagesAfter(room.id, lastSeenSeq)
+  private userImages(bot: Bot, unread: Message[]): string[] {
+    const refs = unread
       .filter((m) => m.authorType === 'user' && m.authorId !== bot.id)
       .flatMap((m) => m.attachments ?? []);
     return [...new Set(refs)].slice(-MAX_ATTACHMENTS);
   }
 
-  private buildInjected(bot: Bot, room: Room, lastSeenSeq: number, triggerSeqs: number[]): string {
-    const msgs = this.repos
-      .messagesAfter(room.id, lastSeenSeq)
-      .filter((m) => isConversation(m) && m.authorId !== bot.id);
+  private buildInjected(bot: Bot, room: Room, unread: Message[], triggerSeqs: number[]): string {
+    const msgs = unread.filter((m) => isConversation(m) && m.authorId !== bot.id);
     const { lines, dropped } = capBacklog(msgs.map((m) => formatMessage(this.repos, m)));
     if (dropped) lines.unshift('(' + dropped + ' earlier unread message' + (dropped === 1 ? ' was' : 's were') + ' left out to keep this short. Use read_room to read them if you need them.)');
     const trig = triggerSeqs.length ? '\n\n(Message' + (triggerSeqs.length > 1 ? 's' : '') + ' that triggered you: ' + triggerSeqs.map((s) => '#' + s).join(', ') + '.' : '(';

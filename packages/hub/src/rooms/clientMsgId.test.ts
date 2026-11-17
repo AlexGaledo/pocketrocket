@@ -22,7 +22,11 @@ function setup() {
   const bot = repos.createBot({ name: 'ann', handle: 'ann', title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 50 });
   const room = repos.createRoom({ kind: 'dm', name: 'a', memberIds: [bot.id], coordinatorBotId: null });
   const reqs: TurnRequest[] = [];
-  router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: '', costUsd: 0 }; } } as unknown as BotRunner;
+  router.runner = {
+    runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: '', costUsd: 0 }; },
+    // A provider that cannot steer: a message to a busy bot queues.
+    steer: () => ({ status: 'queued', reason: 'provider' }),
+  } as unknown as BotRunner;
   return { repos, router, room, reqs };
 }
 const settle = () => new Promise((r) => setTimeout(r, 50));

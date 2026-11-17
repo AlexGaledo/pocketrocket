@@ -611,21 +611,40 @@ export class Repos {
       .map((r) => ({ key: r.k as string, ...this.totalsFrom(r) }));
   }
   // ---------- P3: lane journal (services/FollowUp.ts) ----------
-  journalAdd(e: Omit<LaneJournalRow, 'id' | 'attempts' | 'createdAt'> & { attempts?: number }): string {
+  journalAdd(e: Omit<LaneJournalRow, 'id' | 'attempts' | 'createdAt' | 'status' | 'messageId'> & { attempts?: number; status?: LaneJournalStatus; messageId?: string | null }): string {
     const id = nanoid(10);
     this.db.run(
-      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,note,attempts,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, e.runId, e.note, e.attempts ?? 0, now(),
+      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,note,attempts,created_at,status,message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, e.runId, e.note, e.attempts ?? 0, now(), e.status ?? 'queued', e.messageId ?? null,
     );
     return id;
   }
   journalRemove(ids: string[]) {
     for (const id of ids) this.db.run('DELETE FROM lane_journal WHERE id=?', id);
   }
-  /** Every row, oldest first, and empties the table: the caller re-enqueues what it still wants. */
+  /** Steering: a steer the turn answered becomes a 'consumed' marker (see `consumedSteerIds`). */
+  journalMarkConsumed(id: string) {
+    this.db.run("UPDATE lane_journal SET status='consumed' WHERE id=?", id);
+  }
+  /** Message ids of the steers a bot's turns in a room already answered, while its read cursor is still behind them. */
+  consumedSteerIds(botId: string, roomId: string): Set<string> {
+    return new Set(
+      this.db
+        .all<{ message_id: string }>("SELECT message_id FROM lane_journal WHERE bot_id=? AND room_id=? AND status='consumed' AND message_id IS NOT NULL", botId, roomId)
+        .map((r) => r.message_id),
+    );
+  }
+  /** Drops the consumed-steer markers the lane's read cursor has now passed (`trigger_seq` is the message's seq). */
+  journalPruneConsumed(botId: string, roomId: string, lastSeenSeq: number) {
+    this.db.run("DELETE FROM lane_journal WHERE bot_id=? AND room_id=? AND status='consumed' AND trigger_seq<=?", botId, roomId, lastSeenSeq);
+  }
+  /**
+   * Every row still to run (queued, running or steered-but-unanswered), oldest first, and removes them: the caller
+   * re-enqueues what it still wants. Consumed-steer markers are not work and stay.
+   */
   journalTakeAll(): LaneJournalRow[] {
     return this.db.tx(() => {
-      const rows = this.db.all('SELECT * FROM lane_journal ORDER BY created_at, rowid').map((r) => ({
+      const rows = this.db.all("SELECT * FROM lane_journal WHERE status<>'consumed' ORDER BY created_at, rowid").map((r) => ({
         id: r.id as string,
         botId: r.bot_id as string,
         roomId: r.room_id as string,
@@ -636,8 +655,10 @@ export class Repos {
         note: (r.note as string) ?? null,
         attempts: r.attempts as number,
         createdAt: r.created_at as number,
+        status: r.status as LaneJournalStatus,
+        messageId: (r.message_id as string) ?? null,
       }));
-      this.db.run('DELETE FROM lane_journal');
+      this.db.run("DELETE FROM lane_journal WHERE status<>'consumed'");
       return rows;
     });
   }
@@ -668,7 +689,12 @@ export interface LaneJournalRow {
   note: string | null;
   attempts: number;
   createdAt: number;
+  /** Migration 250: `queued` (a lane item), `steered` (pushed into a running turn, unanswered), `consumed` (answered). */
+  status: LaneJournalStatus;
+  /** Steer rows: the person's message. */
+  messageId: string | null;
 }
+export type LaneJournalStatus = 'queued' | 'steered' | 'consumed';
 
 /** Per-session token-efficiency state (migration 170); see Repos.getSessionState. */
 export interface SessionState {
