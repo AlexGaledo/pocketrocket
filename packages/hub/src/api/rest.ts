@@ -3,9 +3,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
-  BotInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
+  BotInputSchema, MaintenanceHoldInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
   TASK_STATUSES, isMediaRef, mediaHash,
-  type HealthInfo, type ProviderId, type Room, type TaskStatus,
+  type BusyInfo, type HealthInfo, type ProviderId, type Room, type TaskStatus,
 } from '@pocketrocket/shared';
 import net from 'node:net';
 import { readBody } from './body.js';
@@ -76,6 +76,11 @@ export interface RestDeps {
   viewOnly?: (scope: string | null) => boolean;
   /** Uploaded pictures: a reference is only stored once its file is here. */
   media?: MediaStore;
+  // ---- 04-A3: update safety ----
+  /** GET /api/busy. */
+  busy?: () => BusyInfo;
+  /** POST /api/maintenance/stop: schedules the graceful stop (shutdown, then exit) after this response. */
+  stop?: () => void;
 }
 
 export function createRest(deps: RestDeps) {
@@ -137,6 +142,24 @@ export function createRest(deps: RestDeps) {
     };
   });
   add('GET', '/api/debug/last-init', () => runner.lastInit);
+  // 04-A3: the desktop updater holds, polls /api/busy until `blocking` is 0, then stops the hub cleanly.
+  // Hub token or the owner's browser session only: none of these is in guard.ts DEVICE_ALLOW, so a paired
+  // device is refused (403), and the PC runner token reaches only its own routes.
+  const busyNow = () => need(deps.busy, 'Busy status')();
+  add('GET', '/api/busy', busyNow);
+  add('POST', '/api/maintenance/hold', ({ body }) => {
+    const { minutes } = parse(MaintenanceHoldInputSchema, body ?? {});
+    router.hold(minutes * 60_000);
+    return busyNow();
+  });
+  add('POST', '/api/maintenance/release', () => {
+    router.releaseHold();
+    return busyNow();
+  });
+  add('POST', '/api/maintenance/stop', () => {
+    need(deps.stop, 'Maintenance stop')();
+    return { ok: true, stopping: true };
+  });
   add('GET', '/api/screen', async ({ query }) => {
     // P1: `?botId=` asks about that bot's own computer. Without per-bot computers (or without a bot) it is the
     // one shared screen, exactly as before; `computer` then says perBot: false.

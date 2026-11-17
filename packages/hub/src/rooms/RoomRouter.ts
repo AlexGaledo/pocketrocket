@@ -303,6 +303,13 @@ export class RoomRouter {
           this.setState(botId, roomId, 'idle');
           continue;
         }
+        // Maintenance hold (an update is about to stop the hub): start nothing; the items stay queued and journaled.
+        if (this.heldUntil() !== null) {
+          this.setState(botId, roomId, 'waiting', 'maintenance');
+          await this.holdLifted();
+          this.setState(botId, roomId, 'idle');
+          continue;
+        }
         // A slot first, so a turn that queued behind others sees what they spent.
         await this.acquire();
         let items: LaneItem[];
@@ -313,6 +320,8 @@ export class RoomRouter {
         let sessionBefore: string | null = null;
         const wokeByTool = new Set<string>();
         try {
+          // A hold that began while this lane waited for a slot: hand the slot back and wait above.
+          if (this.heldUntil() !== null) continue;
           // The cost cap covers every cause (user message, routine, later triggers), not only bot hops: a
           // trigger whose thread already spent the cap is dropped with a note instead of starting a turn,
           // and a turn that does start may spend at most what is left of the cap.
@@ -481,6 +490,43 @@ export class RoomRouter {
 
   interrupt(turnId: string) {
     return this.runner.interrupt(turnId);
+  }
+
+  // ---------- maintenance hold (04-A3) ----------
+  private holdUntil = 0;
+  private holdTimer: NodeJS.Timeout | null = null;
+  private holdWaiters: (() => void)[] = [];
+  /**
+   * Starts no new turn for `ms` (POST /api/maintenance/hold), so a running hub drains before an update stops it.
+   * Messages are still accepted and queued; running turns finish. Calling it again replaces the end time.
+   */
+  hold(ms: number): number {
+    this.holdUntil = Date.now() + ms;
+    if (this.holdTimer) clearTimeout(this.holdTimer);
+    this.holdTimer = setTimeout(() => this.releaseHold(), ms);
+    this.holdTimer.unref?.();
+    return this.holdUntil;
+  }
+  /** Ends the hold early (POST /api/maintenance/release); waiting lanes start again. */
+  releaseHold() {
+    this.holdUntil = 0;
+    if (this.holdTimer) clearTimeout(this.holdTimer);
+    this.holdTimer = null;
+    for (const w of this.holdWaiters.splice(0)) w();
+  }
+  /** When the hold ends (epoch ms), or null when there is none. */
+  heldUntil(): number | null {
+    return this.holdUntil > Date.now() ? this.holdUntil : null;
+  }
+  private holdLifted(): Promise<void> {
+    if (this.heldUntil() === null) return Promise.resolve();
+    return new Promise((resolve) => this.holdWaiters.push(resolve));
+  }
+  /** Lanes with items queued that have not started (GET /api/busy; they are journaled, so they do not block). */
+  pendingLaneCount(): number {
+    let n = 0;
+    for (const lane of this.lanes.values()) if (lane.pending.length) n++;
+    return n;
   }
 
   // ---------- P3: approvals for non-user causes, resume and follow-up ----------
