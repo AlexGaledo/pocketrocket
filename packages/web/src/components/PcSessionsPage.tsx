@@ -6,7 +6,7 @@ import { ArrowLeft, CloudUpload, Play, Trash2, Upload } from 'lucide-react';
 import { useStore } from '../store';
 import { api } from '../lib/api';
 import {
-  PC_ENTRY_PAGE, groupSessions, mergeEntries, mergeSessions, nextBefore, onPcSessionUpdated, repoOptions, sessionTitle,
+  PC_ENTRY_PAGE, activeSessions, groupSessions, mergeEntries, mergeSessions, nextBefore, onPcSessionUpdated, repoOptions, sessionTitle,
   type PcSeqEntry, type PcSessionDetail, type PcSessionSummary,
 } from '../lib/pcSessions';
 import { PcRunForm, usePcStart, usePcStatus } from './PcRunForm';
@@ -15,7 +15,8 @@ import { linksOf } from '../lib/projectRepos';
 import { SyncPanel } from './PcSyncPanel';
 import { MoveBadge, MovePanel, VpsPanel } from './PcMovePanel';
 import { isOnVps, moveOf } from '../lib/pcMove';
-import { Badge, Banner, Button, Input, Select, Skeleton, SkeletonGroup, Tooltip, cn, confirmAction } from './ui';
+import { Badge, Banner, Button, Input, Select, Skeleton, SkeletonGroup, Tabs, TabsList, TabsTrigger, Tooltip, cn, confirmAction } from './ui';
+import { getItem, setItem } from '../lib/persist';
 import { FleetHeader, PageBody } from './FleetPages';
 import { MirrorEmptyState, SessionGroups, TranscriptEntries } from './PcSessionViews';
 
@@ -39,6 +40,8 @@ export function PcSessionsPage() {
 
 // ---- list ----
 
+const VIEW_KEY = 'pc-sessions.view';
+
 function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const [sessions, setSessions] = useState<PcSessionSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,9 @@ function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const [repos, setRepos] = useState<string[]>([]);
   const [before, setBefore] = useState<number | null>(null);
   const [moreBusy, setMoreBusy] = useState(false);
+  // Active (what Claude Code is doing now) or History (everything mirrored). Remembered in this browser.
+  const [view, setViewState] = useState<'active' | 'history'>(() => (getItem(VIEW_KEY) === 'history' ? 'history' : 'active'));
+  const setView = (v: 'active' | 'history') => { setViewState(v); setItem(VIEW_KEY, v); };
   const seq = useRef(0);
 
   useEffect(() => {
@@ -69,6 +75,14 @@ function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
 
   useEffect(() => { load(false); }, [load]);
 
+  // 'Live' means written to in the last few minutes, worked out by the hub when it answers; refetch now and then so a
+  // session that went quiet leaves Active even when nothing new arrives.
+  useEffect(() => {
+    if (view !== 'active') return;
+    const t = setInterval(() => load(true), 60_000);
+    return () => clearInterval(t);
+  }, [load, view]);
+
   // Entries arrive in bursts; one refetch per quiet second and a half is plenty for a list.
   useEffect(() => {
     let t: ReturnType<typeof setTimeout> | null = null;
@@ -89,7 +103,9 @@ function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
     } catch (e) { setError((e as Error).message); } finally { setMoreBusy(false); }
   };
 
-  const groups = groupSessions(sessions ?? []);
+  const active = activeSessions(sessions ?? []);
+  const activeCount = active.filter((x) => !x.parentId).length;
+  const groups = groupSessions(view === 'active' ? active : sessions ?? []);
   const filtered = !!debouncedQ.trim() || !!repo;
   return (
     <>
@@ -102,13 +118,26 @@ function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
             {(repo && !repos.includes(repo) ? [...repos, repo] : repos).map((r) => <option key={r} value={r}>{r}</option>)}
           </Select>
         </div>
+        <Tabs value={view} onValueChange={(v) => setView(v === 'history' ? 'history' : 'active')}>
+          <TabsList>
+            <TabsTrigger value="active">Active{sessions ? ' (' + activeCount + ')' : ''}</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
+          </TabsList>
+        </Tabs>
         {error && <Banner tone="error" className="mx-3 mb-3" action={<Button size="sm" onClick={() => load(false)}>Retry</Button>}>{error}</Banner>}
         {sessions === null && !error && (
           <SkeletonGroup label="Loading sessions…" className="space-y-2 px-3"><Skeleton className="h-16 w-full rounded-lg" /><Skeleton className="h-16 w-full rounded-lg" /></SkeletonGroup>
         )}
         {sessions?.length === 0 && <MirrorEmptyState filtered={filtered} />}
+        {view === 'active' && !!sessions?.length && activeCount === 0 && (
+          <div className="mx-3 rounded-lg border border-line px-4 py-6 text-center">
+            <p className="text-ui text-fg">Nothing running right now</p>
+            <p className="mt-1 text-hint text-muted">A session shows here while Claude Code is working in it (the last few minutes), or while it is on the VPS.</p>
+            <Button size="sm" className="mt-3" onClick={() => setView('history')}>Show history</Button>
+          </div>
+        )}
         <SessionGroups groups={groups} onOpen={onOpen} />
-        {before !== null && (
+        {view === 'history' && before !== null && (
           <div className="mt-2 flex justify-center">
             <Button onClick={() => void more()} disabled={moreBusy}>{moreBusy ? 'Loading…' : 'Load more'}</Button>
           </div>

@@ -86,8 +86,11 @@ function SessionRow({ s, onOpen, now, nested }: { s: PcSessionSummary; onOpen: (
       onClick={() => onOpen(s.id)}
       className="flex w-full min-w-0 items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
-      <span className="mt-1.5 flex h-2 w-2 shrink-0 items-center justify-center">
-        {live && <><span aria-hidden className="h-2 w-2 rounded-full bg-ok" /><span className="sr-only">Live</span></>}
+      {/* Running: a solid green dot with a soft ping. Idle: a hollow grey ring. The words are in the right column. */}
+      <span aria-hidden className="relative mt-1.5 flex h-2 w-2 shrink-0 items-center justify-center">
+        {live
+          ? <><span className="absolute h-2 w-2 rounded-full bg-ok opacity-60 motion-safe:animate-ping" /><span className="relative h-2 w-2 rounded-full bg-ok" /></>
+          : <span className="h-2 w-2 rounded-full border border-dim" />}
       </span>
       <span className="min-w-0 flex-1">
         <span className={cn('block truncate text-ui', nested ? 'text-muted' : 'text-fg')}>{sessionTitle(s)}</span>
@@ -101,7 +104,9 @@ function SessionRow({ s, onOpen, now, nested }: { s: PcSessionSummary; onOpen: (
         )}
       </span>
       <span className="flex shrink-0 flex-col items-end gap-0.5 text-hint text-muted">
-        <span>{relativeTime(s.lastAt, now)}</span>
+        {live
+          ? <span className="font-medium text-ok">Running</span>
+          : <span>Idle · {relativeTime(s.lastAt, now)}</span>}
         <span>{s.entryCount} {s.entryCount === 1 ? 'entry' : 'entries'}</span>
       </span>
     </button>

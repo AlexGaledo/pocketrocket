@@ -35,6 +35,17 @@ export function groupKeyOf(s: PcSessionSummary): string {
  * Groups by repo (else project dir), newest activity first, with subagent sessions nested under their parent.
  * A child whose parent is not in the list (not loaded yet, or filtered out) stands on its own so it is never lost.
  */
+/**
+ * What is going on right now: a session Claude Code wrote to in the last few minutes (status 'live'), or one that is
+ * moving to, on, or coming back from the VPS. A subagent counts for its parent, so the parent stays in view.
+ */
+export function activeSessions(list: PcSessionSummary[]): PcSessionSummary[] {
+  const busy = (x: PcSessionSummary) => x.status === 'live' || (!!x.move && x.move.state !== 'local');
+  const parents = new Set(list.filter((x) => x.parentId && busy(x)).map((x) => x.parentId as string));
+  const keep = new Set(list.filter((x) => busy(x) || parents.has(x.id)).map((x) => x.id));
+  return list.filter((x) => keep.has(x.id) || (!!x.parentId && keep.has(x.parentId)));
+}
+
 export function groupSessions(list: PcSessionSummary[]): SessionGroup[] {
   const ids = new Set(list.map((s) => s.id));
   const kids = new Map<string, PcSessionSummary[]>();
