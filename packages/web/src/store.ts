@@ -13,6 +13,7 @@ import { applyFont, applyTheme, watchSystemTheme } from './lib/theme';
 import { isDesktopMode, isDevice } from './lib/auth';
 import { getItem, setItem } from './lib/persist';
 import { newClientId, readJournal, writeJournal, type OutboxEntry } from './lib/outbox';
+import { applyLaneQueue, replaceRoomQueues, type Queues } from './lib/queue';
 import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
 import type { SectionId } from './components/dialogs/SettingsDialog';
 
@@ -221,6 +222,16 @@ interface State {
   trainingRev: Record<string, number>;
   /** Bumped per room on WS `task.changed`; an open Tasks board refetches when its room's number moves. */
   tasksRev: Record<string, number>;
+  // ---- queue controls (02 task 2.4) ----
+  /** Each bot's waiting items per room, keyed `botId:roomId` (see lib/queue). Only lanes with items or a pause. */
+  queues: Queues;
+  /** GET the room's queue snapshot; runs with every (re)load of a room's messages. */
+  loadQueue: (roomId: string) => Promise<void>;
+  /** Each resolves to null when the hub took it, or the hub's reason in words when it refused. */
+  queueCancel: (roomId: string, journalId: string) => Promise<string | null>;
+  queueEdit: (roomId: string, journalId: string, text: string) => Promise<string | null>;
+  queueSendNow: (roomId: string, botId: string) => Promise<string | null>;
+  queuePause: (roomId: string, botId: string, paused: boolean) => Promise<string | null>;
   // ---- U3 ----
   /** The skill pool, for the Needs you inbox (skills waiting for review). Null until GET /api/skills answers, or if it refuses. */
   inboxSkills: Skill[] | null;
@@ -269,6 +280,16 @@ interface State {
 }
 
 let toastSeq = 0;
+
+/** Runs a queue REST call: null when the hub took it, else its refusal (or the network error) in words. */
+async function queueCall(fn: () => Promise<unknown>): Promise<string | null> {
+  try {
+    await fn();
+    return null;
+  } catch (e) {
+    return (e as Error).message || 'The hub did not take that. Try again.';
+  }
+}
 
 export const useStore = create<State>((set, get) => ({
   connected: false,
@@ -328,6 +349,25 @@ export const useStore = create<State>((set, get) => ({
   pcRunnerRev: 0,
   trainingRev: {},
   tasksRev: {},
+  queues: {},
+  loadQueue: async (roomId) => {
+    try {
+      const lanes = await api.rooms.queue(roomId);
+      set({ queues: replaceRoomQueues(get().queues, roomId, lanes) });
+    } catch {
+      // An older hub (404) or a refused device: no chips, which is what it showed before.
+    }
+  },
+  queueCancel: (roomId, journalId) => queueCall(() => api.rooms.queueCancel(roomId, journalId)),
+  queueEdit: (roomId, journalId, text) => queueCall(() => api.rooms.queueEdit(roomId, journalId, text)),
+  queueSendNow: (roomId, botId) => queueCall(() => api.rooms.queueSendNow(roomId, botId)),
+  queuePause: (roomId, botId, paused) => queueCall(async () => {
+    const lanes = await api.rooms.queuePause(roomId, botId, paused);
+    // The hub also sends queue.changed; applying the answer now keeps the chip in step on a slow link.
+    let queues = get().queues;
+    for (const q of lanes) queues = applyLaneQueue(queues, q);
+    set({ queues });
+  }),
   inboxSkills: null,
 
   setConnected: (connected) => {
@@ -351,7 +391,8 @@ export const useStore = create<State>((set, get) => ({
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
-        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, formErrors: {}, openApprovals: ev.openApprovals ?? [] });
+        set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, formErrors: {}, openApprovals: ev.openApprovals ?? [], queues: {} });
+        // `queues: {}`: lanes may have changed while the link was down; each room's load fetches its snapshot again.
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
@@ -553,6 +594,11 @@ export const useStore = create<State>((set, get) => ({
       case 'task.changed':
         set({ tasksRev: { ...s.tasksRev, [ev.roomId]: (s.tasksRev[ev.roomId] ?? 0) + 1 } });
         return;
+      case 'queue.changed': {
+        const queues = applyLaneQueue(s.queues, ev.queue);
+        if (queues !== s.queues) set({ queues });
+        return;
+      }
       default:
         return;
     }
@@ -590,6 +636,8 @@ export const useStore = create<State>((set, get) => ({
         loaded: { ...get().loaded, [roomId]: true },
         history: { ...get().history, [roomId]: { loading: false, done } },
       });
+      // After the transcript, so a hello's reload (reconnect) also brings the queue back in step.
+      void get().loadQueue(roomId);
     } catch (e) {
       get().toast('Failed to load messages: ' + (e as Error).message, true);
     }

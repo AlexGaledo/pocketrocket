@@ -16,6 +16,7 @@ describe('deliveryLines: the status line under the bubble', () => {
     expect(texts({ queued: { ada: { reason: 'provider' } } }, 'Gemini')).toEqual(["Queued: Gemini can't take messages mid-task"]);
     expect(texts({ queued: { ada: { reason: 'between-runs' } } })).toEqual(['Queued: Ada was between steps']);
     expect(texts({ queued: { ada: { reason: 'requeued' } } })).toEqual(['Queued: Ada answers this next']);
+    expect(texts({ queued: { ada: { reason: 'paused' } } })).toEqual(["Queued: Ada's queue was paused"]);
   });
 
   it('names the bot for the provider reason when the provider is unknown', () => {
