@@ -9,7 +9,7 @@ import { events } from '../events.js';
 import { readBody, MAX_BODY_BYTES } from './body.js';
 import { principalOf } from './guard.js';
 import type { Repos } from '../db/repos.js';
-import type { RoomFiles } from '../rooms/roomFiles.js';
+import { fileRootOf, type RoomFiles } from '../rooms/roomFiles.js';
 import { isInside } from '../permissions/pathRules.js';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { logError } from '../providers/redact.js';
@@ -39,7 +39,7 @@ function contentType(ext: string): string {
 }
 const extOf = (name: string) => path.extname(name).slice(1).toLowerCase();
 
-class FilesError extends Error {
+export class FilesError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
@@ -59,7 +59,7 @@ function cleanRel(rel: string): string {
  * before the disk is asked; then isInside checks the written path and its real path, so a symlink or junction
  * inside the folder that points outside it is refused for reading and writing alike.
  */
-function resolveIn(root: string, rel: string): { abs: string; rel: string } {
+export function resolveIn(root: string, rel: string): { abs: string; rel: string } {
   const raw = rel.replaceAll('\\', '/');
   if (raw.includes('\0') || raw.startsWith('/') || /^[A-Za-z]:/.test(raw)) throw new FilesError(400, 'Paths are relative to the room\'s folder');
   const parts = raw.split('/').filter((p) => p && p !== '.');
@@ -95,7 +95,7 @@ function checkNewName(name: string): void {
  * resolved through resolveIn before it is made, so a link part way down that leads out of the folder is refused
  * rather than followed, and every name in the path is checked like a file name. Returns the folder and the folders made.
  */
-function folderIn(root: string, rel: string, parents: boolean): { abs: string; rel: string; made: string[] } {
+export function folderIn(root: string, rel: string, parents: boolean): { abs: string; rel: string; made: string[] } {
   const dir = resolveIn(root, rel);
   const made: string[] = [];
   if (parents) {
@@ -118,7 +118,7 @@ function folderIn(root: string, rel: string, parents: boolean): { abs: string; r
   if (!statOr404(final.abs).isDirectory()) throw new FilesError(400, 'Not a folder');
   return { ...final, made };
 }
-const parentOf = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '');
+export const parentOf = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '');
 
 /**
  * `/api/rooms/:id/files*`: the owner's view of a room's file folder (rooms/roomFiles.ts). Hub token only: a paired
@@ -151,11 +151,7 @@ export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles; scree
       if (!room || !folder) return send(res, 404, { error: 'No room with that id' });
       const root = roomFiles.ensure(folder);
       // Bridge P1: the folder as a tracked root, and the owner as the author of what this API writes.
-      const fileRoot: FileRoot = {
-        kind: folder.kind,
-        key: folder.kind === 'project' ? folder.projectSlug! : folder.kind === 'dm' ? room.memberIds[0] : room.id,
-        dir: root,
-      };
+      const fileRoot: FileRoot = fileRootOf(room, { ...folder, dir: root });
       const owner: RevisionAuthor = { kind: 'owner', id: null, label: 'owner', machine: process.platform === 'win32' ? 'pc' : 'vps', roomId };
       const revisions = deps.revisions;
 
@@ -398,6 +394,6 @@ export function listFolder(
   return { roomId, folder: kind, projectSlug, path: rel, entries, truncated: keyed.length > cap };
 }
 
-function statOrNull(abs: string): fs.Stats | null {
+export function statOrNull(abs: string): fs.Stats | null {
   try { return fs.statSync(abs); } catch { return null; }
 }

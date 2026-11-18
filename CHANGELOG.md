@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each room and project folder can keep a `decisions.md`: an append-only log of what was decided and why. Bots add to it with `log_decision` (naming the decision it supersedes when one changes); their own file and shell tools cannot edit, move or delete it.
 - `GET/POST /api/rooms/:id/files/text` reads and writes a text file with its hash. A write sends the hash it last read and is refused with `409` and the current text when someone changed the file in between, so a stale copy never overwrites newer work. Also `GET …/files/history?path=` and `POST …/files/decision`. These are the base for linking Claude Code sessions on your PC (`docs/specs/claude-code-bridge.md`, phase 1).
 
+### Claude Code sessions can talk to rooms
+
+- The hub now has a small `/api/cc/*` API for Claude Code terminal sessions on your PC, reachable only through the PC helper (not with the hub token, and not from a paired phone). A session can list your group and project rooms, read recent messages, post to a room, read the room's state, read and save text files, log a decision, and hand a task to a bot. Direct chats stay out of reach.
+- What a session posts arrives as you, so the coordinator or the bots you @mention answer as they do when you type in the app, but the line starts with `[via Claude Code · <repo>]` so you and the bots can tell it came from the terminal. Files and decisions it writes are recorded as "you via Claude Code (<repo>)" in their history, and a save from an out-of-date copy is refused with `409` like any other.
+- Bots now start a turn with a short state block: the version and "Now" part of the folder's `current.md` and the last five decisions. It goes in the turn's input, not the system prompt, and is repeated only when one of those files changed or the bot starts a fresh session.
+
 ## [0.3.0] - 2026-11-18
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
