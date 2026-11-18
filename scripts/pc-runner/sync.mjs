@@ -204,8 +204,8 @@ export async function scanRepo({ git, top, commit }) {
 /**
  * Pushes `commit` to the one wip ref, with a lease on exactly that ref (the value read from the remote a moment ago,
  * or "must not exist yet"). The refspec is built here and asserted; no other ref can be named. `url` is the push URL
- * handleSync already matched against the project's remote; pushing to a URL (not the name "origin") means git adds no
- * remote-tracking ref to the owner's repo. ssh runs in BatchMode.
+ * handleSync already matched against the project's remote; the push runs from a scratch repo (see below) so the
+ * owner's repo gets no remote-tracking ref. ssh runs in BatchMode.
  */
 export async function pushWip({ git, top, url, commit, machine, sessionId }) {
   const names = wipNames(machine, sessionId);
@@ -215,10 +215,23 @@ export async function pushWip({ git, top, url, commit, machine, sessionId }) {
   if (!/^[0-9a-f]{40,64}$/.test(commit)) throw new Error('not a commit id');
   const env = { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' };
   if (typeof url !== 'string' || !url.trim() || url.startsWith('-')) throw new Error('no remote URL to push to');
-  const listed = (await git(top, ['ls-remote', '--refs', '--', url, ref], { env, timeoutMs: 60_000 })).trim();
-  const have = /^([0-9a-f]{40,64})\s+(\S+)$/m.exec(listed);
-  const expect = have && have[2] === ref ? have[1] : '';
-  await git(top, ['push', '--no-verify', `--force-with-lease=${ref}:${expect}`, '--', url, `${commit}:${ref}`], { env, timeoutMs: 180_000 });
+  // Push from a throwaway bare repo that borrows the owner's objects (alternates), not from the owner's repo: newer
+  // git (seen on 2.5x) matches a pushed URL to the configured remote with that URL and then writes a remote-tracking
+  // ref into the owner's repo. The scratch repo has no remotes, so nothing is written back anywhere.
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-push-'));
+  try {
+    const bare = path.join(scratch, 'push-src.git');
+    await git(scratch, ['init', '--bare', '--quiet', bare]);
+    const common = (await git(top, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
+    fs.writeFileSync(path.join(bare, 'objects', 'info', 'alternates'), path.join(common, 'objects') + '\n');
+    await git(bare, ['update-ref', ref, commit]);
+    const listed = (await git(bare, ['ls-remote', '--refs', '--', url, ref], { env, timeoutMs: 60_000 })).trim();
+    const have = /^([0-9a-f]{40,64})\s+(\S+)$/m.exec(listed);
+    const expect = have && have[2] === ref ? have[1] : '';
+    await git(bare, ['push', '--no-verify', `--force-with-lease=${ref}:${expect}`, '--', url, `${ref}:${ref}`], { env, timeoutMs: 180_000 });
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
   return { branch: names.branch, ref };
 }
 
