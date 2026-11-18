@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A lane can run a step alone (never batched with chat messages), a workflow run's budget caps every hand-off on its thread the way a trigger's daily budget does, "Run now" and "Test fire" mark their thread as person-started, and Usage has a "Workflow" cause kind.
 - New tables `workflows` and `workflow_runs` (migrations 291-292). Nothing uses them yet: the runner, approval card, REST and bot tools follow in the next change.
 
+### Workflows: the run engine, approval card, REST and bot tools (hub)
+
+- A workflow is a fixed chain of steps (a trigger, then bot steps, approval steps and an output) that starts from a routine, an event trigger or "Run now". Each bot step is its own turn: alone in the bot's queue, with approvals on even under bypass, at hop 0 (so two hand-offs inside every step never trip the hand-off limit), and capped at what is left of the run's budget. The run stops with a note in the chat when it spends its budget. The previous step's text reaches the next step fenced as data, never as instructions.
+- Progress is saved after every step. After a restart a run resumes at the right step: a step that was cut off is resumed once by the usual follow-up, and a run that died between two steps carries on from the next one. A run you Stop ends as "stopped by you" and Retry runs that step again; steers you send into a running step are kept on that step's timeline.
+- An approval step posts a card only you can answer (approve, reject, or send back once with a note). It waits through the night, expires after 24 hours (the run ends in an error and Retry asks again) and shows in Needs you. A bot, a cta button, a chat message or a tool approval answer cannot decide it, and a paired phone can answer it but not build workflows.
+- An output step posts the last output to the chat, or saves it as a file in the chat's files folder (relative paths only; a path that climbs out of the folder is refused).
+- New routes: `/api/workflows`, `/api/workflow-runs`, `/api/workflow-cards`, and events `workflows.changed`, `workflow.run`, `workflow.cards`. Bots get `list_workflows`, and `create_workflow` and `update_workflow`, which show you an approval card first. A routine or trigger that a workflow uses cannot be deleted (409) until the workflow is changed. Migration 293 adds the chat to `workflow_runs`.
+
 ### Move a PC Claude Code session to the VPS and back (hub)
 
 - A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.

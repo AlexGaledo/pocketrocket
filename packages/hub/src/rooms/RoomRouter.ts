@@ -54,6 +54,8 @@ interface Lane {
   steered: Map<string, SteeredItem>;
   /** The running turn's start seq (its unread window ends there); undefined while no turn is in progress. */
   turnStartSeq?: number;
+  /** The items the running turn answers (a steer is told to their owners; a cancelled run finds its step here). */
+  active?: LaneItem[];
   /** The owner pressed Send now: the turn was stopped so the queue runs next (the stop note says so). */
   sendNow?: boolean;
 }
@@ -271,6 +273,48 @@ export class RoomRouter {
     return msg;
   }
 
+  /**
+   * Starts a thread for a workflow run: the system note (a system message, so the whole thread is strict) that is the
+   * cause of every step and hand-off of the run. Bots are not shown it (it is not conversation).
+   */
+  openThread(room: Room, text: string, payload: WorkflowPayload): Message {
+    const msg = this.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'system', text, payload, causeId: null, hop: 0, turnId: null });
+    this.repos.db.run('UPDATE messages SET cause_id=? WHERE id=?', msg.id, msg.id);
+    msg.causeId = msg.id;
+    events.emitEvent({ type: 'message.new', message: msg });
+    return msg;
+  }
+
+  /**
+   * One agent step of a workflow run, modelled on `fireRoutine`: its prompt is posted as a routine-kind system message on
+   * the run's thread and a lane item is queued for the bot. The item is solo (never batched with chat), strict (the
+   * thread's cause is a system note), at hop 0 (hops are counted per step, so a step that hands off twice is not
+   * killed by MAX_HOPS), capped at `budgetUsd` (what is left of the run budget) and owned by the step, so its turn
+   * closes the step even after a restart or a parked approval.
+   */
+  fireStep(room: Room, bot: Bot, o: { causeId: string; text: string; payload: WorkflowPayload; ownerRef: string; budgetUsd: number }): Message {
+    const msg = this.repos.insertMessage({ roomId: room.id, authorType: 'system', authorId: null, kind: 'routine', text: o.text, payload: o.payload, causeId: o.causeId, hop: 0, turnId: null });
+    events.emitEvent({ type: 'message.new', message: msg });
+    this.enqueue(bot, room, { causeId: o.causeId, hop: 0, triggerSeq: msg.seq, causeKind: 'workflow', ownerRef: o.ownerRef, solo: true, budgetUsd: o.budgetUsd, messageId: msg.id });
+    return msg;
+  }
+
+  /**
+   * A cancelled run's step: drops it from the bot's queue, and stops the turn when it is running (as the owner, so the
+   * chat says "stopped by you"). Its owner is not told: it already knows.
+   */
+  stopOwner(botId: string, roomId: string, refPrefix: string) {
+    const lane = this.lanes.get(botId + ':' + roomId);
+    if (!lane) return;
+    for (let n = lane.pending.length - 1; n >= 0; n--) {
+      if (!lane.pending[n].ownerRef?.startsWith(refPrefix)) continue;
+      const [it] = lane.pending.splice(n, 1);
+      if (it.journalId) this.repos.journalRemove([it.journalId]);
+    }
+    this.emitQueue(botId, roomId);
+    if (lane.active?.some((i) => i.ownerRef?.startsWith(refPrefix))) this.runner.interruptLane(botId, roomId, 'owner');
+  }
+
   private members(room: Room): Bot[] {
     return room.memberIds.map((id) => this.repos.getBot(id)).filter((b): b is Bot => !!b);
   }
@@ -336,7 +380,13 @@ export class RoomRouter {
       botId: bot.id, roomId: room.id, causeId: msg.causeId ?? msg.id, hop: 0, triggerSeq: msg.seq, ownerRef: null, note: null,
       status: 'steered', messageId: msg.id,
     });
-    this.lanes.get(bot.id + ':' + room.id)!.steered.set(uuid, { message: msg, journalId });
+    const lane = this.lanes.get(bot.id + ':' + room.id)!;
+    lane.steered.set(uuid, { message: msg, journalId });
+    // A workflow step records what the owner steered into it on its timeline.
+    for (const i of lane.active ?? []) {
+      const p = parseOwnerRef(i.ownerRef);
+      if (p) this.owners.get(p.kind)?.onSteer?.(p, { at: Date.now(), text: msg.text });
+    }
     return r;
   }
 
@@ -509,6 +559,7 @@ export class RoomRouter {
             this.emitQueue(botId, roomId);
             continue;
           }
+          lane.active = items;
           const hop = Math.max(...items.map((i) => i.hop));
           const causeId = items[0].causeId;
           const session = this.repos.getSession(bot.id, room.id);
@@ -552,6 +603,7 @@ export class RoomRouter {
           this.release();
           this.toolDispatched.delete(key);
           lane.turnStartSeq = undefined;
+          lane.active = undefined;
         }
         // Remember which session has seen which roster. A roster sent this turn reached whatever session the turn
         // ended on (a fresh or rotated one included); a session that changed without one has not seen any.

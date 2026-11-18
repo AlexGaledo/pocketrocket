@@ -58,7 +58,7 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
   ...silent([
     'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
     'list_rooms', 'request_approval', 'use_stronger_model',
-    'list_routines',
+    'list_routines', 'list_workflows',
     // Key routing: reads key-registry.json, names only.
     'where_to_run',
     // Machines: the registry with each one's policy, read-only.
@@ -84,6 +84,8 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
     // A routine a bot schedules is autonomous future spend.
     'create_routine', 'update_routine', 'delete_routine',
+    // Same for a workflow: a step graph that runs bots on a schedule or an event, spending on its own.
+    'create_workflow', 'update_workflow',
     // Persona only: posts into a room as the persona and wakes a member; its handler raises the card for a room the persona is not in.
     'dispatch',
   ]),

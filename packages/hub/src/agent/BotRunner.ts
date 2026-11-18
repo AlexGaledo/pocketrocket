@@ -17,6 +17,7 @@ import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import type { PcRunner } from '../services/PcRunner.js';
+import type { WorkflowRunner } from '../services/WorkflowRunner.js';
 import type { PcSessions } from '../services/PcSessions.js';
 import type { SessionMoves } from '../services/SessionMoves.js';
 import { createHubTools } from './botTools.js';
@@ -208,6 +209,8 @@ export class BotRunner {
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
   pcRunner?: PcRunner;
+  /** Workflows v1: the bot tools `list_workflows`, `create_workflow` and `update_workflow`. */
+  workflows?: WorkflowRunner;
   /** Bridge P4: the PC session mirror, read-only, for @persona's list_pc_sessions and read_pc_session. */
   pcSessions?: PcSessions;
   /** Bridge P6: moved PC sessions, for propose_move and the resume lock in run_on_pc. */
@@ -468,6 +471,7 @@ export class BotRunner {
       } : undefined,
       routinesChanged: this.hooks.routinesChanged,
       pcRunner: this.pcRunner,
+      workflows: this.workflows,
       pcSessions: this.pcSessions,
       sessionMoves: this.sessionMoves,
       signal: ac.signal,

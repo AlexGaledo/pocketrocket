@@ -867,4 +867,6 @@ registerMigrations([290, 299], [
       db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)');
     },
   },
+  // The room the run's thread lives in, fixed when it starts (the workflow may be moved to another chat meanwhile).
+  { version: 293, name: 'workflow_runs.room_id', up: (db) => addColumnIfMissing(db, 'workflow_runs', 'room_id', 'TEXT') },
 ]);

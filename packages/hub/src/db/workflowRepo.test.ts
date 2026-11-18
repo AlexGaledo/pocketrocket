@@ -53,8 +53,8 @@ describe('WorkflowRepo', () => {
     const repo = new WorkflowRepo(new Db(':memory:'), () => t++);
     const w = repo.create(input());
     expect(repo.activeRun(w.id)).toBeUndefined();
-    const r1 = repo.createRun({ workflowId: w.id, graph: w.graph, budgetUsd: w.budgetUsd, manual: true, steps: steps(w.graph), nodeId: 'a1' });
-    expect(r1).toMatchObject({ status: 'running', nodeId: 'a1', manual: true, costUsd: 0, endedAt: null, causeId: null, budgetUsd: 2 });
+    const r1 = repo.createRun({ workflowId: w.id, roomId: 'room1', graph: w.graph, budgetUsd: w.budgetUsd, manual: true, steps: steps(w.graph), nodeId: 'a1' });
+    expect(r1).toMatchObject({ status: 'running', roomId: 'room1', nodeId: 'a1', manual: true, costUsd: 0, endedAt: null, causeId: null, budgetUsd: 2 });
     expect(r1.steps).toHaveLength(4);
     expect(repo.activeRun(w.id)?.id).toBe(r1.id);
 
@@ -66,7 +66,7 @@ describe('WorkflowRepo', () => {
     repo.update(w.id, { graph: graph({ triggerId: 'tg9', manual: false }) });
     expect(repo.getRun(r1.id)!.graph).toEqual(w.graph);
 
-    const r2 = repo.createRun({ workflowId: w.id, graph: w.graph, budgetUsd: 2, manual: false, steps: steps(w.graph), nodeId: 'a1' });
+    const r2 = repo.createRun({ workflowId: w.id, roomId: 'room1', graph: w.graph, budgetUsd: 2, manual: false, steps: steps(w.graph), nodeId: 'a1' });
     repo.updateRun(r2.id, { status: 'waiting', expiresAt: 99 });
     expect(repo.listRuns(w.id).map((r) => r.id)).toEqual([r2.id, r1.id]);
     expect(repo.listRuns(w.id, 1)).toHaveLength(1);
@@ -81,7 +81,7 @@ describe('WorkflowRepo', () => {
     const db = new Db(':memory:');
     const repo = new WorkflowRepo(db);
     const w = repo.create(input());
-    repo.createRun({ workflowId: w.id, graph: w.graph, budgetUsd: 2, manual: false, steps: [], nodeId: null });
+    repo.createRun({ workflowId: w.id, roomId: 'room1', graph: w.graph, budgetUsd: 2, manual: false, steps: [], nodeId: null });
     repo.delete(w.id);
     expect(repo.get(w.id)).toBeUndefined();
     expect(db.get<{ n: number }>('SELECT count(*) n FROM workflow_runs')!.n).toBe(0);
