@@ -1,0 +1,8 @@
+# Scripts are checked out with LF on every OS. Git for Windows (and the GitHub Windows runners) default to
+# core.autocrlf=true, and a CRLF checkout breaks them: vitest cannot import a .mjs whose shebang line ends in
+# \r ("SyntaxError: Invalid or unexpected token"), and bash on the VPS chokes on CRLF .sh files.
+*.mjs     text eol=lf
+*.cjs     text eol=lf
+*.js      text eol=lf
+*.sh      text eol=lf
+*.service text eol=lf
