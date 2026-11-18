@@ -71,6 +71,9 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     // U4: a card that asks the owner for a few plain values. It changes nothing and carries no secret (no password
     // field; secret-looking labels and answers are refused), and the owner answers it in the chat, which is the gate.
     'request_form',
+    // Bridge P1: log_decision appends to the bot's own room/project folder (the one it may already write); history is
+    // a read of that folder's revisions.
+    'log_decision', 'file_history',
   ]),
   ...silent(DESKTOP_TOOL_NAMES),
   // Integration reads: granted per bot; untrusted output is labelled as such.

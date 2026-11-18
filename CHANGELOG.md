@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Shared files remember who changed them
+
+- Every change to a room's or project's files that the hub can see is now recorded: who made it (you, a bot, or your assistant), from which machine, in which turn, with which tool, and the sources it cited. Bot Write and Edit calls, your uploads, deletes and text saves are tracked; a bot's Bash edits are not. Bots get `file_history` to look it up before changing something another writer made.
+- Each room and project folder can keep a `decisions.md`: an append-only log of what was decided and why. Bots add to it with `log_decision` (naming the decision it supersedes when one changes); their own file and shell tools cannot edit, move or delete it.
+- `GET/POST /api/rooms/:id/files/text` reads and writes a text file with its hash. A write sends the hash it last read and is refused with `409` and the current text when someone changed the file in between, so a stale copy never overwrites newer work. Also `GET …/files/history?path=` and `POST …/files/decision`. These are the base for linking Claude Code sessions on your PC (`docs/specs/claude-code-bridge.md`, phase 1).
+
 ## [0.3.0] - 2026-11-18
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.

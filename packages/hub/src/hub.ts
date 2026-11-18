@@ -84,6 +84,7 @@ import { MEDIA_SWEEP_MS, MediaStore, referencedMedia } from './services/MediaSto
 import { createMediaApi } from './api/media.js';
 import { createFilesApi } from './api/files.js';
 import { RoomFiles } from './rooms/roomFiles.js';
+import { FileRevisions } from './services/FileRevisions.js';
 import { PcRunner, type PcRunnerOptions } from './services/PcRunner.js';
 import { createPcRunnerApi } from './api/pcRunner.js';
 import { runnerMayAccess } from './api/guard.js';
@@ -390,13 +391,16 @@ export function createHub(opts: HubOptions = {}): Hub {
   runner.projects = projects;
   const roomFiles = new RoomFiles({ projects, roomsDir: opts.roomsDir ?? ROOMS_DIR, dmDir: opts.dmFilesDir ?? botFilesDir });
   runner.roomFiles = roomFiles;
+  // Bridge P1: who changed each shared file (bot Write/Edit hooks, owner uploads and text saves).
+  const revisions = new FileRevisions(repos.db);
+  runner.revisions = revisions;
   // A bot works without a card only in the folder of the room it is replying in.
   setRoomRootsResolver((botId, roomId) => {
     const room = repos.getRoom(roomId);
     const folder = room ? roomFiles.forBot(room, botId) : null;
     return folder ? [folder.dir] : [];
   });
-  const filesApi = createFilesApi({ repos, roomFiles, screenOpener });
+  const filesApi = createFilesApi({ repos, roomFiles, screenOpener, revisions });
   // The owner's PC: run_on_pc jobs, owner-approved on a card, picked up by the helper on the PC.
   const pcRunner = new PcRunner({ db, file: path.join(DATA_DIR, 'pc-runner.json'), ...opts.pcRunner });
   runner.pcRunner = pcRunner;

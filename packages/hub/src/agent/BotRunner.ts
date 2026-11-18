@@ -38,6 +38,7 @@ import { turnFailureNote } from './turnFailure.js';
 import { outsideMcpFor, registerOutsideMcpSecrets, vpsMountable } from '../services/outsideMcp.js';
 import { loadKeyRegistry } from '../services/keyRegistry.js';
 import { computerToolGuard } from '../permissions/controlInterlock.js';
+import { decisionsWriteDenied, relIn, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
 import type { MediaStore } from '../services/MediaStore.js';
 import { AUTO_MEMORY_MODEL, runPass, type PassOutcome } from '../services/AutoMemory.js';
 import { buildSeed, buildSummaryPrompt, cleanSummary, readRoomNotes, rotationNote, rotationReason, SUMMARY_SYSTEM_PROMPT } from '../services/SessionRotation.js';
@@ -166,6 +167,8 @@ export class BotRunner {
   projects?: ProjectService;
   /** Set by createHub. Which file folder each room uses; a turn may use only its own room's. */
   roomFiles?: RoomFiles;
+  /** Bridge P1: who changed each shared file. Set by createHub; absent in most unit tests. */
+  revisions?: FileRevisions;
   /** P2: computer control (take over / hand back / pause). Set by createHub; absent in most unit tests. */
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
@@ -361,7 +364,16 @@ export class BotRunner {
 
     // key-registry.json, read once per turn (an edit applies to the next turn), names only.
     const keyRegistry = loadKeyRegistry();
+    // Bridge P1: the turn's shared folder as a tracked root, and who this turn writes as.
+    const fileRoot: FileRoot | null = folder
+      ? { kind: folder.kind, key: folder.kind === 'project' ? folder.projectSlug! : folder.kind === 'dm' ? bot.id : room.id, dir: folder.dir }
+      : null;
+    const fileAuthor: RevisionAuthor = {
+      kind: settings.get().personaBotId === bot.id ? 'persona' : 'bot',
+      id: bot.id, label: '@' + bot.handle, machine: process.platform === 'win32' ? 'pc' : 'vps', sessionId: turnId, roomId: room.id,
+    };
     const tools = createHubTools({
+      fileRoot, fileAuthor, revisions: this.revisions,
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
       repos: this.repos, memory: this.memory, skills: this.skills, media: this.media, projects: this.projects,
       dispatchFromBot: (targets, room, onDone) => this.hooks.dispatchFromBot(room ? { ...req, room } : req, targets, onDone),
@@ -536,6 +548,15 @@ export class BotRunner {
               ? [{ root: this.roomFiles.roomsDir, allowed: folder?.kind === 'room' ? [room.id] : [], known: this.repos.listRooms().map((r) => r.id) }]
               : []),
           ])
+        : undefined,
+      fileGuard: fileRoot ? (name, input, cwd) => decisionsWriteDenied(name, input, cwd, [fileRoot]) : undefined,
+      fileWritten: fileRoot && this.revisions
+        ? (name, input, cwd) => {
+            const p = input.file_path ?? input.notebook_path;
+            if (typeof p !== 'string' || !p) return;
+            const rel = relIn(fileRoot, path.resolve(cwd, p));
+            if (rel) this.revisions!.record(fileRoot, rel, { ...fileAuthor, tool: name });
+          }
         : undefined,
       cdpUrl: computer?.perBot ? computer.cdpUrl : undefined,
       outsideMcp,

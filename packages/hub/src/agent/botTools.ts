@@ -33,6 +33,8 @@ import { BotReports, REPORT_KINDS, ReportLimited, MAX_FEEDBACK_BYTES } from '../
 import { searchHistory } from '../db/historyIndex.js';
 import { TASK_STATUSES, type Task } from '@pocketrocket/shared';
 import { KEY_NAME_RE, loadKeyRegistry, routeByNeeds, type KeyRegistry } from '../services/keyRegistry.js';
+import path from 'node:path';
+import { DECISIONS_FILE, FileRevisionError, relIn, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
 
 export interface ToolCtx {
   bot: Bot;
@@ -106,6 +108,12 @@ export interface ToolCtx {
   keyRegistry?: () => KeyRegistry;
   /** Blocked-site reports and feedback (G5). Defaults to the hub's own file in DATA_DIR; tests hand in a temp one. */
   reports?: BotReports;
+  // ---- Bridge P1: shared files ----
+  /** This turn's room or project folder as a tracked root; adds log_decision and file_history. */
+  fileRoot?: FileRoot | null;
+  /** Who this turn writes as, for file history. */
+  fileAuthor?: RevisionAuthor;
+  revisions?: FileRevisions;
 }
 
 export const text = (t: string): ToolOutput => ({ content: [{ type: 'text' as const, text: t }] });
@@ -876,6 +884,48 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       async (a) => {
         const r = await propose(a.line.replace(/\s+/g, ' ').trim(), a.reason);
         return r.ok ? text(r.message) : err(r.message);
+      },
+    ));
+  }
+  // Bridge P1: the shared folder's decision log (append-only) and who changed a file.
+  if (ctx.fileRoot && ctx.revisions && ctx.fileAuthor) {
+    const root = ctx.fileRoot;
+    const revisions = ctx.revisions;
+    const author = ctx.fileAuthor;
+    tools.push(hubTool(
+      'log_decision',
+      'Record a decision in this chat\'s ' + DECISIONS_FILE + ', the shared log every bot and ' + userName + ' read before acting. Append-only: earlier decisions are never edited. To change one, log a new decision and name the old id in supersedes. Log real decisions (what was chosen and why), not progress notes.',
+      {
+        title: z.string().min(3).max(120).describe('The decision in a few words, like "Use Postgres for the queue"'),
+        text: z.string().min(1).max(4000).describe('What was decided, why, and what it rules out'),
+        supersedes: z.array(z.string().regex(/^D-\d{4,}$/)).max(5).optional().describe('Ids of earlier decisions this replaces, like D-0003'),
+        sources: z.array(z.string().min(1).max(500)).max(10).optional().describe('Links or file paths the decision rests on'),
+      },
+      async (a) => {
+        try {
+          const r = revisions.appendDecision(root, { title: a.title, text: a.text, supersedes: a.supersedes }, { ...author, sources: a.sources });
+          return text('Logged ' + r.id + ' in ' + DECISIONS_FILE + '.');
+        } catch (e) {
+          return err(e instanceof FileRevisionError ? e.message : 'Could not log the decision: ' + String((e as Error).message ?? e));
+        }
+      },
+    ));
+    tools.push(hubTool(
+      'file_history',
+      'Who changed a file in this chat\'s folder, when, from where and with what tool, newest first. Use it before changing a shared file someone else wrote, or to find who decided something. Changes made with Bash are not tracked.',
+      {
+        path: z.string().min(1).max(500).describe('Path inside this chat\'s folder, like current.md or notes/plan.md'),
+        limit: z.number().int().min(1).max(50).optional().describe('Default 10'),
+      },
+      async (a) => {
+        const rel = relIn(root, path.resolve(root.dir, a.path.replace(/^[/\\]+/, '')));
+        if (!rel) return err('That path is outside this chat\'s folder.');
+        const rows = revisions.history(root, rel, a.limit ?? 10);
+        if (!rows.length) return text('(no recorded changes to ' + rel + ')');
+        return text(rows.map((r) =>
+          'r' + r.rev + ' ' + new Date(r.at).toISOString().slice(0, 16).replace('T', ' ') + ' UTC · ' + (r.author.label || r.author.kind) +
+          ' (' + r.author.machine + (r.tool ? ', ' + r.tool : '') + ')' + (r.hash ? '' : ' · deleted') + (r.sources.length ? ' · sources: ' + r.sources.join(', ') : ''),
+        ).join('\n'));
       },
     ));
   }

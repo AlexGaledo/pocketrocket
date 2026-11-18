@@ -14,6 +14,7 @@ import { isInside } from '../permissions/pathRules.js';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { logError } from '../providers/redact.js';
 import { ScreenOpenError, type ScreenOpener } from '../services/screenOpen.js';
+import { DECISIONS_FILE, FileRevisionError, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
 
 /** Base64 of the biggest upload, plus room for the JSON around it. */
 const UPLOAD_BODY_BYTES = Math.ceil(MAX_FILE_UPLOAD_BYTES / 3) * 4 + 64 * 1024;
@@ -132,11 +133,11 @@ const parentOf = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastInde
  *   PATCH  /api/rooms/:id/files                       { from, to } rename or move
  *   DELETE /api/rooms/:id/files?path=&recursive=true  a folder with anything in it needs recursive
  */
-export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles; screenOpener?: ScreenOpener }) {
+export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles; screenOpener?: ScreenOpener; revisions?: FileRevisions }) {
   const { repos, roomFiles } = deps;
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://localhost');
-    const m = /^\/api\/rooms\/([^/]+)\/files(?:\/(raw|upload|folder|browse|where))?\/?$/.exec(url.pathname);
+    const m = /^\/api\/rooms\/([^/]+)\/files(?:\/(raw|upload|folder|browse|where|text|history|decision))?\/?$/.exec(url.pathname);
     if (!m) return false;
     if (principalOf(req)?.kind !== 'hub') return send(res, 403, { error: 'Only the desktop app can do this' });
     const method = req.method ?? 'GET';
@@ -149,6 +150,14 @@ export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles; scree
       const folder = room ? roomFiles.folderOf(room) : null;
       if (!room || !folder) return send(res, 404, { error: 'No room with that id' });
       const root = roomFiles.ensure(folder);
+      // Bridge P1: the folder as a tracked root, and the owner as the author of what this API writes.
+      const fileRoot: FileRoot = {
+        kind: folder.kind,
+        key: folder.kind === 'project' ? folder.projectSlug! : folder.kind === 'dm' ? room.memberIds[0] : room.id,
+        dir: root,
+      };
+      const owner: RevisionAuthor = { kind: 'owner', id: null, label: 'owner', machine: process.platform === 'win32' ? 'pc' : 'vps', roomId };
+      const revisions = deps.revisions;
 
       let body: unknown;
       if (method === 'POST' || method === 'PATCH') {
@@ -219,8 +228,55 @@ export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles; scree
         const existing = lstatOrNull(target.abs);
         if (existing && (!p.data.overwrite || !existing.isFile())) throw new FilesError(409, 'There is already something called ' + p.data.name + ' here');
         fs.writeFileSync(target.abs, bytes, { flag: p.data.overwrite ? 'w' : 'wx' });
+        revisions?.record(fileRoot, target.rel, { ...owner, tool: 'upload' });
         changed('uploaded', target.rel, [dir.rel, ...dir.made.map(parentOf)], target.rel + ' (' + bytes.length + ' bytes)');
         return send(res, 200, { ok: true, path: target.rel });
+      }
+
+      // Bridge P1: versioned text. GET returns the text with its hash; POST writes only when `base` still matches
+      // what is on disk (null = the file must not exist yet), otherwise 409 with the current text to merge from.
+      if (action === 'text' && method === 'GET') {
+        if (!revisions) throw new FilesError(404, 'Not available on this hub');
+        const { abs, rel } = resolveIn(root, url.searchParams.get('path') ?? '');
+        if (!rel) throw new FilesError(400, 'A file path is needed');
+        const st = statOrNull(abs);
+        if (st && !st.isFile()) throw new FilesError(400, 'Not a file');
+        if (st && st.size > MAX_BODY_BYTES) throw new FilesError(413, 'File too large to edit as text (max 1 MB)');
+        const r = revisions.readText(fileRoot, rel);
+        return send(res, 200, { path: rel, text: r.text, hash: r.hash, rev: r.rev });
+      }
+      if (action === 'text' && method === 'POST') {
+        if (!revisions) throw new FilesError(404, 'Not available on this hub');
+        const p = (body ?? {}) as { path?: unknown; text?: unknown; base?: unknown; sources?: unknown };
+        if (typeof p.path !== 'string' || typeof p.text !== 'string') throw new FilesError(400, 'path and text are needed');
+        if (!(p.base === null || (typeof p.base === 'string' && /^[0-9a-f]{64}$/.test(p.base)))) {
+          throw new FilesError(400, 'base: the hash from the last read of this file, or null for a new file');
+        }
+        const sources = Array.isArray(p.sources) ? p.sources.filter((x): x is string => typeof x === 'string').slice(0, 10) : undefined;
+        const { rel } = resolveIn(root, p.path);
+        if (!rel) throw new FilesError(400, 'A file path is needed');
+        const dir = folderIn(root, parentOf(rel), true);
+        const r = revisions.writeText(fileRoot, rel, p.text, p.base, { ...owner, sources });
+        if (!r.ok) return send(res, 409, { error: 'The file changed since it was read. Merge with the current text and send its hash as base.', current: r.current });
+        changed('written', rel, [dir.rel, ...dir.made.map(parentOf)]);
+        return send(res, 200, { ok: true, path: rel, hash: r.hash, rev: r.rev });
+      }
+      if (action === 'history' && method === 'GET') {
+        if (!revisions) throw new FilesError(404, 'Not available on this hub');
+        const { rel } = resolveIn(root, url.searchParams.get('path') ?? '');
+        if (!rel) throw new FilesError(400, 'A file path is needed');
+        const limit = Number(url.searchParams.get('limit') ?? 20);
+        return send(res, 200, { path: rel, revisions: revisions.history(fileRoot, rel, Number.isFinite(limit) ? limit : 20) });
+      }
+      if (action === 'decision' && method === 'POST') {
+        if (!revisions) throw new FilesError(404, 'Not available on this hub');
+        const p = (body ?? {}) as { title?: unknown; text?: unknown; supersedes?: unknown; sources?: unknown };
+        if (typeof p.title !== 'string' || !p.title.trim() || typeof p.text !== 'string' || !p.text.trim()) throw new FilesError(400, 'title and text are needed');
+        const supersedes = Array.isArray(p.supersedes) ? p.supersedes.filter((x): x is string => typeof x === 'string' && /^D-\d{4,}$/.test(x)) : undefined;
+        const sources = Array.isArray(p.sources) ? p.sources.filter((x): x is string => typeof x === 'string').slice(0, 10) : undefined;
+        const r = revisions.appendDecision(fileRoot, { title: p.title.slice(0, 120), text: p.text.slice(0, 4000), supersedes }, { ...owner, sources });
+        changed('decision_logged', DECISIONS_FILE, ['']);
+        return send(res, 200, { ok: true, id: r.id, rev: r.rev });
       }
 
       if (action === 'where' && method === 'GET') {
@@ -295,14 +351,17 @@ export function createFilesApi(deps: { repos: Repos; roomFiles: RoomFiles; scree
         if (st.isDirectory()) {
           if (fs.readdirSync(abs).length && url.searchParams.get('recursive') !== 'true') throw new FilesError(409, 'The folder is not empty');
           fs.rmSync(abs, { recursive: true });
-        } else fs.rmSync(abs);
+        } else {
+          fs.rmSync(abs);
+          revisions?.record(fileRoot, rel, { ...owner, tool: 'delete' });
+        }
         changed('deleted', rel, [parentOf(rel)]);
         return send(res, 200, { ok: true, path: rel });
       }
 
       return send(res, 404, { error: 'Not found' });
     } catch (e) {
-      if (e instanceof FilesError) return send(res, e.status, { error: e.message });
+      if (e instanceof FilesError || e instanceof FileRevisionError) return send(res, e.status, { error: e.message });
       const code = (e as NodeJS.ErrnoException)?.code;
       if (code === 'EEXIST') return send(res, 409, { error: 'There is already something with that name' });
       if (code === 'ENOENT') return send(res, 404, { error: 'Not found' });
