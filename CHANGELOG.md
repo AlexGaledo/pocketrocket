@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixes
+
+- The desktop app's bundled hub now installs its dependencies at exactly the versions in `pnpm-lock.yaml`. Before, the release build resolved every package fresh from npm, so a release could ship untested versions or fail when a package was only half-published.
+
 ## [0.3.0] - 2026-11-18
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.

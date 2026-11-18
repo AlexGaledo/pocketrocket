@@ -59,28 +59,35 @@ if (!fs.existsSync(path.join(WEB_DIST, 'index.html'))) {
   process.exit(1);
 }
 
-// 2. production node_modules.
-// pnpm 10 refuses `deploy` unless the workspace sets inject-workspace-packages=true, and in
-// 10.0.0 it refuses even with --legacy. Turning that setting on in pnpm-workspace.yaml would
-// hard-copy @pocketrocket/shared into every package's node_modules and break live editing of
-// the workspace sources, so it is forced for this one command instead: --legacy then copies
-// straight from the store using the workspace lockfile.
+// 2. production node_modules, at exactly the versions in pnpm-lock.yaml.
+// pnpm 10 only deploys from the shared lockfile when inject-workspace-packages=true. Turning
+// that on for good would hard-copy @pocketrocket/shared into every package's node_modules and
+// break live editing of the workspace sources, so it is on for this build only. The old
+// `deploy --legacy` route ignores the lockfile and resolves every range fresh from npm, so a
+// release could ship versions nobody tested, or die when a package is half-published (v0.3.0
+// hit vitest 5.1.1 thirty seconds before its @vitest/mocker 5.1.1 existed).
+//
+// The lockfile records the inject setting, so it is refreshed with --lockfile-only (settings
+// only: the check below fails the build if any other line changed) and restored on exit.
+const INJECT = '--config.inject-workspace-packages=true';
+const LOCK = path.join(ROOT, 'pnpm-lock.yaml');
+const lockBefore = fs.readFileSync(LOCK, 'utf8');
+process.on('exit', () => {
+  if (fs.readFileSync(LOCK, 'utf8') !== lockBefore) fs.writeFileSync(LOCK, lockBefore);
+});
+run([INJECT, 'install', '--lockfile-only', '--prefer-offline'], 'marking the lockfile for an injected deploy');
+const strip = (text) => text.replace(/\r\n/g, '\n').split('\n').filter((l) => !/^\s+injectWorkspacePackages:/.test(l)).join('\n');
+if (strip(fs.readFileSync(LOCK, 'utf8')) !== strip(lockBefore)) {
+  console.error('[hub:bundle] pnpm-lock.yaml changed beyond the inject setting; run `pnpm install` and commit the lockfile first');
+  process.exit(1);
+}
 fs.rmSync(BUILD, { recursive: true, force: true });
 // node-linker=hoisted matters: pnpm's default layout links every top-level package into
 // node_modules/.pnpm with junctions, and Tauri's resource copier drops symlinks silently — the
 // shipped node_modules would be empty. Hoisted gives a plain npm-shaped tree of real files.
 run(
-  [
-    '--config.inject-workspace-packages=true',
-    '--config.node-linker=hoisted',
-    '--filter',
-    '@pocketrocket/hub',
-    'deploy',
-    '--legacy',
-    '--prod',
-    BUILD,
-  ],
-  'deploying production dependencies',
+  [INJECT, '--config.node-linker=hoisted', '--filter', '@pocketrocket/hub', 'deploy', '--prod', BUILD],
+  'deploying production dependencies from the lockfile',
 );
 if (!fs.existsSync(path.join(BUILD, 'node_modules'))) {
   console.error('[hub:bundle] pnpm deploy produced no node_modules');
