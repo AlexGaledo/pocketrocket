@@ -9,6 +9,7 @@ import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './mo
 import type { RecorderStatus } from './teach.js';
 import type { Task } from './tasks.js';
 import { FormAnswersSchema } from './cards.js';
+import type { PcSessionUpdatedEvent } from './pcSessions.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -80,7 +81,9 @@ export type ServerEvent =
    * Queue controls (02 task 2.1a): a bot's queue in a room changed (an item queued, taken in by a turn, cancelled or
    * edited, the queue paused or resumed). Carries the whole lane; an empty, unpaused lane means nothing is waiting.
    */
-  | { type: 'queue.changed'; queue: LaneQueue };
+  | { type: 'queue.changed'; queue: LaneQueue }
+  /** Bridge P3: entries of a mirrored PC session arrived (no content; the owner's session list refetches). */
+  | PcSessionUpdatedEvent;
 
 /** How often the hub pings each WebSocket client (B6). The client calls the link stale after two missed pings. */
 export const WS_PING_MS = 20_000;
