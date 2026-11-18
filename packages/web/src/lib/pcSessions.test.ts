@@ -23,6 +23,18 @@ describe('activeSessions', () => {
 });
 
 describe('groupSessions', () => {
+  it('groups worktrees by their remote and folder-only sessions by folder name, ignoring case', () => {
+    const r = (name: string, remote: string | null) => ({ name, remote, branch: 'main', head: null });
+    const groups = groupSessions([
+      S('a', { repo: r('pocketrocket', 'git@github.com:AlexGaledo/pocketrocket.git'), lastAt: 5 }),
+      S('b', { repo: r('agent-a13ea525', 'https://github.com/AlexGaledo/pocketrocket'), lastAt: 4 }),
+      S('c', { repo: null, cwd: 'C:\\Users\\alex\\Desktop\\WIKA-SaaS', projectDir: 'C--Users-alex-Desktop-WIKA-SaaS', lastAt: 3 }),
+      S('d', { repo: null, cwd: 'C:\\Users\\alex\\desktop\\wika-saas\\', projectDir: 'C--Users-alex-desktop-wika-saas', lastAt: 2 }),
+      S('e', { repo: null, cwd: null, projectDir: 'C--x', lastAt: 1 }),
+    ]);
+    expect(groups.map((g) => [g.label, g.nodes.length])).toEqual([['pocketrocket', 2], ['WIKA-SaaS', 2], ['C--x', 1]]);
+  });
+
   it('groups by repo name else project dir, newest group first, newest row first', () => {
     const g = groupSessions([
       S('a', { repo: repo('alpha'), lastAt: 10 }),
