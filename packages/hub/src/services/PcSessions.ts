@@ -27,8 +27,8 @@ import { redact } from '../providers/redact.js';
  *   is a stale resend and gets `{ conflict: true, offset }` so the runner resumes from the right place. A resent
  *   batch whose offset is right but whose uuids are known does not duplicate (unique on session + uuid).
  *
- * Visibility (layer 1): nothing but `api/pcSessions.ts` (owner routes) reads these tables. No bot tool, history
- * search, recall, room transcript or MCP route touches them; `pcSessions.test.ts` pins that.
+ * Visibility (layer 1): `api/pcSessions.ts` (owner routes) and the three read-only @persona tools (through this service) read
+ * these tables. No other bot tool, history search, recall, room transcript or MCP route touches them; `pcSessions.test.ts` pins that.
  */
 
 /** Longest a cut text may run past its cap: the " …[cut N chars]" tail the runner appends itself. */

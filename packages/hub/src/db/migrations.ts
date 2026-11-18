@@ -471,6 +471,20 @@ registerMigrations([160, 169], [
       db.exec('CREATE INDEX IF NOT EXISTS idx_pc_jobs_created ON pc_jobs(created_at)');
     },
   },
+  {
+    // Bridge P4: the app can start a job itself (origin 'owner', no bot or room: stored as '', shown as null) and
+    // @persona can resume a mirrored Claude Code session (mode 'resume': folder '' and the runner resolves it).
+    // Additive: the NOT NULL bot_id / room_id / folder columns stay, so rows from before read as mode 'new', origin 'bot'.
+    version: 162,
+    name: 'pc_jobs.mode, session_id, origin, resolved_folder, new_session_id',
+    up: (db) => {
+      addColumnIfMissing(db, 'pc_jobs', 'mode', "TEXT NOT NULL DEFAULT 'new'");
+      addColumnIfMissing(db, 'pc_jobs', 'session_id', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'origin', "TEXT NOT NULL DEFAULT 'bot'");
+      addColumnIfMissing(db, 'pc_jobs', 'resolved_folder', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'new_session_id', 'TEXT');
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------------------------------
