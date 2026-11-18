@@ -45,6 +45,19 @@ describe('list rendering', () => {
     expect(html).toContain('1 subagent session');
     expect(html).toContain('aria-expanded="false"');
   });
+  it('repo groups are open buttons with a count, and remember being folded', async () => {
+    const { setJson, resetPersistMemory } = await import('../lib/persist');
+    resetPersistMemory();
+    const groups = groupSessions([S('a', { repo: { name: 'one', remote: null, branch: 'main', head: null } }), S('b', { repo: { name: 'two', remote: null, branch: 'main', head: null } })]);
+    let html = renderToStaticMarkup(<SessionGroups groups={groups} onOpen={() => undefined} now={1000} />);
+    expect(html).toContain('Collapse all');
+    expect(html.match(/aria-expanded="true"/g)?.length).toBe(2);
+    setJson('pc-sessions.collapsed-groups', [groups[0].key]);
+    html = renderToStaticMarkup(<SessionGroups groups={groups} onOpen={() => undefined} now={1000} />);
+    expect(html.match(/aria-expanded="true"/g)?.length).toBe(1);
+    expect(html).toContain('hidden=""');
+    resetPersistMemory();
+  });
   it('explains how to turn the mirror on when empty', () => {
     const html = renderToStaticMarkup(<MirrorEmptyState filtered={false} />);
     expect(html).toContain('Mirror your Claude Code sessions');

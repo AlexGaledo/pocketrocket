@@ -6,6 +6,7 @@ import { relativeTime, sessionTitle, toolRowLabel, type PcSeqEntry, type PcSessi
 import { linksOf } from '../lib/projectRepos';
 import { moveBadge } from '../lib/pcMove';
 import { Badge, Banner, EmptyState, cn } from './ui';
+import { getJson, setJson } from '../lib/persist';
 import { MoveBadge } from './PcMovePanel';
 import { Markdown } from './Markdown';
 
@@ -21,22 +22,57 @@ export function MirrorEmptyState({ filtered }: { filtered: boolean }) {
 }
 
 /** The grouped list itself, split out so it renders without the network. */
+const COLLAPSED_KEY = 'pc-sessions.collapsed-groups';
+const isKeys = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** Repo groups fold open and closed; which ones are folded is remembered in this browser. */
 export function SessionGroups({ groups, onOpen, now }: { groups: SessionGroup[]; onOpen: (id: string) => void; now?: number }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(getJson(COLLAPSED_KEY, isKeys, [])));
+  const save = (next: Set<string>) => { setCollapsed(next); setJson(COLLAPSED_KEY, [...next]); };
+  const toggle = (key: string) => { const next = new Set(collapsed); if (next.has(key)) next.delete(key); else next.add(key); save(next); };
+  const allFolded = groups.length > 0 && groups.every((g) => collapsed.has(g.key));
   return (
-    <div className="space-y-5">
-      {groups.map((g) => (
-        <section key={g.key} aria-label={g.label}>
-          <h2 className="mb-1 truncate px-3 text-label text-fg">{g.label}</h2>
-          <ul>
-            {g.nodes.map((n) => (
-              <li key={n.session.id}>
-                <SessionRow s={n.session} onOpen={onOpen} now={now} />
-                {n.children.length > 0 && <Subagents parent={n.session} kids={n.children} onOpen={onOpen} now={now} />}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+    <div className="space-y-3">
+      {groups.length > 1 && (
+        <div className="flex justify-end px-3">
+          <button
+            type="button"
+            onClick={() => save(allFolded ? new Set() : new Set(groups.map((g) => g.key)))}
+            className="rounded-md px-2 py-0.5 text-hint text-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            {allFolded ? 'Expand all' : 'Collapse all'}
+          </button>
+        </div>
+      )}
+      {groups.map((g) => {
+        const open = !collapsed.has(g.key);
+        const id = 'grp-' + g.key;
+        return (
+          <section key={g.key} aria-label={g.label}>
+            <h2 className="px-1">
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={id}
+                onClick={() => toggle(g.key)}
+                className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left text-label text-fg hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <ChevronRight size={14} aria-hidden className={cn('shrink-0 text-muted transition-transform', open && 'rotate-90')} />
+                <span className="min-w-0 flex-1 truncate">{g.label}</span>
+                <span className="shrink-0 text-hint text-muted">{g.nodes.length}</span>
+              </button>
+            </h2>
+            <ul id={id} hidden={!open} className="mt-1">
+              {g.nodes.map((n) => (
+                <li key={n.session.id}>
+                  <SessionRow s={n.session} onOpen={onOpen} now={now} />
+                  {n.children.length > 0 && <Subagents parent={n.session} kids={n.children} onOpen={onOpen} now={now} />}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }
