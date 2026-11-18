@@ -58,7 +58,7 @@ export const TOOLS = [
       + 'Never retry with the old hash and never overwrite blindly; other bots and the owner write to these files. Pass `sources` (what you based the change on, e.g. file paths or URLs) when you can.',
     inputSchema: {
       type: 'object', required: ['room', 'path', 'text', 'base'], additionalProperties: false,
-      properties: { room: ROOM, path: str('File path inside the room folder.'), text: str('The full new text of the file.'), base: str('Hash returned by the read you based this on.'), sources: { type: 'array', items: { type: 'string' }, description: 'What this change is based on.' } },
+      properties: { room: ROOM, path: str('File path inside the room folder.'), text: str('The full new text of the file.'), base: str('Hash returned by the read you based this on, or an empty string to create a file that does not exist yet.'), sources: { type: 'array', items: { type: 'string' }, description: 'What this change is based on.' } },
     },
   },
   {
@@ -235,11 +235,11 @@ export function createServer(deps = {}) {
     async write_file(a) {
       const room = await resolveRoom(a.room);
       const p = need(a, 'path');
-      const base = need(a, 'base');
+      const base = need(a, 'base').trim() || null; // empty = new file; the hub wants null
       const r = await hub('POST', `/rooms/${enc(room.id)}/files/text`, { path: p, text: need(a, 'text'), base, sources: optList(a, 'sources') });
       if (r.status === 409) {
         const c = r.json?.current ?? {};
-        throw new ToolError(`CONFLICT: ${p} changed since you read it (your base was ${base}). Nothing was written.\n`
+        throw new ToolError(`CONFLICT: ${p} changed since you read it (your base was ${base ?? "none: new file"}). Nothing was written.\n`
           + `Current version: hash ${c.hash}, rev ${c.rev}.\n---\n${c.text ?? ''}\n---\n`
           + `Merge your change into this current text, then call write_file again with base=${c.hash}. Do not overwrite blindly and do not reuse the old hash.`);
       }
