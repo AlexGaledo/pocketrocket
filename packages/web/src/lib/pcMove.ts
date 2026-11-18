@@ -1,37 +1,10 @@
 // Bridge P6: move a mirrored PC session to the VPS and pull it back. Pure helpers, no React.
-// The shared types for move/pull land with the hub PR (hub/session-move); until then they are spelled out here as
-// optional extensions, so the web typechecks against today's @pocketrocket/shared.
-// TODO(bridge P6): from @pocketrocket/shared once hub/session-move merges
-import type { PcRunnerJob } from '@pocketrocket/shared';
+import type { PcMoveJobInfo, PcMoveResult, PcMoveState, PcPullJobInfo, PcPullResult, PcRunnerJob, PcSessionMove } from '@pocketrocket/shared';
 import type { PcSessionLink, ProjectRepo } from './projectRepos';
 
-export type PcMoveState = 'moving' | 'on-vps' | 'pulling' | 'local';
-
-/** `PcSessionSummary.move` / GET /api/pc-sessions/:id. Never carries a path, only the project-relative worktree name. */
-export interface PcSessionMove {
-  state: PcMoveState;
-  /** The room that sees the VPS turns; null when none was chosen. */
-  room: string | null;
-  project: string;
-  repos: string[];
-  movedAt: number | null;
-  turnRunning: boolean;
-}
-
-/** One repo in a move/pull job's result. `applied` (pull only) is false when the PC folder changed since the move. */
-export interface PcMoveRepoResult { repo: string; commit: string; branch?: string; applied?: boolean }
-export interface PcMoveResult { repos: PcMoveRepoResult[]; sessionBytes: number }
-
-export interface PcMoveJobInfo { room: string | null; repos: Array<{ project: string; repo: string }> }
-export interface PcPullJobInfo { repos: Array<{ project: string; repo: string; branch?: string; baseCommit?: string }> }
-
-/** A job as the hub sends it, with the P6 fields it will add. */
-export type PcJobWithMove = PcRunnerJob & {
-  move?: PcMoveJobInfo | null;
-  pull?: PcPullJobInfo | null;
-  moveResult?: PcMoveResult | null;
-  pullResult?: PcMoveResult | null;
-};
+export type { PcMoveJobInfo, PcMoveResult, PcMoveState, PcPullJobInfo, PcPullResult, PcSessionMove };
+/** The hub's job view already carries move / pull and their results. */
+export type PcJobWithMove = PcRunnerJob;
 
 /** POST /api/pc-runner/jobs bodies added by P6. */
 export type PcMoveRequest = { mode: 'move'; sessionId: string; room?: string } | { mode: 'pull'; sessionId: string };
@@ -108,12 +81,15 @@ export function roomChoices(
 }
 
 export function pullConfirmText(move: PcSessionMove | null): string {
-  const repos = move?.repos.length ? ' (' + move.repos.join(', ') + ')' : '';
+  const repos = move?.repos.length ? ' (' + move.repos.map((r) => r.repo).join(', ') + ')' : '';
   return 'Your PC fetches the session and the VPS work' + repos + '. If your folder has not changed since the move, the edits land as uncommitted changes without moving your branch; otherwise they stay on a wip branch for you to merge. Your PC still asks before it runs.';
 }
 
-export const moveResultOf = (j: Partial<PcJobWithMove>): PcMoveResult | null => j.moveResult ?? null;
-export const pullResultOf = (j: Partial<PcJobWithMove>): PcMoveResult | null => j.pullResult ?? null;
+/** One repo of a move or pull result, as the job log shows it: a move has the branch, a pull says whether it was applied. */
+export interface PcMoveRepoResult { repo: string; commit: string; branch?: string; applied?: boolean }
+export interface PcMoveResultView { repos: PcMoveRepoResult[]; sessionBytes: number }
+export const moveResultOf = (j: Partial<PcJobWithMove>): PcMoveResultView | null => j.moveResult ?? null;
+export const pullResultOf = (j: Partial<PcJobWithMove>): PcMoveResultView | null => j.pullResult ?? null;
 
 /** The repos a move/pull job covers, from the request or, failing that, the result. */
 export function jobRepos(j: Partial<PcJobWithMove>): string[] {

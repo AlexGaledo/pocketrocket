@@ -199,7 +199,7 @@ describe('/api/cc/rooms/:id/state, files and decisions', () => {
     const { room } = groupRoom();
     const r = await cc('GET', '/rooms/' + room.id + '/state');
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ room: { id: room.id, name: room.name }, project: null, current: null, decisions: [] });
+    expect(r.json).toEqual({ room: { id: room.id, name: room.name }, project: null, session: null, current: null, decisions: [] });
   });
 
   it('writes with owner-cc as the author, then refuses a stale base with the current text', async () => {

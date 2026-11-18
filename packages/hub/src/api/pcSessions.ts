@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import { PC_SESSION_ID_RE, PcEntriesPostSchema, PcSessionPutSchema } from '@pocketrocket/shared';
+import { PC_SESSION_ID_RE, PcContinueSchema, PcEntriesPostSchema, PcSessionPutSchema } from '@pocketrocket/shared';
+import { SessionMoveError, type SessionMoves } from '../services/SessionMoves.js';
 import { readBody } from './body.js';
 import { principalOf } from './guard.js';
 import type { Db } from '../db/db.js';
@@ -25,19 +26,23 @@ const num = (v: string | null): number | undefined => {
  *
  * The runner on the PC (runner principal only; the hub token gets 403 here, guard.ts allows the runner these three and
  * nothing else under /api/pc-sessions):
- *   GET  /api/pc-sessions/sync            -> { sessions: { [id]: { offset } } }
- *   PUT  /api/pc-sessions/:id             session metadata (upsert) -> { ok, offset }
- *   POST /api/pc-sessions/:id/entries     { from, to, entries } -> { ok, offset, stored, truncated }; 409 { error, offset }
- *                                         when `from` is not the stored offset; 404 when the session is unknown
+ *   GET  /api/pc-sessions/sync            -> { sessions: { [id]: { offset, onVps } } }
+ *   PUT  /api/pc-sessions/:id             session metadata (upsert) -> { ok, offset, onVps }
+ *   POST /api/pc-sessions/:id/entries     { from, to, entries } -> { ok, offset, stored, truncated, onVps }; 409 { error, offset }
+ *                                         when `from` is not the stored offset; 404 when the session is unknown. `onVps` (bridge P6): the
+ *                                         session is moving, on the VPS or pulling; its entries are dropped (stored: 0) and the offset moves on.
  *
  * The owner (hub principal; a paired phone is refused by deviceMayAccess, the runner gets 403):
  *   GET    /api/pc-sessions?repo=&q=&limit=50&before=<lastAt>   -> { sessions }
  *   GET    /api/pc-sessions/:id                                 -> summary + children
  *   GET    /api/pc-sessions/:id/entries?after=<seq>&limit=200   -> { entries, more }
  *   DELETE /api/pc-sessions/:id                                 -> { ok: true }
+ *   POST   /api/pc-sessions/:id/continue  { prompt }  -> { ok: true, turnRunning: true }: one turn of a moved session on the VPS (bridge P6).
+ *                                         Only a browser signed in with the owner's password; 409 while a turn runs, when the session is not on
+ *                                         the VPS, or past 120k tokens of context. The turn runs in the background.
  */
-export function createPcSessionsApi(deps: { pcSessions: PcSessions; db: Db }) {
-  const { pcSessions, db } = deps;
+export function createPcSessionsApi(deps: { pcSessions: PcSessions; db: Db; sessionMoves?: SessionMoves }) {
+  const { pcSessions, db, sessionMoves } = deps;
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname !== '/api/pc-sessions' && !url.pathname.startsWith('/api/pc-sessions/')) return false;
@@ -76,13 +81,15 @@ export function createPcSessionsApi(deps: { pcSessions: PcSessions; db: Db }) {
           if (!p.success) return bad(p.error);
           if (p.data.parentId === id) return send(res, 400, { error: 'A session cannot be its own parent' });
           if (pcSessions.refused(id!, p.data.lastAt)) return send(res, 410, { error: 'This session was deleted in PocketRocket; do not mirror it again' });
-          return send(res, 200, { ok: true, ...pcSessions.upsert(id!, p.data) });
+          return send(res, 200, { ok: true, ...pcSessions.upsert(id!, p.data), onVps: sessionMoves?.locked(id!) ?? false });
         }
         const p = PcEntriesPostSchema.safeParse(body);
         if (!p.success) return bad(p.error);
         if (p.data.to < p.data.from) return send(res, 400, { error: 'to must not be before from' });
-        const r = pcSessions.appendEntries(id!, p.data.from, p.data.to, p.data.entries);
-        if (r.ok) return send(res, 200, r);
+        const onVps = sessionMoves?.locked(id!) ?? false;
+        if (onVps) console.warn('[pc-sessions] dropped PC-side entries of ' + id + ': the session is on the VPS');
+        const r = onVps ? pcSessions.skipEntries(id!, p.data.from, p.data.to) : pcSessions.appendEntries(id!, p.data.from, p.data.to, p.data.entries);
+        if (r.ok) return send(res, 200, { ...r, onVps });
         if (r.conflict) return send(res, 409, { error: 'Offset mismatch: resend from the stored offset', offset: r.offset });
         return send(res, 404, { error: 'Unknown session: PUT it first' });
       }
@@ -101,6 +108,21 @@ export function createPcSessionsApi(deps: { pcSessions: PcSessions; db: Db }) {
         const r = pcSessions.entries(id!, num(url.searchParams.get('after')) ?? 0, num(url.searchParams.get('limit')) ?? 200);
         return r ? send(res, 200, r) : send(res, 404, { error: 'No such session' });
       }
+      if (parts.length === 2 && parts[1] === 'continue' && method === 'POST') {
+        // Same bar as starting a job on the PC: the click in a signed-in browser is the approval.
+        const principal = principalOf(req);
+        if (principal?.kind !== 'hub' || !principal.sessionId) {
+          return send(res, 403, { error: 'Continuing a session on the VPS needs a browser signed in with your password.', signInRequired: true });
+        }
+        const p = PcContinueSchema.safeParse(body);
+        if (!p.success) return bad(p.error);
+        if (!sessionMoves) return send(res, 400, { error: 'Moving sessions is not available here.' });
+        const { done } = sessionMoves.continueSession(id!, p.data.prompt);
+        done.catch((e) => logError('[pc-sessions continue]', e));
+        const actor = actorOf(req);
+        if (actor) recordAudit(db, actor, 'pc-session.continued-on-vps', id);
+        return send(res, 200, { ok: true, turnRunning: true });
+      }
       if (parts.length === 1 && method === 'DELETE') {
         if (!pcSessions.delete(id!)) return send(res, 404, { error: 'No such session' });
         const actor = actorOf(req);
@@ -109,6 +131,7 @@ export function createPcSessionsApi(deps: { pcSessions: PcSessions; db: Db }) {
       }
       return send(res, 404, { error: 'Not found' });
     } catch (e) {
+      if (e instanceof SessionMoveError) return send(res, e.status, { error: e.message });
       logError('[pc-sessions]', e);
       return send(res, 500, { error: 'Internal error' });
     }

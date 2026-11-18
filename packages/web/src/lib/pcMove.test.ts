@@ -8,7 +8,7 @@ import { modeLabel } from './pcRun';
 
 const R = (o: Partial<ProjectRepo> = {}): ProjectRepo => ({ ...emptyRepo(), name: 'app', remote: 'git@github.com:o/app.git', sync: 'bundle', ...o });
 const link = { project: 'wika', repo: 'app' };
-const M = (o: Partial<PcSessionMove> = {}): PcSessionMove => ({ state: 'on-vps', room: 'r1', project: 'wika', repos: ['app'], movedAt: 1, turnRunning: false, ...o });
+const M = (o: Partial<PcSessionMove> = {}): PcSessionMove => ({ state: 'on-vps', room: 'r1', project: 'wika', repos: [{ project: 'wika', repo: 'app', branch: 'wip/pc/abcdef12' }], worktree: 'abcdef12', movedAt: 1, pulledAt: null, turnRunning: false, ...o });
 
 describe('moveBlockedReason', () => {
   const ok = { links: [link], repos: { wika: [R()] }, pcBlocked: null };

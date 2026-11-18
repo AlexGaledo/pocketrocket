@@ -50,7 +50,7 @@ describe('MoveRows', () => {
   });
 });
 
-const M = (o: Partial<PcSessionMove> = {}): PcSessionMove => ({ state: 'on-vps', room: 'r1', project: 'wika', repos: ['app'], movedAt: 1, turnRunning: false, ...o });
+const M = (o: Partial<PcSessionMove> = {}): PcSessionMove => ({ state: 'on-vps', room: 'r1', project: 'wika', repos: [{ project: 'wika', repo: 'app', branch: 'wip/pc/abcdef12' }], worktree: 'abcdef12', movedAt: 1, pulledAt: null, turnRunning: false, ...o });
 const composer = (move: PcSessionMove, o: Partial<Parameters<typeof VpsComposer>[0]> = {}) =>
   renderToStaticMarkup(<VpsComposer move={move} signedIn pcBlocked={null} prompt="next" onPrompt={noop} onSend={noop} onPull={noop} {...o} />);
 

@@ -350,7 +350,7 @@ describe('the owner\'s job log', () => {
     expect(cancelled).toMatchObject({ id: older.id, status: 'cancelled', output: null, error: 'The turn was stopped', startedAt: null, refusedLocally: false });
     expect(cancelled.finishedAt).toEqual(expect.any(Number));
     expect(done).toEqual({
-      id: job.id, bot: { id: tl.bot.id, handle: tl.bot.handle }, room: { id: tl.room.id, name: 'PC chat' }, folder: 'site', mode: 'new', sessionId: null, origin: 'bot', resolvedFolder: null, newSessionId: null, sync: null, syncResult: null, hubImport: null, prompt: 'Build the site',
+      id: job.id, bot: { id: tl.bot.id, handle: tl.bot.handle }, room: { id: tl.room.id, name: 'PC chat' }, folder: 'site', mode: 'new', sessionId: null, origin: 'bot', resolvedFolder: null, newSessionId: null, sync: null, syncResult: null, hubImport: null, move: null, moveResult: null, pull: null, pullResult: null, prompt: 'Build the site',
       status: 'done', output: expect.stringContaining('built '), costUsd: 0.05, durationMs: 4000,
       createdAt: expect.any(Number), startedAt: expect.any(Number), finishedAt: expect.any(Number), refusedLocally: false, error: null,
     });
