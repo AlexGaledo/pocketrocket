@@ -2,7 +2,7 @@
 // transcript. The list refreshes (debounced) and the open transcript appends when the hub sends
 // `pc_session_updated`. Nothing here sends anything back to Claude Code; the only write is deleting the mirror.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, Play, Trash2 } from 'lucide-react';
+import { ArrowLeft, Play, Trash2, Upload } from 'lucide-react';
 import { useStore } from '../store';
 import { api } from '../lib/api';
 import {
@@ -11,6 +11,8 @@ import {
 } from '../lib/pcSessions';
 import { PcRunForm, usePcStart, usePcStatus } from './PcRunForm';
 import { canResume, resumeBody } from '../lib/pcRun';
+import { linksOf } from '../lib/projectRepos';
+import { SyncPanel } from './PcSyncPanel';
 import { Badge, Banner, Button, Input, Select, Skeleton, SkeletonGroup, Tooltip, cn, confirmAction } from './ui';
 import { FleetHeader, PageBody } from './FleetPages';
 import { MirrorEmptyState, SessionGroups, TranscriptEntries } from './PcSessionViews';
@@ -124,6 +126,7 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
   const [error, setError] = useState<string | null>(null);
   const [moreBusy, setMoreBusy] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const openDialog = useStore((s) => s.openDialog);
   const { blocked } = usePcStatus();
@@ -185,6 +188,7 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
     try { await api.pcSessions.remove(id); onBack(); } catch (e) { toast((e as Error).message, true); }
   };
 
+  const links = detail ? linksOf(detail) : [];
   const where = detail ? [detail.repo?.name, detail.repo?.branch].filter(Boolean).join(' · ') : '';
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -195,10 +199,15 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
             <span className="truncate">{detail ? sessionTitle(detail) : 'Session'}</span>
             {detail?.status === 'live' && <Badge tone="ok">Live</Badge>}
           </h1>
-          <div className="truncate text-hint text-muted">{where || detail?.cwd || ' '}</div>
+          <div className="truncate text-hint text-muted">{[where || detail?.cwd, ...links.map((l) => l.project + '/' + l.repo)].filter(Boolean).join(' · ') || ' '}</div>
         </div>
+        {links.length > 0 && (
+          <Button size="sm" variant="outline" aria-expanded={syncOpen} aria-controls="sync-to-vps" onClick={() => { setSyncOpen((o) => !o); setComposeOpen(false); }}>
+            <Upload size={13} aria-hidden /> <span className="max-sm:sr-only">Sync</span>
+          </Button>
+        )}
         {canResume(id) && (
-          <Button size="sm" variant={composeOpen ? 'outline' : 'primary'} aria-expanded={composeOpen} aria-controls="continue-on-pc" onClick={() => setComposeOpen((o) => !o)}>
+          <Button size="sm" variant={composeOpen ? 'outline' : 'primary'} aria-expanded={composeOpen} aria-controls="continue-on-pc" onClick={() => { setComposeOpen((o) => !o); setSyncOpen(false); }}>
             <Play size={13} aria-hidden /> Continue on PC
           </Button>
         )}
@@ -220,6 +229,13 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
           {more && <div className="mt-3 flex justify-center"><Button onClick={() => void loadMore()} disabled={moreBusy}>{moreBusy ? 'Loading…' : 'Load more'}</Button></div>}
         </div>
       </div>
+      {syncOpen && links.length > 0 && (
+        <section id="sync-to-vps" aria-label="Sync to VPS" className="shrink-0 border-t border-line px-5 py-3">
+          <div className="mx-auto w-full max-w-[var(--page-max)]">
+            <SyncPanel sessionId={id} links={links} blocked={blocked} onOpenLog={() => openDialog({ kind: 'settings', section: 'pc-runner' })} />
+          </div>
+        </section>
+      )}
       {composeOpen && canResume(id) && (
         <section id="continue-on-pc" aria-label="Continue on PC" className="shrink-0 border-t border-line px-5 py-3">
           <div className="mx-auto w-full max-w-[var(--page-max)]">

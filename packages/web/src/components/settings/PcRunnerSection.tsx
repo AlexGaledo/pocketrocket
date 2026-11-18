@@ -13,6 +13,8 @@ import { useStore } from '../../store';
 import { api } from '../../lib/api';
 import { Badge, Button, Field, Label, Select, cn, confirmAction, fmtUsd } from '../ui';
 import { JOB_STATUS, modeLabel, newRunBody, originLabel, pcBlockedReason, type PcJobView } from '../../lib/pcRun';
+import type { PcJobWithSync } from '../../lib/projectRepos';
+import { SyncSummary } from '../PcSyncPanel';
 import { PcRunForm, usePcStart } from '../PcRunForm';
 import { Card, Group, InlineError, Private, SectionHeader } from './parts';
 
@@ -281,6 +283,7 @@ function JobRow({ j, open, onToggle }: { j: PcJobView; open: boolean; onToggle: 
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui">
             <Badge tone={s.tone}>{s.label}</Badge>
             {j.mode === 'resume' && <Badge>Resume</Badge>}
+            {(j.mode as string) === 'sync' && <Badge>Sync</Badge>}
             <span className="font-mono text-hint">{j.origin === 'owner' ? 'You' : '@' + (j.bot.handle ?? 'deleted-bot')}</span>
             {(j.resolvedFolder ?? j.folder) && <span className="font-mono text-hint text-muted">{j.resolvedFolder ?? j.folder}</span>}
           </div>
@@ -305,8 +308,9 @@ function JobDetail({ id, j }: { id: string; j: PcJobView }) {
       <div className="text-hint text-muted">{times}</div>
       <div className="mt-1 text-hint text-muted">
         {modeLabel(j)} run, started by {originLabel(j) === 'You' ? 'you' : 'a bot'}
-        {j.mode === 'resume' && j.sessionId && <> · <SessionLink id={j.sessionId} /></>}
+        {((j.mode as string) === 'resume' || (j.mode as string) === 'sync') && j.sessionId && <> · <SessionLink id={j.sessionId} /></>}
       </div>
+      {(j.mode as string) === 'sync' && <SyncSummary j={j as PcJobWithSync} />}
       <div className="mt-2 text-hint font-medium text-fg">Prompt</div>
       <pre className={box} tabIndex={0} aria-label="Job prompt">{j.prompt}</pre>
       {j.error && (

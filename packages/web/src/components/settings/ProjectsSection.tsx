@@ -8,6 +8,7 @@ import { useStore } from '../../store';
 import { api, type ProjectInfo, type ProjectLint } from '../../lib/api';
 import { Badge, Button, EmptyState, Input, Label, Switch } from '../ui';
 import { Card, Group, InlineError, SectionHeader } from './parts';
+import { ReposEditor } from './ReposEditor';
 
 export function ProjectsSection() {
   const toast = useStore((s) => s.toast);
@@ -71,6 +72,7 @@ export function ProjectsSection() {
 function ProjectCard({ project, onChanged, onError }: { project: ProjectInfo; onChanged: () => void; onError: (m: string) => void }) {
   const bots = useStore((s) => s.bots);
   const [lint, setLint] = useState<ProjectLint | null>(null);
+  const [reposOpen, setReposOpen] = useState(false);
   useEffect(() => { api.projects.lint(project.slug).then(setLint, () => setLint(null)); }, [project.slug, project.memberIds.length]);
 
   const toggle = async (botId: string, on: boolean) => {
@@ -118,6 +120,10 @@ function ProjectCard({ project, onChanged, onError }: { project: ProjectInfo; on
               </li>
             ))}
           </ul>
+        </details>
+        <details className="mt-3 text-ui" onToggle={(e) => setReposOpen(e.currentTarget.open)}>
+          <summary className="cursor-pointer select-none">Repos</summary>
+          <div className="mt-2">{reposOpen && <ReposEditor slug={project.slug} />}</div>
         </details>
       </Card>
     </Group>
