@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Telegram notifications (hub)
+
+- You can link your Telegram to get a short notice when a bot needs your approval or a routine finishes. Create a bot with @BotFather, save its token, then press Start in Telegram with the one-time code (10 minutes, one use, a `t.me` link). Only a private chat from a person (not a bot, not a group) whose id matches the chat is accepted, and five wrong codes lock linking for 15 minutes. The hub keeps your numeric Telegram id, not your username.
+- The message is one fixed line per kind plus your hub address when you set one up, never a bot, room, tool or message name. It is off until you switch it on, and a Telegram-only owner (no phone subscription) is notified. Phone push and Telegram each coalesce bursts on their own 30 second clock.
+- The hub only reads Telegram while a link code is waiting, aborts that poll on shutdown, and never removes a webhook: if another PocketRocket or a webhook uses the bot, linking says so (409). The bot token is kept encrypted, scrubbed from logs and errors, and never shown again. New routes under `/api/telegram`, for the desktop app only (not paired phones, not bots).
+
 ### Move a PC Claude Code session to the VPS and back (hub)
 
 - A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.
