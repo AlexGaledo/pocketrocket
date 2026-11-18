@@ -33,6 +33,8 @@ import { folderAccessDenied } from '../permissions/projectGuard.js';
 import { buildStateHeader } from '../services/StateHeader.js';
 import { fileRootOf, type RoomFiles } from '../rooms/roomFiles.js';
 import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGuard.js';
+import { reposFileWriteDenied } from '../permissions/projectGuard.js';
+import { normaliseRemote } from '@pocketrocket/shared';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
 import type { FormBroker } from '../services/FormBroker.js';
@@ -492,6 +494,7 @@ export class BotRunner {
     // The one file folder this turn may use (`folder`, above): its room's. Every other project and room folder stays shut.
     const folderDir = folder ? this.roomFiles!.ensure(folder) : null;
     const roomProject = folder?.kind === 'project' ? this.projects?.get(folder.projectSlug!) : undefined;
+    const projectRepos = roomProject ? this.projects!.reposFile(roomProject.slug).repos : [];
     const mcpToken = this.turns.registerTurn(tools, computerToolGuard(controlBlocked));
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
@@ -557,7 +560,16 @@ export class BotRunner {
       knowledgeDir,
       readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length ? [path.dirname(images[0].path)] : [])],
       projectDirs: folderDir ? [folderDir] : [],
-      shipGuard: this.repos.botSkillIds(bot.id).some((id) => this.repos.getSkill(id)?.name === SHIP_GUARD_SKILL) ? defaultBranchPushDenied : undefined,
+      // The safe-shipping skill turns the default-branch check on per bot; a project's repo list turns it on, with the repos'
+      // own protected branches, for any bot on that project's chat.
+      shipGuard: projectRepos.length || this.repos.botSkillIds(bot.id).some((id) => this.repos.getSkill(id)?.name === SHIP_GUARD_SKILL)
+        ? (command, cwd) => defaultBranchPushDenied(command, cwd, undefined, projectRepos.length
+            ? (remote) => {
+                const want = normaliseRemote(remote);
+                return want ? projectRepos.filter((r) => normaliseRemote(r.remote) === want).flatMap((r) => r.protected) : [];
+              }
+            : undefined)
+        : undefined,
       projectGuard: this.projects || this.roomFiles
         ? (name, input, cwd) => folderAccessDenied(name, input, cwd, [
             ...(this.projects ? [{ root: this.projects.root, allowed: roomProject ? [roomProject.slug] : [], known: this.projects.knownSlugs() }] : []),
@@ -566,7 +578,9 @@ export class BotRunner {
               : []),
           ])
         : undefined,
-      fileGuard: fileRoot ? (name, input, cwd) => decisionsWriteDenied(name, input, cwd, [fileRoot]) : undefined,
+      fileGuard: fileRoot || this.projects
+        ? (name, input, cwd) => (fileRoot ? decisionsWriteDenied(name, input, cwd, [fileRoot]) : null) ?? (this.projects ? reposFileWriteDenied(name, input, cwd, this.projects.root) : null)
+        : undefined,
       fileWritten: fileRoot && this.revisions
         ? (name, input, cwd) => {
             const p = input.file_path ?? input.notebook_path;

@@ -1,5 +1,7 @@
 // The owner's PC as a Claude Code job runner (hub: services/PcRunner.ts, api/pcRunner.ts).
 
+import type { PcSyncImport, PcSyncJobInfo, PcSyncResult } from './projectRepos.js';
+
 export type PcJobStatus = 'pending_approval' | 'queued' | 'claimed' | 'running' | 'done' | 'failed' | 'refused' | 'expired' | 'cancelled';
 
 /** GET /api/pc-runner */
@@ -11,8 +13,11 @@ export interface PcRunnerStatus {
   online: boolean;
 }
 
-/** A new job in an allowed folder, or a resume of a mirrored Claude Code session (bridge P4). */
-export type PcJobMode = 'new' | 'resume';
+/**
+ * A new job in an allowed folder, a resume of a mirrored Claude Code session (bridge P4), or a sync (bridge P5): the PC
+ * snapshots that session's working tree without touching it and pushes a wip branch or uploads a git bundle.
+ */
+export type PcJobMode = 'new' | 'resume' | 'sync';
 /** Who asked: a bot's run_on_pc call, or the owner from the app (POST /api/pc-runner/jobs). */
 export type PcJobOrigin = 'bot' | 'owner';
 
@@ -23,7 +28,7 @@ export interface PcRunnerJob {
   bot: { id: string | null; handle: string | null };
   room: { id: string | null; name: string | null };
   mode: PcJobMode;
-  /** The mirrored Claude Code session a resume job continues; null for mode 'new'. */
+  /** The mirrored Claude Code session a resume job continues, or whose working tree a sync snapshots; null for mode 'new'. */
   sessionId: string | null;
   origin: PcJobOrigin;
   /** The allowed folder: null for a resume (the PC resolves it, see `resolvedFolder`). */
@@ -45,6 +50,12 @@ export interface PcRunnerJob {
   refusedLocally: boolean;
   /** Why the hub dropped it (cancelled, expired). */
   error: string | null;
+  /** Sync jobs: which project repo and how. Null for the other modes. */
+  sync: PcSyncJobInfo | null;
+  /** Sync jobs: what the PC reported (commit, branch, pre-push scan). Null until it does. */
+  syncResult: PcSyncResult | null;
+  /** Bundle syncs: what the hub imported. Null until a bundle was accepted. */
+  hubImport: PcSyncImport | null;
 }
 
 /** Body of POST /api/pc-runner/jobs (owner, signed-in browser only). */
@@ -54,6 +65,9 @@ export interface PcRunnerJobCreate {
   sessionId?: string;
   /** Required for mode 'new': one of the folder names the PC allows. */
   folder?: string;
-  /** 1..8000 characters and at most 8 KB. */
-  prompt: string;
+  /** 1..8000 characters and at most 8 KB. Required for 'new' and 'resume'; a sync takes none. */
+  prompt?: string;
+  /** Mode 'sync' (needs `sessionId`, `project`, `repo`): the project and the repo name from its repos.json. */
+  project?: string;
+  repo?: string;
 }

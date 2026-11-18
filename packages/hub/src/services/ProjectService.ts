@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { BotInputSchema, type Bot, type Room } from '@pocketrocket/shared';
+import {
+  ALWAYS_PROTECTED_BRANCHES, BotInputSchema, ProjectReposFileSchema, normaliseRemote,
+  type Bot, type PcRepo, type PcSessionLink, type PcSyncJobInfo, type ProjectRepo, type ProjectReposFile, type Room,
+} from '@pocketrocket/shared';
 import type { Db, Row } from '../db/db.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from './MemoryService.js';
@@ -18,6 +21,9 @@ export interface Project {
 }
 export interface ProjectHit { project: string; path: string; status: string; updated: string | null; reviewExpired: boolean; snippet: string }
 export interface LintIssue { kind: 'no-current' | 'expired' | 'undated' | 'duplicate' | 'tiny'; path: string; detail: string }
+
+/** The owner-edited repo list in a project's folder. Bots may not write it (BotRunner's file guard). */
+export const REPOS_FILE = 'repos.json';
 
 export class ProjectError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -61,6 +67,7 @@ function chunk(text: string): string[] {
  * as a member and it is replying in the project's room (rooms/roomFiles.ts). The search index is only a copy, rebuilt from the files whenever they change.
  */
 export class ProjectService {
+  private reposCache = new Map<string, { mtimeMs: number; size: number; file: ProjectReposFile }>();
   constructor(private deps: { db: Db; repos: Repos; memory: MemoryService; root: string; now?: () => number }) {}
 
   private get db() { return this.deps.db; }
@@ -207,6 +214,91 @@ export class ProjectService {
     this.db.run('DELETE FROM project_files WHERE slug=?', slug);
     this.db.run('DELETE FROM project_fts WHERE slug=?', slug);
     this.db.run('DELETE FROM projects WHERE slug=?', slug);
+  }
+
+  // ---- repos.json (bridge P5) ----
+
+  /**
+   * The project's repo list. A missing, unreadable or invalid file reads as no repos, so a bad hand edit (or a bot that
+   * managed to write one) never links or syncs anything. Cached by mtime and size.
+   */
+  reposFile(slug: string): ProjectReposFile {
+    const file = path.join(this.dirOf(slug), REPOS_FILE);
+    let st: fs.Stats;
+    try {
+      st = fs.lstatSync(file);
+    } catch {
+      return { repos: [] };
+    }
+    if (!st.isFile()) return { repos: [] };
+    const hit = this.reposCache.get(slug);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.file;
+    let parsed: ProjectReposFile = { repos: [] };
+    try {
+      const r = ProjectReposFileSchema.safeParse(JSON.parse(fs.readFileSync(file, 'utf8')));
+      if (r.success) parsed = r.data;
+    } catch { /* hand-edited file */ }
+    this.reposCache.set(slug, { mtimeMs: st.mtimeMs, size: st.size, file: parsed });
+    return parsed;
+  }
+
+  /** Validates and saves the repo list (atomic write). Throws a 400 ProjectError naming every problem. */
+  setRepos(slug: string, input: unknown): ProjectReposFile {
+    this.need(slug);
+    const r = ProjectReposFileSchema.safeParse(input);
+    if (!r.success) throw new ProjectError(400, r.error.issues.map((i) => (i.path.length ? i.path.join('.') + ': ' : '') + i.message).join('; '));
+    const dir = this.dirOf(slug);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, REPOS_FILE);
+    const tmp = file + '.tmp-' + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify(r.data, null, 2) + '\n');
+    fs.renameSync(tmp, file);
+    this.reposCache.delete(slug);
+    return r.data;
+  }
+
+  /** Every repo of every project, with its project's slug. */
+  allRepos(): { project: string; repo: ProjectRepo }[] {
+    return this.knownSlugs().flatMap((project) => this.reposFile(project).repos.map((repo) => ({ project, repo })));
+  }
+
+  /**
+   * The project repos a mirrored session belongs to: its `repo.remote` normalises to the repo's remote, or, when the
+   * session has no remote, it has the same name. Computed at read; nothing is stored.
+   */
+  linksFor(sessionRepo: PcRepo | null): PcSessionLink[] {
+    if (!sessionRepo) return [];
+    const remote = sessionRepo.remote ? normaliseRemote(sessionRepo.remote) : null;
+    const name = sessionRepo.name.trim().toLowerCase();
+    const out: PcSessionLink[] = [];
+    for (const { project, repo } of this.allRepos()) {
+      const match = remote ? normaliseRemote(repo.remote) === remote : !sessionRepo.remote && name !== '' && repo.name === name;
+      if (match) out.push({ project, repo: repo.name });
+    }
+    return out;
+  }
+
+  /**
+   * Checks a sync request and returns what the job carries. 400 when the repo is a client repo, has sync "none", does
+   * not exist, or the session is not mapped to it. The same rules for the owner's button and for a bot's proposal.
+   */
+  syncTarget(session: { links: readonly PcSessionLink[] }, projectSlug: string, repoName: string): PcSyncJobInfo {
+    const project = this.get(projectSlug);
+    if (!project) throw new ProjectError(400, 'No project called ' + projectSlug);
+    const repo = this.reposFile(projectSlug).repos.find((r) => r.name === repoName);
+    if (!repo) throw new ProjectError(400, 'Project ' + projectSlug + ' has no repo called ' + repoName);
+    if (repo.client) throw new ProjectError(400, repoName + ' is a client repo: it stays on your PC until bots are sandboxed, so it is never synced.');
+    if (repo.sync === 'none') throw new ProjectError(400, repoName + ' has sync set to none. Change its sync mode in the project settings first.');
+    if (!session.links.some((l) => l.project === projectSlug && l.repo === repoName)) {
+      throw new ProjectError(400, 'That session does not belong to ' + projectSlug + '/' + repoName + ' (its remote does not match).');
+    }
+    return {
+      project: projectSlug,
+      repo: repoName,
+      remote: repo.remote,
+      mode: repo.sync,
+      protected: [...new Set([...ALWAYS_PROTECTED_BRANCHES, ...repo.protected])],
+    };
   }
 
   /** Writes reviewed text into the project as a file. A later import of the same title replaces it. */

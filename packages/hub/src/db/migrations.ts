@@ -485,6 +485,17 @@ registerMigrations([160, 169], [
       addColumnIfMissing(db, 'pc_jobs', 'new_session_id', 'TEXT');
     },
   },
+  {
+    // Bridge P5: a sync job (mode 'sync') carries which project repo to sync, what the PC reported (commit, branch,
+    // pre-push scan) and what the hub imported from an uploaded bundle. All JSON, all NULL for older rows and other modes.
+    version: 163,
+    name: 'pc_jobs.sync_json, sync_result_json, sync_import_json',
+    up: (db) => {
+      addColumnIfMissing(db, 'pc_jobs', 'sync_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'sync_result_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'sync_import_json', 'TEXT');
+    },
+  },
 ]);
 
 // ---------------------------------------------------------------------------------------------------

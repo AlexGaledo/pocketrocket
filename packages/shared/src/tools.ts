@@ -74,6 +74,8 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     // Bridge P1: log_decision appends to the bot's own room/project folder (the one it may already write); history is
     // a read of that folder's revisions.
     'log_decision', 'file_history',
+    // Bridge P5: the repos of this room's project (names, remotes, sync modes), only for a bot on that project.
+    'list_repos',
   ]),
   ...silent(DESKTOP_TOOL_NAMES),
   // Integration reads: granted per bot; untrusted output is labelled as such.

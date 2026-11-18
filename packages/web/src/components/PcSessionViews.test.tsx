@@ -13,7 +13,7 @@ beforeAll(async () => {
 
 const e = (seq: number, o: Partial<PcSeqEntry>): PcSeqEntry => ({ seq, uuid: 'u' + seq, at: 0, kind: 'user', text: '', ...o });
 const S = (id: string, o: Partial<PcSessionSummary> = {}): PcSessionSummary => ({
-  id, parentId: null, machine: 'pc', projectDir: 'C--proj', cwd: 'C:/proj', repo: null, title: null, firstAt: 0, lastAt: 1, entryCount: 3, bytes: 1, truncated: false, status: 'ended', ...o,
+  id, parentId: null, machine: 'pc', projectDir: 'C--proj', cwd: 'C:/proj', repo: null, title: null, firstAt: 0, lastAt: 1, entryCount: 3, bytes: 1, truncated: false, status: 'ended', links: [], ...o,
 });
 
 describe('TranscriptEntries', () => {

@@ -138,6 +138,8 @@ export interface HubOptions {
   credentials?: { file?: string; keyFile?: string };
   /** PC runner overrides (tests: a temp pc-runner.json, short timeouts, a fixed clock). */
   pcRunner?: Partial<Omit<PcRunnerOptions, 'db'>>;
+  /** Tests lower the 200 MB cap on an uploaded sync bundle. */
+  pcBundleMaxBytes?: number;
   /** Bridge P3: the PC session mirror's clock and caps (tests). */
   pcSessions?: PcSessionsOptions;
   /** What `stop()` ends with once the hub is shut down. Defaults to process.exit; tests pass a fake. */
@@ -173,6 +175,8 @@ export interface Hub {
   media: MediaStore;
   /** The owner's PC as a Claude Code job runner. */
   pcRunner: PcRunner;
+  /** Project folders and their repos.json (bridge P5). */
+  projects: ProjectService;
   pcSessions: PcSessions;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
@@ -413,7 +417,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   // Bridge P3: the PC session mirror (owner-only reads, runner writes), pruned at start and daily.
   const pcSessions = new PcSessions(db, opts.pcSessions);
   runner.pcSessions = pcSessions;
-  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db, pcSessions });
+  pcSessions.linker = (repo) => projects.linksFor(repo);
+  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db, pcSessions, projects, bundleMaxBytes: opts.pcBundleMaxBytes });
   const pcSessionsApi = createPcSessionsApi({ pcSessions, db });
   let pcPruneTimer: NodeJS.Timeout | null = null;
   const prunePcSessions = () => {
@@ -427,7 +432,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const ccApi = createCcApi({ repos, roomFiles, revisions, router, projects });
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
-  const projectsApi = createProjectsApi({ projects, repos });
+  const projectsApi = createProjectsApi({ projects, repos, db });
   const mcpServersApi = createMcpServersApi({ store: new McpServerStore(opts.mcpServers?.file), db, fetch: opts.mcpServers?.fetch });
   // G4: saved logins for fill_credential; secrets encrypted in data/credentials.json.
   const credentials = new CredentialStore(db, opts.credentials);
@@ -787,7 +792,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       })();
       return stopping;
     },
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner, pcSessions,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner, pcSessions, projects,
     control, broker, approvals: approvalStore,
     skills, recorder, distiller, media,
     listen: () =>
