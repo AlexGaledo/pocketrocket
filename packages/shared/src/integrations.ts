@@ -84,3 +84,20 @@ export const TokenConnectSchema = z.object({
 export type TokenConnectInput = z.infer<typeof TokenConnectSchema>;
 
 export const IntegrationGrantsSchema = z.object({ botIds: z.array(z.string()).max(200) });
+
+// ---------- Telegram notifications (Settings > Notifications; the REST shape of /api/telegram) ----------
+/** What `GET /api/telegram` and every other `/api/telegram/*` route answer. No token and no chat id in here. */
+export interface TelegramState {
+  /** A bot token is saved and was accepted by Telegram. */
+  configured: boolean;
+  botUsername: string | null;
+  linked: boolean;
+  /** Display label of the linked Telegram account. The UI masks it; it is not the identity (that is a numeric id). */
+  linkedName: string | null;
+  /** Send notifications there. Off until the owner turns it on after linking. */
+  notify: boolean;
+  /** A link code waiting for `/start <code>` from the owner Telegram account. */
+  pendingCode: { code: string; deepLink: string; expiresAt: number } | null;
+  /** The last problem worth showing: locked after wrong codes, a webhook or another hub using the bot, a failed send. */
+  error: string | null;
+}
