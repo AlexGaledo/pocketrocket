@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Everything is scrubbed for keys, passwords, emails and phone or ID numbers on the PC before it leaves, and again on the hub. Bots cannot read mirrored sessions yet; only you can, in the app.
 - Control it in the helper's `config.json`: `mirror` (on or off), `mirrorBackfillDays`, and `mirrorExclude` (folders or `*` patterns to skip). A new "PocketRocket Mirror pause-resume" Desktop shortcut pauses and resumes it. Re-run `install.ps1` to get it. See the "Mirror your Claude Code sessions" section of `scripts/pc-runner/README.md`.
 
+### PC sessions in the app
+
+- A new "PC sessions" item in the sidebar lists the Claude Code sessions mirrored from your PC, grouped by repo with the newest first. Each row shows the title, repo and branch, folder, how long ago it was active, a green dot while it is live, and its size; a session's subagent runs open from its transcript. Search by title, folder or repo, filter by repo, and load older sessions as you go. The list refreshes by itself while a session is running.
+- Opening a session shows a read-only transcript: your messages and Claude's replies (as formatted text), with tool calls and results folded into one-line rows that open on demand and turn red on errors, and compaction summaries as their own card. A session that grew past the mirror's size limit says so. New messages appear at the bottom while you are watching. Delete removes the mirrored copy only, after a confirmation.
+
 ### Shared files remember who changed them
 
 - Every change to a room's or project's files that the hub can see is now recorded: who made it (you, a bot, or your assistant), from which machine, in which turn, with which tool, and the sources it cited. Bot Write and Edit calls, your uploads, deletes and text saves are tracked; a bot's Bash edits are not. Bots get `file_history` to look it up before changing something another writer made.

@@ -15,6 +15,7 @@ import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrock
 import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
 import type { MachineInfo, MachinePolicy, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
 import type { BotExportResult, BotImportResult, LaneQueue, Task, TaskStatus } from '@pocketrocket/shared';
+import { listQuery, PC_ENTRY_PAGE, type PcSessionDetail, type PcSessionQuery, type PcSessionSummary, type PcSeqEntry } from './pcSessions';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -326,6 +327,13 @@ export const api = {
     turnOff: () => req<{ ok: true; cancelled: number }>('DELETE', '/api/pc-runner'),
     machines: () => req<MachineInfo[]>('GET', '/api/pc-runner/machines'),
     setMachinePolicy: (id: string, policy: MachinePolicy) => req<MachineInfo>('PUT', '/api/pc-runner/machines/' + encodeURIComponent(id), { policy }),
+  },
+  // Claude Code sessions mirrored from the owner's PC (bridge P3). Hub principal only.
+  pcSessions: {
+    list: (p: PcSessionQuery = {}) => req<{ sessions: PcSessionSummary[] }>('GET', '/api/pc-sessions' + listQuery(p)),
+    get: (id: string) => req<PcSessionDetail>('GET', '/api/pc-sessions/' + encodeURIComponent(id)),
+    entries: (id: string, after = 0, limit = PC_ENTRY_PAGE) => req<{ entries: PcSeqEntry[]; more: boolean }>('GET', '/api/pc-sessions/' + encodeURIComponent(id) + '/entries?after=' + after + '&limit=' + limit),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/pc-sessions/' + encodeURIComponent(id)),
   },
   // Saved logins for fill_credential. The secret is write-only: it is sent here and never comes back.
   credentials: {

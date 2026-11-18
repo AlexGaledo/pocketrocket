@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare, Inbox, Upload, ListChecks } from 'lucide-react';
+import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare, Inbox, Upload, ListChecks, Monitor } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
 import { Avatar, Badge, Menu, MenuContent, MenuItem, Skeleton, SkeletonGroup, Tooltip, cn } from './ui';
 import { useInbox } from '../lib/useInbox';
@@ -93,6 +93,7 @@ export function Sidebar() {
   const waiting = useInbox().length;
   const inboxOpen = useStore((s) => s.page?.kind === 'inbox');
   const tasksOpen = useStore((s) => s.page?.kind === 'tasks');
+  const pcSessionsOpen = useStore((s) => s.page?.kind === 'pcsessions');
   const [importing, setImporting] = useState(false);
   const connected = useStore((s) => s.connected);
   const helloReceived = useStore((s) => s.helloReceived);
@@ -205,6 +206,16 @@ export function Sidebar() {
         >
           <ListChecks size={15} aria-hidden className="shrink-0" />
           <span className="flex-1">Tasks</span>
+        </button>
+      )}
+      {!device && (
+        <button
+          className={cn('mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', pcSessionsOpen ? 'bg-active text-fg' : 'text-muted hover:text-fg')}
+          aria-current={pcSessionsOpen ? 'page' : undefined}
+          onClick={() => { useStore.getState().openPage({ kind: 'pcsessions' }); leaveDrawer(); }}
+        >
+          <Monitor size={15} aria-hidden className="shrink-0" />
+          <span className="flex-1">PC sessions</span>
         </button>
       )}
       {status.label && (

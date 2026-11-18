@@ -1,5 +1,6 @@
 import { WS_PING_MS, type ClientEvent, type ServerEvent } from '@pocketrocket/shared';
 import { useStore } from '../store';
+import { dispatchPcSessionEvent } from './pcSessions';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 let socket: WebSocket | null = null;
@@ -128,7 +129,10 @@ export function connectWs() {
     if (gen !== generation) return;
     armWatchdog();
     try {
-      const ev = JSON.parse(e.data) as ServerEvent;
+      const raw: unknown = JSON.parse(e.data);
+      // Not in the shared ServerEvent union yet (bridge P3): hand it to the PC sessions view and stop.
+      if (dispatchPcSessionEvent(raw)) return;
+      const ev = raw as ServerEvent;
       if (ev.type === 'ping') {
         wsSend({ type: 'pong' });
         return;
