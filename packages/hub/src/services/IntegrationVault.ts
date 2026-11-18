@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { INTEGRATIONS_PATH, VAULT_KEY_PATH, restrictFile } from '../config.js';
+import { INTEGRATIONS_PATH, VAULT_KEY_PATH, renameOver, restrictFile } from '../config.js';
 import { addSecret, removeSecret } from '../providers/redact.js';
 
 /**
@@ -75,7 +75,7 @@ export class IntegrationVault {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = this.file + '.tmp';
     fs.writeFileSync(tmp, encrypt(all, key), { mode: 0o600 });
-    fs.renameSync(tmp, this.file);
+    renameOver(tmp, this.file);
     restrictFile(this.file);
     this.cache = all;
   }

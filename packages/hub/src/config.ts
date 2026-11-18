@@ -94,6 +94,25 @@ export const HUB_TOKEN_PATH = path.join(DATA_DIR, 'hub-token');
  * inherits DATA_DIR's ACL. So: chmod always, and on Windows additionally drop inheritance and grant the
  * current user alone. Both are best-effort; a failure is never fatal.
  */
+/**
+ * `fs.renameSync(from, to)` that rides out a brief Windows lock on `to`. `restrictFile` runs `icacls` in the
+ * background, so a second write soon after the first can find the target still open and get EPERM/EACCES/EBUSY.
+ * Retries for up to ~1 s, then throws the last error.
+ */
+export function renameOver(from: string, to: string): void {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let wait = 10; ; wait *= 2) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (process.platform !== 'win32' || wait > 640 || !(code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')) throw e;
+      Atomics.wait(pause, 0, 0, wait);
+    }
+  }
+}
+
 export function restrictFile(file: string): void {
   try {
     fs.chmodSync(file, 0o600);
