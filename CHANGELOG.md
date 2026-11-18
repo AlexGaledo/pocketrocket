@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Workflows: hub foundations
+
+- A turn now belongs to an owner ref (`routine:<runId>` or `workflow:<runId>:<step>`) instead of a bare routine run id, in the lane journal and on parked approvals, and what the turn does when it ends is rebuilt from it after a restart or a parked approval. Routines behave as before (a run still closes when its turn ends, and a turn cut off by two restarts closes its run as an error). Existing rows are filled in by migration 290.
+- A lane can run a step alone (never batched with chat messages), a workflow run's budget caps every hand-off on its thread the way a trigger's daily budget does, "Run now" and "Test fire" mark their thread as person-started, and Usage has a "Workflow" cause kind.
+- New tables `workflows` and `workflow_runs` (migrations 291-292). Nothing uses them yet: the runner, approval card, REST and bot tools follow in the next change.
+
 ### Telegram notifications (hub)
 
 - You can link your Telegram to get a short notice when a bot needs your approval or a routine finishes. Create a bot with @BotFather, save its token, then press Start in Telegram with the one-time code (10 minutes, one use, a `t.me` link). Only a private chat from a person (not a bot, not a group) whose id matches the chat is accepted, and five wrong codes lock linking for 15 minutes. The hub keeps your numeric Telegram id, not your username.

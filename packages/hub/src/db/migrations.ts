@@ -806,6 +806,69 @@ registerMigrations([280, 289], [
   { version: 282, name: 'pc_session_entries.machine', up: (db) => addColumnIfMissing(db, 'pc_session_entries', 'machine', 'TEXT') },
 ]);
 
+// Workflows v1 (docs/specs/openbot-gaps/02-steering-workflows.md, Phase 3). 290 generalises the routine run id that a lane
+// journal row and a parked approval carry into an owner ref (`routine:<runId>`, `workflow:<runId>:<nodeId>`), so the
+// turn's `onDone` can be rebuilt after a restart or a parked approval whoever started it. `run_id` stays (older hubs read
+// it) and is still written for routine refs. 291-292: the workflow definitions and their runs. A run keeps a snapshot of
+// the graph and budget it started with, so editing the workflow never changes a run in flight.
+registerMigrations([290, 299], [
+  {
+    version: 290,
+    name: 'lane_journal.owner_ref + approvals.owner_ref (backfilled from run_id)',
+    up: (db) => {
+      addColumnIfMissing(db, 'lane_journal', 'owner_ref', 'TEXT');
+      addColumnIfMissing(db, 'approvals', 'owner_ref', 'TEXT');
+      db.exec("UPDATE lane_journal SET owner_ref='routine:'||run_id WHERE owner_ref IS NULL AND run_id IS NOT NULL");
+      db.exec("UPDATE approvals SET owner_ref='routine:'||run_id WHERE owner_ref IS NULL AND run_id IS NOT NULL");
+    },
+  },
+  {
+    version: 291,
+    name: 'workflows table',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS workflows (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        room_id TEXT NOT NULL,
+        trigger_kind TEXT NOT NULL CHECK(trigger_kind IN ('routine','trigger','manual')),
+        routine_id TEXT,
+        trigger_id TEXT,
+        graph_json TEXT NOT NULL,
+        budget_usd REAL NOT NULL DEFAULT 2,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflows_routine ON workflows(routine_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflows_trigger ON workflows(trigger_id)');
+    },
+  },
+  {
+    version: 292,
+    name: 'workflow_runs table',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS workflow_runs (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        cause_id TEXT,
+        node_id TEXT,
+        status TEXT NOT NULL CHECK(status IN ('running','waiting','success','error','cancelled')),
+        steps_json TEXT NOT NULL DEFAULT '[]',
+        graph_json TEXT NOT NULL,
+        budget_usd REAL NOT NULL DEFAULT 2,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        manual INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        expires_at INTEGER,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_wf ON workflow_runs(workflow_id, started_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)');
+    },
+  },
+]);
+
 // 300-309  Telegram notifications (spec 03 Phase A). One row (id 1): which bot is set up and which private chat is
 //          linked. The token itself is in the encrypted vault (`telegram` entry), never here. The link stores the
 //          numeric Telegram user id only; `linked_name` is a display label for Settings and is not an identity.

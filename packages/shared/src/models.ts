@@ -157,6 +157,19 @@ export interface RoutinePayload {
   routineId: string;
   runId: string;
   name: string;
+  /** "Run now": a person started it, not the schedule (the attended check reads this). */
+  manual?: boolean;
+}
+/**
+ * On the system note that starts a workflow run (its cause message): every step and hand-off of the run shares this
+ * thread. `runId` is the `workflow_runs` row.
+ */
+export interface WorkflowPayload {
+  workflowId: string;
+  runId: string;
+  name: string;
+  /** "Run now": a person started it, not the schedule or an event. */
+  manual?: boolean;
 }
 
 /** One field of a `request_form` card. Only these three kinds exist: there is no password or secret field. */
@@ -215,7 +228,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, user id for people, null for system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | FormPayload | CtaPayload | DeliveryPayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | WorkflowPayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | FormPayload | CtaPayload | DeliveryPayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;
@@ -399,10 +412,10 @@ export const MAX_ROUTING_BYTES = 2048;
 
 /**
  * What started a turn. `user` a person's message, `bot` a hand-off from another bot, `routine` a scheduled
- * routine, `trigger` an outside event (P5), `memory` the auto-memory pass, `reflection` a skill reflection pass,
+ * routine, `trigger` an outside event (P5), `workflow` a step of a workflow run, `memory` the auto-memory pass, `reflection` a skill reflection pass,
  * `training` a bot training pass.
  */
-export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'memory', 'reflection', 'training'] as const;
+export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'workflow', 'memory', 'reflection', 'training'] as const;
 export type CauseKind = (typeof CAUSE_KINDS)[number];
 
 /** One row of a usage breakdown: `key` is a model id or a cause kind; '' for rows recorded before P8. */
@@ -511,7 +524,9 @@ export interface TakeoverPayload {
   status: 'waiting' | 'parked' | 'done' | 'expired';
   /** The user's hand-back note, once handed back. */
   note?: string;
-  /** Routine run the parked turn belongs to, so a restart can still close it. */
+  /** What the parked turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`), so a restart can still close it. */
+  ownerRef?: string | null;
+  /** Written before owner refs existed: a routine run id. Read as `routine:<runId>`; never written now. */
   runId?: string | null;
 }
 

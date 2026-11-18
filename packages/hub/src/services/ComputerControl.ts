@@ -48,7 +48,8 @@ export interface TakeoverRecord {
   reason: string;
   causeId: string;
   hop: number;
-  runId: string | null;
+  /** What the parked turn belongs to (`routine:<runId>`...), so a hand-back resumes it into the right owner. */
+  ownerRef: string | null;
   parked: boolean;
   createdAt: number;
 }
@@ -258,7 +259,7 @@ export class ComputerControlService {
     const e = this.entries.get(botId);
     if (!e?.takeover) return false;
     e.takeover.parked = true;
-    this.updateCard(e.takeover, { status: 'parked', runId: e.takeover.runId });
+    this.updateCard(e.takeover, { status: 'parked', ownerRef: e.takeover.ownerRef });
     this.emit(botId);
     return true;
   }
@@ -272,7 +273,7 @@ export class ComputerControlService {
     for (const m of this.repos.parkedTakeovers()) {
       const p = m.payload as TakeoverPayload;
       const t: TakeoverRecord = {
-        messageId: m.id, roomId: m.roomId, reason: p.reason, causeId: m.causeId ?? '', hop: m.hop, runId: p.runId ?? null,
+        messageId: m.id, roomId: m.roomId, reason: p.reason, causeId: m.causeId ?? '', hop: m.hop, ownerRef: p.ownerRef ?? (p.runId ? 'routine:' + p.runId : null),
         parked: true, createdAt: m.createdAt,
       };
       if (!this.repos.getBot(p.botId)) {
@@ -287,9 +288,9 @@ export class ComputerControlService {
     return restored;
   }
 
-  /** Routine runs held open by a parked takeover; a restart must not close them. */
-  parkedRunIds(): string[] {
-    return [...this.entries.values()].map((e) => (e.takeover?.parked ? e.takeover.runId : null)).filter((id): id is string => !!id);
+  /** Owner refs held open by a parked takeover; a restart must not close a routine run among them. */
+  parkedOwnerRefs(): string[] {
+    return [...this.entries.values()].map((e) => (e.takeover?.parked ? e.takeover.ownerRef : null)).filter((id): id is string => !!id);
   }
 
   /** The bot's turn ended without parking (interrupted): the card stays, but nobody is waiting on it. */

@@ -120,7 +120,7 @@ describe('request_takeover', () => {
     const bot = s.repos.getBot(botId)!;
     const room = s.repos.getRoom(roomId)!;
     return takeoverTool({
-      bot, room, turnId: 't1', hop: 0, causeId: 'cause-1', runId: 'run-1', repos: s.repos, control: s.control, signal,
+      bot, room, turnId: 't1', hop: 0, causeId: 'cause-1', ownerRef: 'routine:run-1', repos: s.repos, control: s.control, signal,
       setState: () => undefined, park: (why) => parks.push(why),
     });
   };
@@ -148,8 +148,8 @@ describe('request_takeover', () => {
     const s = setup(true, { takeoverWaitMs: 10 });
     const a = s.mk('shopper');
     const room = s.repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [a.id], coordinatorBotId: null });
-    const resumed: { note: string | null; runId: string | null; causeId: string }[] = [];
-    s.control.onParkedHandBack = (_b, t, note) => resumed.push({ note, runId: t.runId, causeId: t.causeId });
+    const resumed: { note: string | null; ownerRef: string | null; causeId: string }[] = [];
+    s.control.onParkedHandBack = (_b, t, note) => resumed.push({ note, ownerRef: t.ownerRef, causeId: t.causeId });
     const parks: string[] = [];
     const out = await tool(s, a.id, room.id, parks).handler({ reason: 'Solve the captcha' });
     expect(JSON.stringify(out.content)).toContain(TAKEOVER_PARKED);
@@ -157,7 +157,7 @@ describe('request_takeover', () => {
     expect(card(s, room.id).payload).toMatchObject({ status: 'parked' });
     expect(s.control.get(a.id)).toMatchObject({ control: 'user', takeover: { parked: true } });
     s.control.set(a.id, 'agent', { note: 'done' });
-    expect(resumed).toEqual([{ note: 'done', runId: 'run-1', causeId: 'cause-1' }]);
+    expect(resumed).toEqual([{ note: 'done', ownerRef: 'routine:run-1', causeId: 'cause-1' }]);
     expect(card(s, room.id).payload).toMatchObject({ status: 'done' });
   });
 
@@ -258,7 +258,7 @@ describe('a parked takeover and a hub restart', () => {
     const room = s.repos.createRoom({ kind: 'dm', name: 'r', memberIds: [bot.id], coordinatorBotId: null });
     const payload: TakeoverPayload = { botId: bot.id, reason: 'log in', status: 'waiting' };
     const msg = s.repos.insertMessage({ roomId: room.id, authorType: 'bot', authorId: bot.id, kind: 'takeover', text: 'x', payload, causeId: 'c1', hop: 2, turnId: 't1' });
-    s.control.beginTakeover(bot.id, { messageId: msg.id, roomId: room.id, reason: 'log in', causeId: 'c1', hop: 2, runId: 'run1' });
+    s.control.beginTakeover(bot.id, { messageId: msg.id, roomId: room.id, reason: 'log in', causeId: 'c1', hop: 2, ownerRef: 'routine:run1' });
     s.control.parkTakeover(bot.id);
 
     // What a new process does on start, against the same database.
@@ -267,15 +267,15 @@ describe('a parked takeover and a hub restart', () => {
     expect(next.restoreParked()).toBe(1);
     expect(next.get(bot.id).control).toBe('user');
     expect(next.get(bot.id).takeover?.parked).toBe(true);
-    expect(next.parkedRunIds()).toEqual(['run1']);
+    expect(next.parkedOwnerRefs()).toEqual(['routine:run1']);
     expect(next.blockedReason(bot.id)).toBe(USER_HAS_CONTROL);
 
     const resumed: { note: string | null; cause: string; hop: number; run: string | null }[] = [];
-    next.onParkedHandBack = (_b, t, note) => resumed.push({ note, cause: t.causeId, hop: t.hop, run: t.runId });
+    next.onParkedHandBack = (_b, t, note) => resumed.push({ note, cause: t.causeId, hop: t.hop, run: t.ownerRef });
     next.set(bot.id, 'agent', { note: 'done' });
-    expect(resumed).toEqual([{ note: 'done', cause: 'c1', hop: 2, run: 'run1' }]);
+    expect(resumed).toEqual([{ note: 'done', cause: 'c1', hop: 2, run: 'routine:run1' }]);
     expect((s.repos.getMessage(msg.id)!.payload as TakeoverPayload).status).toBe('done');
-    expect(next.parkedRunIds()).toEqual([]);
+    expect(next.parkedOwnerRefs()).toEqual([]);
   });
 
   it('expires a takeover that was still waiting in its turn, and one whose bot is gone', () => {
