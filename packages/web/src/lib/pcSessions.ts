@@ -1,39 +1,10 @@
-// TODO(bridge P3): import from @pocketrocket/shared once hub/pc-sessions merges
-// Claude Code sessions mirrored from the owner's PC (bridge phase 3). Types mirror the hub contract; the pure
+// Claude Code sessions mirrored from the owner's PC (bridge phase 3). Types come from @pocketrocket/shared; the pure
 // helpers (grouping, nesting, row labels, paging) live here so they can be tested without a DOM.
 
-export type PcEntryKind = 'user' | 'assistant' | 'tool_use' | 'tool_result' | 'summary';
+import type { PcEntry, PcEntryKind, PcSessionDetail, PcSessionSummary, PcSessionUpdatedEvent, PcStoredEntry } from '@pocketrocket/shared';
 
-export interface PcEntry {
-  uuid: string;
-  parentUuid?: string | null;
-  /** Epoch ms. */
-  at: number;
-  kind: PcEntryKind;
-  text: string;
-  tool?: string;
-  isError?: boolean;
-  isSidechain?: boolean;
-  model?: string;
-}
-export type PcSeqEntry = PcEntry & { seq: number };
-
-export interface PcSessionSummary {
-  id: string;
-  parentId: string | null;
-  machine: string;
-  projectDir: string;
-  cwd: string | null;
-  repo: { name: string; remote: string | null; branch: string | null; head: string | null } | null;
-  title: string | null;
-  firstAt: number;
-  lastAt: number;
-  entryCount: number;
-  bytes: number;
-  truncated: boolean;
-  status: 'live' | 'ended';
-}
-export type PcSessionDetail = PcSessionSummary & { children: PcSessionSummary[] };
+export type { PcEntry, PcEntryKind, PcSessionDetail, PcSessionSummary };
+export type PcSeqEntry = PcStoredEntry;
 
 export const PC_SESSION_PAGE = 50;
 export const PC_ENTRY_PAGE = 200;
@@ -137,9 +108,9 @@ export function mergeEntries(cur: PcSeqEntry[], incoming: PcSeqEntry[]): PcSeqEn
 }
 
 // ---- WebSocket ----
-// `pc_session_updated` is not in the shared ServerEvent union yet, so ws.ts hands it here before the typed path.
+// ws.ts hands `pc_session_updated` here before the store path; only this page listens.
 
-export interface PcSessionUpdated { type: 'pc_session_updated'; id: string; lastAt: number }
+export type PcSessionUpdated = PcSessionUpdatedEvent;
 type Listener = (ev: PcSessionUpdated) => void;
 const listeners = new Set<Listener>();
 

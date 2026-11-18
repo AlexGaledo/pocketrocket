@@ -88,6 +88,8 @@ import { FileRevisions } from './services/FileRevisions.js';
 import { PcRunner, type PcRunnerOptions } from './services/PcRunner.js';
 import { createPcRunnerApi } from './api/pcRunner.js';
 import { createCcApi } from './api/cc.js';
+import { PcSessions, type PcSessionsOptions } from './services/PcSessions.js';
+import { createPcSessionsApi } from './api/pcSessions.js';
 import { runnerMayAccess } from './api/guard.js';
 
 export interface HubOptions {
@@ -136,6 +138,8 @@ export interface HubOptions {
   credentials?: { file?: string; keyFile?: string };
   /** PC runner overrides (tests: a temp pc-runner.json, short timeouts, a fixed clock). */
   pcRunner?: Partial<Omit<PcRunnerOptions, 'db'>>;
+  /** Bridge P3: the PC session mirror's clock and caps (tests). */
+  pcSessions?: PcSessionsOptions;
   /** What `stop()` ends with once the hub is shut down. Defaults to process.exit; tests pass a fake. */
   exit?: (code: number) => void;
 }
@@ -169,6 +173,7 @@ export interface Hub {
   media: MediaStore;
   /** The owner's PC as a Claude Code job runner. */
   pcRunner: PcRunner;
+  pcSessions: PcSessions;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
   /**
@@ -406,6 +411,18 @@ export function createHub(opts: HubOptions = {}): Hub {
   const pcRunner = new PcRunner({ db, file: path.join(DATA_DIR, 'pc-runner.json'), ...opts.pcRunner });
   runner.pcRunner = pcRunner;
   const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db });
+  // Bridge P3: the PC session mirror (owner-only reads, runner writes), pruned at start and daily.
+  const pcSessions = new PcSessions(db, opts.pcSessions);
+  const pcSessionsApi = createPcSessionsApi({ pcSessions, db });
+  let pcPruneTimer: NodeJS.Timeout | null = null;
+  const prunePcSessions = () => {
+    try {
+      const { removed } = pcSessions.prune();
+      if (removed) console.log('[pc-sessions] pruned ' + removed + ' mirrored session(s)');
+    } catch (e) {
+      logError('[pc-sessions]', e);
+    }
+  };
   const ccApi = createCcApi({ repos, roomFiles, revisions, router, projects });
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
@@ -663,6 +680,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await credentialsApi(req, res)) return;
       if (await pcRunnerApi(req, res)) return;
       if (await ccApi(req, res)) return;
+      if (await pcSessionsApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
       if (await teachApi(req, res)) return;
       if (await rest(req, res)) return;
@@ -768,7 +786,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       })();
       return stopping;
     },
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner, pcSessions,
     control, broker, approvals: approvalStore,
     skills, recorder, distiller, media,
     listen: () =>
@@ -784,6 +802,9 @@ export function createHub(opts: HubOptions = {}): Hub {
           broker.sweepParked();
           p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); }, 60_000);
           p2Timer.unref();
+          prunePcSessions();
+          pcPruneTimer ??= setInterval(prunePcSessions, 24 * 60 * 60_000);
+          pcPruneTimer.unref();
           sweepMedia();
           mediaTimer ??= setInterval(sweepMedia, MEDIA_SWEEP_MS);
           mediaTimer.unref();
@@ -830,6 +851,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       await recorder.shutdown();
       if (p2Timer) clearInterval(p2Timer);
       if (mediaTimer) clearInterval(mediaTimer);
+      if (pcPruneTimer) clearInterval(pcPruneTimer);
+      pcSessions.stop();
       knowledge.stop();
       offComputers();
       // Timers only: the computers are systemd units and keep running across a hub restart.

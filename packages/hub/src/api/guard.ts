@@ -418,6 +418,10 @@ const RUNNER_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/cc\/rooms$/],
   ['GET', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|state|files\/text)$/],
   ['POST', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|files\/text|decision|handoff)$/],
+  // The PC session mirror (api/pcSessions.ts): sync, upsert a session, append entries. The owner's reads are not here.
+  ['GET', /^\/api\/pc-sessions\/sync$/],
+  ['PUT', /^\/api\/pc-sessions\/[A-Za-z0-9_.:%-]+$/],
+  ['POST', /^\/api\/pc-sessions\/[A-Za-z0-9_.:%-]+\/entries$/],
 ];
 
 /** True when the PC runner's token may make this request. */

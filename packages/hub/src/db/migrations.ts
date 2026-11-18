@@ -681,3 +681,61 @@ registerMigrations([260, 269], [
     },
   },
 ]);
+
+// Claude Code bridge P3 (docs/specs/claude-code-bridge.md 3.1): the PC session mirror. `pc_sessions` is one row per
+// Claude Code transcript on the owner's PC (a subagent transcript is a child row, `parent_id`); `offset` is how many
+// bytes of the source file the hub has consumed, so the runner resumes where it stopped. `pc_session_entries` holds
+// the compact, redacted entries. Only the owner's app reads these tables (services/PcSessions.ts); no bot tool does.
+registerMigrations([270, 279], [
+  {
+    version: 270,
+    name: 'pc_sessions + pc_session_entries (PC session mirror)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_sessions (
+        id TEXT PRIMARY KEY,
+        parent_id TEXT,
+        machine TEXT NOT NULL,
+        project_dir TEXT NOT NULL DEFAULT '',
+        cwd TEXT,
+        repo_json TEXT,
+        title TEXT,
+        first_at INTEGER NOT NULL,
+        last_at INTEGER NOT NULL,
+        offset INTEGER NOT NULL DEFAULT 0,
+        entry_count INTEGER NOT NULL DEFAULT 0,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        truncated INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS pc_sessions_last ON pc_sessions (last_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS pc_sessions_parent ON pc_sessions (parent_id)');
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_session_entries (
+        session_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        uuid TEXT NOT NULL,
+        parent_uuid TEXT,
+        at INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        tool TEXT,
+        is_error INTEGER NOT NULL DEFAULT 0,
+        is_sidechain INTEGER NOT NULL DEFAULT 0,
+        model TEXT,
+        PRIMARY KEY (session_id, seq)
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS pc_session_entries_seq ON pc_session_entries (session_id, seq)');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pc_session_entries_uuid ON pc_session_entries (session_id, uuid)');
+    },
+  },
+  {
+    version: 271,
+    name: 'pc_session_tombstones (a deleted mirrored session is not mirrored again)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_session_tombstones (
+        id TEXT PRIMARY KEY,
+        deleted_at INTEGER NOT NULL,
+        by_owner INTEGER NOT NULL DEFAULT 0
+      )`);
+    },
+  },
+]);
