@@ -36,6 +36,11 @@ jobs:
       - name: Build (typecheck + vite)
         run: pnpm -r build
 
+      - name: Web bundle budget (no canvas code in the entry chunk)
+        run: |
+          node --test scripts/bundle-budget.test.mjs
+          node scripts/bundle-budget.mjs
+
       - name: Test
         run: pnpm test
 
