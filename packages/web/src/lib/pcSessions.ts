@@ -26,9 +26,19 @@ export function listQuery(p: PcSessionQuery): string {
 export interface SessionNode { session: PcSessionSummary; children: PcSessionSummary[] }
 export interface SessionGroup { key: string; label: string; lastAt: number; nodes: SessionNode[] }
 
-/** The group a session sits in: its repo's name, else the project directory. */
+/**
+ * The name a session is grouped under. Worktrees of one repo share its remote, so the remote's last path part wins
+ * (agent-… and wt-… worktrees land with their repo); then the repo folder's name; then, for a session outside any git
+ * repo, the name of the folder it ran in. Claude's own project-dir name (C--Users-…) is the last resort.
+ */
+export function groupLabelOf(s: PcSessionSummary): string {
+  const fromRemote = s.repo?.remote?.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/i, '').split(/[/:]/).pop();
+  const fromCwd = s.cwd?.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  return fromRemote || s.repo?.name || fromCwd || s.projectDir || 'Other';
+}
+/** Case-insensitive, so Desktop\WIKA-SaaS and desktop\wika-saas are one group. */
 export function groupKeyOf(s: PcSessionSummary): string {
-  return s.repo?.name || s.projectDir || 'Other';
+  return groupLabelOf(s).toLowerCase();
 }
 
 /**
@@ -58,7 +68,7 @@ export function groupSessions(list: PcSessionSummary[]): SessionGroup[] {
   for (const s of tops) {
     const children = (kids.get(s.id) ?? []).sort((a, b) => b.lastAt - a.lastAt);
     const key = groupKeyOf(s);
-    const g = groups.get(key) ?? { key, label: key, lastAt: 0, nodes: [] };
+    const g = groups.get(key) ?? { key, label: groupLabelOf(s), lastAt: 0, nodes: [] };
     g.nodes.push({ session: s, children });
     g.lastAt = Math.max(g.lastAt, s.lastAt, ...children.map((c) => c.lastAt));
     groups.set(key, g);
