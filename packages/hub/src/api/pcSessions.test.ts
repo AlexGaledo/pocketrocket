@@ -367,14 +367,14 @@ describe('redaction and visibility (spec 6.4 layer 1, section 9 P3)', () => {
     }
   });
 
-  it('only the mirror service, its API and the migration mention the pc_session tables in hub source', () => {
+  it('only the mirror service and the migration name the pc_session tables in hub source (the persona tools go through the service)', () => {
     const root = path.resolve(import.meta.dirname, '..');
     const hits: string[] = [];
     const walk = (d: string) => {
       for (const f of fs.readdirSync(d, { withFileTypes: true })) {
         const p = path.join(d, f.name);
         if (f.isDirectory()) walk(p);
-        else if (/\.ts$/.test(f.name) && !/\.test\.ts$/.test(f.name) && /pc_session/.test(fs.readFileSync(p, 'utf8'))) hits.push(path.relative(root, p).replace(/\\/g, '/'));
+        else if (/\.ts$/.test(f.name) && !/\.test\.ts$/.test(f.name) && /(?<![a-z_])pc_session(s|_entries|_tombstones)\b/.test(fs.readFileSync(p, 'utf8'))) hits.push(path.relative(root, p).replace(/\\/g, '/'));
       }
     };
     walk(root);

@@ -5,8 +5,9 @@ import { principalOf } from './guard.js';
 import type { Db } from '../db/db.js';
 import type { Repos } from '../db/repos.js';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
-import { MAX_PC_FOLDERS, PC_FOLDER_RE, PcRunnerError, type PcJob, type PcRunner } from '../services/PcRunner.js';
-import { MachinePolicyInputSchema, type PcRunnerJob } from '@pocketrocket/shared';
+import { MAX_PC_FOLDERS, MAX_PC_PROMPT_BYTES, PC_FOLDER_RE, PcRunnerError, type PcJob, type PcRunner } from '../services/PcRunner.js';
+import type { PcSessions } from '../services/PcSessions.js';
+import { MachinePolicyInputSchema, PC_SESSION_ID_RE, type PcRunnerJob } from '@pocketrocket/shared';
 import { Machines } from '../services/Machines.js';
 import { logError } from '../providers/redact.js';
 
@@ -22,7 +23,19 @@ const send = (res: ServerResponse, status: number, body?: unknown): true => {
 };
 
 const HeartbeatInput = z.object({ folders: z.array(z.string().regex(PC_FOLDER_RE)).max(MAX_PC_FOLDERS) });
+/** A session id the app or a bot may resume: a uuid-like id, never a subagent's `<uuid>:<file>`. */
+const RESUMABLE_ID = z.string().regex(PC_SESSION_ID_RE).refine((v) => !v.includes(':'), 'not a resumable session id');
+const JobCreateInput = z.object({
+  mode: z.enum(['new', 'resume']),
+  sessionId: RESUMABLE_ID.optional(),
+  folder: z.string().regex(PC_FOLDER_RE).optional(),
+  prompt: z.string().min(1).max(8000),
+});
 const ResultInput = z.object({
+  /** The allowed folder NAME a resume ran in. */
+  resolvedFolder: z.string().regex(PC_FOLDER_RE).optional(),
+  /** Only when `claude --resume` continued under a different session id. */
+  newSessionId: RESUMABLE_ID.optional(),
   ok: z.boolean(),
   refusedLocally: z.boolean().optional(),
   output: z.string(),
@@ -37,6 +50,10 @@ const ResultInput = z.object({
  *   POST   /api/pc-runner/token      -> { token }   fresh 32-byte token, shown once, replaces the old one
  *   GET    /api/pc-runner            -> { paired, folders, lastSeenAt, online }
  *   DELETE /api/pc-runner            kill switch: forget the token, cancel every open job
+ *   POST   /api/pc-runner/jobs       { mode: 'new'|'resume', sessionId?, folder?, prompt } -> PcRunnerJob (queued). The click IS the
+ *                                    approval, so only a browser signed in with the owner's password may do it: the hub token, the
+ *                                    desktop app and a paired phone get 403. 409 when no runner is paired; 400 for a resume whose
+ *                                    session is not in the mirror, or a new job in a folder the PC does not allow.
  *   GET    /api/pc-runner/jobs?limit=50  -> PcRunnerJob[] newest first (limit 1..200)
  *   GET    /api/pc-runner/jobs/:id       -> PcRunnerJob
  *   GET    /api/pc-runner/machines       -> MachineInfo[] (policy per machine: never | ask | always)
@@ -46,21 +63,27 @@ const ResultInput = z.object({
  * The helper on the PC (runner principal only; the hub token gets 403 here, guard.ts keeps the runner out of
  * everything else):
  *   POST /api/pc-runner/heartbeat          { folders: string[] }
- *   GET  /api/pc-runner/jobs/next          -> 204 | { id, bot: { handle }, room: { id, name }, folder, prompt, createdAt }
+ *   GET  /api/pc-runner/jobs/next          -> 204 | { id, mode, sessionId, folder, origin, bot: { handle }, room: { id, name }, prompt, createdAt }
+ *                                            (a resume has folder null: the PC finds the session's directory itself)
  *   POST /api/pc-runner/jobs/:id/start
- *   POST /api/pc-runner/jobs/:id/result    { ok, refusedLocally?, output, costUsd?, durationMs? }
+ *   POST /api/pc-runner/jobs/:id/result    { ok, refusedLocally?, output, costUsd?, durationMs?, resolvedFolder?, newSessionId? }
  */
-export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: Db }) {
-  const { pcRunner, repos, db } = deps;
+export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: Db; pcSessions?: PcSessions }) {
+  const { pcRunner, repos, db, pcSessions } = deps;
   const machines = new Machines(db, pcRunner);
   /** The owner's view of a job. `result` is the PC's output, or the hub's reason when it dropped the job. */
   const view = (j: PcJob): PcRunnerJob => {
     const dropped = j.status === 'cancelled' || j.status === 'expired';
     return {
       id: j.id,
-      bot: { id: j.botId, handle: repos.getBot(j.botId)?.handle ?? null },
-      room: { id: j.roomId, name: repos.getRoom(j.roomId)?.name ?? null },
+      bot: { id: j.botId, handle: j.botId ? repos.getBot(j.botId)?.handle ?? null : null },
+      room: { id: j.roomId, name: j.roomId ? repos.getRoom(j.roomId)?.name ?? null : null },
+      mode: j.mode,
+      sessionId: j.sessionId,
+      origin: j.origin,
       folder: j.folder,
+      resolvedFolder: j.resolvedFolder,
+      newSessionId: j.newSessionId,
       prompt: j.prompt,
       status: j.status,
       output: dropped ? null : j.result,
@@ -112,6 +135,38 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
         const limit = Number(url.searchParams.get('limit') ?? 50);
         return send(res, 200, pcRunner.list(Number.isFinite(limit) ? limit : 50).map(view));
       }
+      if (parts[0] === 'jobs' && parts.length === 1 && method === 'POST') {
+        // The click in a signed-in browser is the approval. The hub token alone (the desktop app, a script, a bot
+        // that read the token) never counts: same bar as the run_on_pc card.
+        const principal = principalOf(req);
+        if (principal?.kind !== 'hub' || !principal.sessionId) {
+          return send(res, 403, { error: 'Starting a job on the PC needs a browser signed in with your password.', signInRequired: true });
+        }
+        const p = JobCreateInput.safeParse(body);
+        if (!p.success) return bad(p.error);
+        if (!pcRunner.isPaired()) return send(res, 409, { error: 'No PC runner is paired with this hub.' });
+        if (Buffer.byteLength(p.data.prompt, 'utf8') > MAX_PC_PROMPT_BYTES) return send(res, 400, { error: 'The prompt is over 8 KB.' });
+        let sessionId: string | null = null;
+        let folder: string | null = null;
+        if (p.data.mode === 'resume') {
+          const sid = p.data.sessionId;
+          const sess = sid && pcSessions ? pcSessions.get(sid) : null;
+          if (!sid || !sess) return send(res, 400, { error: 'Resume needs a sessionId that is in the PC session mirror.' });
+          if (sess.parentId) return send(res, 400, { error: 'That is a subagent transcript; resume its parent session.' });
+          sessionId = sid;
+        } else {
+          folder = p.data.folder ?? null;
+          if (!folder || !pcRunner.folders().includes(folder)) {
+            const allowed = pcRunner.folders();
+            return send(res, 400, { error: 'New needs one of the folders the PC allows' + (allowed.length ? ': ' + allowed.join(', ') + '.' : ' (it has not reported any).') });
+          }
+        }
+        const job = pcRunner.create({ mode: p.data.mode, sessionId, folder, prompt: p.data.prompt, origin: 'owner' });
+        pcRunner.approve(job.id);
+        const actor = actorOf(req);
+        if (actor) recordAudit(db, actor, 'pc-runner.job.approved', job.id, 'owner, from the app: ' + p.data.mode + ', ' + (sessionId ? 'session ' + sessionId : folder));
+        return send(res, 200, view(pcRunner.get(job.id)!));
+      }
       if (!runnerRoute && parts[0] === 'jobs' && parts.length === 2 && method === 'GET') {
         const j = pcRunner.get(parts[1]);
         return j ? send(res, 200, view(j)) : send(res, 404, { error: 'No such job' });
@@ -137,13 +192,16 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
       if (parts.length === 2 && parts[0] === 'jobs' && parts[1] === 'next' && method === 'GET') {
         const j = pcRunner.next();
         if (!j) return send(res, 204);
-        const bot = repos.getBot(j.botId);
-        const room = repos.getRoom(j.roomId);
+        const bot = j.botId ? repos.getBot(j.botId) : undefined;
+        const room = j.roomId ? repos.getRoom(j.roomId) : undefined;
         return send(res, 200, {
           id: j.id,
-          bot: { handle: bot?.handle ?? '(deleted bot)' },
-          room: { id: j.roomId, name: room?.name ?? '(deleted room)' },
+          mode: j.mode,
+          sessionId: j.sessionId,
           folder: j.folder,
+          origin: j.origin,
+          bot: { handle: j.origin === 'owner' ? '(the app)' : bot?.handle ?? '(deleted bot)' },
+          room: { id: j.roomId ?? '', name: j.origin === 'owner' ? '(the app)' : room?.name ?? '(deleted room)' },
           prompt: j.prompt,
           createdAt: j.createdAt,
         });
@@ -156,8 +214,8 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
         const p = ResultInput.safeParse(body);
         if (!p.success) return bad(p.error);
         const j = pcRunner.finish(parts[1], p.data);
-        const detail = 'machine pc, ' + j.folder + (p.data.durationMs !== undefined ? ', ' + Math.round(p.data.durationMs / 1000) + ' s' : '') + (j.costUsd !== null ? ', $' + j.costUsd.toFixed(4) : '');
-        recordAudit(db, { kind: 'bot', id: j.botId }, 'pc-runner.job.' + j.status, j.id, detail);
+        const detail = 'machine pc, ' + (j.resolvedFolder ?? j.folder ?? 'resume ' + j.sessionId) + (j.newSessionId ? ', continued as ' + j.newSessionId : '') + (p.data.durationMs !== undefined ? ', ' + Math.round(p.data.durationMs / 1000) + ' s' : '') + (j.costUsd !== null ? ', $' + j.costUsd.toFixed(4) : '');
+        recordAudit(db, j.botId ? { kind: 'bot', id: j.botId } : { kind: 'anonymous', id: 'pc-runner' }, 'pc-runner.job.' + j.status, j.id, detail);
         return send(res, 200, { ok: true, status: j.status });
       }
       return send(res, 404, { error: 'Not found' });

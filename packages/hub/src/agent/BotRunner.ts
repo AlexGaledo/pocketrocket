@@ -17,6 +17,7 @@ import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import type { PcRunner } from '../services/PcRunner.js';
+import type { PcSessions } from '../services/PcSessions.js';
 import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, canUpgrade, isAuto, type RouteChoice, type RouteRequest } from './ModelRouter.js';
@@ -176,6 +177,8 @@ export class BotRunner {
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
   pcRunner?: PcRunner;
+  /** Bridge P4: the PC session mirror, read-only, for @persona's list_pc_sessions and read_pc_session. */
+  pcSessions?: PcSessions;
   /** G4: saved logins for `fill_credential`. Set by createHub; absent in most unit tests. */
   credentials?: CredentialStore;
   /** The one-shot Haiku call that writes the running room summary when a session rotates. Tests replace it. */
@@ -432,6 +435,7 @@ export class BotRunner {
       } : undefined,
       routinesChanged: this.hooks.routinesChanged,
       pcRunner: this.pcRunner,
+      pcSessions: this.pcSessions,
       signal: ac.signal,
       keyRegistry: () => keyRegistry,
     });
