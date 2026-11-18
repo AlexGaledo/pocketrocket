@@ -389,6 +389,10 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   // and token editor), GET /api/bots/:id/export and POST /api/bots/import (an export is a copy of the bot's
   // instructions and memory; an import creates a bot), /api/bot-reports* and /api/feedback.
   ['GET', /^\/api\/rooms\/[^/]+\/tasks$/],
+  // Queue controls (02 Phase 2): a phone may see a room's queue and cancel, edit, send now or pause it, like sending a
+  // message (the owner's own devices). Only the owner's own messages can be cancelled or edited, from any principal.
+  ['GET', /^\/api\/rooms\/[^/]+\/queue$/],
+  ['POST', /^\/api\/rooms\/[^/]+\/queue\/(cancel|edit|send-now|pause)$/],
 ];
 
 /**

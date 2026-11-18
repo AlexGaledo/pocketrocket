@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
-  BotInputSchema, MaintenanceHoldInputSchema, RoomInputSchema, RoomMessageInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
+  BotInputSchema, MaintenanceHoldInputSchema, QueueCancelInputSchema, QueueEditInputSchema, QueuePauseInputSchema, QueueSendNowInputSchema, RoomInputSchema, RoomMessageInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
   TASK_STATUSES, isMediaRef, mediaHash,
   type BusyInfo, type HealthInfo, type ProviderId, type Room, type TaskStatus,
 } from '@pocketrocket/shared';
@@ -35,7 +35,7 @@ import { TransferError, exportBot, importBot } from '../services/botTransfer.js'
 import { MAX_MEMORY_BYTES, type MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
-import type { RoomRouter } from '../rooms/RoomRouter.js';
+import { QueueError, type RoomRouter } from '../rooms/RoomRouter.js';
 import type { BotRunner } from '../agent/BotRunner.js';
 import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.js';
 import type { SecretsStore } from '../services/SecretsStore.js';
@@ -438,6 +438,27 @@ export function createRest(deps: RestDeps) {
     // `mode` as on WS message.send: join a busy bot's running turn, or queue. The answer's payload says which.
     const { text, mode } = parse(RoomMessageInputSchema, body);
     return router.onUserMessage(params.id, text, undefined, undefined, mode);
+  });
+  // ---- queue controls (02 Phase 2): the same actions as the WS queue.* events
+  const queueFail = <T>(fn: () => T): T => {
+    try { return fn(); } catch (e) { if (e instanceof QueueError) throw new HttpError(e.status, e.message); throw e; }
+  };
+  add('GET', '/api/rooms/:id/queue', ({ params }) => queueFail(() => router.queueSnapshot(params.id)));
+  add('POST', '/api/rooms/:id/queue/cancel', ({ params, body }) => {
+    const { journalId } = parse(QueueCancelInputSchema, body);
+    return queueFail(() => router.cancelQueued(journalId, params.id));
+  });
+  add('POST', '/api/rooms/:id/queue/edit', ({ params, body }) => {
+    const { journalId, text } = parse(QueueEditInputSchema, body);
+    return queueFail(() => router.editQueued(journalId, text, params.id));
+  });
+  add('POST', '/api/rooms/:id/queue/send-now', ({ params, body }) => {
+    const { botId } = parse(QueueSendNowInputSchema, body);
+    return queueFail(() => router.sendNow(params.id, botId));
+  });
+  add('POST', '/api/rooms/:id/queue/pause', ({ params, body }) => {
+    const { botId, paused } = parse(QueuePauseInputSchema, body);
+    return queueFail(() => router.setQueuePaused(params.id, botId, paused));
   });
 
   // ---- skills

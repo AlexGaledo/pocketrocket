@@ -104,6 +104,18 @@ export function attachWs(
           if (!deps.forms?.cancel(ev.formId)) send(ws, { type: 'error', message: 'This form is no longer waiting for an answer.', context: ev.formId });
         } else if (ev.type === 'turn.interrupt') {
           if (!deps.router.interrupt(ev.turnId)) send(ws, { type: 'error', message: 'Turn not active', context: ev.turnId });
+        } else if (ev.type.startsWith('queue.')) {
+          // Queue controls (02 Phase 2): the same reach as message.send, so a paired phone may use them too. The
+          // result arrives as queue.changed / message.update; a refusal comes back tagged with what it named.
+          const context = 'journalId' in ev ? ev.journalId : 'botId' in ev ? ev.botId : undefined;
+          try {
+            if (ev.type === 'queue.cancel') deps.router.cancelQueued(ev.journalId);
+            else if (ev.type === 'queue.edit') deps.router.editQueued(ev.journalId, ev.text);
+            else if (ev.type === 'queue.sendNow') deps.router.sendNow(ev.roomId, ev.botId);
+            else if (ev.type === 'queue.pause') deps.router.setQueuePaused(ev.roomId, ev.botId, ev.paused);
+          } catch (e) {
+            return send(ws, { type: 'error', message: (e as Error).message ?? String(e), ...(context ? { context } : {}) });
+          }
         }
       } catch (e) {
         send(ws, { type: 'error', message: (e as Error).message ?? String(e) });

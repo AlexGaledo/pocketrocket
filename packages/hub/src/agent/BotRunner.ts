@@ -90,6 +90,8 @@ export interface TurnResult {
   parked?: boolean;
   /** The turn was stopped (Stop, the owner removing the bot), not ended by the provider. */
   stopped?: boolean;
+  /** Set when the owner stopped it (Stop, a queue's Send now): the runner posted no failure note (02 task 2.3). */
+  stoppedBy?: 'owner';
   /**
    * Steering: uuids of the steers this turn was given (`BotRunner.steer`). `consumedSteers` reached the model;
    * `unansweredSteers` never did (Stop, an error, a turn that ended first), so the router queues them again.
@@ -152,6 +154,8 @@ export class BotRunner {
   /** turnId to the provider it started on (Stop must reach that one, not whatever is active now). */
   private turnProviders = new Map<string, AgentProvider>();
   private aborts = new Map<string, AbortController>();
+  /** Turns the owner stopped (Stop, a queue's Send now): they end with a "stopped by you" note, not a failure. */
+  private ownerStops = new Set<string>();
   /** Last init info reported by the active provider (GET /api/health). */
   lastInit: ProviderInit = {};
   /** P8: picks the model for bots on `auto`. hub.ts replaces it with one that has the optional classifier. */
@@ -191,16 +195,21 @@ export class BotRunner {
   /** U4: waits for the owner's answers to request_form cards. Set by the hub; without it the tool is not offered. */
   forms?: FormBroker;
 
-  interrupt(turnId: string) {
+  /**
+   * Stops a turn. `by: 'owner'` (Stop, a queue's Send now) marks it as the owner's choice: the turn then ends without
+   * an error event or failure note, and its result says `stoppedBy: 'owner'` so the router posts "stopped by you".
+   */
+  interrupt(turnId: string, by?: 'owner') {
     const ac = this.aborts.get(turnId);
+    if (by === 'owner' && ac) this.ownerStops.add(turnId);
     const stopped = (this.turnProviders.get(turnId) ?? this.providers.active()).interrupt(turnId);
     if (ac) ac.abort();
     return stopped || !!ac;
   }
   /** Stops the turn a bot is running in a room, if any. Returns whether there was one. */
-  interruptLane(botId: string, roomId: string) {
+  interruptLane(botId: string, roomId: string, by?: 'owner') {
     const lane = this.laneTurns.get(botId + ':' + roomId);
-    return lane ? this.interrupt(lane.turnId) : false;
+    return lane ? this.interrupt(lane.turnId, by) : false;
   }
   /**
    * Steering: pushes a person's message into the turn this bot is running in this room. Only while a provider run
@@ -636,6 +645,7 @@ export class BotRunner {
     this.laneTurns.set(bot.id + ':' + room.id, lane);
     let ok = false;
     let error: string | undefined;
+    let stoppedByOwner = false;
     let costUsd = 0;
     // Token brake: cache-read tokens summed over every run of this turn (continuations and move-ups included).
     let cacheRead = 0;
@@ -790,6 +800,7 @@ export class BotRunner {
     } catch (e) {
       error = redact(String((e as Error).message ?? e));
     } finally {
+      stoppedByOwner = this.ownerStops.delete(turnId) && ac.signal.aborted;
       this.activeTurns.delete(turnId);
       this.aborts.delete(turnId);
       this.turnProviders.delete(turnId);
@@ -815,6 +826,16 @@ export class BotRunner {
     }
     if (!ok && !error) error = 'Turn ended without a result';
     if (error) error = redact(error);
+    if (stoppedByOwner) {
+      // 02 task 2.3: a stop the owner asked for is not a failure. No failure note, no error event or state: the router
+      // posts one "stopped by you" note once it knows whether unanswered steers or a queue run next.
+      events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, stoppedBy: 'owner' });
+      setState('done');
+      return {
+        ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail,
+        stopped: true, stoppedBy: 'owner', ...steerResult(),
+      };
+    }
     if (error) {
       const msg = this.repos.insertMessage({
         roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', ...turnFailureNote(bot.name, error, ac.signal.aborted),
