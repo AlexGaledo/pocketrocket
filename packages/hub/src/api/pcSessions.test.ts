@@ -381,3 +381,13 @@ describe('redaction and visibility (spec 6.4 layer 1, section 9 P3)', () => {
     expect(hits.sort()).toEqual(['db/migrations.ts', 'services/PcSessions.ts']);
   });
 });
+
+describe('deleted sessions stay deleted', () => {
+  it('answers 410 to a PUT for a session the owner deleted', async () => {
+    const id = await mk();
+    expect((await asOwner('DELETE', '/api/pc-sessions/' + enc(id))).status).toBe(200);
+    const r = await asRunner('PUT', '/api/pc-sessions/' + enc(id), meta({ lastAt: clock + 60_000 }));
+    expect(r.status).toBe(410);
+    expect((await asRunner('GET', '/api/pc-sessions/sync')).json.sessions[id]).toBeUndefined();
+  });
+});

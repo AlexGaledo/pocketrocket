@@ -77,3 +77,27 @@ describe('PcSessions', () => {
     }
   });
 });
+
+describe('PcSessions tombstones', () => {
+  it('refuses a session the owner deleted, for good', () => {
+    let now = 10_000;
+    const s = new PcSessions(new Db(':memory:'), { now: () => now });
+    s.upsert('a', meta());
+    s.upsert('a:sub', meta({ parentId: 'a' }));
+    expect(s.delete('a')).toBe(true);
+    now += DAY;
+    expect(s.refused('a', now + DAY)).toBe(true);
+    expect(s.refused('a:sub', now + DAY)).toBe(true);
+    expect(s.refused('other', 1)).toBe(false);
+  });
+
+  it('lets a pruned session come back only with newer activity', () => {
+    const now = 400 * DAY;
+    const s = new PcSessions(new Db(':memory:'), { now: () => now, retentionDays: 90 });
+    s.upsert('old', meta({ firstAt: 1, lastAt: 2 }));
+    expect(s.prune().removed).toBe(1);
+    expect(s.refused('old', 2)).toBe(true);
+    expect(s.refused('old', now + 1)).toBe(false);
+    expect(s.refused('old', 2)).toBe(false); // the tombstone is gone once it came back
+  });
+});

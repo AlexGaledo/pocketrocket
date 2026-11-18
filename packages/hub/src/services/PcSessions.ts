@@ -191,7 +191,7 @@ export class PcSessions {
   /** Deletes the session and its subagent children. False when it was not there. */
   delete(id: string): boolean {
     if (!this.db.get('SELECT 1 AS x FROM pc_sessions WHERE id = ?', id)) return false;
-    this.db.tx(() => this.deleteTree(id));
+    this.db.tx(() => this.deleteTree(id, true));
     return true;
   }
 
@@ -219,11 +219,28 @@ export class PcSessions {
 
   // ---- internals ----
 
-  private deleteTree(id: string): number {
+  /**
+   * Whether the runner may (re)create this session. An owner delete holds for good; a prune holds until the session
+   * shows activity newer than the prune, so a resumed old session comes back but an untouched one does not churn.
+   */
+  refused(id: string, lastAt: number): boolean {
+    const t = this.db.get<{ deleted_at: number; by_owner: number }>('SELECT deleted_at, by_owner FROM pc_session_tombstones WHERE id = ?', id);
+    if (!t) return false;
+    if (t.by_owner || lastAt <= t.deleted_at) return true;
+    this.db.run('DELETE FROM pc_session_tombstones WHERE id = ?', id);
+    return false;
+  }
+
+  private deleteTree(id: string, byOwner = false): number {
     const ids = [id, ...this.db.all<{ id: string }>('SELECT id FROM pc_sessions WHERE parent_id = ?', id).map((c) => c.id)];
+    const at = this.now();
     for (const x of ids) {
       this.db.run('DELETE FROM pc_session_entries WHERE session_id = ?', x);
       this.db.run('DELETE FROM pc_sessions WHERE id = ?', x);
+      this.db.run(
+        'INSERT INTO pc_session_tombstones (id, deleted_at, by_owner) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET deleted_at = excluded.deleted_at, by_owner = MAX(by_owner, excluded.by_owner)',
+        x, at, byOwner ? 1 : 0,
+      );
     }
     return ids.length;
   }

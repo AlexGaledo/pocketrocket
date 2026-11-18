@@ -727,4 +727,15 @@ registerMigrations([270, 279], [
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pc_session_entries_uuid ON pc_session_entries (session_id, uuid)');
     },
   },
+  {
+    version: 271,
+    name: 'pc_session_tombstones (a deleted mirrored session is not mirrored again)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_session_tombstones (
+        id TEXT PRIMARY KEY,
+        deleted_at INTEGER NOT NULL,
+        by_owner INTEGER NOT NULL DEFAULT 0
+      )`);
+    },
+  },
 ]);
