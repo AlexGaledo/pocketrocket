@@ -7,7 +7,7 @@ import type { Repos } from '../db/repos.js';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { MAX_PC_FOLDERS, MAX_PC_PROMPT_BYTES, PC_FOLDER_RE, PcRunnerError, type PcJob, type PcRunner } from '../services/PcRunner.js';
 import type { PcSessions } from '../services/PcSessions.js';
-import { MachinePolicyInputSchema, PC_SESSION_ID_RE, type PcRunnerJob } from '@pocketrocket/shared';
+import { MachinePolicyInputSchema, PC_MACHINE_ID, PC_SESSION_ID_RE, type PcRunnerJob } from '@pocketrocket/shared';
 import { Machines } from '../services/Machines.js';
 import { logError } from '../providers/redact.js';
 
@@ -145,6 +145,10 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
         const p = JobCreateInput.safeParse(body);
         if (!p.success) return bad(p.error);
         if (!pcRunner.isPaired()) return send(res, 409, { error: 'No PC runner is paired with this hub.' });
+        // "Never" on the PC means never, for the owner's own clicks too; change the policy to run here.
+        if (machines.policy(PC_MACHINE_ID) === 'never') {
+          return send(res, 409, { error: 'Your PC is set to "never" in Machines. Change its policy to run jobs there.' });
+        }
         if (Buffer.byteLength(p.data.prompt, 'utf8') > MAX_PC_PROMPT_BYTES) return send(res, 400, { error: 'The prompt is over 8 KB.' });
         let sessionId: string | null = null;
         let folder: string | null = null;

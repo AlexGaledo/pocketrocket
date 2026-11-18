@@ -452,6 +452,17 @@ describe('POST /api/pc-runner/jobs (the owner, from the app)', () => {
     const cookie = await sessionCookie();
     expect((await request('POST', '/api/pc-runner/jobs', { token: null, cookie, body: { mode: 'resume', sessionId: 'child-session-1', prompt: 'p' } })).status).toBe(400);
   });
+
+  it('honours the PC "never" policy for the owner\'s own clicks too', async () => {
+    await pair();
+    seedSession();
+    const cookie = await sessionCookie();
+    expect((await request('PUT', '/api/pc-runner/machines/pc', { token: null, cookie, body: { policy: 'never' } })).status).toBe(200);
+    const r = await request('POST', '/api/pc-runner/jobs', { token: null, cookie, body: { mode: 'resume', sessionId: SID, prompt: 'p' } });
+    expect(r.status).toBe(409);
+    expect(r.json.error).toMatch(/never/);
+    await request('PUT', '/api/pc-runner/machines/pc', { token: null, cookie, body: { policy: 'ask' } });
+  });
 });
 
 describe('migration 162', () => {
