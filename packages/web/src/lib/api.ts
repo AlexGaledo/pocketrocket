@@ -14,7 +14,7 @@ import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingSt
 import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
 import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
 import type { MachineInfo, MachinePolicy, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
-import type { BotExportResult, BotImportResult, Task, TaskStatus } from '@pocketrocket/shared';
+import type { BotExportResult, BotImportResult, LaneQueue, Task, TaskStatus } from '@pocketrocket/shared';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -225,6 +225,12 @@ export const api = {
     setModel: (id: string, model: string | null) => req<Room>('PUT', '/api/rooms/' + id + '/model', { model }),
     // `before` is a message seq (exclusive): the hub returns the page of messages just older than it.
     messages: (id: string, before?: number) => req<Message[]>('GET', '/api/rooms/' + id + '/messages?limit=' + MESSAGE_PAGE + (before ? '&before=' + before : '')),
+    /** Queue controls (02 Phase 2): each bot's waiting items in this room. A refusal throws ApiError with the hub's reason. */
+    queue: (id: string) => req<LaneQueue[]>('GET', '/api/rooms/' + id + '/queue'),
+    queueCancel: (id: string, journalId: string) => req<Message>('POST', '/api/rooms/' + id + '/queue/cancel', { journalId }),
+    queueEdit: (id: string, journalId: string, text: string) => req<Message>('POST', '/api/rooms/' + id + '/queue/edit', { journalId, text }),
+    queueSendNow: (id: string, botId: string) => req<{ interrupted: boolean }>('POST', '/api/rooms/' + id + '/queue/send-now', { botId }),
+    queuePause: (id: string, botId: string | undefined, paused: boolean) => req<LaneQueue[]>('POST', '/api/rooms/' + id + '/queue/pause', { ...(botId ? { botId } : {}), paused }),
   },
   skills: {
     list: () => req<Skill[]>('GET', '/api/skills'),

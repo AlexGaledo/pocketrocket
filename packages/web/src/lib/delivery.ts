@@ -22,6 +22,8 @@ function queuedText(name: string, reason: QueueReason | undefined, providerLabel
     case 'provider': return 'Queued: ' + (providerLabel ?? name) + " can't take messages mid-task";
     case 'between-runs': return 'Queued: ' + name + ' was between steps';
     case 'requeued': return 'Queued: ' + name + ' answers this next';
+    // The queue's pause, not the screen's. Past tense: the payload stays after a resume, as the other reasons do.
+    case 'paused': return 'Queued: ' + name + "'s queue was paused";
     // shortcut, setting, and anything a newer hub adds: the plain fact, never a reason we cannot back up.
     default: return 'Queued for after ' + name + "'s reply";
   }

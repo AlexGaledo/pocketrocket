@@ -19,6 +19,8 @@ import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
 import { MAX_ATTACHMENTS, refusalFor, reencodeImage, uploadAttachment } from '../lib/attach';
 import { IMAGE_TYPES, ImageRefused } from '../lib/media';
 import type { OutboxEntry } from '../lib/outbox';
+import { QueueChips } from './QueueChips';
+import { laneKey } from '../lib/queue';
 import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
 import type { DeliveryPayload, SendMode } from '@pocketrocket/shared';
 
@@ -36,6 +38,7 @@ export function ChatPane() {
   const openDialog = useStore((s) => s.openDialog);
   const helloReceived = useStore((s) => s.helloReceived);
   const control = useStore((s) => s.control);
+  const queues = useStore((s) => s.queues);
   // P9: a paired phone may not create or edit bots and rooms (the hub answers 403), so it is not offered.
   const device = useStore((s) => s.device);
 
@@ -82,6 +85,7 @@ export function ChatPane() {
   const filesShown = panelOpen && panelKind === 'files';
   const screenShown = panelOpen && panelKind === 'screen';
   const held = room.kind === 'group' ? members.filter((m) => (control[m.id]?.control ?? 'agent') !== 'agent') : [];
+  const queuePaused = members.filter((m) => queues[laneKey(m.id, room.id)]?.paused);
 
   return (
     <>
@@ -97,6 +101,8 @@ export function ChatPane() {
             <span className="flex min-w-0 items-center gap-2 overflow-hidden @max-[640px]:hidden">
               {room.coordinatorBotId && <Badge tone="accent">coordinator @{botById(bots, room.coordinatorBotId)?.handle}</Badge>}
               {held.map((m) => <Badge key={m.id} tone="warn">@{m.handle} {control[m.id]?.control === 'paused' ? 'paused' : 'screen: you'}</Badge>)}
+              {/* The queue's pause, worded apart from the screen's "paused" above. Resume is on the chip by the composer. */}
+              {queuePaused.map((m) => <Badge key={'q' + m.id} tone="warn">{room.kind === 'dm' ? 'Queue paused' : '@' + m.handle + ' queue paused'}</Badge>)}
             </span>
           </div>
           <div className="truncate text-hint text-muted">
@@ -412,6 +418,9 @@ function MessageGroup({ group, bots, earlier }: { group: Group; bots: Bot[]; ear
                   {m.attachments?.length ? <Attachments refs={m.attachments} /> : null}
                 </div>
                 {delivery && <DeliveryStatus delivery={delivery} bots={bots} />}
+                {/* Queue controls: what the owner did to it while it waited. Words only; the buttons live on the queue chip. */}
+                {m.cancelledAt ? <span className="pr-1 text-hint text-dim">Cancelled. No bot reads it.</span>
+                  : m.editedAt ? <span className="pr-1 text-hint text-dim">Edited</span> : null}
               </div>
             );
           })}
@@ -880,6 +889,7 @@ function Composer({ members }: { members: Bot[] }) {
             ))}
           </div>
         )}
+        {roomId && <QueueChips roomId={roomId} members={members} textarea={ref} />}
         <div className={cn('flex flex-col gap-1 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent', dragging && 'ring-2 ring-accent')}>
           {dragging && <div role="status" className="text-hint text-accent">Drop pictures to attach</div>}
           {pics.length > 0 && (
