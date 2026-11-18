@@ -39,6 +39,7 @@ import { TASK_STATUSES, type Task } from '@pocketrocket/shared';
 import { KEY_NAME_RE, loadKeyRegistry, routeByNeeds, type KeyRegistry } from '../services/keyRegistry.js';
 import path from 'node:path';
 import { DECISIONS_FILE, FileRevisionError, relIn, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
+import { sandboxActive } from '../providers/sandbox.js';
 
 export interface ToolCtx {
   bot: Bot;
@@ -998,10 +999,10 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     if (ctx.pcSessions && settings.get().personaBotId !== ctx.bot.id) tools.push(...pcSessionTools(ctx, scope.slug));
     tools.push(hubTool(
       'list_repos',
-      "List the git repos of this room's project (" + scope.slug + '): name, remote, sync mode, protected branches, and whether it is a client repo (kept on the PC, never synced). Read-only. Use a name with run_on_pc mode "sync".',
+      "List the git repos of this room's project (" + scope.slug + '): name, remote, sync mode, protected branches, and whether it is a client repo (kept on the PC and never synced, unless the server runs bot tools in a sandbox). Read-only. Use a name with run_on_pc mode "sync".',
       {},
       async () => text(scope.repos.map((r) =>
-        r.name + ' | ' + r.remote + ' | sync ' + r.sync + ' | protected: ' + [...new Set(['main', 'master', ...r.protected])].join(', ') + (r.client ? ' | client repo: stays on the PC' : ''),
+        r.name + ' | ' + r.remote + ' | sync ' + r.sync + ' | protected: ' + [...new Set(['main', 'master', ...r.protected])].join(', ') + (r.client ? (sandboxActive() ? ' | client repo: syncs while the bot sandbox is on' : ' | client repo: stays on the PC') : ''),
       ).join('\n')),
       { readOnly: true },
     ));

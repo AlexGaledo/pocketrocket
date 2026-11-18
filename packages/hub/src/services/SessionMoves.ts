@@ -19,6 +19,7 @@ import type { PcSessions } from './PcSessions.js';
 import type { ProjectService } from './ProjectService.js';
 import { claudeConfigDir, rewriteSessionFile, sessionFilePath } from './SessionFile.js';
 import { compactLine, lastContextTokens } from './SessionCompact.js';
+import { sandboxMode } from '../providers/sandbox.js';
 import type { OffloadTurnOutcome, OffloadTurnRequest } from '../agent/BotRunner.js';
 
 /**
@@ -402,6 +403,9 @@ export class SessionMoves {
     const m = this.get(sessionId);
     if (!m || m.state !== 'on-vps' || !m.vpsCwd) throw new SessionMoveError(409, 'That session is not on the VPS.');
     if (this.running.has(sessionId)) throw new SessionMoveError(409, 'A turn is already running on that session. One at a time.');
+    // The sandbox gives each bot a private Claude config dir, so a VPS turn would append to a copy of the transcript the
+    // hub never reads (and never pulls back). Until VPS turns mount the shared transcript, refuse rather than lose turns.
+    if (sandboxMode() === 'on') throw new SessionMoveError(409, 'VPS turns are not available while the bot sandbox is on yet. Turn it off in Settings > Security, or pull the session back.');
     const file = sessionFilePath(m.vpsCwd, sessionId, this.cfg());
     if (!fs.existsSync(file)) throw new SessionMoveError(409, 'The session file is missing on the VPS. Pull it back to your PC.');
     const ctxTokens = lastContextTokens(this.tail(file));

@@ -77,9 +77,10 @@ export function reposBody(repos: ProjectRepo[]): ReposPutBody {
 }
 
 /** Why a sync cannot start for this repo, or null. `repo` undefined means the project's list has no such repo. */
-export function syncBlockedReason(repo: ProjectRepo | undefined, pcBlocked: string | null): string | null {
+/** With the bot sandbox on (P7) a client repo may sync, so `sandboxOn` lifts that one reason. */
+export function syncBlockedReason(repo: ProjectRepo | undefined, pcBlocked: string | null, sandboxOn = false): string | null {
   if (!repo) return 'This repo is no longer in the project. Check Settings > Projects.';
-  if (repo.client) return 'Client repo: it stays on your PC until bots are sandboxed.';
+  if (repo.client && !sandboxOn) return 'Client repo: it stays on your PC until bots are sandboxed.';
   if (repo.sync === 'none') return 'Sync is off for this repo. Turn it on in Settings > Projects.';
   return pcBlocked;
 }

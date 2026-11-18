@@ -630,6 +630,21 @@ describe('a turn on the VPS', () => {
   });
 });
 
+describe('VPS turns and the bot sandbox (P7)', () => {
+  it('refuses a VPS turn while the sandbox is on, since its private config dir would hide the transcript', async () => {
+    const w = await world();
+    await moved(w);
+    const spy = vi.spyOn(settings, 'get').mockImplementation(() => ({ ...realGet(), personaBotId: '', sandbox: 'on' }));
+    try {
+      const r = await request('POST', '/api/pc-sessions/' + w.sid + '/continue', { token: null, cookie: w.cookie, body: { prompt: 'x' } });
+      expect(r.status).toBe(409);
+      expect(r.json.error).toMatch(/sandbox/);
+    } finally {
+      spy.mockImplementation(() => ({ ...realGet(), personaBotId: '' }));
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------------------------------
 describe('pulling back', () => {
   it('walks moving -> on-vps -> pulling -> local, serves the inverse rewrite and a bundle of the wip branch, and ends with the offset at the pulled size', async () => {

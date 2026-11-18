@@ -47,18 +47,20 @@ export interface SyncRowsProps {
   repos: Record<string, ProjectRepo[] | undefined>;
   /** PC offline / not signed in, or null. */
   blocked: string | null;
+  /** The server's bot sandbox is on and working (P7): client repos may sync. */
+  sandboxOn?: boolean;
   busy?: boolean;
   onSync: (l: PcSessionLink) => void;
 }
 
 /** One row per linked repo. Presentational so every disabled reason can be rendered in a test. */
-export function SyncRows({ links, repos, blocked, busy, onSync }: SyncRowsProps) {
+export function SyncRows({ links, repos, blocked, sandboxOn, busy, onSync }: SyncRowsProps) {
   return (
     <ul className="space-y-2">
       {links.map((l) => {
         const repo = repos[l.project]?.find((r) => r.name === l.repo);
         const loaded = repos[l.project] !== undefined;
-        const reason = loaded ? syncBlockedReason(repo, blocked) : 'Checking the repo settings…';
+        const reason = loaded ? syncBlockedReason(repo, blocked, sandboxOn) : 'Checking the repo settings…';
         const id = 'sync-' + l.project + '-' + l.repo;
         return (
           <li key={l.project + '/' + l.repo} className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -80,6 +82,8 @@ export function SyncRows({ links, repos, blocked, busy, onSync }: SyncRowsProps)
 export function SyncPanel({ sessionId, links, blocked, onOpenLog }: { sessionId: string; links: PcSessionLink[]; blocked: string | null; onOpenLog?: () => void }) {
   const [repos, setRepos] = useState<Record<string, ProjectRepo[] | undefined>>({});
   const run = usePcStart();
+  const [sandboxOn, setSandboxOn] = useState(false);
+  useEffect(() => { api.sandbox.status().then((s) => setSandboxOn(s.active), () => undefined); }, []);
   const projects = [...new Set(links.map((l) => l.project))].join('\n');
   useEffect(() => {
     let alive = true;
@@ -91,7 +95,7 @@ export function SyncPanel({ sessionId, links, blocked, onOpenLog }: { sessionId:
   const job = run.job as PcJobWithSync | null;
   return (
     <div className="space-y-3">
-      <SyncRows links={links} repos={repos} blocked={blocked} busy={run.busy || (!!job && jobActive(job.status))} onSync={(l) => void run.start(syncBody(sessionId, l))} />
+      <SyncRows links={links} repos={repos} blocked={blocked} sandboxOn={sandboxOn} busy={run.busy || (!!job && jobActive(job.status))} onSync={(l) => void run.start(syncBody(sessionId, l))} />
       <p className="text-hint text-muted">Your PC copies this session's files without touching your working folder, checks them for secrets, then pushes. It still asks before it runs.</p>
       {run.error && <Banner tone="error">{run.error}</Banner>}
       {job && (

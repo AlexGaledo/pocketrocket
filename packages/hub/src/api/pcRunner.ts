@@ -17,6 +17,7 @@ import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Machines } from '../services/Machines.js';
 import { logError } from '../providers/redact.js';
+import { sandboxActive } from '../providers/sandbox.js';
 
 const send = (res: ServerResponse, status: number, body?: unknown): true => {
   if (body === undefined) {
@@ -188,7 +189,7 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
     if (!/^[0-9a-fA-F]{64}$/.test(sha)) return refuse(req, res, 400, 'x-bundle-sha256 must be a sha256 in hex.');
     // The repo list is the owner's and may have changed since the job was made.
     const repo = projects?.reposFile(target.project).repos.find((r) => r.name === target.repo);
-    if (!projects || !repo || repo.client || repo.sync !== 'bundle') return refuse(req, res, 409, 'That repo no longer takes bundle syncs.');
+    if (!projects || !repo || (repo.client && !sandboxActive()) || repo.sync !== 'bundle') return refuse(req, res, 409, 'That repo no longer takes bundle syncs.');
     const session = job.sessionId ? pcSessions?.get(job.sessionId) : null;
     if (!session || !job.sessionId) return refuse(req, res, 409, 'The session is no longer in the mirror.');
     const projectDir = projects.dirOf(target.project);

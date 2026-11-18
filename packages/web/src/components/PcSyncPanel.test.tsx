@@ -34,6 +34,11 @@ describe('SyncRows', () => {
     expect(html).toContain('disabled=""');
     expect(html).toContain('stays on your PC until bots are sandboxed');
   });
+  it('enables a client repo when the bot sandbox is on (bridge P7)', () => {
+    const html = renderToStaticMarkup(<SyncRows links={[link]} repos={{ wika: [R({ client: true, sync: 'bundle' })] }} blocked={null} sandboxOn onSync={noop} />);
+    expect(html).not.toContain('disabled=""');
+    expect(html).not.toContain('stays on your PC');
+  });
   it('disables sync none and says why', () => {
     const html = rows(R({ sync: 'none' }));
     expect(html).toContain('disabled=""');
@@ -76,7 +81,7 @@ describe('ReposForm', () => {
     renderToStaticMarkup(<ReposForm repos={repos} onChange={noop} issues={validateRepos(repos)} onSave={noop} dirty {...o} />);
   it('shows the client explanation and protected chips', () => {
     const html = form([R({ client: true, protected: ['staging'] })]);
-    expect(html).toContain('Stays on your PC until bots are sandboxed');
+    expect(html).toContain('Stays on your PC and is never synced');
     expect(html).toContain('staging');
     expect(html).toContain('aria-label="Remove branch staging"');
   });

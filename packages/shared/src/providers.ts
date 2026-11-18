@@ -143,6 +143,11 @@ export const SettingsSchema = z.object({
    */
   personaBotId: z.string().max(64).default(''),
   /**
+   * Bridge P7: run each Claude turn's tools inside a bubblewrap sandbox (Linux servers). `on` fails closed when bubblewrap
+   * is unusable, and it lifts the P5 sync refusal for client repos. Only the REST API writes it, so no bot can turn it off.
+   */
+  sandbox: z.enum(['off', 'on']).default('off'),
+  /**
    * $ a bot may spend in a rolling 24h window before a one-line alert posts to the room its turn is running
    * in. Visibility only: it never stops or throttles the turn (spend caps are off, see spendCapsOff). 0 turns
    * the alert off.

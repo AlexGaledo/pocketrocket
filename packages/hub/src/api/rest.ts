@@ -46,6 +46,7 @@ import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
 import type { RoutingRules } from '../services/RoutingRules.js';
 import type { VoiceProposals } from '../services/VoiceProposals.js';
 import { logError } from '../providers/redact.js';
+import { sandboxStatus } from '../providers/sandbox.js';
 import type { MediaStore } from '../services/MediaStore.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
@@ -247,10 +248,17 @@ export function createRest(deps: RestDeps) {
   // ---- settings / secrets / providers
   add('GET', '/api/me', () => repos.owner());
   add('GET', '/api/settings', () => settings.get());
+  // Bridge P7: can bot tools be sandboxed here, is it on, and why not. Read-only; the switch is `sandbox` in PUT /api/settings.
+  add('GET', '/api/sandbox/status', () => sandboxStatus());
   // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
   add('PUT', '/api/settings', ({ body, req }) => {
     const patch = parsePatch(SettingsPatchSchema, body);
     needPicture(patch.userAvatar);
+    // Bridge P7: turning the sandbox on while bubblewrap cannot run would only make every turn fail; say why instead.
+    if (patch.sandbox === 'on' && settings.get().sandbox !== 'on') {
+      const st = sandboxStatus();
+      if (!st.available) throw new HttpError(409, 'sandbox: ' + st.reason);
+    }
     const before = settings.approvals();
     try {
       const next = settings.patch(patch);

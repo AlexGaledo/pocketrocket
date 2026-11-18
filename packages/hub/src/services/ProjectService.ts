@@ -9,6 +9,7 @@ import type { Db, Row } from '../db/db.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from './MemoryService.js';
 import { DEV_TEAM_TEMPLATE, cloneDescription, templateRecord } from './devTeamTemplate.js';
+import { sandboxActive } from '../providers/sandbox.js';
 
 export interface Project {
   slug: string;
@@ -287,7 +288,8 @@ export class ProjectService {
     if (!project) throw new ProjectError(400, 'No project called ' + projectSlug);
     const repo = this.reposFile(projectSlug).repos.find((r) => r.name === repoName);
     if (!repo) throw new ProjectError(400, 'Project ' + projectSlug + ' has no repo called ' + repoName);
-    if (repo.client) throw new ProjectError(400, repoName + ' is a client repo: it stays on your PC until bots are sandboxed, so it is never synced.');
+    // Bridge P7: with the bot sandbox on (and working) a client repo may sync; the sandbox is what keeps its bots out of other projects.
+    if (repo.client && !sandboxActive()) throw new ProjectError(400, repoName + ' is a client repo: it stays on your PC until bot tools run in a sandbox (turn it on in Settings > Security on a Linux server), so it is never synced.');
     if (repo.sync === 'none') throw new ProjectError(400, repoName + ' has sync set to none. Change its sync mode in the project settings first.');
     if (!session.links.some((l) => l.project === projectSlug && l.repo === repoName)) {
       throw new ProjectError(400, 'That session does not belong to ' + projectSlug + '/' + repoName + ' (its remote does not match).');

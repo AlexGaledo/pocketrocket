@@ -3,6 +3,7 @@ import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
   ComputerStatus,
+  SandboxStatus,
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import type { AuditEntry, UserSessionInfo } from '@pocketrocket/shared';
@@ -263,6 +264,7 @@ export const api = {
   },
   previews: () => req<Record<string, BotPreview>>('GET', '/api/previews'),
   search: (q: string) => req<SearchHit[]>('GET', '/api/search?q=' + encodeURIComponent(q)),
+  sandbox: { status: () => req<SandboxStatus>('GET', '/api/sandbox/status') },
   settings: {
     get: () => req<Settings>('GET', '/api/settings'),
     update: (patch: SettingsPatch) => req<Settings>('PUT', '/api/settings', patch),

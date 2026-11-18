@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A mirrored session now has a Move to VPS button. It lists the repos that move with it, asks which chat should follow the server turns when the project has several, and says why it is disabled: PC offline, not signed in, no linked repo, a client repo, or a repo that is not set to bundle sync.
 - A moved session shows an On VPS badge in the list and in its header (Moving to VPS and Pulling back while your PC works). Under it, a Continue on VPS box sends one turn at a time with a live status line, and Pull back asks for confirmation first and waits for a running turn to finish.
 - Move and pull jobs appear in the PC runner job log with their repos, commits, session size and, for a pull, whether the changes were applied to your folder or left on a wip branch.
+### Bot sandbox on the server, which lets client repos sync (hub, app, deploy)
+
+- A new switch, Settings > Security > "Run bot tools in a sandbox (Linux server)", runs each Claude turn inside bubblewrap. A bot's Bash and file tools (and the Browser tool's Playwright process) then see only the read-only system, their own bot folder, the room and project folders they belong to, the shared workspace and the network. Other projects, other bots' folders, the vault key, the hub token, the database and your server login are not mounted, so they do not exist inside. It is off by default and only you can change it: no bot can switch it off.
+- On a server where it cannot work, the switch says why and refuses to turn on. If it is on and bubblewrap later breaks, bot turns stop with that reason instead of running unprotected.
+- With the sandbox on, a repo you mark as a client repo can sync to the server like any other; with it off, nothing changes and client repos still stay on your PC.
+- Each bot gets its own private Claude config inside the sandbox, so one bot's conversation transcripts are not readable by another. Conversations started before you turned it on carry over the first time a bot resumes them.
+- `deploy/setup-vps.sh` installs bubblewrap and, on Ubuntu 24.04, an AppArmor profile (`deploy/apparmor/pocketrocket-bwrap`) that lets only `/usr/bin/bwrap` create a user namespace. `deploy/sandbox-check.sh` proves it: as the service user it checks that a bot of one project cannot read another project, another bot, or the hub's secrets.
+- While the sandbox is on, a session moved to the VPS cannot run new turns there yet (the sandbox's private Claude folder would hide them); pull it back or turn the sandbox off. Moving a client repo's session stays refused.
 
 ### Project repo lists and syncing PC work to the VPS (hub)
 

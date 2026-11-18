@@ -58,6 +58,11 @@ describe('syncBlockedReason', () => {
     expect(syncBlockedReason(R({ sync: 'none' }), null)).toMatch(/Sync is off/);
     expect(syncBlockedReason(undefined, null)).toMatch(/no longer in the project/);
   });
+  it('lets a client repo through when the bot sandbox is on, but not the other reasons (bridge P7)', () => {
+    expect(syncBlockedReason(R({ client: true, sync: 'bundle' }), null, true)).toBeNull();
+    expect(syncBlockedReason(R({ client: true, sync: 'none' }), null, true)).toMatch(/Sync is off/);
+    expect(syncBlockedReason(R({ client: true, sync: 'bundle' }), 'Your PC is offline.', true)).toBe('Your PC is offline.');
+  });
   it('falls through to the PC reason, or null when sync can start', () => {
     expect(syncBlockedReason(R({ sync: 'bundle' }), 'Your PC is offline.')).toBe('Your PC is offline.');
     expect(syncBlockedReason(R({ sync: 'wip-branch' }), null)).toBeNull();
