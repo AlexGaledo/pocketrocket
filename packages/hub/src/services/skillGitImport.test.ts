@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { SKILLS_DIR } from '../config.js';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
-import { SkillService, findSkillDirs } from './SkillService.js';
+import { SkillService, findSkillDirs, parseFrontmatter } from './SkillService.js';
 import { runGit, type GitRunner } from './git.js';
 
 /** P7 (7.4): skills imported from a git repo (a local "marketplace") all start pending review. */
@@ -46,6 +46,14 @@ function marketplace() {
   g(root, 'commit', '-q', '-m', 'skills');
   return root;
 }
+
+describe('parseFrontmatter', () => {
+  it('reads CRLF files the same as LF (Git for Windows checks out with autocrlf=true)', () => {
+    const lf = '---\nname: notes\ndescription: Writes release notes\n---\n\nBody\n';
+    expect(parseFrontmatter(lf.replace(/\n/g, '\r\n'))).toEqual({ name: 'notes', description: 'Writes release notes' });
+    expect(parseFrontmatter(lf)).toEqual({ name: 'notes', description: 'Writes release notes' });
+  });
+});
 
 describe('findSkillDirs', () => {
   it('finds SKILL.md folders at any shallow depth and not inside a skill', () => {

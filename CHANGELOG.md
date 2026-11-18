@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A bot whose turn is cut off (token brake, or the step limit after its continuation) no longer leaves its hand-off chain dead. It continues in a fresh, small session up to `CUTOFF_RETRIES` times (default 2), then the room's coordinator is woken to split, reassign or finish the work.
 - A bot that reports back on handed-off work without @mentioning anyone no longer ends the chain: its report goes to the room's coordinator.
+- Importing skills from a git repo on Windows no longer skips every skill as "no description": Git for Windows checks files out with CRLF line ends, and the SKILL.md frontmatter reader now accepts them.
 
 ## [0.3.0] - 2026-11-16
 

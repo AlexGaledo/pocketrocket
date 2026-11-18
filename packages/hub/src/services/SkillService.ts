@@ -31,7 +31,8 @@ export function resolveSkillDir(name: string): string {
 }
 
 export function parseFrontmatter(md: string): { name?: string; description?: string } {
-  const m = md.match(/^---\s*\n([\s\S]*?)\n---/);
+  // A SKILL.md cloned by Git for Windows (core.autocrlf=true by default) has CRLF line ends; `.` stops at \r.
+  const m = md.replace(/\r\n/g, '\n').match(/^---\s*\n([\s\S]*?)\n---/);
   if (!m) return {};
   const out: Record<string, string> = {};
   for (const line of m[1].split('\n')) {
