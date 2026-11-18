@@ -136,6 +136,6 @@ Short and honest:
 - **More providers.** OpenAI Codex, OpenCode and Grok adapters exist in the codebase behind a
   dev-only flag but aren't offered as a user-facing option in v1 — Claude only, for now.
 - **Paid plans**, behind the optional PocketRocket account. Signing in does nothing else yet.
-- **Code signing and an auto-updater** are deliberately out of scope for v1; Check for updates in the tray menu
-  just opens the Releases page.
+- **Code signing** is still deferred. The desktop app now updates itself (checked at launch and daily, installed
+  only when you say so and, on this PC, only once the bots are idle); see Updating in the README.
 - **macOS / Linux installers.** Both run from source today; no packaged installer yet.
