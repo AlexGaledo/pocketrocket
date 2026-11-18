@@ -218,6 +218,8 @@ interface State {
   skillsRev: number;
   /** Bumped on `pc-runner.changed`, so Settings > PC runner refetches its status and jobs. */
   pcRunnerRev: number;
+  /** A mirrored session the PC sessions page should open (set by a job log link), consumed once. */
+  pcSessionFocus: string | null;
   /** Bumped per bot on `training.changed`, so its Training section refetches. */
   trainingRev: Record<string, number>;
   /** Bumped per room on WS `task.changed`; an open Tasks board refetches when its room's number moves. */
@@ -266,6 +268,8 @@ interface State {
   openFiles: (at?: { path: string; file?: string }) => void;
   openPage: (page: Page) => void;
   closePage: () => void;
+  /** Opens the PC sessions page on one transcript, closing any dialog over it. */
+  openPcSession: (id: string) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setPaneW: (pane: PaneId, width: number) => void;
@@ -347,6 +351,7 @@ export const useStore = create<State>((set, get) => ({
   recorder: {},
   skillsRev: 0,
   pcRunnerRev: 0,
+  pcSessionFocus: null,
   trainingRev: {},
   tasksRev: {},
   queues: {},
@@ -721,6 +726,7 @@ export const useStore = create<State>((set, get) => ({
   closePanel: () => set({ panelOpen: false, screenParked: false }),
   openPage: (page) => set({ page }),
   closePage: () => set({ page: null }),
+  openPcSession: (id) => set({ page: { kind: 'pcsessions' }, pcSessionFocus: id, dialog: null }),
   toggleSidebar: () => get().setSidebarOpen(!get().sidebarOpen),
   setSidebarOpen: (open) => {
     if (!matches(NARROW_SIDEBAR_QUERY)) setItem('pocketrocket.sidebar', open ? '1' : '0');

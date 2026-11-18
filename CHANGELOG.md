@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The PC helper can now resume a session it mirrored, so a follow-up runs on your PC inside the same Claude Code conversation and its new turns show up in the same transcript. It finds the session's folder on its own and only goes ahead when that folder is inside a folder you listed in `config.json` (links and `..` tricks that lead outside are refused); that folder's own tools apply.
 - The Run / Refuse dialog on the PC now says whether a job starts a new session or resumes one, and for a resume shows the session title, its working folder and the allowlist folder it matched. Jobs from an older hub behave exactly as before.
 
+### Continue on your PC from the app
+
+- Open a mirrored Claude Code session under PC sessions and press Continue on PC to send it your next prompt. Your PC resumes that same session and the answer shows up in the transcript. The button needs the PC online and a browser signed in with your password; otherwise it says why.
+- Settings > PC runner has a new Run on PC box: pick one of the folders your PC allows, write a prompt and send it. The job log now shows whether each job was a new run or a resume, who started it (you or a bot), and links a resumed job back to its session.
+- Your PC still asks you to run or refuse every job.
+
 
 ### The hub can keep a read-only copy of your PC's Claude Code sessions
 
