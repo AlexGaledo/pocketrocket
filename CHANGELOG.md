@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fewer needless approval cards (hub)
+
+- A Bash command that sends output to `/dev/null` (`git log 2>/dev/null`) no longer counts as writing outside the workspace, so strict turns such as workflow steps stop asking for plain reads.
+
 ### Telegram notifications card (app)
 
 - Settings › Notifications now shows on every client except a paired phone, with a pointer to "Phone: Devices › Notifications on this device"; the desktop-notification card still appears only in the desktop app.

@@ -182,8 +182,10 @@ export function classifyBash(cmd: string, allowedRoots: string[] = [], opts: { r
         args.push(toks[i]);
         continue;
       }
-      redirected = true;
       if (r.consumesNext) i++;
+      // `2>/dev/null` discards output; it writes nothing, so it is neither a write nor outside the workspace.
+      if (r.target === '/dev/null') continue;
+      redirected = true;
       if (r.target && outside(r.target)) {
         return { verdict: 'ask', danger: false, reason: 'Writes outside workspace: ' + r.target };
       }
