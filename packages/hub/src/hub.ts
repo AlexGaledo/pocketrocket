@@ -410,9 +410,10 @@ export function createHub(opts: HubOptions = {}): Hub {
   // The owner's PC: run_on_pc jobs, owner-approved on a card, picked up by the helper on the PC.
   const pcRunner = new PcRunner({ db, file: path.join(DATA_DIR, 'pc-runner.json'), ...opts.pcRunner });
   runner.pcRunner = pcRunner;
-  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db });
   // Bridge P3: the PC session mirror (owner-only reads, runner writes), pruned at start and daily.
   const pcSessions = new PcSessions(db, opts.pcSessions);
+  runner.pcSessions = pcSessions;
+  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db, pcSessions });
   const pcSessionsApi = createPcSessionsApi({ pcSessions, db });
   let pcPruneTimer: NodeJS.Timeout | null = null;
   const prunePcSessions = () => {

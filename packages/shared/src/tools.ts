@@ -82,6 +82,8 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
     // A routine a bot schedules is autonomous future spend.
     'create_routine', 'update_routine', 'delete_routine',
+    // Persona only: posts into a room as the persona and wakes a member; its handler raises the card for a room the persona is not in.
+    'dispatch',
   ]),
   // Integration writes; their handlers call askIntegrationWrite.
   ...gated(INTEGRATION_WRITE_TOOLS),
@@ -94,6 +96,11 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
   ['fill_credential', 'signInOnly'],
   // Registered by the hub but in no broker set today (see `unlisted` above).
   ['read_owner_messages', 'unlisted'],
+  // Bridge P4, @persona only (registered when settings.personaBotId is that bot). The reads quote and redact what they
+  // return; dispatch posts as the persona and its handler raises a card for a room the persona is not in.
+  ['read_any_room', 'unlisted'],
+  ['list_pc_sessions', 'unlisted'],
+  ['read_pc_session', 'unlisted'],
   ['search_project_context', 'unlisted'],
   ['view_screen', 'unlisted'],
   ['request_takeover', 'unlisted'],

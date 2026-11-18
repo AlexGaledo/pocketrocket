@@ -65,7 +65,7 @@ describe('hub tool registry (B3)', () => {
     ];
     const gated = [
       'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
-      'create_routine', 'update_routine', 'delete_routine', 'propose_routing_change', ...INTEGRATION_WRITE_TOOLS, 'run_on_pc', 'fill_credential',
+      'create_routine', 'update_routine', 'delete_routine', 'dispatch', 'propose_routing_change', ...INTEGRATION_WRITE_TOOLS, 'run_on_pc', 'fill_credential',
     ];
     expect([...SILENT_TOOLS].sort()).toEqual([...silent].sort());
     expect([...GATED_TOOLS].sort()).toEqual([...gated].sort());

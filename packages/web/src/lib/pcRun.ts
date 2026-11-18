@@ -2,18 +2,8 @@
 // (a new run in an allowed folder), plus the job status labels. Kept free of React so they are easy to test.
 import type { PcJobStatus, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
 
-// TODO(bridge P4): from @pocketrocket/shared once hub/persona-pc-runs merges
-/** A job as the hub sends it after P4. Owner-started jobs have no bot or room. */
-export type PcJobView = Omit<PcRunnerJob, 'bot' | 'room' | 'folder'> & {
-  bot: PcRunnerJob['bot'] | null;
-  room: PcRunnerJob['room'] | null;
-  folder: string | null;
-  mode?: 'new' | 'resume';
-  sessionId?: string | null;
-  origin?: 'bot' | 'owner';
-  /** The allowed folder name a resume actually ran in. */
-  resolvedFolder?: string | null;
-};
+/** A job as the hub sends it. Owner-started jobs (origin 'owner') carry a bot and room with null fields. */
+export type PcJobView = PcRunnerJob;
 
 /** POST /api/pc-runner/jobs */
 export type PcJobRequest =
@@ -74,10 +64,10 @@ export function promptOk(prompt: string): boolean {
   return n > 0 && n <= PC_PROMPT_MAX;
 }
 
-export function modeLabel(j: Pick<PcJobView, 'mode'>): string {
+export function modeLabel(j: Partial<Pick<PcJobView, 'mode'>>): string {
   return j.mode === 'resume' ? 'Resume' : 'New';
 }
 
-export function originLabel(j: Pick<PcJobView, 'origin'>): string {
+export function originLabel(j: Partial<Pick<PcJobView, 'origin'>>): string {
   return j.origin === 'owner' ? 'You' : 'Bot';
 }

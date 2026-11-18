@@ -261,7 +261,7 @@ function JobsGroup({ jobs, error, onRefresh }: { jobs: PcJobView[] | null; error
 function JobRow({ j, open, onToggle }: { j: PcJobView; open: boolean; onToggle: () => void }) {
   const s = JOB_STATUS[j.status];
   const meta = [
-    j.room ? (j.room.name ?? '(deleted chat)') : 'From the app',
+    j.origin === 'owner' ? 'From the app' : (j.room.name ?? '(deleted chat)'),
     ago(j.createdAt),
     j.durationMs !== null ? fmtDuration(j.durationMs) : null,
     j.costUsd !== null ? fmtUsd(j.costUsd) : null,
@@ -281,7 +281,7 @@ function JobRow({ j, open, onToggle }: { j: PcJobView; open: boolean; onToggle: 
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui">
             <Badge tone={s.tone}>{s.label}</Badge>
             {j.mode === 'resume' && <Badge>Resume</Badge>}
-            <span className="font-mono text-hint">{j.bot ? '@' + (j.bot.handle ?? 'deleted-bot') : 'You'}</span>
+            <span className="font-mono text-hint">{j.origin === 'owner' ? 'You' : '@' + (j.bot.handle ?? 'deleted-bot')}</span>
             {(j.resolvedFolder ?? j.folder) && <span className="font-mono text-hint text-muted">{j.resolvedFolder ?? j.folder}</span>}
           </div>
           <div className="mt-1 truncate text-ui">{j.prompt.split('\n')[0]}</div>

@@ -7,22 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Smaller server backups
+
+- The daily server backup now leaves out folders that can be rebuilt, such as `node_modules`, `.next`, Python virtual environments and Rust `target` folders, wherever they sit inside a project. `dist` and `build` are still kept because they can hold real output.
+- Backups are compressed with zstd when the server has it (`data-<date>.tar.zst`), which is smaller and faster than gzip; older `.tgz` backups are still rotated and can still be restored. See `docs/SERVER.md` for the restore command.
+
+### Your persona bot can read across rooms and continue PC sessions, and the app can start PC jobs
+
+- The persona bot (the one you name in settings) gets four tools no other bot has: it can read any room, list and read the Claude Code sessions mirrored from your PC, and give a task to a bot in a room by posting there with an @mention (the bot must be in that room; a room the persona is not in asks you first). What it reads is quoted and scrubbed of keys, and the persona is told not to copy it into another room unless you ask.
+- The persona can also propose to continue one of those sessions on your PC. Like every job on the PC it needs your approval on a card, and only a browser signed in with your password can allow it (the desktop app's token alone cannot); your PC then asks you again before it runs anything.
+- The app can start jobs itself: continue a mirrored session or run a new job in a folder your PC allows. Clicking it in a signed-in browser is the approval; the desktop app, a paired phone and bots cannot do this. The job log now shows whether a job was a new run or a resume, who asked for it, and which of your allowed folders a resume ran in.
+
 ### Continue on your PC from the app
 
 - Open a mirrored Claude Code session under PC sessions and press Continue on PC to send it your next prompt. Your PC resumes that same session and the answer shows up in the transcript. The button needs the PC online and a browser signed in with your password; otherwise it says why.
 - Settings > PC runner has a new Run on PC box: pick one of the folders your PC allows, write a prompt and send it. The job log now shows whether each job was a new run or a resume, who started it (you or a bot), and links a resumed job back to its session.
 - Your PC still asks you to run or refuse every job.
 
-### Smaller server backups
-
-- The daily server backup now leaves out folders that can be rebuilt, such as `node_modules`, `.next`, Python virtual environments and Rust `target` folders, wherever they sit inside a project. `dist` and `build` are still kept because they can hold real output.
-- Backups are compressed with zstd when the server has it (`data-<date>.tar.zst`), which is smaller and faster than gzip; older `.tgz` backups are still rotated and can still be restored. See `docs/SERVER.md` for the restore command.
-
 ### The hub can keep a read-only copy of your PC's Claude Code sessions
 
 - The PC helper can now mirror your Claude Code transcripts to the hub as compact entries (what you and Claude said, which tools ran and a short result), so you can read them in the app from anywhere. Subagent runs hang under their parent session.
 - Everything is scrubbed again on the hub before it is stored (keys, tokens and any secret you saved), and kept small: at most 5 MB of text per session, 400 MB for the whole mirror (oldest sessions go first) and 90 days. The hub tidies this at start and once a day.
-- Only you can read the mirror, with the hub token or a signed-in browser: no bot, bot tool, search or room can see it, and a paired phone cannot either. You can delete a session (and its subagent runs) from the app, and a deleted session is not mirrored again.
+- Only you can read the mirror, with the hub token or a signed-in browser: no bot but your persona (see above), and no search or room, can see it, and a paired phone cannot either. You can delete a session (and its subagent runs) from the app, and a deleted session is not mirrored again.
 
 ### The PC helper can mirror your Claude Code sessions
 
