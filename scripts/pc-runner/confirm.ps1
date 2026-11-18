@@ -21,7 +21,7 @@ $script:left = $timeoutSec
 $script:answer = 1
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'PocketRocket: run a job on this PC?'
+if ($job.mode -eq 'sync') { $form.Text = 'PocketRocket: sync a repo from this PC?' } else { $form.Text = 'PocketRocket: run a job on this PC?' }
 $form.TopMost = $true
 $form.StartPosition = 'CenterScreen'
 $form.Size = New-Object System.Drawing.Size(760, 620)
@@ -48,7 +48,9 @@ $tools = ($job.tools -join ', ')
 # Plain string concatenation of data into a label's Text: displayed, never executed.
 # runner.mjs builds the lines (mode, session title, working folder for a resume job); an older runner sent fields only.
 if ($job.infoLines -and @($job.infoLines).Count -gt 0) {
-  $info.Text = (@($job.infoLines) -join "`r`n") + "`r`n" + 'Claude may use: ' + $tools
+  $info.Text = (@($job.infoLines) -join "`r`n")
+  # A sync job starts no Claude, so there is no tool list to show.
+  if ($job.mode -ne 'sync') { $info.Text = $info.Text + "`r`n" + 'Claude may use: ' + $tools }
 } else {
   $info.Text = 'Bot: @' + [string]$job.handle + "`r`n" +
     'Room: ' + [string]$job.room + "`r`n" +
@@ -80,7 +82,9 @@ $hint = New-Object System.Windows.Forms.Label
 $hint.AutoSize = $true
 $hint.MaximumSize = New-Object System.Drawing.Size(720, 0)
 $hint.Padding = New-Object System.Windows.Forms.Padding(0, 8, 0, 4)
-if ($job.mode -eq 'resume') {
+if ($job.mode -eq 'sync') {
+  $hint.Text = 'Files in this snapshot. Run copies exactly these changes (plus the commits already on your branch) to the target above; your working folder, branches and index are not touched.'
+} elseif ($job.mode -eq 'resume') {
   $hint.Text = 'Full prompt. Read it all: Run lets Claude continue that session in its working folder with the tools above.'
 } else {
   $hint.Text = 'Full prompt. Read it all: Run lets Claude act in this folder with the tools above.'

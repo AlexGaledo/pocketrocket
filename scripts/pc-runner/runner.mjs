@@ -19,7 +19,8 @@ import {
   cleanToken, backoffMs, logFileName, resolveClaudePath, canRunCode, listenerIsOurs, isInside, gitHardenedEnv,
 } from './lib.mjs';
 import { BASE, TOKEN_PATH, MIRROR_PAUSED_PATH, loadConfig, readToken, listenersOn } from './local.mjs';
-import { createMirror, httpRequester } from './mirror.mjs';
+import { createMirror, httpRequester, findGit } from './mirror.mjs';
+import { uploadBundleFile } from './sync.mjs';
 import { handleJob } from './jobs.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -305,6 +306,9 @@ const jobDeps = (cfg, claudePath, token) => ({
   confirm: confirmLocally,
   startJob: (id) => api(cfg, token, 'POST', `/jobs/${encodeURIComponent(id)}/start`),
   run: (j) => runClaude(claudePath, j),
+  // Sync jobs: git by absolute path, the machine name for wip branches, and the bundle upload through the verified tunnel.
+  gitPath: findGit(), machine: os.hostname(),
+  uploadBundle: (id, file) => uploadBundleFile({ baseUrl: `http://127.0.0.1:${cfg.localPort}`, token, jobId: id, file, guard: () => { if (!tunnelVerified) throw new Error('tunnel not verified; nothing sent'); } }),
   postResult: (id, result) => postResult(cfg, token, id, result),
 });
 

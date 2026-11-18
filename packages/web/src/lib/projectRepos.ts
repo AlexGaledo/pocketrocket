@@ -2,29 +2,13 @@
 // The hub never stores PC paths: a repo is its name plus a remote URL, and the PC finds the checkout itself.
 import type { PcJobView } from './pcRun';
 
-// TODO(bridge P5): from @pocketrocket/shared once hub/project-repos merges
-export type RepoSyncMode = 'wip-branch' | 'bundle' | 'none';
-export interface ProjectRepo {
-  name: string;
-  remote: string;
-  sync: RepoSyncMode;
-  protected: string[];
-  client: boolean;
-  /** Relative path under the project folder where a VPS copy lives. Default `repos/<name>`. */
-  vps?: string;
-}
-export interface ProjectReposFile { repos: ProjectRepo[] }
-/** `links` on a mirrored session summary. */
-export interface PcSessionLink { project: string; repo: string }
-export interface SyncScan { blocked: boolean; findings: string[] }
-export interface SyncResultView { mode: 'wip-branch' | 'bundle'; branch?: string; commit: string; bundleBytes?: number; scan: SyncScan }
-export interface SyncRequestView { project: string; repo: string; remote?: string; mode: 'wip-branch' | 'bundle'; protected?: string[] }
-/** A job as the hub sends it once P5 lands: `sync` is the request; the runner's result may sit on `sync` or `syncResult`. */
-export type PcJobWithSync = Omit<PcJobView, 'mode'> & {
-  mode: PcJobView['mode'] | 'sync';
-  sync?: Partial<SyncRequestView> & Partial<SyncResultView>;
-  syncResult?: SyncResultView | null;
-};
+import type { PcSessionLink, PcSyncJobInfo, PcSyncResult, ProjectRepo, ProjectReposFile, RepoSyncMode } from '@pocketrocket/shared';
+export type { PcSessionLink, ProjectRepo, ProjectReposFile, RepoSyncMode };
+export type SyncScan = PcSyncResult['scan'];
+export type SyncResultView = PcSyncResult;
+export type SyncRequestView = PcSyncJobInfo;
+/** The hub's job view already carries sync (the request), syncResult (the runner's report) and hubImport. */
+export type PcJobWithSync = PcJobView;
 
 export const SYNC_LABEL: Record<RepoSyncMode, string> = { 'wip-branch': 'Push wip branch', bundle: 'Sync to VPS', none: 'Off' };
 export const REPO_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,40}$/;
@@ -74,7 +58,9 @@ export function validateRepos(repos: ProjectRepo[]): RepoIssue[] {
 export const hasErrors = (issues: RepoIssue[]) => issues.some((i) => i.level === 'error');
 
 /** The PUT body: trimmed, protected de-duplicated, a blank VPS folder left out so the hub applies its default. */
-export function reposBody(repos: ProjectRepo[]): ProjectReposFile {
+/** What PUT /api/projects/:slug/repos takes: like ProjectReposFile, but the VPS folder may be left out. */
+export type ReposPutBody = { repos: Array<Omit<ProjectRepo, 'vps'> & { vps?: string }> };
+export function reposBody(repos: ProjectRepo[]): ReposPutBody {
   return {
     repos: repos.map((r) => {
       const vps = (r.vps ?? '').trim();
@@ -109,10 +95,8 @@ export function syncBody(sessionId: string, l: PcSessionLink) {
 }
 
 /** The runner's result for a sync job, wherever the hub put it. */
-export function syncResultOf(j: Pick<PcJobWithSync, 'sync' | 'syncResult'>): SyncResultView | null {
-  if (j.syncResult) return j.syncResult;
-  const s = j.sync;
-  return s && s.commit && s.scan ? (s as SyncResultView) : null;
+export function syncResultOf(j: Partial<Pick<PcJobWithSync, 'syncResult'>>): SyncResultView | null {
+  return j.syncResult ?? null;
 }
 
 export function fmtBytes(n: number): string {

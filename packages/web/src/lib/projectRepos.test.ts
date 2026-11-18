@@ -65,12 +65,12 @@ describe('syncBlockedReason', () => {
 });
 
 describe('job and session helpers', () => {
-  it('reads links and the sync result from either place', () => {
+  it('reads links and the sync result', () => {
     expect(linksOf({})).toEqual([]);
     expect(linksOf({ links: [{ project: 'p', repo: 'r' }] })).toHaveLength(1);
     const r = { mode: 'bundle' as const, commit: 'abc', scan: { blocked: false, findings: [] } };
     expect(syncResultOf({ syncResult: r })).toBe(r);
-    expect(syncResultOf({ sync: { mode: 'bundle', project: 'p', repo: 'r' } })).toBeNull();
-    expect(syncResultOf({ sync: r })?.commit).toBe('abc');
+    expect(syncResultOf({ syncResult: null })).toBeNull();
+    expect(syncResultOf({})).toBeNull();
   });
 });

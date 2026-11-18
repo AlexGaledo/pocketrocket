@@ -12,6 +12,34 @@ export interface FolderScope {
   known: readonly string[];
 }
 
+/** The owner-edited repo list in a project's folder (services/ProjectService.ts REPOS_FILE). */
+const REPOS_JSON = 'repos.json';
+
+/**
+ * Keeps bots from writing a project's `repos.json`: it says which repos are client repos, how they sync and which branches
+ * are protected, and only the owner changes it (PUT /api/projects/:slug/repos). Reading it is fine.
+ */
+export function reposFileWriteDenied(toolName: string, input: Record<string, unknown>, cwd: string, projectsRoot: string): string | null {
+  const why = REPOS_JSON + ' is the owner\'s repo list. Only the owner changes it, in the project settings.';
+  if (toolName === 'Bash') {
+    const cmd = String(input.command ?? '');
+    if (!/repos\.json/i.test(cmd)) return null;
+    const writes = [
+      />>?\s*['"]?[^\s'"|;&]*repos\.json/i,
+      /\b(tee|mv|rm|cp|truncate|dd|ln)\b[^|;&]*repos\.json/i,
+      /\b(sed|perl)\b[^|;&]*\s-i[^|;&]*repos\.json/i,
+      /\b(Set-Content|Add-Content|Out-File|Remove-Item|Move-Item|Copy-Item)\b[^|;&]*repos\.json/i,
+    ];
+    return writes.some((re) => re.test(cmd)) ? why : null;
+  }
+  const p = input.file_path ?? input.notebook_path ?? input.path;
+  if (typeof p !== 'string' || !p) return null;
+  const abs = path.resolve(cwd, p);
+  if (path.basename(abs).toLowerCase() !== REPOS_JSON) return null;
+  const rel = path.relative(path.resolve(projectsRoot), abs);
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? why : null;
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]]/g, '\\$&');
 
 /**

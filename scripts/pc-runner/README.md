@@ -38,6 +38,44 @@ Checked on Claude Code 2.1.327 with the isolation flags on: `--resume` appends t
 id, earlier turns remembered), so the mirror shows the new turns in the same transcript. If a version ever starts a new
 session instead, the runner reports it as `newSessionId`.
 
+### Sync a session's repo
+
+A **sync** job copies the repo around a mirrored session to the server so bots there can work on it. No Claude is
+started; the runner only runs git. It works like a resume job to find the repo: the session's recorded folder must sit
+inside your `folders` allowlist (checked twice, written path and real path), `git rev-parse --show-toplevel` finds the
+repo, and the repo must lie inside that same allowlist folder. The repo's `origin` (fetch and push URL, as git resolves
+them) must be the same repo as the project's remote in the job, compared in a normalised form (`git@host:o/r.git` and
+`https://host/o/r` are the same; credentials are ignored), or the job is refused.
+
+**What is sent.** A snapshot commit of the working tree: your uncommitted edits, deletions and untracked files that
+`.gitignore` does not hide, on top of your current `HEAD`, plus any commits you have not pushed to origin yet.
+It is built in a temporary index file with `write-tree` and `commit-tree`, so your working folder, index, `HEAD`,
+branches and stash are never touched (the snapshot's objects stay in `.git/objects` until git cleans them up). Then:
+
+- `wip-branch`: pushes only `refs/heads/wip/<machine>/<first 8 of the session id>`, where `<machine>` is this PC's host
+  name made lower case with only `a-z 0-9 -`. The refspec is built and checked in code right before the push, with a
+  lease on that one ref. `main`, any protected branch and every other ref cannot be named. The push goes to the URL
+  directly, so your repo gets no new remote-tracking branch. ssh runs in BatchMode (keys only). HTTPS remotes need a
+  credential helper set in the repo's own git config; the runner ignores your global and system git config.
+- `bundle`: makes a `git bundle` of the snapshot (its full history), cap 200 MB, and streams it to the hub through the
+  verified tunnel with its length and a sha256. Nothing is pushed to the remote. The bundle file is deleted afterwards.
+
+**The scan** runs before the dialog, over everything the push would add (the snapshot plus unpushed commits, so a key
+committed and removed again is still caught). It blocks on any added or changed file named `.env*` (except
+`.env.example`), `*.pem`, `*.p8`, `*.p12`, `*.key`, `*.keystore` or `id_rsa*`, and on added lines that look like an API
+key or token (`sk-...`, `ghp_`, `github_pat_`, AWS `AKIA`, Slack `xox`, JWTs, `-----BEGIN ... PRIVATE KEY-----` and the
+other shapes in `scrub.mjs`). A blocked scan is refused without asking, and the result lists the file and the kind of
+finding, never the secret. It does not look for passwords in plain code (too many false alarms), so the file list in the
+dialog is still worth a glance. A scan that cannot finish (more than 500 unpushed commits, too much text) also blocks.
+
+**The dialog** shows SYNC, the repo name, the remote, the mode, the target branch (or "bundle to the server"), how many
+files changed and how many lines, the scan result, and the list of changed files. Run / Refuse works as for any job.
+
+Never synced: repos the project marks as client repos (the hub refuses those jobs; they stay on this PC), files hidden
+by `.gitignore` (so a normal `.env` stays here), and any `.env*` file even when it is not ignored (the scan blocks it).
+Environment files are never copied. A repo whose `.gitattributes` names a filter driver runs that driver while the
+snapshot is built, the same as `git add` does for you.
+
 Before the runner sends its token anywhere, it checks that whatever listens on `127.0.0.1:<localPort>` is its
 own ssh process (`Get-NetTCPConnection`, owner pid = ssh pid). It does this when the tunnel starts and after every
 restart. If another program holds the port, the runner sends nothing, logs `port_squatted`, kills its ssh and
@@ -296,6 +334,7 @@ mirrored sessions: only you can, in the app. The runner log (`logs\`) holds coun
 | `confirm.ps1` | the Run / Refuse dialog; it reads the job from a temp JSON file and never puts it into script text |
 | `runner-on.ps1` / `runner-off.ps1` | start hidden and write `runner.pid` / stop the runner and everything it started |
 | `mirror.mjs` / `scrub.mjs` / `mirror-toggle.ps1` | the session mirror (mapper and tailer), the shared scrub rules, and the pause-resume toggle; tested by `mirror.test.mjs` |
+| `jobs.mjs` / `sync.mjs` | job handling (new, resume, sync) and the sync pieces: snapshot, scan, push, bundle, upload; tested by `jobs.test.mjs` and `sync.test.mjs` |
 | `install.ps1` | copies the files and makes the Desktop shortcuts |
 
 Tests: `node --test scripts/pc-runner`. For development, `POCKETROCKET_RUNNER_DIR` points the runner at another

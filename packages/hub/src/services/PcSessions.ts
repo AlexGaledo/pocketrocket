@@ -7,6 +7,7 @@ import {
   type PcEntry,
   type PcRepo,
   type PcSessionDetail,
+  type PcSessionLink,
   type PcSessionPut,
   type PcSessionSummary,
   type PcStoredEntry,
@@ -57,6 +58,8 @@ export class PcSessions {
   private retentionMs: number;
   private maxSessionBytes: number;
   private pending = new Map<string, { lastSent: number; timer: NodeJS.Timeout | null; lastAt: number }>();
+  /** Which project repos a session's repo belongs to (ProjectService.linksFor); set by the hub. Without it no session has links. */
+  linker: ((repo: PcRepo | null) => PcSessionLink[]) | null = null;
 
   constructor(private db: Db, opts: PcSessionsOptions = {}) {
     this.now = opts.now ?? Date.now;
@@ -144,7 +147,7 @@ export class PcSessions {
 
   // ---- owner side ----
 
-  list(o: { repo?: string; q?: string; limit?: number; before?: number } = {}): PcSessionSummary[] {
+  list(o: { repo?: string; q?: string; limit?: number; before?: number; project?: string } = {}): PcSessionSummary[] {
     const where: string[] = ['(s.parent_id IS NULL OR NOT EXISTS (SELECT 1 FROM pc_sessions p WHERE p.id = s.parent_id))'];
     const args: unknown[] = [];
     if (o.repo) {
@@ -163,9 +166,10 @@ export class PcSessions {
       args.push(o.before);
     }
     const limit = Math.max(1, Math.min(200, Math.trunc(o.limit ?? 50)));
-    return this.db
-      .all<Row>('SELECT s.* FROM pc_sessions s WHERE ' + where.join(' AND ') + ' ORDER BY s.last_at DESC, s.id LIMIT ?', ...args, limit)
-      .map((r) => this.summary(r));
+    // Links are computed at read, so a project filter reads wider than `limit` and cuts after.
+    const rows = this.db.all<Row>('SELECT s.* FROM pc_sessions s WHERE ' + where.join(' AND ') + ' ORDER BY s.last_at DESC, s.id LIMIT ?', ...args, o.project ? 2000 : limit);
+    const all = rows.map((r) => this.summary(r));
+    return o.project ? all.filter((s) => s.links.some((l) => l.project === o.project)).slice(0, limit) : all;
   }
 
   get(id: string): PcSessionDetail | null {
@@ -263,6 +267,7 @@ export class PcSessions {
       bytes: r.bytes as number,
       truncated: (r.truncated as number) === 1,
       status: this.now() - lastAt <= PC_LIVE_MS ? 'live' : 'ended',
+      links: this.linker ? this.linker(repo) : [],
     };
   }
 

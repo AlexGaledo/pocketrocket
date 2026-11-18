@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import type { Db } from '../db/db.js';
 import { addSecret, logError, redact, removeSecret } from '../providers/redact.js';
 import { events } from '../events.js';
+import type { PcSyncImport, PcSyncJobInfo, PcSyncResult } from '@pocketrocket/shared';
 
 /**
  * The owner's Windows PC as a job runner. A helper on the PC polls the hub (over the SSH tunnel) with its own
@@ -32,7 +33,7 @@ export type PcJobStatus = 'pending_approval' | 'queued' | 'claimed' | 'running' 
 const OPEN: readonly PcJobStatus[] = ['pending_approval', 'queued', 'claimed', 'running'];
 const TERMINAL = new Set<PcJobStatus>(['done', 'failed', 'refused', 'expired', 'cancelled']);
 
-export type PcJobMode = 'new' | 'resume';
+export type PcJobMode = 'new' | 'resume' | 'sync';
 export type PcJobOrigin = 'bot' | 'owner';
 
 export interface PcJob {
@@ -62,6 +63,12 @@ export interface PcJob {
   finishedAt: number | null;
   /** How long the PC says the run took. */
   durationMs: number | null;
+  /** Mode 'sync': the project repo to sync, frozen when the job was made. */
+  sync: PcSyncJobInfo | null;
+  /** Mode 'sync': what the PC reported. */
+  syncResult: PcSyncResult | null;
+  /** Mode 'sync', bundle: what the hub imported. */
+  syncImport: PcSyncImport | null;
 }
 
 interface RunnerFile {
@@ -91,7 +98,7 @@ const toJob = (r: Record<string, unknown>): PcJob => ({
   botId: (r.bot_id as string) || null,
   roomId: (r.room_id as string) || null,
   folder: (r.folder as string) || null,
-  mode: (r.mode as string) === 'resume' ? 'resume' : 'new',
+  mode: r.mode === 'resume' ? 'resume' : r.mode === 'sync' ? 'sync' : 'new',
   sessionId: (r.session_id as string | null) ?? null,
   origin: (r.origin as string) === 'owner' ? 'owner' : 'bot',
   resolvedFolder: (r.resolved_folder as string | null) ?? null,
@@ -105,7 +112,15 @@ const toJob = (r: Record<string, unknown>): PcJob => ({
   startedAt: (r.started_at as number | null) ?? null,
   finishedAt: (r.finished_at as number | null) ?? null,
   durationMs: (r.duration_ms as number | null) ?? null,
+  sync: parseJson<PcSyncJobInfo>(r.sync_json),
+  syncResult: parseJson<PcSyncResult>(r.sync_result_json),
+  syncImport: parseJson<PcSyncImport>(r.sync_import_json),
 });
+
+function parseJson<T>(v: unknown): T | null {
+  if (typeof v !== 'string' || !v) return null;
+  try { return JSON.parse(v) as T; } catch { return null; }
+}
 
 /** Tells clients to refetch GET /api/pc-runner and its jobs. Carries no job content: paired phones get every event. */
 const changed = (jobId?: string) => events.emitEvent({ type: 'pc-runner.changed', ...(jobId ? { jobId } : {}) });
@@ -254,26 +269,26 @@ export class PcRunner {
   }
 
   /** A job waiting for the owner's card. Not served until approve() moves it to `queued`. */
-  create(j: { botId?: string | null; roomId?: string | null; folder?: string | null; prompt: string; mode?: PcJobMode; sessionId?: string | null; origin?: PcJobOrigin }): PcJob {
+  create(j: { botId?: string | null; roomId?: string | null; folder?: string | null; prompt: string; mode?: PcJobMode; sessionId?: string | null; origin?: PcJobOrigin; sync?: PcSyncJobInfo | null }): PcJob {
     if (this.openCount() >= MAX_PC_QUEUE) throw new PcRunnerError(429, 'The PC already has ' + MAX_PC_QUEUE + ' jobs waiting or running. Wait for them to finish.');
     const id = nanoid(12);
     const t = this.now();
     this.opts.db.run(
-      'INSERT INTO pc_jobs (id, bot_id, room_id, folder, prompt, status, result, cost_usd, created_at, updated_at, mode, session_id, origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO pc_jobs (id, bot_id, room_id, folder, prompt, status, result, cost_usd, created_at, updated_at, mode, session_id, origin, sync_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       id, j.botId ?? '', j.roomId ?? '', j.folder ?? '', j.prompt, 'pending_approval', null, null, t, t,
-      j.mode ?? 'new', j.sessionId ?? null, j.origin ?? 'bot',
+      j.mode ?? 'new', j.sessionId ?? null, j.origin ?? 'bot', j.sync ? JSON.stringify(j.sync) : null,
     );
     changed(id);
     return this.get(id)!;
   }
 
-  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null; durationMs?: number | null; resolvedFolder?: string | null; newSessionId?: string | null } = {}): boolean {
+  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null; durationMs?: number | null; resolvedFolder?: string | null; newSessionId?: string | null; syncResult?: PcSyncResult | null } = {}): boolean {
     const t = this.now();
     const r = this.opts.db.run(
-      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), duration_ms = COALESCE(?, duration_ms), resolved_folder = COALESCE(?, resolved_folder), new_session_id = COALESCE(?, new_session_id), updated_at = ?, ' +
+      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), duration_ms = COALESCE(?, duration_ms), resolved_folder = COALESCE(?, resolved_folder), new_session_id = COALESCE(?, new_session_id), sync_result_json = COALESCE(?, sync_result_json), updated_at = ?, ' +
         'started_at = COALESCE(started_at, ?), finished_at = COALESCE(finished_at, ?) ' +
         'WHERE id = ? AND status IN (' + from.map(() => '?').join(',') + ')',
-      status, extra.result ?? null, extra.costUsd ?? null, extra.durationMs ?? null, extra.resolvedFolder ?? null, extra.newSessionId ?? null, t,
+      status, extra.result ?? null, extra.costUsd ?? null, extra.durationMs ?? null, extra.resolvedFolder ?? null, extra.newSessionId ?? null, extra.syncResult ? JSON.stringify(extra.syncResult) : null, t,
       status === 'running' ? t : null, TERMINAL.has(status) ? t : null, id, ...from,
     );
     const ok = Number(r.changes) > 0;
@@ -339,15 +354,23 @@ export class PcRunner {
    * What the PC reports. The output is redacted (known secrets, key-shaped strings) and then capped, before it is
    * stored or handed to the bot.
    */
-  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number; durationMs?: number; resolvedFolder?: string; newSessionId?: string }): PcJob {
+  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number; durationMs?: number; resolvedFolder?: string; newSessionId?: string; sync?: PcSyncResult }): PcJob {
     const j = this.get(id);
     if (!j) throw new PcRunnerError(404, 'No such job');
     const status: PcJobStatus = r.refusedLocally ? 'refused' : r.ok ? 'done' : 'failed';
     const output = capOutput(redact(r.output));
-    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null, durationMs: r.durationMs !== undefined ? Math.round(r.durationMs) : null, resolvedFolder: r.resolvedFolder ?? null, newSessionId: r.newSessionId ?? null })) {
+    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null, durationMs: r.durationMs !== undefined ? Math.round(r.durationMs) : null, resolvedFolder: r.resolvedFolder ?? null, newSessionId: r.newSessionId ?? null, syncResult: j.mode === 'sync' && r.sync ? cleanSyncResult(r.sync) : null })) {
       throw new PcRunnerError(409, 'Job is ' + j.status + '; it no longer takes a result');
     }
     return this.get(id)!;
+  }
+
+  /** A bundle the hub accepted and imported for this sync job. Once only. */
+  setSyncImport(id: string, imp: PcSyncImport): boolean {
+    const r = this.opts.db.run('UPDATE pc_jobs SET sync_import_json = ?, updated_at = ? WHERE id = ? AND sync_import_json IS NULL', JSON.stringify(imp), this.now(), id);
+    const ok = Number(r.changes) > 0;
+    if (ok) changed(id);
+    return ok;
   }
 
   private wake(id: string) {
@@ -395,4 +418,16 @@ export class PcRunner {
 export function capOutput(s: string): string {
   if (s.length <= MAX_PC_OUTPUT) return s;
   return s.slice(0, MAX_PC_OUTPUT) + '\n…(cut at 20 KB; ' + (s.length - MAX_PC_OUTPUT) + ' more characters on the PC)';
+}
+
+/** What the PC says about a sync, redacted and capped before it is stored or shown. */
+export function cleanSyncResult(r: PcSyncResult): PcSyncResult {
+  const out: PcSyncResult = {
+    mode: r.mode,
+    commit: redact(r.commit).slice(0, 64),
+    scan: { blocked: r.scan.blocked, findings: r.scan.findings.slice(0, 50).map((f) => redact(f).slice(0, 300)) },
+  };
+  if (r.branch) out.branch = redact(r.branch).slice(0, 200);
+  if (r.bundleBytes !== undefined) out.bundleBytes = r.bundleBytes;
+  return out;
 }
