@@ -7,6 +7,7 @@ import type { Repos } from '../db/repos.js';
 import { fileRootOf, type RoomFiles } from '../rooms/roomFiles.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import type { ProjectService } from '../services/ProjectService.js';
+import type { SessionMoves } from '../services/SessionMoves.js';
 import { recordAudit } from '../services/AuditLog.js';
 import { DECISIONS_FILE, FileRevisionError, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
 import { CURRENT_FILE, parseDecisions } from '../services/StateHeader.js';
@@ -45,6 +46,8 @@ const header = (req: IncomingMessage, name: string): string | undefined => {
  * Headers, both optional: `x-cc-session` (the Claude Code session id) and `x-cc-repo` (repo name, 80 characters).
  *
  *   GET  /api/cc/rooms                                  group and project rooms (no direct chats)
+ *   GET  /api/cc/session-state?sessionId=<id>           { state: 'moving'|'on-vps'|'pulling'|'local' } ('local' for a session that never moved); every response also carries x-cc-session-state while x-cc-session is on the VPS
+ *   GET  /api/cc/session                                { session: { state: 'moving'|'on-vps'|'pulling' } | null }: the PC session in x-cc-session is on the VPS, so the MCP server warns (bridge P6)
  *   GET  /api/cc/rooms/:id/messages?limit=30&before=    { messages: [{ seq, at, author, text }] }, newest last
  *   POST /api/cc/rooms/:id/messages                     { text } posts as the owner, labelled "[via Claude Code · repo]"
  *   GET  /api/cc/rooms/:id/state                        current.md, the latest decisions
@@ -53,8 +56,14 @@ const header = (req: IncomingMessage, name: string): string | undefined => {
  *   POST /api/cc/rooms/:id/decision                     { title, text, supersedes?, sources? }
  *   POST /api/cc/rooms/:id/handoff                      { to, task, context? } posts an @mention of a member bot
  */
-export function createCcApi(deps: { repos: Repos; roomFiles: RoomFiles; revisions: FileRevisions; router: RoomRouter; projects?: ProjectService }) {
-  const { repos, roomFiles, revisions, router, projects } = deps;
+export function createCcApi(deps: { repos: Repos; roomFiles: RoomFiles; revisions: FileRevisions; router: RoomRouter; projects?: ProjectService; sessionMoves?: SessionMoves }) {
+  const { repos, roomFiles, revisions, router, projects, sessionMoves } = deps;
+
+  /** Where the session in `x-cc-session` is, for the MCP server's warning line. Null when it never moved or came back. */
+  const sessionState = (sid: string | null): { state: 'moving' | 'on-vps' | 'pulling' } | null => {
+    const st = sid ? sessionMoves?.get(sid)?.state : undefined;
+    return st === 'moving' || st === 'on-vps' || st === 'pulling' ? { state: st } : null;
+  };
 
   const project = (slug: string | null) => {
     if (!slug) return null;
@@ -69,6 +78,9 @@ export function createCcApi(deps: { repos: Repos; roomFiles: RoomFiles; revision
     const pathname = url.pathname.replace(/\/+$/, '');
 
     const sessionId = (() => { const v = header(req, 'x-cc-session'); return v && SESSION_ID.test(v) ? v : null; })();
+    // The MCP server also reads this header off any response: the session is on the VPS, so it warns.
+    const locked = sessionState(sessionId);
+    if (locked) res.setHeader('x-cc-session-state', locked.state);
     const repo = cleanRepo(header(req, 'x-cc-repo'));
     const ownerName = () => settings.get().userName;
 
@@ -79,6 +91,13 @@ export function createCcApi(deps: { repos: Repos; roomFiles: RoomFiles; revision
           return { id: r.id, name: r.name, kind: r.kind, project: project(folder?.projectSlug ?? null), hasFolder: !!folder };
         });
         return send(res, 200, rooms);
+      }
+
+      if (pathname === '/api/cc/session' && method === 'GET') return send(res, 200, { session: sessionState(sessionId) });
+      if (pathname === '/api/cc/session-state' && method === 'GET') {
+        const q = url.searchParams.get('sessionId') ?? '';
+        if (!SESSION_ID.test(q)) return send(res, 400, { error: 'sessionId: the Claude Code session id' });
+        return send(res, 200, { state: sessionMoves?.get(q)?.state ?? 'local' });
       }
 
       const m = /^\/api\/cc\/rooms\/([^/]+)\/(messages|state|files\/text|decision|handoff)$/.exec(pathname);
@@ -162,6 +181,7 @@ export function createCcApi(deps: { repos: Repos; roomFiles: RoomFiles; revision
         return send(res, 200, {
           room: { id: room.id, name: room.name },
           project: project(folder.projectSlug),
+          session: sessionState(sessionId),
           current: cur.text === null ? null : { path: CURRENT_FILE, text: cur.text, hash: cur.hash, rev: cur.rev },
           decisions: dec.text ? parseDecisions(dec.text).slice(-10) : [],
         });

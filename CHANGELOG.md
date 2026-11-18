@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Move a PC Claude Code session to the VPS and back (hub)
+
+- A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.
+- While a session is on the VPS the PC's own appends are dropped and a resume or sync of it is refused (409). "Continue" runs one turn at a time through the Claude provider, resuming the same conversation in the worktree with the room's tools; `git push` is always refused there, and the turn's changes are committed to the wip branch only. New lines show in the mirror marked as the VPS, and the room gets a note when a turn starts and ends. Past 120k tokens of context it asks you to pull back instead.
+- Pulling back sends the conversation (paths swapped back, the exact inverse) and a bundle of the wip branch to the PC, then clears the worktree. `propose_move` lets @persona or a project bot propose a move or a pull as a sign-in-only card. `GET /api/cc/session-state` and the `x-cc-session-state` header tell the MCP server where a session is.
+
 ### The PC helper can move a session to the server and pull it back
 
 - A new kind of PC job moves one of your Claude Code sessions to the server so the same conversation continues there. The PC snapshots and secret-scans every linked repo first (one blocked scan refuses the whole move without asking), shows one Run / Refuse dialog for the whole move, then sends a bundle per repo and the session file. Nothing is pushed to any remote and your folders are not changed.

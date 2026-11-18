@@ -153,6 +153,8 @@ export const SettingsSchema = z.object({
    * `join` = it joins the running turn where the provider can; `queue` = it waits for the turn to end.
    */
   busyMessages: z.enum(SEND_MODES).default('join'),
+  /** Bridge P6: the model a moved PC session's turns run on at the VPS. Only the REST API writes it. */
+  offloadModel: z.string().min(1).max(80).default('claude-sonnet-5-5'),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

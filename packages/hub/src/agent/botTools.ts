@@ -29,6 +29,7 @@ import { Machines } from '../services/Machines.js';
 import { PC_MACHINE_ID, VPS_MACHINE_ID } from '@pocketrocket/shared';
 import { MAX_PC_PROMPT_BYTES, PC_EXPIRED_MESSAGE, PC_FOLDER_RE, PcRunnerError, type PcRunner } from '../services/PcRunner.js';
 import type { PcSessions } from '../services/PcSessions.js';
+import { SessionMoveError, type SessionMoves } from '../services/SessionMoves.js';
 import { PC_SESSION_ID_RE, REPO_NAME_RE, type PcSyncJobInfo, type ProjectRepo } from '@pocketrocket/shared';
 import type { PcJob } from '../services/PcRunner.js';
 import { TaskError, TaskService } from '../services/TaskService.js';
@@ -99,6 +100,8 @@ export interface ToolCtx {
   pcRunner?: PcRunner;
   /** Bridge P4: the PC session mirror, read-only. Only @persona's tools (and run_on_pc mode resume) read it. */
   pcSessions?: PcSessions;
+  /** Bridge P6: moved PC sessions. Adds `propose_move` for @persona and repo-linked bots, and makes run_on_pc refuse a resume of a session that is on the VPS. */
+  sessionMoves?: SessionMoves;
   /** U4: adds `request_form`. Absent in most unit tests. */
   forms?: FormBroker;
   /**
@@ -774,6 +777,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 
   tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
   if (ctx.pcRunner?.isPaired()) tools.push(runOnPcTool(ctx, ctx.pcRunner));
+  if (ctx.pcRunner?.isPaired() && ctx.pcSessions && ctx.sessionMoves && ctx.confirmFleetChange) tools.push(proposeMoveTool(ctx, ctx.pcRunner, ctx.sessionMoves));
   tools.push(whereToRunTool(ctx), listMachinesTool(ctx));
   // ---- P7 (7.2): notes/, searched on demand so memory.md can stay small ----
   tools.push(
@@ -1231,6 +1235,68 @@ function syncSummary(j: PcJob, info: PcSyncJobInfo): string {
   return 'Synced ' + info.repo + ' (' + r.mode + '): the session\'s working tree at commit ' + r.commit.slice(0, 12) + ' was ' + where + '. The scan found nothing.';
 }
 
+/**
+ * Bridge P6: proposes moving a mirrored PC session to the VPS so it can keep going there, or pulling it back. The card is the
+ * proposal and only a browser signed in with the owner's password may allow it ('signInOnly'); the PC then asks again before
+ * it uploads anything. @persona, or a bot on a project chat whose repos the session belongs to. Never waits for the move.
+ */
+export function proposeMoveTool(ctx: ToolCtx, pc: PcRunner, moves: SessionMoves): HubTool {
+  const userName = settings.get().userName;
+  const persona = settings.get().personaBotId === ctx.bot.id;
+  const scope = repoScope(ctx);
+  return hubTool(
+    'propose_move',
+    'Propose moving one of ' + userName + "'s Claude Code sessions from their PC to the VPS, so it carries on here with the same conversation (action \"move\", the default), or pulling a moved session back to the PC (action \"pull\"). " +
+      userName + ' approves a card, then again on the PC. Only for a session whose repos all sync by bundle and are not client repos. Returns once the job is queued.',
+    {
+      session_id: z.string().regex(PC_SESSION_ID_RE).describe('A session id from list_pc_sessions (not a subagent transcript)'),
+      action: z.enum(['move', 'pull']).optional().describe('"move" (default) or "pull"'),
+      room: z.string().max(64).optional().describe('For a move: the room whose tools the VPS turns use. Default: the project\'s own room'),
+    },
+    async (a) => {
+      if (!persona && !scope) return err(denyMessage('unavailable', { subject: 'moving a PC session', note: 'only the persona bot, or a bot on a project chat that lists repos, may propose it', alt: 'ask the owner to do it from the app' }));
+      const action = a.action ?? 'move';
+      if (a.session_id.includes(':')) return err('Pass the id of a session from list_pc_sessions (not a subagent transcript).');
+      if (new Machines(ctx.repos.db, pc).policy(PC_MACHINE_ID) === 'never') {
+        return err(denyMessage('off', { subject: 'moving a session off the PC', note: userName + ' turned the PC off in Machines, nothing was sent', alt: 'leave the session on the PC' }));
+      }
+      if (!pc.isPaired()) return err('No PC is paired with this hub. ' + userName + ' can pair one in Settings.');
+      const session = ctx.pcSessions?.get(a.session_id) ?? null;
+      if (!session || !sessionAllowed(session, persona, scope)) return err('No session "' + a.session_id + '" in the PC session mirror. Call list_pc_sessions.');
+      if (!ctx.confirmFleetChange) return err(denyMessage('unavailable', { subject: 'moving a session', note: userName + "'s approval is needed and none can be asked for here", alt: 'say so in the room' }));
+      let reason: string;
+      let input: Record<string, unknown>;
+      try {
+        if (action === 'move') {
+          // A bot on the project chat runs the turns in that chat when it is one of the project's rooms.
+          const asked = a.room ?? (moves.roomCandidates(session.links).some((r) => r.id === ctx.room.id) ? ctx.room.id : undefined);
+          const plan = moves.planMove(session, asked);
+          reason = 'Move your Claude Code session "' + (session.title ?? session.id) + '" to the VPS: ' + plan.repos.map((r) => r.project + '/' + r.repo).join(', ') +
+            ' travel as git bundles with its conversation, and its turns run in room "' + plan.room.name + '" under that room\'s permissions. It never pushes. Your PC asks you again before it uploads anything.';
+          input = { action, session_id: session.id, session: session.title ?? '(untitled)', repos: plan.repos.map((r) => r.project + '/' + r.repo).join(', '), room: plan.room.name };
+          const r = await ctx.confirmFleetChange({ tool: 'propose_move', evenUnderBypass: true, machine: PC_MACHINE_ID, reason, input });
+          if (!r.allowed) return err(r.message);
+          const job = moves.startMove(session, { roomId: plan.room.id, botId: ctx.bot.id, fromRoomId: ctx.room.id });
+          recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'pc-runner.job.approved', job.id, 'move session ' + session.id + ' (room ' + ctx.room.id + ')');
+          return text('Approved. The move is queued for ' + userName + "'s PC, which asks them once more. The room gets a note when the session is on the VPS.");
+        }
+        const row = moves.get(session.id);
+        if (!row || row.state !== 'on-vps') return err('That session is not on the VPS' + (row ? ' (it is ' + row.state + ')' : '') + ', so there is nothing to pull back.');
+        reason = 'Pull your Claude Code session "' + (session.title ?? session.id) + '" back from the VPS to your PC with the ' + row.turns + ' turn(s) run there. Your PC asks you again before it changes anything.';
+        input = { action, session_id: session.id, session: session.title ?? '(untitled)', turns: row.turns };
+        const r = await ctx.confirmFleetChange({ tool: 'propose_move', evenUnderBypass: true, machine: PC_MACHINE_ID, reason, input });
+        if (!r.allowed) return err(r.message);
+        const job = await moves.startPull(session.id, { botId: ctx.bot.id, fromRoomId: ctx.room.id });
+        recordAudit(ctx.repos.db, { kind: 'bot', id: ctx.bot.id }, 'pc-runner.job.approved', job.id, 'pull session ' + session.id + ' (room ' + ctx.room.id + ')');
+        return text('Approved. The pull is queued for ' + userName + "'s PC, which asks them once more.");
+      } catch (e) {
+        if (e instanceof SessionMoveError || e instanceof PcRunnerError) return err(e.message);
+        throw e;
+      }
+    },
+  );
+}
+
 export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
   const userName = settings.get().userName;
   // Resuming or syncing a mirrored session is @persona's, or a bot's on a project chat whose repos the session belongs to:
@@ -1285,6 +1351,7 @@ export function runOnPcTool(ctx: ToolCtx, pc: PcRunner): HubTool {
         // Same answer for a session that is not there and one that is not this bot's to use.
         if (!session || !sessionAllowed(session, persona, scope)) return err('No session "' + a.session_id + '" in the PC session mirror. Call list_pc_sessions.');
         if (session.parentId) return err('That is a subagent transcript. Use its parent session instead.');
+        if (ctx.sessionMoves?.locked(session.id)) return err('That session is on the VPS (or on its way). It has to be pulled back to the PC first: use propose_move with action "pull".');
         if (mode === 'sync') {
           if (!a.repo) return err('Pass repo: a repo name from list_repos.');
           const candidates = session.links.filter((l) => l.repo === a.repo && (scope ? l.project === scope.slug : true) && (!a.project || l.project === a.project));

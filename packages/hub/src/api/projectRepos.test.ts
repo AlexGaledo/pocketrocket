@@ -668,8 +668,9 @@ describe('uploading a bundle', () => {
     expect(runnerMayAccess('POST', '/api/pc-runner/jobs/abc/bundle')).toBe(true);
     expect(branches()).toEqual([]);
     expect(hub.pcRunner.get(live)?.syncImport).toBeNull();
-    // And the runner may not use the upload route for anything else, nor send JSON to it.
-    expect(runnerMayAccess('GET', '/api/pc-runner/jobs/abc/bundle')).toBe(false);
+    // A pull job's download is the runner's too (bridge P6), but only that GET: nothing else on the bundle route.
+    expect(runnerMayAccess('PUT', '/api/pc-runner/jobs/abc/bundle')).toBe(false);
+    expect(runnerMayAccess('GET', '/api/pc-runner/jobs/abc/bundle')).toBe(true);
     expect((await upload(live, b.buf)).status).toBe(200);
   });
 

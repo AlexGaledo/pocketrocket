@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import type { Db } from '../db/db.js';
 import { addSecret, logError, redact, removeSecret } from '../providers/redact.js';
 import { events } from '../events.js';
-import type { PcSyncImport, PcSyncJobInfo, PcSyncResult } from '@pocketrocket/shared';
+import type { PcMoveJobInfo, PcMoveResult, PcPullJobInfo, PcPullResult, PcSyncImport, PcSyncJobInfo, PcSyncResult } from '@pocketrocket/shared';
 
 /**
  * The owner's Windows PC as a job runner. A helper on the PC polls the hub (over the SSH tunnel) with its own
@@ -33,7 +33,7 @@ export type PcJobStatus = 'pending_approval' | 'queued' | 'claimed' | 'running' 
 const OPEN: readonly PcJobStatus[] = ['pending_approval', 'queued', 'claimed', 'running'];
 const TERMINAL = new Set<PcJobStatus>(['done', 'failed', 'refused', 'expired', 'cancelled']);
 
-export type PcJobMode = 'new' | 'resume' | 'sync';
+export type PcJobMode = 'new' | 'resume' | 'sync' | 'move' | 'pull';
 export type PcJobOrigin = 'bot' | 'owner';
 
 export interface PcJob {
@@ -69,6 +69,12 @@ export interface PcJob {
   syncResult: PcSyncResult | null;
   /** Mode 'sync', bundle: what the hub imported. */
   syncImport: PcSyncImport | null;
+  /** Mode 'move' (bridge P6): the room and the repos that travel, frozen when the job was made. */
+  move: PcMoveJobInfo | null;
+  moveResult: PcMoveResult | null;
+  /** Mode 'pull': the wip branches that come back and the snapshot each started from. */
+  pull: PcPullJobInfo | null;
+  pullResult: PcPullResult | null;
 }
 
 interface RunnerFile {
@@ -91,6 +97,9 @@ export interface PcRunnerOptions {
   pollMs?: number;
 }
 
+/** Called once for each job that reaches a terminal status, whoever ended it (the PC, the kill switch, expiry, a cancel). */
+export type PcJobFinishedHook = (job: PcJob) => void;
+
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 
 const toJob = (r: Record<string, unknown>): PcJob => ({
@@ -98,7 +107,7 @@ const toJob = (r: Record<string, unknown>): PcJob => ({
   botId: (r.bot_id as string) || null,
   roomId: (r.room_id as string) || null,
   folder: (r.folder as string) || null,
-  mode: r.mode === 'resume' ? 'resume' : r.mode === 'sync' ? 'sync' : 'new',
+  mode: r.mode === 'resume' || r.mode === 'sync' || r.mode === 'move' || r.mode === 'pull' ? r.mode : 'new',
   sessionId: (r.session_id as string | null) ?? null,
   origin: (r.origin as string) === 'owner' ? 'owner' : 'bot',
   resolvedFolder: (r.resolved_folder as string | null) ?? null,
@@ -115,6 +124,10 @@ const toJob = (r: Record<string, unknown>): PcJob => ({
   sync: parseJson<PcSyncJobInfo>(r.sync_json),
   syncResult: parseJson<PcSyncResult>(r.sync_result_json),
   syncImport: parseJson<PcSyncImport>(r.sync_import_json),
+  move: parseJson<PcMoveJobInfo>(r.move_json),
+  moveResult: parseJson<PcMoveResult>(r.move_result_json),
+  pull: parseJson<PcPullJobInfo>(r.pull_json),
+  pullResult: parseJson<PcPullResult>(r.pull_result_json),
 });
 
 function parseJson<T>(v: unknown): T | null {
@@ -136,6 +149,8 @@ export class PcRunner {
   /** The plain token minted by this process, so a log line or tool output that carries it gets redacted. */
   private liveToken: string | null = null;
   private wakers = new Map<string, Set<() => void>>();
+  /** Bridge P6: a move or pull job's end changes where its session is (services/SessionMoves.ts). Set by the hub. */
+  onFinished: PcJobFinishedHook | null = null;
   readonly expireMs: number;
   readonly waitMs: number;
   readonly pollMs: number;
@@ -269,32 +284,37 @@ export class PcRunner {
   }
 
   /** A job waiting for the owner's card. Not served until approve() moves it to `queued`. */
-  create(j: { botId?: string | null; roomId?: string | null; folder?: string | null; prompt: string; mode?: PcJobMode; sessionId?: string | null; origin?: PcJobOrigin; sync?: PcSyncJobInfo | null }): PcJob {
+  create(j: { botId?: string | null; roomId?: string | null; folder?: string | null; prompt: string; mode?: PcJobMode; sessionId?: string | null; origin?: PcJobOrigin; sync?: PcSyncJobInfo | null; move?: PcMoveJobInfo | null; pull?: PcPullJobInfo | null }): PcJob {
     if (this.openCount() >= MAX_PC_QUEUE) throw new PcRunnerError(429, 'The PC already has ' + MAX_PC_QUEUE + ' jobs waiting or running. Wait for them to finish.');
     const id = nanoid(12);
     const t = this.now();
     this.opts.db.run(
-      'INSERT INTO pc_jobs (id, bot_id, room_id, folder, prompt, status, result, cost_usd, created_at, updated_at, mode, session_id, origin, sync_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO pc_jobs (id, bot_id, room_id, folder, prompt, status, result, cost_usd, created_at, updated_at, mode, session_id, origin, sync_json, move_json, pull_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       id, j.botId ?? '', j.roomId ?? '', j.folder ?? '', j.prompt, 'pending_approval', null, null, t, t,
       j.mode ?? 'new', j.sessionId ?? null, j.origin ?? 'bot', j.sync ? JSON.stringify(j.sync) : null,
+      j.move ? JSON.stringify(j.move) : null, j.pull ? JSON.stringify(j.pull) : null,
     );
     changed(id);
     return this.get(id)!;
   }
 
-  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null; durationMs?: number | null; resolvedFolder?: string | null; newSessionId?: string | null; syncResult?: PcSyncResult | null } = {}): boolean {
+  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null; durationMs?: number | null; resolvedFolder?: string | null; newSessionId?: string | null; syncResult?: PcSyncResult | null; moveResult?: PcMoveResult | null; pullResult?: PcPullResult | null } = {}): boolean {
     const t = this.now();
     const r = this.opts.db.run(
-      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), duration_ms = COALESCE(?, duration_ms), resolved_folder = COALESCE(?, resolved_folder), new_session_id = COALESCE(?, new_session_id), sync_result_json = COALESCE(?, sync_result_json), updated_at = ?, ' +
+      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), duration_ms = COALESCE(?, duration_ms), resolved_folder = COALESCE(?, resolved_folder), new_session_id = COALESCE(?, new_session_id), sync_result_json = COALESCE(?, sync_result_json), move_result_json = COALESCE(?, move_result_json), pull_result_json = COALESCE(?, pull_result_json), updated_at = ?, ' +
         'started_at = COALESCE(started_at, ?), finished_at = COALESCE(finished_at, ?) ' +
         'WHERE id = ? AND status IN (' + from.map(() => '?').join(',') + ')',
-      status, extra.result ?? null, extra.costUsd ?? null, extra.durationMs ?? null, extra.resolvedFolder ?? null, extra.newSessionId ?? null, extra.syncResult ? JSON.stringify(extra.syncResult) : null, t,
+      status, extra.result ?? null, extra.costUsd ?? null, extra.durationMs ?? null, extra.resolvedFolder ?? null, extra.newSessionId ?? null, extra.syncResult ? JSON.stringify(extra.syncResult) : null,
+      extra.moveResult ? JSON.stringify(extra.moveResult) : null, extra.pullResult ? JSON.stringify(extra.pullResult) : null, t,
       status === 'running' ? t : null, TERMINAL.has(status) ? t : null, id, ...from,
     );
     const ok = Number(r.changes) > 0;
     if (ok) {
       this.wake(id);
       changed(id);
+      if (TERMINAL.has(status) && this.onFinished) {
+        try { this.onFinished(this.get(id)!); } catch (e) { logError('[pc-runner] job finished hook', e); }
+      }
     }
     return ok;
   }
@@ -354,12 +374,12 @@ export class PcRunner {
    * What the PC reports. The output is redacted (known secrets, key-shaped strings) and then capped, before it is
    * stored or handed to the bot.
    */
-  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number; durationMs?: number; resolvedFolder?: string; newSessionId?: string; sync?: PcSyncResult }): PcJob {
+  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number; durationMs?: number; resolvedFolder?: string; newSessionId?: string; sync?: PcSyncResult; move?: PcMoveResult; pull?: PcPullResult }): PcJob {
     const j = this.get(id);
     if (!j) throw new PcRunnerError(404, 'No such job');
     const status: PcJobStatus = r.refusedLocally ? 'refused' : r.ok ? 'done' : 'failed';
     const output = capOutput(redact(r.output));
-    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null, durationMs: r.durationMs !== undefined ? Math.round(r.durationMs) : null, resolvedFolder: r.resolvedFolder ?? null, newSessionId: r.newSessionId ?? null, syncResult: j.mode === 'sync' && r.sync ? cleanSyncResult(r.sync) : null })) {
+    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null, durationMs: r.durationMs !== undefined ? Math.round(r.durationMs) : null, resolvedFolder: r.resolvedFolder ?? null, newSessionId: r.newSessionId ?? null, syncResult: j.mode === 'sync' && r.sync ? cleanSyncResult(r.sync) : null, moveResult: j.mode === 'move' && r.move ? cleanMoveResult(r.move) : null, pullResult: j.mode === 'pull' && r.pull ? cleanPullResult(r.pull) : null })) {
       throw new PcRunnerError(409, 'Job is ' + j.status + '; it no longer takes a result');
     }
     return this.get(id)!;
@@ -430,4 +450,19 @@ export function cleanSyncResult(r: PcSyncResult): PcSyncResult {
   if (r.branch) out.branch = redact(r.branch).slice(0, 200);
   if (r.bundleBytes !== undefined) out.bundleBytes = r.bundleBytes;
   return out;
+}
+
+/** What the PC says about a move, redacted and capped before it is stored or shown. */
+export function cleanMoveResult(r: PcMoveResult): PcMoveResult {
+  return {
+    repos: r.repos.slice(0, 20).map((x) => ({
+      repo: x.repo.slice(0, 60), commit: redact(x.commit).slice(0, 64), branch: redact(x.branch).slice(0, 200),
+      ...(x.toplevel ? { toplevel: x.toplevel.slice(0, 500) } : {}),
+    })),
+    sessionBytes: r.sessionBytes,
+  };
+}
+
+export function cleanPullResult(r: PcPullResult): PcPullResult {
+  return { repos: r.repos.slice(0, 20).map((x) => ({ repo: x.repo.slice(0, 60), commit: redact(x.commit).slice(0, 64), applied: x.applied })), sessionBytes: r.sessionBytes };
 }
