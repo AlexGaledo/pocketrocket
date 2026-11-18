@@ -28,7 +28,7 @@ backs off.
 ## Setup
 
 1. Make sure `ssh crm-agency` works from PowerShell with your key and no password prompt.
-2. Install. This copies the runner to `%LOCALAPPDATA%\PocketRocketRunner` and puts two Desktop shortcuts there:
+2. Install. This copies the runner to `%LOCALAPPDATA%\PocketRocketRunner` and puts three Desktop shortcuts there (Runner ON, Runner OFF, Mirror pause-resume):
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\pc-runner\install.ps1
    ```
@@ -206,6 +206,55 @@ the port must belong to an `ssh` process whose parent is that runner (`Get-NetTC
 `Win32_Process`). Anything else (a squatter, a stale pid, an ssh you started yourself) means nothing is sent. The
 result is remembered for 10 seconds. The server logs only to stderr and never prints the token.
 
+## Mirror your Claude Code sessions
+
+While the runner is ON and its tunnel is verified, it also copies your Claude Code sessions to the hub, so you can
+read them in PocketRocket (the owner view, newest first). It is on by default. It reads every folder under
+`%USERPROFILE%\.claude\projects` (main sessions and their subagent transcripts; `tool-results` folders are ignored).
+
+**What is sent.** Not the raw logs (they are huge, mostly tool output) but compact entries: what you wrote, what
+Claude answered, a one-line summary of each tool call (the Bash command, the file path, the search pattern), a short
+excerpt of each tool result, and compaction summaries. Thinking, system reminders, hooks, attachments, file
+snapshots and other bookkeeping lines are skipped. A session also sends its folder, the git repo name, origin
+remote, branch and commit (read with `git` in that folder, if it still exists) and a title: your first real
+prompt, cut to 120 characters.
+
+**Caps.** Text is cut with ` ...[cut N chars]`: your and Claude's messages at 8000 characters, tool calls at 400,
+tool results at 1000, summaries at 2000. The hub keeps at most 5 MB of text per session, 400 MB in all (oldest
+sessions go first) and drops sessions 90 days after their last activity.
+
+**Backfill.** On the first run it sends only sessions changed in the last `mirrorBackfillDays` days (default 14).
+After that, new lines go over live (file watch plus a 5 s check). It remembers nothing itself: the hub tells it
+where each file stopped, so a restart resumes and never sends a line twice. A line still being written waits for
+its newline. A file that got shorter than what was sent is logged and skipped.
+
+**Config** (`config.json`, all optional):
+
+```json
+{
+  "mirror": true,
+  "mirrorBackfillDays": 14,
+  "mirrorExclude": ["C:\\Users\\you\\Documents\\private", "C:\\clients\\acme*", "*-secret-*"],
+  "claudeProjectsDir": "D:\\somewhere\\.claude\\projects"
+}
+```
+
+`mirrorExclude` skips sessions whose working folder or projects-folder name matches. Matching ignores case. A
+pattern without `*` is a path prefix (`C:\Users\you\Documents\private` also covers its subfolders, not
+`private2`; against the projects-folder name it is a plain prefix such as `C--Users-you-Documents-private`). A
+pattern with `*` is a glob over the whole value. Excluded sessions are never read past their first lines, and
+nothing from them is sent. Changes apply within seconds; entries already on the hub stay until you delete them there.
+
+**Pause.** Double-click **PocketRocket Mirror pause-resume** on the Desktop: it creates (or removes) the file
+`%LOCALAPPDATA%\PocketRocketRunner\mirror.paused`. While it exists nothing is sent; the runner checks it every
+few seconds. `"mirror": false` in `config.json` turns the mirror off for good.
+
+**Privacy.** Every entry and title is scrubbed on this PC first (keys, tokens, passwords, emails, Philippine phone
+and ID numbers, with the same rules as `scripts/context-import.mjs`) and scrubbed again on the hub. Scrubbing
+recognises shapes; a bare password typed with no label is not caught, which is what the exclude list and the pause
+shortcut are for. Like everything else, it only leaves through the verified SSH tunnel. For now bots cannot read
+mirrored sessions: only you can, in the app. The runner log (`logs\`) holds counts and errors, never entry text.
+
 ## Turning it off
 
 - Double-click **PocketRocket Runner OFF**. This stops the runner, its ssh tunnel, any running job and any open
@@ -213,7 +262,7 @@ result is remembered for 10 seconds. The server logs only to stderr and never pr
 - To unpair, delete `%LOCALAPPDATA%\PocketRocketRunner\token`. You may first need
   `icacls "%LOCALAPPDATA%\PocketRocketRunner\token" /grant:r "%USERNAME%:F"`, because the file is read-only even
   to you. Also revoke the runner token in the hub.
-- To remove the runner completely, turn it off, delete the two Desktop shortcuts and the
+- To remove the runner completely, turn it off, delete the Desktop shortcuts and the
   `%LOCALAPPDATA%\PocketRocketRunner` folder.
 - On the server, `deploy/keys.sh disable` moves `data/pc-runner.json` away with the other keys (see
   docs/SERVER.md, "Kill switch").
@@ -228,6 +277,7 @@ result is remembered for 10 seconds. The server logs only to stderr and never pr
 | `lib.mjs` | pure helpers (config check, folder check, claude args, output cap), tested by `lib.test.mjs` |
 | `confirm.ps1` | the Run / Refuse dialog; it reads the job from a temp JSON file and never puts it into script text |
 | `runner-on.ps1` / `runner-off.ps1` | start hidden and write `runner.pid` / stop the runner and everything it started |
+| `mirror.mjs` / `scrub.mjs` / `mirror-toggle.ps1` | the session mirror (mapper and tailer), the shared scrub rules, and the pause-resume toggle; tested by `mirror.test.mjs` |
 | `install.ps1` | copies the files and makes the Desktop shortcuts |
 
 Tests: `node --test scripts/pc-runner`. For development, `POCKETROCKET_RUNNER_DIR` points the runner at another

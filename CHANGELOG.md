@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The PC helper can mirror your Claude Code sessions
+
+- While the PC helper (runner) is ON, it now copies your Claude Code sessions to PocketRocket so you can read them there. It sends compact entries, not raw logs: what you and Claude wrote, a one-line summary of each tool call, a short excerpt of each result and compaction summaries, cut to fixed lengths (8000 characters for messages, 1000 for tool results). Sessions changed in the last 14 days are sent first, then new lines live; a restart resumes where it stopped.
+- Everything is scrubbed for keys, passwords, emails and phone or ID numbers on the PC before it leaves, and again on the hub. Bots cannot read mirrored sessions yet; only you can, in the app.
+- Control it in the helper's `config.json`: `mirror` (on or off), `mirrorBackfillDays`, and `mirrorExclude` (folders or `*` patterns to skip). A new "PocketRocket Mirror pause-resume" Desktop shortcut pauses and resumes it. Re-run `install.ps1` to get it. See the "Mirror your Claude Code sessions" section of `scripts/pc-runner/README.md`.
+
 ### Shared files remember who changed them
 
 - Every change to a room's or project's files that the hub can see is now recorded: who made it (you, a bot, or your assistant), from which machine, in which turn, with which tool, and the sources it cited. Bot Write and Edit calls, your uploads, deletes and text saves are tracked; a bot's Bash edits are not. Bots get `file_history` to look it up before changing something another writer made.

@@ -9,6 +9,8 @@ import { validateConfig, cleanToken } from './lib.mjs';
 export const BASE = process.env.POCKETROCKET_RUNNER_DIR || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'PocketRocketRunner');
 export const CONFIG_PATH = path.join(BASE, 'config.json');
 export const TOKEN_PATH = path.join(BASE, 'token');
+/** Flag file: while it exists the session mirror sends nothing (the "Mirror pause-resume" shortcut toggles it). */
+export const MIRROR_PAUSED_PATH = path.join(BASE, 'mirror.paused');
 export const PID_PATH = path.join(BASE, 'runner.pid');
 export const POWERSHELL = path.join(process.env.SystemRoot || 'C:\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 
