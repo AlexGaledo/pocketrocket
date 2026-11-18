@@ -345,3 +345,20 @@ export function logFileName(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   return `runner-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.log`;
 }
+
+/**
+ * Port-squatting check for a process that is NOT the runner (the MCP server). The port is the runner's tunnel only
+ * when the runner itself is alive (`procs[runnerPid]` is a runner.mjs process) and every socket on the port belongs
+ * to an ssh process whose parent is that runner. `procs` is { [pid]: { ppid, name, cmd } }.
+ * Returns { ok: true } or { ok: false, reason: 'runner-off' | 'tunnel-down' | 'squatted' }.
+ */
+export function tunnelOwnerCheck({ listeners, procs, runnerPid }) {
+  const runner = Number.isInteger(runnerPid) ? procs?.[runnerPid] : null;
+  if (!runner || !/runner\.mjs/i.test(runner.cmd || '')) return { ok: false, reason: 'runner-off' };
+  if (!Array.isArray(listeners) || listeners.length === 0) return { ok: false, reason: 'tunnel-down' };
+  const ours = listeners.every((l) => {
+    const p = procs?.[Number(l.pid)];
+    return p && /^ssh(\.exe)?$/i.test(p.name) && p.ppid === runnerPid;
+  });
+  return ours ? { ok: true } : { ok: false, reason: 'squatted' };
+}

@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - What a session posts arrives as you, so the coordinator or the bots you @mention answer as they do when you type in the app, but the line starts with `[via Claude Code · <repo>]` so you and the bots can tell it came from the terminal. Files and decisions it writes are recorded as "you via Claude Code (<repo>)" in their history, and a save from an out-of-date copy is refused with `409` like any other.
 - Bots now start a turn with a short state block: the version and "Now" part of the folder's `current.md` and the last five decisions. It goes in the turn's input, not the system prompt, and is repeated only when one of those files changed or the bot starts a fresh session.
 
+### Use PocketRocket from Claude Code
+
+- The PC runner now ships a small MCP server, so a Claude Code session in your terminal can list your rooms, read them, post to them, read and edit their shared files, log decisions and hand tasks to a bot. Add it once with `claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"` (the installer prints the line). It only works while the runner is ON, and when it is not, Claude is told to ask you to turn it on.
+- Edits are safe by design: Claude reads a file first and sends the hash it read, and if a bot or you changed the file in the meantime the write is refused and Claude gets the current text to merge instead of overwriting it. Decisions are append-only. The MCP server sends the runner token only after checking that the port belongs to the runner's own tunnel.
+
 ## [0.3.0] - 2026-11-18
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
