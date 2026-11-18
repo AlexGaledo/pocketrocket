@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Workflows say where a saved file went (hub)
+
+- A workflow whose output step saves a file now posts a short note in the chat naming the file. Before, the chat's last word on the run was "waiting for your approval" even after it finished.
+
 ### Fewer needless approval cards (hub)
 
 - A Bash command that sends output to `/dev/null` (`git log 2>/dev/null`) no longer counts as writing outside the workspace, so strict turns such as workflow steps stop asking for plain reads.
