@@ -23,7 +23,6 @@ import { BotsSection } from '../settings/BotsSection';
 import { AppearanceSection } from '../settings/AppearanceSection';
 import { AboutSection } from '../settings/AboutSection';
 import { NotificationsSection } from '../settings/NotificationsSection';
-import { canNotify } from '../../lib/notify';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
 import { ProjectsSection } from '../settings/ProjectsSection';
@@ -41,7 +40,7 @@ export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance
   | 'devices'
   | 'pc-runner'
   | 'credentials'
-  // U7: desktop app only
+  // U7: desktop card (app only) + Telegram (every non-device client)
   | 'notifications';
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
@@ -96,8 +95,7 @@ function useHealth() {
 export function SettingsDialog({ section: opening, onClose }: { section?: SectionId; onClose: () => void }) {
   // P9
   const device = useStore((s) => s.device);
-  // Notifications exist only in the desktop app, so a browser never sees the section.
-  const sections = (device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS).filter((x) => x.id !== 'notifications' || canNotify());
+  const sections = (device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS);
   const [section, setSection] = useState<SectionId>(opening ?? (device && !DEVICE_SECTIONS.includes(lastSection) ? 'devices' : lastSection));
   const sideNav = useMediaQuery(SIDE_NAV_QUERY);
   const { health, refresh: refreshHealth } = useHealth();
@@ -161,7 +159,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             <TabsPrimitive.Content value="credentials" tabIndex={-1} className={PANEL}><CredentialsSection /></TabsPrimitive.Content>
             {/* P7 */}
             <TabsPrimitive.Content value="knowledge" tabIndex={-1} className={PANEL}><KnowledgeSection /></TabsPrimitive.Content>
-            {canNotify() && <TabsPrimitive.Content value="notifications" tabIndex={-1} className={PANEL}><NotificationsSection /></TabsPrimitive.Content>}
+            <TabsPrimitive.Content value="notifications" tabIndex={-1} className={PANEL}><NotificationsSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection readOnly={device} /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="tools" tabIndex={-1} className={PANEL}><McpServersSection /></TabsPrimitive.Content>

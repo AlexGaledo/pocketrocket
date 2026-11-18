@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Telegram notifications card (app)
+
+- Settings › Notifications now shows on every client except a paired phone, with a pointer to "Phone: Devices › Notifications on this device"; the desktop-notification card still appears only in the desktop app.
+- New Telegram card: paste a bot token (checked, then shown as @yourbot), link your chat with a short code, QR code or "Open in Telegram", then turn on "Notify me here". The cloud warning (messages are content-free, Telegram still sees that something happened) is shown above the switch. Send a test, Unlink, a BotFather /revoke pointer and a "one hub per bot token" note are on the card. Needs the hub routes from the Telegram backend change.
+
 ### Move a PC Claude Code session to the VPS and back (hub)
 
 - A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.
