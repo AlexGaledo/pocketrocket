@@ -29,7 +29,8 @@ import { credentialTools } from './credentialTools.js';
 import type { CredentialStore } from '../services/CredentialStore.js';
 import type { ProjectService } from '../services/ProjectService.js';
 import { folderAccessDenied } from '../permissions/projectGuard.js';
-import type { RoomFiles } from '../rooms/roomFiles.js';
+import { buildStateHeader } from '../services/StateHeader.js';
+import { fileRootOf, type RoomFiles } from '../rooms/roomFiles.js';
 import { SHIP_GUARD_SKILL, defaultBranchPushDenied } from '../permissions/shipGuard.js';
 import type { ComputerControlService } from '../services/ComputerControl.js';
 import { takeoverTool } from './takeoverTool.js';
@@ -169,6 +170,8 @@ export class BotRunner {
   roomFiles?: RoomFiles;
   /** Bridge P1: who changed each shared file. Set by createHub; absent in most unit tests. */
   revisions?: FileRevisions;
+  /** Signature of the state block each (bot, room) last got, so an unchanged one is not repeated every turn. */
+  private stateShown = new Map<string, string>();
   /** P2: computer control (take over / hand back / pause). Set by createHub; absent in most unit tests. */
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
@@ -365,13 +368,23 @@ export class BotRunner {
     // key-registry.json, read once per turn (an edit applies to the next turn), names only.
     const keyRegistry = loadKeyRegistry();
     // Bridge P1: the turn's shared folder as a tracked root, and who this turn writes as.
-    const fileRoot: FileRoot | null = folder
-      ? { kind: folder.kind, key: folder.kind === 'project' ? folder.projectSlug! : folder.kind === 'dm' ? bot.id : room.id, dir: folder.dir }
-      : null;
+    const fileRoot: FileRoot | null = folder ? fileRootOf(room, folder) : null;
     const fileAuthor: RevisionAuthor = {
       kind: settings.get().personaBotId === bot.id ? 'persona' : 'bot',
       id: bot.id, label: '@' + bot.handle, machine: process.platform === 'win32' ? 'pc' : 'vps', sessionId: turnId, roomId: room.id,
     };
+    // Bridge P2: the folder's current.md and latest decisions go in the turn's input, not the system prompt (which has to
+    // stay identical across resumed turns for the cache). Shown on a fresh or rotated session, and again only after
+    // one of the two files changed since this bot last saw them in this room.
+    let stateHeader = '';
+    if (fileRoot && this.revisions) {
+      const block = buildStateHeader(fileRoot, this.revisions);
+      const key = bot.id + ':' + room.id;
+      if (block && (!resumeToken || this.stateShown.get(key) !== block.signature)) {
+        stateHeader = block.text;
+        this.stateShown.set(key, block.signature);
+      }
+    }
     const tools = createHubTools({
       fileRoot, fileAuthor, revisions: this.revisions,
       bot, room, members: req.members, turnId, hop: req.hop, causeId: req.causeId,
@@ -510,7 +523,7 @@ export class BotRunner {
         canMoveUp: provider.id === 'claude' && isAuto(bot),
         canProposeRouting: !!routing,
       }),
-      input: (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images),
+      input: (stateHeader ? stateHeader + '\n\n' : '') + (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images),
       ...(images.length ? { images } : {}),
       resumeToken,
       sessionCostUsd: resumeToken ? state.costTotal : 0,

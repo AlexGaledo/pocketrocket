@@ -87,6 +87,7 @@ import { RoomFiles } from './rooms/roomFiles.js';
 import { FileRevisions } from './services/FileRevisions.js';
 import { PcRunner, type PcRunnerOptions } from './services/PcRunner.js';
 import { createPcRunnerApi } from './api/pcRunner.js';
+import { createCcApi } from './api/cc.js';
 import { runnerMayAccess } from './api/guard.js';
 
 export interface HubOptions {
@@ -405,6 +406,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const pcRunner = new PcRunner({ db, file: path.join(DATA_DIR, 'pc-runner.json'), ...opts.pcRunner });
   runner.pcRunner = pcRunner;
   const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db });
+  const ccApi = createCcApi({ repos, roomFiles, revisions, router, projects });
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
   const projectsApi = createProjectsApi({ projects, repos });
@@ -660,6 +662,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await mcpServersApi(req, res)) return;
       if (await credentialsApi(req, res)) return;
       if (await pcRunnerApi(req, res)) return;
+      if (await ccApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
       if (await teachApi(req, res)) return;
       if (await rest(req, res)) return;

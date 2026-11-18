@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Room, RoomFolderKind } from '@pocketrocket/shared';
 import type { ProjectService } from '../services/ProjectService.js';
+import type { FileRoot } from '../services/FileRevisions.js';
 
 export interface RoomFolder {
   kind: RoomFolderKind;
@@ -55,4 +56,13 @@ export class RoomFiles {
     fs.mkdirSync(folder.dir, { recursive: true });
     return folder.dir;
   }
+}
+
+/** The tracked root (services/FileRevisions.ts) for a room's folder: keyed by project slug, room id, or the DM's bot. */
+export function fileRootOf(room: Room, folder: RoomFolder): FileRoot {
+  return {
+    kind: folder.kind,
+    key: folder.kind === 'project' ? folder.projectSlug! : folder.kind === 'dm' ? room.memberIds[0] : room.id,
+    dir: folder.dir,
+  };
 }
