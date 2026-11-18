@@ -18,11 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The persona can also propose to continue one of those sessions on your PC. Like every job on the PC it needs your approval on a card, and only a browser signed in with your password can allow it (the desktop app's token alone cannot); your PC then asks you again before it runs anything.
 - The app can start jobs itself: continue a mirrored session or run a new job in a folder your PC allows. Clicking it in a signed-in browser is the approval; the desktop app, a paired phone and bots cannot do this. The job log now shows whether a job was a new run or a resume, who asked for it, and which of your allowed folders a resume ran in.
 
+### The PC helper can continue one of your Claude Code sessions
+
+- The PC helper can now resume a session it mirrored, so a follow-up runs on your PC inside the same Claude Code conversation and its new turns show up in the same transcript. It finds the session's folder on its own and only goes ahead when that folder is inside a folder you listed in `config.json` (links and `..` tricks that lead outside are refused); that folder's own tools apply.
+- The Run / Refuse dialog on the PC now says whether a job starts a new session or resumes one, and for a resume shows the session title, its working folder and the allowlist folder it matched. Jobs from an older hub behave exactly as before.
+
 ### Continue on your PC from the app
 
 - Open a mirrored Claude Code session under PC sessions and press Continue on PC to send it your next prompt. Your PC resumes that same session and the answer shows up in the transcript. The button needs the PC online and a browser signed in with your password; otherwise it says why.
 - Settings > PC runner has a new Run on PC box: pick one of the folders your PC allows, write a prompt and send it. The job log now shows whether each job was a new run or a resume, who started it (you or a bot), and links a resumed job back to its session.
 - Your PC still asks you to run or refuse every job.
+
 
 ### The hub can keep a read-only copy of your PC's Claude Code sessions
 

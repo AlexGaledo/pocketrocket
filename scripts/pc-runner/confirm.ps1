@@ -43,12 +43,18 @@ $form.Controls.Add($layout)
 $info = New-Object System.Windows.Forms.Label
 $info.AutoSize = $true
 $info.MaximumSize = New-Object System.Drawing.Size(720, 0)
+$info.UseMnemonic = $false  # a title with "&" must show as typed
 $tools = ($job.tools -join ', ')
 # Plain string concatenation of data into a label's Text: displayed, never executed.
-$info.Text = 'Bot: @' + [string]$job.handle + "`r`n" +
-  'Room: ' + [string]$job.room + "`r`n" +
-  'Folder: ' + [string]$job.folderName + '  (' + [string]$job.folderPath + ')' + "`r`n" +
-  'Claude may use: ' + $tools
+# runner.mjs builds the lines (mode, session title, working folder for a resume job); an older runner sent fields only.
+if ($job.infoLines -and @($job.infoLines).Count -gt 0) {
+  $info.Text = (@($job.infoLines) -join "`r`n") + "`r`n" + 'Claude may use: ' + $tools
+} else {
+  $info.Text = 'Bot: @' + [string]$job.handle + "`r`n" +
+    'Room: ' + [string]$job.room + "`r`n" +
+    'Folder: ' + [string]$job.folderName + '  (' + [string]$job.folderPath + ')' + "`r`n" +
+    'Claude may use: ' + $tools
+}
 $layout.Controls.Add($info)
 
 if ($job.mcpServers -and @($job.mcpServers).Count -gt 0) {
@@ -74,7 +80,11 @@ $hint = New-Object System.Windows.Forms.Label
 $hint.AutoSize = $true
 $hint.MaximumSize = New-Object System.Drawing.Size(720, 0)
 $hint.Padding = New-Object System.Windows.Forms.Padding(0, 8, 0, 4)
-$hint.Text = 'Full prompt. Read it all: Run lets Claude act in this folder with the tools above.'
+if ($job.mode -eq 'resume') {
+  $hint.Text = 'Full prompt. Read it all: Run lets Claude continue that session in its working folder with the tools above.'
+} else {
+  $hint.Text = 'Full prompt. Read it all: Run lets Claude act in this folder with the tools above.'
+}
 $hintPanel.Controls.Add($hint)
 $layout.Controls.Add($hintPanel)
 
