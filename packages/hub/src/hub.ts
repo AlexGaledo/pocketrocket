@@ -47,6 +47,8 @@ import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
 import { IntegrationService } from './services/IntegrationService.js';
 import { createIntegrationsApi } from './api/integrations.js';
+import { TelegramService } from './services/TelegramService.js';
+import { createTelegramApi } from './api/telegram.js';
 import { createMcpServersApi } from './api/mcpServers.js';
 import { createCredentialsApi } from './api/credentials.js';
 import { CredentialStore } from './services/CredentialStore.js';
@@ -55,6 +57,9 @@ import { cspModeFrom, webSecurityHeaders } from './api/csp.js';
 import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
 import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
 import { TriggerService } from './services/TriggerService.js';
+import { WorkflowRepo } from './db/workflowRepo.js';
+import { WorkflowRunner } from './services/WorkflowRunner.js';
+import { createWorkflowsApi } from './api/workflows.js';
 import { createTriggersApi } from './api/triggers.js';
 import type { SocketFactory } from './services/SlackSocketMode.js';
 // P9: devices, pairing, push
@@ -115,6 +120,8 @@ export interface HubOptions {
   computers?: (db: Db) => ComputerManager;
   /** P4 integrations, built on the hub's db; tests hand in a factory with a temp vault and a fake fetch. */
   integrations?: (db: Db) => IntegrationService;
+  /** Telegram notifications; tests hand in one with a fake fetch and clock. It shares the integrations vault. */
+  telegram?: (db: Db, vault: IntegrationService['vault']) => TelegramService;
   /** P5: Slack Socket Mode transport; tests hand in a fake socket. */
   slackSocket?: SocketFactory;
   // ---- P9 ----
@@ -161,6 +168,7 @@ export interface Hub {
   runner: BotRunner;
   computers: ComputerManager;
   integrations: IntegrationService;
+  telegram: TelegramService;
   /** P5: event triggers (pollers, Slack Socket Mode, matcher). */
   triggers: TriggerService;
   // P9
@@ -171,6 +179,9 @@ export interface Hub {
   control: ComputerControlService;
   broker: PermissionBroker;
   approvals: ApprovalStore;
+  /** Workflows v1: the run engine and the rows behind it. */
+  workflows: WorkflowRunner;
+  workflowRepo: WorkflowRepo;
   // ---- P6 ----
   skills: SkillService;
   recorder: Recorder;
@@ -276,7 +287,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
-  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedRunIds(), ...control.parkedRunIds()] });
+  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedOwnerRefs(), ...control.parkedOwnerRefs()] });
 
   // P2: take over / hand back / pause, and resuming turns that parked on the user.
   const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
@@ -295,11 +306,11 @@ export function createHub(opts: HubOptions = {}): Hub {
   runner.control = control;
   router.control = control;
   broker.onParkedDecision = (p, decision) => {
-    router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, runId: p.runId, note: parkedDecisionNote(p, decision) });
+    router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, ownerRef: p.ownerRef, note: parkedDecisionNote(p, decision) });
   };
   control.onParkedHandBack = (botId, t, note) => {
     router.resumeParked(botId, t.roomId, {
-      causeId: t.causeId, hop: t.hop, runId: t.runId,
+      causeId: t.causeId, hop: t.hop, ownerRef: t.ownerRef,
       note: note === null
         ? '(Nobody took over your computer within ' + Math.round(control.maxParkMs / 3_600_000) + ' hours of your request "' + t.reason +
           '", so you have control again. Do not ask again right away; tell the user what is still blocked.)'
@@ -339,10 +350,15 @@ export function createHub(opts: HubOptions = {}): Hub {
   integrations.pruneGrants(repos.listBots().map((b) => b.id));
   const offBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') integrations.pruneGrants(ev.bots.map((b) => b.id)); });
   const integrationsApi = createIntegrationsApi({ integrations, repos });
+  // Where a phone opens the hub from: the first allowed Tailscale name, if the owner set one up. Never a loopback address.
+  const hubUrlForPhone = () => { const h = (opts.allowedHosts ?? ALLOWED_HOSTS)[0]; return h ? 'https://' + h + '/' : null; };
+  const telegram = opts.telegram ? opts.telegram(db, integrations.vault) : new TelegramService({ db, vault: integrations.vault, hubUrl: hubUrlForPhone });
+  const telegramApi = createTelegramApi({ telegram });
 
   // P5: event triggers. Outbound polling and Slack Socket Mode only (Q5); started in listen(), stopped first on shutdown.
   const triggers = new TriggerService({ db, repos, integrations, router, socket: opts.slackSocket });
-  const triggersApi = createTriggersApi({ triggers });
+  const workflowRepo = new WorkflowRepo(db);
+  const triggersApi = createTriggersApi({ triggers, inUse: (id) => workflowRepo.forTrigger(id).length > 0 });
   router.triggerBudget = (id) => triggers.remainingBudget(id);
 
   const screenSessions = new ScreenSessions();
@@ -354,6 +370,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const push = opts.push
     ? opts.push(devicesRepo, repos)
     : PushService.withFile({ devices: devicesRepo, repos, subject: PUSH_SUBJECT, vapidPath: VAPID_PATH });
+  push.setTelegram(telegram);
   const devicesApi = createDevicesApi({ devices, push, allowedHosts });
   // Every socket a device holds open (/ws and its Screen), so revoking it hangs them up at once.
   const deviceSockets = new Map<string, Set<{ close(): void }>>();
@@ -396,7 +413,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     busy,
     // After this tick, so the 202 is written before shutdown closes every connection.
     stop: () => { setImmediate(() => void hub.stop('maintenance stop')); },
-    media,
+    media, routineInUse: (id) => workflowRepo.forRoutine(id).length > 0,
     repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers, screenOpener, routing,
     viewOnly: (scope) => control.viewOnly(scope),
   });
@@ -409,6 +426,16 @@ export function createHub(opts: HubOptions = {}): Hub {
   // Bridge P1: who changed each shared file (bot Write/Edit hooks, owner uploads and text saves).
   const revisions = new FileRevisions(repos.db);
   runner.revisions = revisions;
+  // Workflows v1. The runner registers the owner handler and the run-budget hook on the router; FollowUp resumes the step turns, then recover() restarts runs cut between steps.
+  const workflows = new WorkflowRunner({
+    repos, workflows: workflowRepo, router, usage, roomFiles, revisions,
+    triggerExists: (id) => !!triggers.repo.get(id),
+    heldOwners: () => [...approvalStore.parkedOwnerRefs(), ...control.parkedOwnerRefs()],
+  });
+  scheduler.workflows = (id, manual) => workflows.fireRoutine(id, { manual });
+  triggers.workflows = (id, event, manual) => workflows.fireTrigger(id, event, { manual });
+  runner.workflows = workflows;
+  const workflowsApi = createWorkflowsApi({ repos, workflows: workflowRepo, runner: workflows });
   // A bot works without a card only in the folder of the room it is replying in.
   setRoomRootsResolver((botId, roomId) => {
     const room = repos.getRoom(roomId);
@@ -698,7 +725,9 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await mediaApi(req, res)) return;
       if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
+      if (await telegramApi(req, res)) return;
       if (await triggersApi(req, res)) return;
+      if (await workflowsApi(req, res)) return;
       if (await contextApi(req, res)) return;
       if (await projectsApi(req, res)) return;
       if (await filesApi(req, res)) return;
@@ -812,8 +841,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       })();
       return stopping;
     },
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner, pcSessions, sessionMoves, projects,
-    control, broker, approvals: approvalStore,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, telegram, triggers, devices, push, pcRunner, pcSessions, sessionMoves, projects,
+    control, broker, approvals: approvalStore, workflows, workflowRepo,
     skills, recorder, distiller, media,
     listen: () =>
       new Promise<number>((resolve, reject) => {
@@ -822,11 +851,12 @@ export function createHub(opts: HubOptions = {}): Hub {
           port = (server.address() as { port: number }).port;
           const resumed = followUp.resumeInterrupted();
           if (resumed) console.log('resuming ' + resumed + ' turn(s) cut off by the previous run');
+          workflows.recover();
           followUp.start();
           // P2: re-apply view-only as computers come up; give up on parked cards and takeovers after 24 h.
           control.start();
           broker.sweepParked();
-          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); }, 60_000);
+          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); workflows.sweep(); }, 60_000);
           p2Timer.unref();
           prunePcSessions();
           pcPruneTimer ??= setInterval(prunePcSessions, 24 * 60 * 60_000);
@@ -889,6 +919,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       for (const p of integrations.pending()) integrations.cancel(p.provider);
       account.stop();
       push.stop();
+      // Aborts a link poll in flight; does not wait for it.
+      telegram.stop();
       offRevoke();
       offSessionRevoke();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).

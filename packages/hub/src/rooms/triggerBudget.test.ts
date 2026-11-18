@@ -47,7 +47,7 @@ describe('trigger budget on resumed turns', () => {
     await until(() => h.seen.length === 1);
     expect(h.seen[0].causeBudgetUsd).toBeCloseTo(0.4);
     // The resumed turn has no budget of its own; it used to get the full thread cap.
-    expect(h.router.resumeParked(h.bot.id, h.room.id, { causeId: msg.id, hop: 0, runId: null, note: 'Approval granted.' })).toBe(true);
+    expect(h.router.resumeParked(h.bot.id, h.room.id, { causeId: msg.id, hop: 0, ownerRef: null, note: 'Approval granted.' })).toBe(true);
     await until(() => h.seen.length === 2);
     expect(h.seen[1].causeBudgetUsd).toBeCloseTo(0.4);
     expect(h.asked).toContain('trg1');
@@ -68,7 +68,7 @@ describe('trigger budget on resumed turns', () => {
       const msg = h.router.fireTrigger(h.room, h.bot, { name: 'Issues', prompt: 'p', event: h.event, payload: h.payload });
       await until(() => h.seen.length === 1);
       h.router.triggerBudget = () => left;
-      h.router.resumeParked(h.bot.id, h.room.id, { causeId: msg.id, hop: 0, runId: null, note: 'Approval granted.' });
+      h.router.resumeParked(h.bot.id, h.room.id, { causeId: msg.id, hop: 0, ownerRef: null, note: 'Approval granted.' });
       await until(() => h.repos.messagesAfter(h.room.id, 0).some((m) => m.kind === 'system' && /Daily budget reached/.test(m.text)));
       expect(h.seen).toHaveLength(1);
     }

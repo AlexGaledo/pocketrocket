@@ -36,3 +36,6 @@ export * from './pcSessions.js';
 
 // Project repo lists and sync (bridge P5)
 export * from './projectRepos.js';
+
+// Workflows v1 (OpenBot gaps M4)
+export * from './workflows.js';
