@@ -268,6 +268,39 @@ export function parseSyncSpec(s) {
   return { project: s.project, repo: s.repo, remote: s.remote, mode: s.mode, protected: [...prot] };
 }
 
+const COMMIT_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+const WIP_BRANCH_RE = /^wip\/[a-z0-9-]+\/[A-Za-z0-9_-]{8}$/;
+const MAX_MOVE_REPOS = 20;
+
+/** The repo part of a move or pull job: a sync spec whose `mode` may be missing (pull jobs carry none). */
+function parseRepoSpec(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  const r = parseSyncSpec({ ...s, mode: s.mode === undefined ? 'bundle' : s.mode });
+  return r ? { ...r, mode: s.mode === undefined ? null : r.mode } : null;
+}
+
+/** The `move` object of a move job: { room: string|null, repos: [{ project, repo, remote, mode, protected }] } or null. */
+export function parseMoveSpec(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  if (!Array.isArray(m.repos) || m.repos.length > MAX_MOVE_REPOS) return null;
+  const repos = [];
+  for (const r of m.repos) { const p = parseRepoSpec(r); if (!p) return null; repos.push(p); }
+  return { room: typeof m.room === 'string' ? m.room.slice(0, 80) : null, repos };
+}
+
+/** The `pull` object of a pull job: { repos: [{ project, repo, remote, mode, protected, branch, baseCommit }] } or null. */
+export function parsePullSpec(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  if (!Array.isArray(m.repos) || m.repos.length > MAX_MOVE_REPOS) return null;
+  const repos = [];
+  for (const r of m.repos) {
+    const p = parseRepoSpec(r);
+    if (!p || typeof r.branch !== 'string' || !WIP_BRANCH_RE.test(r.branch) || typeof r.baseCommit !== 'string' || !COMMIT_RE.test(r.baseCommit)) return null;
+    repos.push({ ...p, branch: r.branch, baseCommit: r.baseCommit });
+  }
+  return { repos };
+}
+
 /**
  * The canonical form of a git remote URL, so the hub, the web app and this runner agree on "the same repo":
  * https://<lower-case host>[:port]/<path without .git or trailing slash>. `git@host:o/r`, `ssh://git@host(:22)/o/r`,
@@ -311,10 +344,11 @@ export function parseJob(j) {
   const id = String(j.id);
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return null;
   const mode = j.mode === undefined || j.mode === null ? 'new' : j.mode;
-  if (mode !== 'new' && mode !== 'resume' && mode !== 'sync') return null;
-  // A sync job runs no Claude, so it has no prompt; every other mode needs one.
-  if (mode !== 'sync' && (typeof j.prompt !== 'string' || !j.prompt.trim())) return null;
-  let folder = null, sessionId = null, sync = null;
+  if (mode !== 'new' && mode !== 'resume' && mode !== 'sync' && mode !== 'move' && mode !== 'pull') return null;
+  // Sync, move and pull jobs run no Claude, so they have no prompt; every other mode needs one.
+  const noClaude = mode === 'sync' || mode === 'move' || mode === 'pull';
+  if (!noClaude && (typeof j.prompt !== 'string' || !j.prompt.trim())) return null;
+  let folder = null, sessionId = null, sync = null, move = null, pull = null;
   if (mode === 'new') {
     if (typeof j.folder !== 'string') return null;
     folder = j.folder;
@@ -324,11 +358,17 @@ export function parseJob(j) {
     if (mode === 'sync') {
       sync = parseSyncSpec(j.sync);
       if (!sync) return null;
+    } else if (mode === 'move') {
+      move = parseMoveSpec(j.move);
+      if (!move) return null;
+    } else if (mode === 'pull') {
+      pull = parsePullSpec(j.pull);
+      if (!pull) return null;
     }
   }
   const handle = typeof j.bot?.handle === 'string' ? j.bot.handle : j.origin === 'owner' ? 'owner' : '?';
   const room = { id: String(j.room?.id ?? ''), name: typeof j.room?.name === 'string' ? j.room.name : j.origin === 'owner' ? '(from the app)' : '?' };
-  return { id, mode, sessionId, sync, bot: { handle }, room, folder, prompt: typeof j.prompt === 'string' ? j.prompt : '', origin: j.origin === 'owner' ? 'owner' : 'bot', createdAt: j.createdAt ?? null };
+  return { id, mode, sessionId, sync, move, pull, onVps: j.onVps === true, bot: { handle }, room, folder, prompt: typeof j.prompt === 'string' ? j.prompt : '', origin: j.origin === 'owner' ? 'owner' : 'bot', createdAt: j.createdAt ?? null };
 }
 
 /**

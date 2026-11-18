@@ -1,9 +1,11 @@
 // Job handling for the PC runner, split out of runner.mjs so node:test can drive it with stubs (no tunnel, no dialog,
 // no claude). runner.mjs wires the real pieces in; importing this file has no side effects.
 //
-// Three job modes:
+// Job modes:
 //   sync    the hub names a mirrored session id, a repo and a way (wip-branch or bundle). No Claude runs: the runner
 //           snapshots that session's repo (see sync.mjs), scans it for secrets, asks, then pushes or uploads.
+//   move    (bridge P6) send a session and its repos to the VPS so the same conversation continues there (move.mjs).
+//   pull    bring it back: the server's work lands in a wip branch and, if the folder is unchanged, in the working files.
 //   new     the hub names an allowlisted folder; claude starts a fresh session there (as always).
 //   resume  the hub names a mirrored session id and NO folder. The runner finds that session's transcript on this PC,
 //           reads the working folder it recorded, and only goes on when that folder is (really) inside an allowlisted
@@ -13,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { folderFor, parseJob, promptPreview, buildMcpConfig, canRunCode, isInside, normaliseRemote, SESSION_ID_RE, CONFIRM_TIMEOUT_MS } from './lib.mjs';
 import { pathInfo, scanHead } from './mirror.mjs';
+import { handleMove, handlePull } from './move.mjs';
 import {
   makeGit, repoToplevel, originUrls, snapshot, diffStats, scanRepo, pushWip, makeBundle, wipNames,
   syncInfoLines, syncFileListText, SYNC_MAX_BUNDLE_BYTES,
@@ -131,9 +134,15 @@ export async function handleJob(d, raw) {
   const config = fresh.config;
 
   if (job.mode === 'sync') return handleSync(d, job, config, refuse, (name) => { resolvedFolder = name; });
+  if (job.mode === 'move' || job.mode === 'pull') {
+    const h = { resolveResume, findSessionFile, projectsDir: d.projectsDir?.(config) ?? defaultProjectsDir(config) };
+    return (job.mode === 'move' ? handleMove : handlePull)(d, job, config, refuse, (name) => { resolvedFolder = name; }, h);
+  }
 
   let folder, cwd, resume = null;
   if (job.mode === 'resume') {
+    // The session lives on the VPS right now: the hub says so (onVps) and the runner remembers its own moves.
+    if (job.onVps || d.isOnVps?.(job.sessionId)) return refuse('This session is on the VPS; pull it back before continuing it here.');
     resume = await resolveResume({ sessionId: job.sessionId, config, projectsDir: d.projectsDir?.(config) });
     if (!resume.ok) return refuse(resume.why);
     folder = resume.folder; cwd = resume.cwd; resolvedFolder = resume.folderName;

@@ -21,7 +21,10 @@ $script:left = $timeoutSec
 $script:answer = 1
 
 $form = New-Object System.Windows.Forms.Form
-if ($job.mode -eq 'sync') { $form.Text = 'PocketRocket: sync a repo from this PC?' } else { $form.Text = 'PocketRocket: run a job on this PC?' }
+if ($job.mode -eq 'sync') { $form.Text = 'PocketRocket: sync a repo from this PC?' }
+elseif ($job.mode -eq 'move') { $form.Text = 'PocketRocket: move this session to the server?' }
+elseif ($job.mode -eq 'pull') { $form.Text = 'PocketRocket: pull this session back to this PC?' }
+else { $form.Text = 'PocketRocket: run a job on this PC?' }
 $form.TopMost = $true
 $form.StartPosition = 'CenterScreen'
 $form.Size = New-Object System.Drawing.Size(760, 620)
@@ -49,8 +52,8 @@ $tools = ($job.tools -join ', ')
 # runner.mjs builds the lines (mode, session title, working folder for a resume job); an older runner sent fields only.
 if ($job.infoLines -and @($job.infoLines).Count -gt 0) {
   $info.Text = (@($job.infoLines) -join "`r`n")
-  # A sync job starts no Claude, so there is no tool list to show.
-  if ($job.mode -ne 'sync') { $info.Text = $info.Text + "`r`n" + 'Claude may use: ' + $tools }
+  # Sync, move and pull jobs start no Claude, so there is no tool list to show.
+  if ($job.mode -notin @('sync', 'move', 'pull')) { $info.Text = $info.Text + "`r`n" + 'Claude may use: ' + $tools }
 } else {
   $info.Text = 'Bot: @' + [string]$job.handle + "`r`n" +
     'Room: ' + [string]$job.room + "`r`n" +
@@ -84,6 +87,10 @@ $hint.MaximumSize = New-Object System.Drawing.Size(720, 0)
 $hint.Padding = New-Object System.Windows.Forms.Padding(0, 8, 0, 4)
 if ($job.mode -eq 'sync') {
   $hint.Text = 'Files in this snapshot. Run copies exactly these changes (plus the commits already on your branch) to the target above; your working folder, branches and index are not touched.'
+} elseif ($job.mode -eq 'move') {
+  $hint.Text = 'Files in each repo that go to the server. Run sends exactly these changes (plus commits not yet on origin) and the session transcript; nothing is pushed to any remote, and your working folders, branches and indexes are not touched.'
+} elseif ($job.mode -eq 'pull') {
+  $hint.Text = 'Files the server changed. Run takes the work back: it goes into a wip branch of each repo, into your working files only where your folder is unchanged since the move, and the session transcript is replaced (the old one is kept next to it).'
 } elseif ($job.mode -eq 'resume') {
   $hint.Text = 'Full prompt. Read it all: Run lets Claude continue that session in its working folder with the tools above.'
 } else {
