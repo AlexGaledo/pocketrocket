@@ -340,6 +340,8 @@ export const api = {
     get: (id: string) => req<PcSessionDetail>('GET', '/api/pc-sessions/' + encodeURIComponent(id)),
     entries: (id: string, after = 0, limit = PC_ENTRY_PAGE) => req<{ entries: PcSeqEntry[]; more: boolean }>('GET', '/api/pc-sessions/' + encodeURIComponent(id) + '/entries?after=' + after + '&limit=' + limit),
     remove: (id: string) => req<{ ok: true }>('DELETE', '/api/pc-sessions/' + encodeURIComponent(id)),
+    /** Bridge P6: one turn on the VPS copy of a moved session. 409 while a turn runs; owner, signed-in browser only. */
+    continue: (id: string, body: { prompt: string }) => req<{ ok: true }>('POST', '/api/pc-sessions/' + encodeURIComponent(id) + '/continue', body),
   },
   // Saved logins for fill_credential. The secret is write-only: it is sent here and never comes back.
   credentials: {

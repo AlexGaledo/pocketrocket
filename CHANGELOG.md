@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Move a PC session to the VPS and pull it back (app)
+
+- A mirrored session now has a Move to VPS button. It lists the repos that move with it, asks which chat should follow the server turns when the project has several, and says why it is disabled: PC offline, not signed in, no linked repo, a client repo, or a repo that is not set to bundle sync.
+- A moved session shows an On VPS badge in the list and in its header (Moving to VPS and Pulling back while your PC works). Under it, a Continue on VPS box sends one turn at a time with a live status line, and Pull back asks for confirmation first and waits for a running turn to finish.
+- Move and pull jobs appear in the PC runner job log with their repos, commits, session size and, for a pull, whether the changes were applied to your folder or left on a wip branch.
+
 ### Project repo lists and syncing PC work to the VPS (hub)
 
 - A project can list its git repos in Settings (stored as `repos.json` in the project folder, which only you can edit): a name, the remote URL, how it syncs (wip branch, bundle or none), extra protected branches, and whether it is a client repo. Repos are matched by remote URL, so no path on your PC is ever stored here. Bots cannot change the list.

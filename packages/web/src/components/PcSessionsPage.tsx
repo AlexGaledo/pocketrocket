@@ -2,7 +2,7 @@
 // transcript. The list refreshes (debounced) and the open transcript appends when the hub sends
 // `pc_session_updated`. Nothing here sends anything back to Claude Code; the only write is deleting the mirror.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, Play, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, CloudUpload, Play, Trash2, Upload } from 'lucide-react';
 import { useStore } from '../store';
 import { api } from '../lib/api';
 import {
@@ -13,6 +13,8 @@ import { PcRunForm, usePcStart, usePcStatus } from './PcRunForm';
 import { canResume, resumeBody } from '../lib/pcRun';
 import { linksOf } from '../lib/projectRepos';
 import { SyncPanel } from './PcSyncPanel';
+import { MoveBadge, MovePanel, VpsPanel } from './PcMovePanel';
+import { isOnVps, moveOf } from '../lib/pcMove';
 import { Badge, Banner, Button, Input, Select, Skeleton, SkeletonGroup, Tooltip, cn, confirmAction } from './ui';
 import { FleetHeader, PageBody } from './FleetPages';
 import { MirrorEmptyState, SessionGroups, TranscriptEntries } from './PcSessionViews';
@@ -127,9 +129,11 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
   const [moreBusy, setMoreBusy] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const openDialog = useStore((s) => s.openDialog);
-  const { blocked } = usePcStatus();
+  const { blocked, signedIn } = usePcStatus();
+  const rev = useStore((s) => s.pcRunnerRev);
   const run = usePcStart();
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(false);
@@ -145,6 +149,7 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
     return r;
   }, [id]);
 
+  const refresh = useCallback(() => { api.pcSessions.get(id).then(setDetail, () => undefined); }, [id]);
   useEffect(() => {
     api.pcSessions.get(id).then(setDetail, (e: Error) => setError(e.message));
     fetchPage(0).catch((e: Error) => setError(e.message));
@@ -160,6 +165,17 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
     inFlight.current = true;
     fetchPage(lastSeq.current).catch(() => undefined).finally(() => { inFlight.current = false; });
   }), [id, fetchPage]);
+
+  // A move, pull or VPS turn changes state on the hub; the PC's job events and the 4 s poll below keep the header true
+  // even when no transcript entry arrives.
+  const move = detail ? moveOf(detail) : null;
+  const busyMove = !!move && (move.state === 'moving' || move.state === 'pulling' || move.turnRunning);
+  useEffect(() => { if (rev) refresh(); }, [rev, refresh]);
+  useEffect(() => {
+    if (!busyMove) return;
+    const t = setInterval(refresh, 4000);
+    return () => clearInterval(t);
+  }, [busyMove, refresh]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -189,6 +205,7 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
   };
 
   const links = detail ? linksOf(detail) : [];
+  const onVps = !!detail && isOnVps(detail);
   const where = detail ? [detail.repo?.name, detail.repo?.branch].filter(Boolean).join(' · ') : '';
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -198,16 +215,22 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
           <h1 className="flex items-center gap-2 text-body font-semibold">
             <span className="truncate">{detail ? sessionTitle(detail) : 'Session'}</span>
             {detail?.status === 'live' && <Badge tone="ok">Live</Badge>}
+            {detail && <MoveBadge s={detail} />}
           </h1>
           <div className="truncate text-hint text-muted">{[where || detail?.cwd, ...links.map((l) => l.project + '/' + l.repo)].filter(Boolean).join(' · ') || ' '}</div>
         </div>
-        {links.length > 0 && (
-          <Button size="sm" variant="outline" aria-expanded={syncOpen} aria-controls="sync-to-vps" onClick={() => { setSyncOpen((o) => !o); setComposeOpen(false); }}>
+        {canResume(id) && detail && !onVps && (
+          <Button size="sm" variant="outline" aria-expanded={moveOpen} aria-controls="move-to-vps" onClick={() => { setMoveOpen((o) => !o); setSyncOpen(false); setComposeOpen(false); }}>
+            <CloudUpload size={13} aria-hidden /> <span className="max-sm:sr-only">Move to VPS</span>
+          </Button>
+        )}
+        {links.length > 0 && !onVps && (
+          <Button size="sm" variant="outline" aria-expanded={syncOpen} aria-controls="sync-to-vps" onClick={() => { setSyncOpen((o) => !o); setComposeOpen(false); setMoveOpen(false); }}>
             <Upload size={13} aria-hidden /> <span className="max-sm:sr-only">Sync</span>
           </Button>
         )}
-        {canResume(id) && (
-          <Button size="sm" variant={composeOpen ? 'outline' : 'primary'} aria-expanded={composeOpen} aria-controls="continue-on-pc" onClick={() => { setComposeOpen((o) => !o); setSyncOpen(false); }}>
+        {canResume(id) && !onVps && (
+          <Button size="sm" variant={composeOpen ? 'outline' : 'primary'} aria-expanded={composeOpen} aria-controls="continue-on-pc" onClick={() => { setComposeOpen((o) => !o); setSyncOpen(false); setMoveOpen(false); }}>
             <Play size={13} aria-hidden /> Continue on PC
           </Button>
         )}
@@ -236,7 +259,21 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
           </div>
         </section>
       )}
-      {composeOpen && canResume(id) && (
+      {moveOpen && !onVps && (
+        <section id="move-to-vps" aria-label="Move to VPS" className="shrink-0 border-t border-line px-5 py-3">
+          <div className="mx-auto w-full max-w-[var(--page-max)]">
+            <MovePanel sessionId={id} links={links} pcBlocked={blocked} onOpenLog={() => openDialog({ kind: 'settings', section: 'pc-runner' })} />
+          </div>
+        </section>
+      )}
+      {onVps && move && (
+        <section id="continue-on-vps" aria-label="Continue on VPS" className="shrink-0 border-t border-line px-5 py-3">
+          <div className="mx-auto w-full max-w-[var(--page-max)]">
+            <VpsPanel sessionId={id} move={move} signedIn={signedIn} pcBlocked={blocked} onChanged={refresh} onOpenLog={() => openDialog({ kind: 'settings', section: 'pc-runner' })} />
+          </div>
+        </section>
+      )}
+      {composeOpen && canResume(id) && !onVps && (
         <section id="continue-on-pc" aria-label="Continue on PC" className="shrink-0 border-t border-line px-5 py-3">
           <div className="mx-auto w-full max-w-[var(--page-max)]">
             <PcRunForm

@@ -1,6 +1,7 @@
 // Bridge P4: the app drives the PC. Pure helpers for "Continue on PC" (resume a mirrored session) and "Run on PC"
 // (a new run in an allowed folder), plus the job status labels. Kept free of React so they are easy to test.
 import type { PcJobStatus, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { PcMoveRequest } from './pcMove';
 
 /** A job as the hub sends it. Owner-started jobs (origin 'owner') carry a bot and room with null fields. */
 export type PcJobView = PcRunnerJob;
@@ -10,7 +11,9 @@ export type PcJobRequest =
   | { mode: 'resume'; sessionId: string; prompt: string }
   | { mode: 'new'; folder: string; prompt: string }
   // Bridge P5: snapshot the session's working tree and push it (the hub refuses client repos and sync "none").
-  | { mode: 'sync'; sessionId: string; project: string; repo: string };
+  | { mode: 'sync'; sessionId: string; project: string; repo: string }
+  // Bridge P6: move the session (and its bundle-synced repos) to the VPS, or pull it back.
+  | PcMoveRequest;
 
 export const PC_PROMPT_MAX = 8000;
 
@@ -67,7 +70,8 @@ export function promptOk(prompt: string): boolean {
 }
 
 export function modeLabel(j: { mode?: string }): string {
-  return j.mode === 'resume' ? 'Resume' : j.mode === 'sync' ? 'Sync' : 'New';
+  const m = j.mode as string | undefined;
+  return m === 'resume' ? 'Resume' : m === 'sync' ? 'Sync' : m === 'move' ? 'Move' : m === 'pull' ? 'Pull' : 'New';
 }
 
 export function originLabel(j: Partial<Pick<PcJobView, 'origin'>>): string {
