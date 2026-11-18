@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { restrictFile } from '../config.js';
+import { renameOver, restrictFile } from '../config.js';
 import { addSecret } from '../providers/redact.js';
 import { ENV_KEY_RE, NAME_RE, OUTSIDE_MCP_PATH, RESERVED, stdioCommand } from './outsideMcp.js';
 
@@ -187,7 +187,7 @@ export class McpServerStore {
     try {
       fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
       restrictFile(tmp);
-      fs.renameSync(tmp, this.file);
+      renameOver(tmp, this.file);
     } catch (e) {
       try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
       throw e;
