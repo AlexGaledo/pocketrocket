@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - PC sessions opens on Active: only the sessions Claude Code is working in right now (written to in the last few minutes) or that are on the VPS, with a count. History has everything mirrored. The app remembers which one you picked.
 - Every session row says Running (green dot) or Idle with how long ago.
-- Sessions now group by their repo's remote, so Claude Code worktrees (agent-…, wt-…) sit with their repo, and a session outside any git repo groups under the folder it ran in, ignoring case (DesktopWIKA-SaaS and desktopwika-saas are one group) instead of Claude's internal C--Users-… folder name.
+- Sessions now group by their repo's remote, so Claude Code worktrees (agent-…, wt-…) sit with their repo, and a session outside any git repo groups under the folder it ran in, ignoring case (`DesktopWIKA-SaaS` and `desktopwika-saas` are one group) instead of Claude's internal C--Users-… folder name.
 
 ### PC sessions: fold repo groups
 
