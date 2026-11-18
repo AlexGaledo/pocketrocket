@@ -406,7 +406,7 @@ export function deviceMayAccess(method: string, pathname: string): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// PC runner. Its token is an allowlist of exactly the routes the helper on the PC polls, and those routes
+// PC runner. Its token is an allowlist of exactly the routes the helper on the PC polls and the Claude Code bridge calls, and those routes
 // answer nobody else (api/pcRunner.ts checks the principal). The hub token cannot pose as the runner and the
 // runner token cannot read or change anything else: no bots, rooms, settings, approvals, /ws or Screen.
 
@@ -414,6 +414,10 @@ const RUNNER_ALLOW: readonly [method: string, path: RegExp][] = [
   ['POST', /^\/api\/pc-runner\/heartbeat$/],
   ['GET', /^\/api\/pc-runner\/jobs\/next$/],
   ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(start|result)$/],
+  // Claude Code terminal sessions on the PC, through the runner's MCP server (api/cc.ts).
+  ['GET', /^\/api\/cc\/rooms$/],
+  ['GET', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|state|files\/text)$/],
+  ['POST', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|files\/text|decision|handoff)$/],
 ];
 
 /** True when the PC runner's token may make this request. */
