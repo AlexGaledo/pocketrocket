@@ -7,16 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### PC sessions in the app
-
-- A new "PC sessions" item in the sidebar lists the Claude Code sessions mirrored from your PC, grouped by repo with the newest first. Each row shows the title, repo and branch, folder, how long ago it was active, a green dot while it is live, and its size; a session's subagent runs open from its transcript. Search by title, folder or repo, filter by repo, and load older sessions as you go. The list refreshes by itself while a session is running.
-- Opening a session shows a read-only transcript: your messages and Claude's replies (as formatted text), with tool calls and results folded into one-line rows that open on demand and turn red on errors, and compaction summaries as their own card. A session that grew past the mirror's size limit says so. New messages appear at the bottom while you are watching. Delete removes the mirrored copy only, after a confirmation.
-
 ### The hub can keep a read-only copy of your PC's Claude Code sessions
 
 - The PC helper can now mirror your Claude Code transcripts to the hub as compact entries (what you and Claude said, which tools ran and a short result), so you can read them in the app from anywhere. Subagent runs hang under their parent session.
 - Everything is scrubbed again on the hub before it is stored (keys, tokens and any secret you saved), and kept small: at most 5 MB of text per session, 400 MB for the whole mirror (oldest sessions go first) and 90 days. The hub tidies this at start and once a day.
-- Only you can read the mirror, with the hub token or a signed-in browser: no bot, bot tool, search or room can see it, and a paired phone cannot either. You can delete a session (and its subagent runs) from the app.
+- Only you can read the mirror, with the hub token or a signed-in browser: no bot, bot tool, search or room can see it, and a paired phone cannot either. You can delete a session (and its subagent runs) from the app, and a deleted session is not mirrored again.
+
+### The PC helper can mirror your Claude Code sessions
+
+- While the PC helper (runner) is ON, it now copies your Claude Code sessions to PocketRocket so you can read them there. It sends compact entries, not raw logs: what you and Claude wrote, a one-line summary of each tool call, a short excerpt of each result and compaction summaries, cut to fixed lengths (8000 characters for messages, 1000 for tool results). Sessions changed in the last 14 days are sent first, then new lines live; a restart resumes where it stopped.
+- Everything is scrubbed for keys, passwords, emails and phone or ID numbers on the PC before it leaves, and again on the hub. Bots cannot read mirrored sessions yet; only you can, in the app.
+- Control it in the helper's `config.json`: `mirror` (on or off), `mirrorBackfillDays`, and `mirrorExclude` (folders or `*` patterns to skip). A new "PocketRocket Mirror pause-resume" Desktop shortcut pauses and resumes it. Re-run `install.ps1` to get it. See the "Mirror your Claude Code sessions" section of `scripts/pc-runner/README.md`.
+
+### PC sessions in the app
+
+- A new "PC sessions" item in the sidebar lists the Claude Code sessions mirrored from your PC, grouped by repo with the newest first. Each row shows the title, repo and branch, folder, how long ago it was active, a green dot while it is live, and its size; a session's subagent runs open from its transcript. Search by title, folder or repo, filter by repo, and load older sessions as you go. The list refreshes by itself while a session is running.
+- Opening a session shows a read-only transcript: your messages and Claude's replies (as formatted text), with tool calls and results folded into one-line rows that open on demand and turn red on errors, and compaction summaries as their own card. A session that grew past the mirror's size limit says so. New messages appear at the bottom while you are watching. Delete removes the mirrored copy only, after a confirmation.
 
 ### Shared files remember who changed them
 
