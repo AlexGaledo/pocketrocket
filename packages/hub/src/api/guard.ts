@@ -339,6 +339,10 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/skills\/[^/]+$/],
   ['GET', /^\/api\/usage$/],
   ['GET', /^\/api\/knowledge$/],
+  // Workflows: a phone sees runs and answers approval cards (a person's decision); building and running them stays on the desktop.
+  ['GET', /^\/api\/workflows(\/[^/]+(\/runs)?)?$/],
+  ['GET', /^\/api\/workflow-(runs\/[^/]+|cards)$/],
+  ['POST', /^\/api\/workflow-runs\/[^/]+\/decision$/],
   // Screen tab
   ['GET', /^\/api\/screen$/],
   ['POST', /^\/api\/screen\/ticket$/],

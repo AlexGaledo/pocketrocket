@@ -18,7 +18,8 @@ import { parseMentions } from '../rooms/mentions.js';
 import { desktopTools } from './desktopTools.js';
 import type { HubTool, ToolOutput } from '../providers/types.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
-import type { Routine } from '@pocketrocket/shared';
+import type { Routine, Workflow, WorkflowGraph, WorkflowNode } from '@pocketrocket/shared';
+import { WorkflowError, type WorkflowRunner } from '../services/WorkflowRunner.js';
 import { isInside } from '../permissions/pathRules.js';
 import { denyMessage } from '../permissions/messages.js';
 import { FORM_RATE_MAX, type FormBroker } from '../services/FormBroker.js';
@@ -96,6 +97,9 @@ export interface ToolCtx {
   routinesChanged?: () => void;
   /** Zone routine times are read in. Defaults to `settings.timezone`. */
   timezone?: string;
+  // ---- Workflows ----
+  /** Adds `list_workflows`, `create_workflow` and `update_workflow` (the last two ask the owner first, like the routine tools). Absent in most unit tests. */
+  workflows?: WorkflowRunner;
   // ---- PC runner ----
   /** The owner's PC as a job runner. Adds `run_on_pc` while it is paired. */
   pcRunner?: PcRunner;
@@ -777,6 +781,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
   const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom, deleteRoom];
 
   tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
+  if (ctx.workflows) tools.push(...workflowTools(ctx, ctx.workflows, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
   if (ctx.pcRunner?.isPaired()) tools.push(runOnPcTool(ctx, ctx.pcRunner));
   if (ctx.pcRunner?.isPaired() && ctx.pcSessions && ctx.sessionMoves && ctx.confirmFleetChange) tools.push(proposeMoveTool(ctx, ctx.pcRunner, ctx.sessionMoves));
   tools.push(whereToRunTool(ctx), listMachinesTool(ctx));
@@ -1016,7 +1021,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
 const AUDITED_TOOLS = new Set([
   'read_any_room', 'read_pc_session', 'list_pc_sessions', 'dispatch',
   'create_bot', 'update_bot', 'delete_bot', 'create_room', 'add_to_room', 'remove_from_room', 'delete_room',
-  'create_routine', 'update_routine', 'delete_routine', 'read_owner_messages', 'search_project_context', 'list_repos',
+  'create_routine', 'update_routine', 'delete_routine', 'create_workflow', 'update_workflow', 'read_owner_messages', 'search_project_context', 'list_repos',
 ]);
 
 const PERSONA_READS = new Set(['read_any_room', 'read_pc_session', 'list_pc_sessions']);
@@ -1201,6 +1206,205 @@ function routineTools(
   );
 
   return [listRoutines, createRoutine, updateRoutine, deleteRoutine];
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Workflows: a step chain that runs bots on a routine's schedule or when the owner presses Run now. A workflow a bot
+// writes is autonomous future spend, so creating and changing one always goes through `gate()` (fleet approval) and
+// nothing a bot passes can change settings or approvals. Listing is silent. A bot passes plain steps; the hub turns
+// them into the graph the owner sees on the canvas.
+
+const STEP_SHAPE = z.object({
+  bot: z.string().optional().describe('An agent step: the @handle of the bot that does it (it must be in the chat)'),
+  prompt: z.string().min(1).max(8000).optional().describe("An agent step: what the bot is told. {{previous}} stands for the previous step's output, which arrives fenced as data"),
+  approve: z.string().min(1).max(200).optional().describe('An approval step: the question the owner is asked about the previous output (they can approve, reject, or send it back once with a note)'),
+  post_to_room: z.boolean().optional().describe('An output step: post the previous output to the chat'),
+  save_to_file: z.string().min(1).max(300).optional().describe("An output step: save the previous output to this path inside the chat's files folder"),
+});
+type StepInput = z.infer<typeof STEP_SHAPE>;
+
+/** The plain steps as graph nodes after the trigger, or a sentence saying what is wrong with them. */
+function stepNodes(steps: StepInput[], resolveBot: (ref: string) => Bot | undefined): WorkflowNode[] | string {
+  const out: WorkflowNode[] = [];
+  for (const [n, s] of steps.entries()) {
+    const id = 's' + (n + 1);
+    const kinds = [s.bot !== undefined || s.prompt !== undefined, s.approve !== undefined, s.post_to_room === true, s.save_to_file !== undefined].filter(Boolean).length;
+    if (kinds !== 1) return 'Step ' + (n + 1) + ' must be exactly one of: an agent step (bot + prompt), approve, post_to_room, or save_to_file.';
+    if (s.bot !== undefined || s.prompt !== undefined) {
+      if (!s.bot || !s.prompt) return 'Step ' + (n + 1) + ': an agent step needs both bot and prompt.';
+      const bot = resolveBot(s.bot);
+      if (!bot) return 'Step ' + (n + 1) + ': no bot "' + s.bot + '".';
+      out.push({ id, kind: 'agent', botId: bot.id, prompt: s.prompt });
+    } else if (s.approve !== undefined) out.push({ id, kind: 'approval', title: s.approve });
+    else if (s.post_to_room) out.push({ id, kind: 'output', target: 'room' });
+    else out.push({ id, kind: 'output', target: 'file', path: s.save_to_file });
+  }
+  return out;
+}
+
+function workflowTools(
+  ctx: ToolCtx,
+  wf: WorkflowRunner,
+  h: {
+    gate: (tool: string, reason: string, input: Record<string, unknown>) => Promise<ToolOutput | null>;
+    resolveRoom: (ref?: string) => { ok: true; room: Room; members: Bot[] } | { ok: false; out: ToolOutput };
+    resolveAny: (ref: string) => Bot | undefined;
+    sysNote: (body: string, room?: Room) => void;
+    ROOM_ARG: z.ZodOptional<z.ZodString>;
+  },
+): HubTool[] {
+  const MAX_WORKFLOWS = 50;
+  const owner = settings.get().userName;
+  const find = (ref: string): Workflow | ToolOutput => {
+    const all = wf.list();
+    const byId = all.find((w) => w.id === ref.trim());
+    const hits = byId ? [byId] : all.filter((w) => w.name.toLowerCase() === ref.trim().toLowerCase());
+    if (!hits.length) return err('No workflow "' + ref + '". Call list_workflows to see them and their ids.');
+    if (hits.length > 1) return err('More than one workflow is named "' + ref + '"; pass an id: ' + hits.map((w) => w.id).join(', '));
+    return hits[0];
+  };
+  const routineByRef = (ref: string) => {
+    const all = ctx.repos.listRoutines();
+    return all.find((r) => r.id === ref.trim()) ?? all.find((r) => r.name.toLowerCase() === ref.trim().toLowerCase());
+  };
+  const describe = (w: Workflow): string => {
+    const steps = w.graph.nodes.filter((n) => n.kind !== 'trigger').map((n) =>
+      n.kind === 'agent' ? '@' + (ctx.repos.getBot(n.botId)?.handle ?? '?') + ': ' + n.prompt.split('\n')[0].slice(0, 80)
+        : n.kind === 'approval' ? 'ask ' + owner + ': ' + n.title
+          : n.target === 'file' ? 'save to ' + n.path : 'post to chat');
+    return steps.length + ' step' + (steps.length === 1 ? '' : 's') + ' (' + steps.join(' -> ') + '), budget $' + w.budgetUsd.toFixed(2);
+  };
+  const TRIGGER_HELP =
+    "Give `routine` (a routine name or id from list_routines: the workflow then runs each time that routine fires, instead of the routine's own prompt) " +
+    'or leave it out for a workflow that only runs when ' + owner + ' presses Run now.';
+  const STEPS_HELP =
+    'Steps run in order, each as a separate turn for its bot. An agent step is { bot, prompt }, an approval step is { approve } ' +
+    '(the run waits for ' + owner + ' to answer a card, even overnight), an output step is { post_to_room: true } or { save_to_file: "path" }. ' +
+    'An approval cannot be the first step. Use a workflow for repeatable work; use handoff for one-off requests.';
+
+  const list = hubTool(
+    'list_workflows',
+    'List every workflow with its id, chat, steps, budget and last run.',
+    {},
+    async () => {
+      const all = wf.list();
+      if (!all.length) return text('(no workflows)');
+      return text(all.map((w) => {
+        const t = w.graph.nodes.find((n) => n.kind === 'trigger');
+        const trig = t?.kind === 'trigger' && t.routineId ? 'routine "' + (ctx.repos.getRoutine(t.routineId)?.name ?? '?') + '"' : t?.kind === 'trigger' && t.triggerId ? 'an event trigger' : 'Run now only';
+        return w.name + ' id=' + w.id + (w.enabled ? '' : ' [off]') + ': in "' + (ctx.repos.getRoom(w.roomId)?.name ?? '(deleted chat)') + '", on ' + trig + ', ' + describe(w) +
+          (w.lastRun ? '; last run ' + w.lastRun.status : '');
+      }).join('\n'));
+    },
+  );
+
+  const create = hubTool(
+    'create_workflow',
+    "Create a workflow: a fixed chain of steps that runs on a routine's schedule or on Run now. " + STEPS_HELP + ' ' + TRIGGER_HELP +
+      ' Shows ' + owner + ' an approval card first; every step also asks before any risky action.',
+    {
+      name: z.string().min(1).max(120).describe('Short name, e.g. "Weekly issue summary"'),
+      steps: z.array(STEP_SHAPE).min(1).max(20),
+      routine: z.string().optional().describe('Routine name or id that starts it'),
+      budget_usd: z.number().positive().max(50).optional().describe('Most one run may spend, all steps and hand-offs together. Default 2'),
+      room: h.ROOM_ARG,
+    },
+    async (a) => {
+      if (wf.list().length >= MAX_WORKFLOWS) return err('Workflow limit reached (' + MAX_WORKFLOWS + ').');
+      const r = h.resolveRoom(a.room);
+      if (!r.ok) return r.out;
+      let routineId: string | null = null;
+      if (a.routine) {
+        const routine = routineByRef(a.routine);
+        if (!routine) return err('No routine "' + a.routine + '". Call list_routines.');
+        routineId = routine.id;
+      }
+      const nodes = stepNodes(a.steps, h.resolveAny);
+      if (typeof nodes === 'string') return err(nodes);
+      const graph: WorkflowGraph = {
+        nodes: [{ id: 't', kind: 'trigger', routineId, triggerId: null, manual: routineId === null }, ...nodes],
+        edges: [{ from: 't', to: 's1' }, ...nodes.slice(1).map((n, i) => ({ from: nodes[i].id, to: n.id }))],
+      };
+      const input = { name: a.name, enabled: true, roomId: r.room.id, graph, budgetUsd: a.budget_usd ?? 2 };
+      const bad = wf.check(input);
+      if (bad) return err(bad);
+      const denied = await h.gate(
+        'create_workflow',
+        'Create workflow "' + a.name + '" in "' + r.room.name + '": ' + a.steps.length + ' step' + (a.steps.length === 1 ? '' : 's') + ', ' +
+          (routineId ? 'runs when routine "' + (ctx.repos.getRoutine(routineId)?.name ?? '?') + '" fires' : 'runs on Run now only') + ', budget $' + input.budgetUsd.toFixed(2),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      try {
+        const w = wf.create(input);
+        h.sysNote('@' + ctx.bot.handle + ' created workflow "' + w.name + '" in "' + r.room.name + '": ' + describe(w) + '.');
+        return text('Created "' + w.name + '" (id ' + w.id + '): ' + describe(w) + '.');
+      } catch (e) {
+        return err(e instanceof WorkflowError ? e.message : 'Could not create the workflow.');
+      }
+    },
+  );
+
+  const update = hubTool(
+    'update_workflow',
+    'Change a workflow (by name or id). Only the fields you pass change; `steps` replaces the whole chain. ' + STEPS_HELP + ' ' + TRIGGER_HELP +
+      ' Shows ' + owner + ' an approval card first.',
+    {
+      workflow: z.string().describe('Workflow name or id, from list_workflows'),
+      name: z.string().min(1).max(120).optional(),
+      steps: z.array(STEP_SHAPE).min(1).max(20).optional(),
+      routine: z.string().optional().describe('Routine name or id that starts it; "manual" makes it Run now only'),
+      enabled: z.boolean().optional().describe('false pauses it, true resumes it'),
+      budget_usd: z.number().positive().max(50).optional(),
+    },
+    async (a) => {
+      const cur = find(a.workflow);
+      if ('content' in cur) return cur;
+      const patch: Record<string, unknown> = {};
+      if (a.name !== undefined) patch.name = a.name;
+      if (a.enabled !== undefined) patch.enabled = a.enabled;
+      if (a.budget_usd !== undefined) patch.budgetUsd = a.budget_usd;
+      if (a.steps !== undefined || a.routine !== undefined) {
+        const curTrigger = cur.graph.nodes.find((n) => n.kind === 'trigger');
+        let routineId = curTrigger?.kind === 'trigger' ? curTrigger.routineId : null;
+        let triggerId = curTrigger?.kind === 'trigger' ? curTrigger.triggerId : null;
+        if (a.routine !== undefined) {
+          triggerId = null;
+          if (a.routine.trim().toLowerCase() === 'manual') routineId = null;
+          else {
+            const routine = routineByRef(a.routine);
+            if (!routine) return err('No routine "' + a.routine + '". Call list_routines.');
+            routineId = routine.id;
+          }
+        }
+        const nodes = a.steps !== undefined ? stepNodes(a.steps, h.resolveAny) : cur.graph.nodes.filter((n) => n.kind !== 'trigger');
+        if (typeof nodes === 'string') return err(nodes);
+        patch.graph = {
+          nodes: [{ id: 't', kind: 'trigger', routineId, triggerId, manual: routineId === null && triggerId === null }, ...nodes],
+          edges: [{ from: 't', to: nodes[0].id }, ...nodes.slice(1).map((n, i) => ({ from: nodes[i].id, to: n.id }))],
+        } satisfies WorkflowGraph;
+      }
+      if (!Object.keys(patch).length) return err('Nothing to change: pass at least one field.');
+      const bad = wf.check({ roomId: cur.roomId, graph: (patch.graph as WorkflowGraph | undefined) ?? cur.graph });
+      if (bad) return err(bad);
+      const denied = await h.gate(
+        'update_workflow',
+        'Change workflow "' + cur.name + '" in "' + (ctx.repos.getRoom(cur.roomId)?.name ?? '?') + '": ' +
+          Object.keys(patch).map((k) => (k === 'graph' ? 'steps or trigger' : k + ' = ' + JSON.stringify(patch[k]).slice(0, 120))).join(', '),
+        a as unknown as Record<string, unknown>,
+      );
+      if (denied) return denied;
+      try {
+        const w = wf.update(cur.id, patch);
+        h.sysNote('@' + ctx.bot.handle + ' changed workflow "' + w.name + '": ' + Object.keys(patch).map((k) => (k === 'graph' ? 'steps' : k === 'budgetUsd' ? 'budget' : k)).join(', ') + '.');
+        return text('Updated "' + w.name + '": ' + describe(w) + (w.enabled ? '' : ', paused') + '.');
+      } catch (e) {
+        return err(e instanceof WorkflowError ? e.message : 'Could not change the workflow.');
+      }
+    },
+  );
+
+  return [list, create, update];
 }
 
 // ---------------------------------------------------------------------------------------------------

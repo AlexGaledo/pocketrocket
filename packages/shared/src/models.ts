@@ -168,6 +168,8 @@ export interface WorkflowPayload {
   workflowId: string;
   runId: string;
   name: string;
+  /** On a step's prompt message: the step. Absent on the system note that starts the run. */
+  nodeId?: string;
   /** "Run now": a person started it, not the schedule or an event. */
   manual?: boolean;
 }

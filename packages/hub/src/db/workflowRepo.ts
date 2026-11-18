@@ -9,6 +9,8 @@ export type WorkflowTriggerKind = 'routine' | 'trigger' | 'manual';
 
 /** A run as the hub keeps it: the public {@link WorkflowRun} plus what only the engine needs. */
 export interface WorkflowRunRow extends WorkflowRun {
+  /** The chat the run's thread lives in (fixed when it starts). */
+  roomId: string;
   /** The system note that starts the run and the thread every step and hand-off shares; null until it is posted. */
   causeId: string | null;
   /** The graph and budget the run started with: editing the workflow never changes a run in flight. */
@@ -81,15 +83,15 @@ export class WorkflowRepo {
       nodeId: (r.node_id as string) ?? null, costUsd: r.cost_usd as number, startedAt: r.started_at as number,
       endedAt: (r.ended_at as number) ?? null, error: (r.error as string) ?? null, manual: !!r.manual,
       steps: JSON.parse(r.steps_json as string) as WorkflowStepResult[],
-      causeId: (r.cause_id as string) ?? null, graph: JSON.parse(r.graph_json as string) as WorkflowGraph,
+      roomId: (r.room_id as string) ?? '', causeId: (r.cause_id as string) ?? null, graph: JSON.parse(r.graph_json as string) as WorkflowGraph,
       budgetUsd: r.budget_usd as number, expiresAt: (r.expires_at as number) ?? null,
     };
   }
-  createRun(o: { workflowId: string; graph: WorkflowGraph; budgetUsd: number; manual: boolean; steps: WorkflowStepResult[]; nodeId: string | null }): WorkflowRunRow {
+  createRun(o: { workflowId: string; roomId: string; graph: WorkflowGraph; budgetUsd: number; manual: boolean; steps: WorkflowStepResult[]; nodeId: string | null }): WorkflowRunRow {
     const id = nanoid(10);
     this.db.run(
-      "INSERT INTO workflow_runs (id, workflow_id, node_id, status, steps_json, graph_json, budget_usd, manual, started_at) VALUES (?,?,?,'running',?,?,?,?,?)",
-      id, o.workflowId, o.nodeId, JSON.stringify(o.steps), JSON.stringify(o.graph), o.budgetUsd, o.manual ? 1 : 0, this.now(),
+      "INSERT INTO workflow_runs (id, workflow_id, room_id, node_id, status, steps_json, graph_json, budget_usd, manual, started_at) VALUES (?,?,?,?,'running',?,?,?,?,?)",
+      id, o.workflowId, o.roomId, o.nodeId, JSON.stringify(o.steps), JSON.stringify(o.graph), o.budgetUsd, o.manual ? 1 : 0, this.now(),
     );
     return this.getRun(id)!;
   }
@@ -107,6 +109,10 @@ export class WorkflowRepo {
       n.causeId, n.nodeId, n.status, JSON.stringify(n.steps), n.costUsd, n.error ?? null, n.expiresAt, n.endedAt, id,
     );
     return this.getRun(id);
+  }
+  /** A retry after an over-budget stop re-reads the workflow's budget. */
+  setRunBudget(id: string, budgetUsd: number) {
+    this.db.run('UPDATE workflow_runs SET budget_usd=? WHERE id=?', budgetUsd, id);
   }
   /** Newest first. */
   listRuns(workflowId: string, limit = 20): WorkflowRunSummary[] {
