@@ -47,6 +47,8 @@ import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
 import { IntegrationService } from './services/IntegrationService.js';
 import { createIntegrationsApi } from './api/integrations.js';
+import { TelegramService } from './services/TelegramService.js';
+import { createTelegramApi } from './api/telegram.js';
 import { createMcpServersApi } from './api/mcpServers.js';
 import { createCredentialsApi } from './api/credentials.js';
 import { CredentialStore } from './services/CredentialStore.js';
@@ -118,6 +120,8 @@ export interface HubOptions {
   computers?: (db: Db) => ComputerManager;
   /** P4 integrations, built on the hub's db; tests hand in a factory with a temp vault and a fake fetch. */
   integrations?: (db: Db) => IntegrationService;
+  /** Telegram notifications; tests hand in one with a fake fetch and clock. It shares the integrations vault. */
+  telegram?: (db: Db, vault: IntegrationService['vault']) => TelegramService;
   /** P5: Slack Socket Mode transport; tests hand in a fake socket. */
   slackSocket?: SocketFactory;
   // ---- P9 ----
@@ -164,6 +168,7 @@ export interface Hub {
   runner: BotRunner;
   computers: ComputerManager;
   integrations: IntegrationService;
+  telegram: TelegramService;
   /** P5: event triggers (pollers, Slack Socket Mode, matcher). */
   triggers: TriggerService;
   // P9
@@ -345,6 +350,10 @@ export function createHub(opts: HubOptions = {}): Hub {
   integrations.pruneGrants(repos.listBots().map((b) => b.id));
   const offBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') integrations.pruneGrants(ev.bots.map((b) => b.id)); });
   const integrationsApi = createIntegrationsApi({ integrations, repos });
+  // Where a phone opens the hub from: the first allowed Tailscale name, if the owner set one up. Never a loopback address.
+  const hubUrlForPhone = () => { const h = (opts.allowedHosts ?? ALLOWED_HOSTS)[0]; return h ? 'https://' + h + '/' : null; };
+  const telegram = opts.telegram ? opts.telegram(db, integrations.vault) : new TelegramService({ db, vault: integrations.vault, hubUrl: hubUrlForPhone });
+  const telegramApi = createTelegramApi({ telegram });
 
   // P5: event triggers. Outbound polling and Slack Socket Mode only (Q5); started in listen(), stopped first on shutdown.
   const triggers = new TriggerService({ db, repos, integrations, router, socket: opts.slackSocket });
@@ -361,6 +370,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const push = opts.push
     ? opts.push(devicesRepo, repos)
     : PushService.withFile({ devices: devicesRepo, repos, subject: PUSH_SUBJECT, vapidPath: VAPID_PATH });
+  push.setTelegram(telegram);
   const devicesApi = createDevicesApi({ devices, push, allowedHosts });
   // Every socket a device holds open (/ws and its Screen), so revoking it hangs them up at once.
   const deviceSockets = new Map<string, Set<{ close(): void }>>();
@@ -715,6 +725,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await mediaApi(req, res)) return;
       if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
+      if (await telegramApi(req, res)) return;
       if (await triggersApi(req, res)) return;
       if (await workflowsApi(req, res)) return;
       if (await contextApi(req, res)) return;
@@ -830,7 +841,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       })();
       return stopping;
     },
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner, pcSessions, sessionMoves, projects,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, telegram, triggers, devices, push, pcRunner, pcSessions, sessionMoves, projects,
     control, broker, approvals: approvalStore, workflows, workflowRepo,
     skills, recorder, distiller, media,
     listen: () =>
@@ -908,6 +919,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       for (const p of integrations.pending()) integrations.cancel(p.provider);
       account.stop();
       push.stop();
+      // Aborts a link poll in flight; does not wait for it.
+      telegram.stop();
       offRevoke();
       offSessionRevoke();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).

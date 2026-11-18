@@ -870,3 +870,23 @@ registerMigrations([290, 299], [
   // The room the run's thread lives in, fixed when it starts (the workflow may be moved to another chat meanwhile).
   { version: 293, name: 'workflow_runs.room_id', up: (db) => addColumnIfMissing(db, 'workflow_runs', 'room_id', 'TEXT') },
 ]);
+
+// 300-309  Telegram notifications (spec 03 Phase A). One row (id 1): which bot is set up and which private chat is
+//          linked. The token itself is in the encrypted vault (`telegram` entry), never here. The link stores the
+//          numeric Telegram user id only; `linked_name` is a display label for Settings and is not an identity.
+registerMigrations([300, 309], [
+  {
+    version: 300,
+    name: 'telegram_link',
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS telegram_link (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        bot_id TEXT,
+        bot_username TEXT,
+        chat_id TEXT,
+        linked_name TEXT,
+        notify INTEGER NOT NULL DEFAULT 0,
+        linked_at INTEGER
+      )`),
+  },
+]);
