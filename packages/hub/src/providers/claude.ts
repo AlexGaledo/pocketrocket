@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import {
   createSdkMcpServer, query, tool,
-  type Options, type PermissionResult, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput,
+  type Options, type PermissionResult, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput, type PostToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
 import { BASH_MAX_OUTPUT_CHARS, CLAUDE_EXE, MAX_MCP_OUTPUT_TOKENS, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
@@ -16,6 +16,7 @@ import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '../permissions/readOnlyRoots.js';
 import { secretFileAccess } from '../permissions/secretFiles.js';
 import { denyMessage } from '../permissions/messages.js';
+import { logError } from './redact.js';
 import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
 import type { AgentProvider, HubTool, ProviderInit, SteerInput, SteerResult, TurnContext, TurnImage, TurnOutcome, TurnSink } from './types.js';
 
@@ -537,6 +538,19 @@ export class ClaudeProvider implements AgentProvider {
             ],
           }]
         : []),
+      ...(ctx.fileGuard
+        ? [{
+            matcher: 'Write|Edit|MultiEdit|NotebookEdit|Bash',
+            hooks: [
+              async (hookInput: unknown) => {
+                const i = hookInput as PreToolUseHookInput;
+                const why = ctx.fileGuard!(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, i.cwd || ctx.workspaceDir);
+                if (!why) return {};
+                return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
+              },
+            ],
+          }]
+        : []),
       ...(ctx.projectGuard
         ? [{
             matcher: 'Read|Write|Edit|MultiEdit|NotebookEdit|Glob|Grep|Bash',
@@ -551,6 +565,26 @@ export class ClaudeProvider implements AgentProvider {
           }]
         : []),
     ];
+
+    // Bridge P1: after a file tool wrote, the hub records who changed the file (FileRevisions). It never blocks.
+    const afterWrite = ctx.fileWritten
+      ? {
+          PostToolUse: [{
+            matcher: 'Write|Edit|MultiEdit|NotebookEdit',
+            hooks: [
+              async (hookInput: unknown) => {
+                const i = hookInput as PostToolUseHookInput;
+                try {
+                  ctx.fileWritten!(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, i.cwd || ctx.workspaceDir);
+                } catch (e) {
+                  logError('[file revisions]', e);
+                }
+                return {};
+              },
+            ],
+          }],
+        }
+      : {};
 
     const options: Options = {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
@@ -589,7 +623,8 @@ export class ClaudeProvider implements AgentProvider {
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
       // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
       // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: ctx.bypassPermissions ? { PreToolUse: guards } : {
+      hooks: ctx.bypassPermissions ? { PreToolUse: guards, ...afterWrite } : {
+        ...afterWrite,
         PreToolUse: [
           ...guards,
           // acceptEdits approves rm and mv inside the roots before canUseTool, so this is what raises their card.

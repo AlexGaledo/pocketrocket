@@ -60,6 +60,7 @@ describe('hub tool registry (B3)', () => {
       'list_rooms', 'request_approval', 'use_stronger_model', 'desktop_screenshot', 'desktop_click', 'desktop_type',
       'desktop_key', 'desktop_scroll', 'desktop_launch', 'list_routines', 'where_to_run', 'list_machines', 'search_notes', 'write_note',
       'create_task', 'update_task', 'list_tasks', 'search_history', 'recall_memory', 'report_blocked', 'send_feedback', 'request_form',
+      'log_decision', 'file_history',
       ...INTEGRATION_READ_TOOLS,
     ];
     const gated = [

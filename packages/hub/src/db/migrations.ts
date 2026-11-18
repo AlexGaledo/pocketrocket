@@ -649,3 +649,35 @@ registerMigrations([250, 259], [
     },
   },
 ]);
+
+// Claude Code bridge P1 (docs/specs/claude-code-bridge.md 6.1, 6.3): who changed each shared file, and from where.
+// One row per revision of a file in a room, project or direct-chat folder. `hash` null = deleted. Small text files
+// keep their content for diffs. `services/FileRevisions.ts` writes it.
+registerMigrations([260, 269], [
+  {
+    version: 260,
+    name: 'file_revisions (provenance of shared files)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS file_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        root_kind TEXT NOT NULL,
+        root_key TEXT NOT NULL,
+        path TEXT NOT NULL,
+        rev INTEGER NOT NULL,
+        hash TEXT,
+        size INTEGER NOT NULL DEFAULT 0,
+        content TEXT,
+        author_kind TEXT NOT NULL,
+        author_id TEXT,
+        author_label TEXT NOT NULL DEFAULT '',
+        machine TEXT NOT NULL,
+        session_id TEXT,
+        room_id TEXT,
+        sources TEXT,
+        tool TEXT,
+        created_at INTEGER NOT NULL
+      )`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS file_revisions_path_rev ON file_revisions (root_kind, root_key, path, rev)');
+    },
+  },
+]);

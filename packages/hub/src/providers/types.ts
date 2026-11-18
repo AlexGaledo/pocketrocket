@@ -101,6 +101,10 @@ export interface TurnContext {
   projectGuard?: (toolName: string, input: Record<string, unknown>, cwd: string) => string | null;
   /** Why this shell command may not ship, or null. Holds with approvals bypassed. */
   shipGuard?: (command: string, cwd: string) => string | null;
+  /** Bridge P1: why this write may not touch a shared file (decisions.md is append-only), or null. Holds with approvals bypassed. */
+  fileGuard?: (toolName: string, input: Record<string, unknown>, cwd: string) => string | null;
+  /** Bridge P1: after a Write/Edit tool succeeded, so the hub records who changed a shared file. Never blocks. */
+  fileWritten?: (toolName: string, input: Record<string, unknown>, cwd: string) => void;
   // P1: per-bot computers. Unset = no computer this turn, so no Browser tool.
   /** Chromium DevTools endpoint of this bot's own computer, for the Browser tool. */
   cdpUrl?: string;
