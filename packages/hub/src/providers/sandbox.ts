@@ -174,7 +174,13 @@ const APPARMOR_HINT =
 /** Makes a throwaway sandbox. Cheap (about 10 ms), so a failure is retried soon and a success remembered for a minute. */
 export function realProbe(): BwrapProbe {
   if (process.platform !== 'linux') return { ok: false, reason: 'Bot sandboxing needs a Linux server with bubblewrap.' };
-  const r = spawnSync('bwrap', ['--ro-bind', '/usr', '/usr', '--proc', '/proc', '--dev', '/dev', '--unshare-pid', '--', '/usr/bin/true'], {
+  // /usr/bin/true needs the loader under /lib64 (a symlink into /usr on current distros), so link /lib and friends the
+  // same way the real argv does; without them the probe failed with 'execvp /usr/bin/true: No such file or directory'.
+  const links: string[] = [];
+  for (const l of SYSTEM_LINKS) {
+    try { links.push('--symlink', fs.readlinkSync(l), l); } catch { if (fs.existsSync(l)) links.push('--ro-bind', l, l); }
+  }
+  const r = spawnSync('bwrap', ['--ro-bind', '/usr', '/usr', ...links, '--proc', '/proc', '--dev', '/dev', '--unshare-pid', '--', '/usr/bin/true'], {
     timeout: 5000, encoding: 'utf8', env: { PATH: '/usr/local/bin:/usr/bin:/bin' },
   });
   if ((r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {

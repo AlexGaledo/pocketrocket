@@ -67,7 +67,7 @@ if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null |
     echo "   AppArmor profile already installed"
   fi
 fi
-if runuser -u "$APP_USER" -- bwrap --ro-bind /usr /usr --proc /proc --dev /dev --unshare-pid -- /usr/bin/true >/dev/null 2>&1; then
+if runuser -u "$APP_USER" -- bwrap --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin --proc /proc --dev /dev --unshare-pid -- /usr/bin/true >/dev/null 2>&1; then
   echo "   bwrap works for $APP_USER (verify the mounts: bash deploy/sandbox-check.sh)"
 else
   echo "   bwrap does NOT work for $APP_USER here; the sandbox switch will stay unavailable (see docs/SERVER.md)"
