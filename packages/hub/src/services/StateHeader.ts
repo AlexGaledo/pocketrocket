@@ -1,5 +1,10 @@
 import type { FileRevisions, FileRoot } from './FileRevisions.js';
 import { DECISIONS_FILE } from './FileRevisions.js';
+import { quoteTags } from '../rooms/transcript.js';
+import { redact } from '../providers/redact.js';
+
+/** File text is written by bots and Bash too: never let it pass as a hub, owner or bot tag in a turn's input. */
+const safe = (s: string) => quoteTags(redact(s));
 
 /**
  * The shared state of a room or project folder, for readers that did not write it (spec 6.2): `current.md` with its
@@ -59,14 +64,14 @@ export function buildStateHeader(root: FileRoot, revisions: FileRevisions): { te
   if (cur.text !== null) {
     const r = cur.rev;
     const ver = r
-      ? 'rev ' + r.rev + ', ' + (cur.hash ?? '').slice(0, 8) + ', last changed by ' + r.author.label.slice(0, 40) + ' (' + r.author.machine + ') ' + when(r.at)
+      ? 'rev ' + r.rev + ', ' + (cur.hash ?? '').slice(0, 8) + ', last changed by ' + safe(r.author.label.slice(0, 40)) + ' (' + r.author.machine + ') ' + when(r.at)
       : (cur.hash ?? '').slice(0, 8);
-    parts.push('current.md (' + ver + '):', currentExcerpt(cur.text) || '(empty)');
+    parts.push('current.md (' + ver + '):', safe(currentExcerpt(cur.text)) || '(empty)');
   }
   if (dec.text !== null) {
     const last = parseDecisions(dec.text).slice(-5);
-    if (last.length) parts.push('Latest decisions:', ...last.map((d) => d.id + ' ' + d.title.slice(0, 100)));
+    if (last.length) parts.push('Latest decisions:', ...last.map((d) => d.id + ' ' + safe(d.title.slice(0, 100))));
   }
-  parts.push('decisions.md is append-only: add to it with log_decision, never edit it.');
+  parts.push('decisions.md is append-only: add to it with log_decision, never edit it.', '[End of shared state.]');
   return { text: parts.join('\n'), signature: (cur.hash ?? '-') + ':' + (dec.hash ?? '-') };
 }
