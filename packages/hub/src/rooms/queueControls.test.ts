@@ -229,6 +229,30 @@ describe('edit (2.1b)', () => {
     expect(s.reqs[1].injected).not.toContain('OLD-TEXT');
   });
 
+  it('stays edited across a restart: the resumed item is still editable and its turn reads the new text', async () => {
+    const s = setup();
+    const [m] = await busyWithQueue(s, 'OLD-TEXT');
+    const edited = s.router.editQueued(s.queue().items[0].journalId, 'NEW-TEXT');
+
+    // Restart before the queued item ran: the running turn is cut off, both items come back from the journal.
+    s.router.freeze();
+    s.lane()!.finish({ ok: false, error: 'aborted' });
+    await tick();
+    const next = setup({ repos: s.repos });
+    next.router.setQueuePaused(next.room.id, next.ada.id, true);
+    expect(new FollowUp({ repos: s.repos, router: next.router }).resumeInterrupted()).toBe(2);
+    await tick();
+    expect(next.reqs).toHaveLength(0);
+    const item = next.queue().items.find((i) => i.messageId === m.id)!;
+    expect(item).toMatchObject({ preview: 'NEW-TEXT', editable: true });
+    expect(s.repos.getMessage(m.id)).toMatchObject({ text: 'NEW-TEXT', editedAt: edited.editedAt });
+
+    next.router.setQueuePaused(next.room.id, next.ada.id, false);
+    await until(() => next.reqs.length === 1);
+    expect(next.reqs[0].injected).toContain('NEW-TEXT');
+    expect(next.reqs[0].injected).not.toContain('OLD-TEXT');
+  });
+
   it('is refused once another bot\'s turn is reading it, and once a cursor passed it', async () => {
     const s = setup({ group: true });
     s.router.onUserMessage(s.room.id, '@ada warm up');
