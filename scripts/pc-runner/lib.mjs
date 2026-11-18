@@ -253,6 +253,53 @@ export function folderFor(config, name) {
 /** A Claude Code session uuid as the mirror knows it. A subagent id ("<parent>:<agent>") never matches. */
 export const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
+/** A project or repo name as the hub's repos.json allows it. */
+const SYNC_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,40}$/;
+
+/** The `sync` object of a sync job: { project, repo, remote, mode: 'wip-branch'|'bundle', protected: string[] } or null. */
+export function parseSyncSpec(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  if (typeof s.project !== 'string' || !SYNC_NAME_RE.test(s.project)) return null;
+  if (typeof s.repo !== 'string' || !SYNC_NAME_RE.test(s.repo)) return null;
+  if (typeof s.remote !== 'string' || !s.remote.trim() || s.remote.length > 500) return null;
+  if (s.mode !== 'wip-branch' && s.mode !== 'bundle') return null;
+  const prot = s.protected === undefined ? [] : s.protected;
+  if (!Array.isArray(prot) || prot.length > 100 || prot.some((b) => typeof b !== 'string' || b.length > 200)) return null;
+  return { project: s.project, repo: s.repo, remote: s.remote, mode: s.mode, protected: [...prot] };
+}
+
+/**
+ * The canonical form of a git remote URL, so the hub, the web app and this runner agree on "the same repo":
+ * https://<lower-case host>[:port]/<path without .git or trailing slash>. `git@host:o/r`, `ssh://git@host(:22)/o/r`,
+ * `git://host/o/r` and `https://host/o/r(.git)` are all the same repo; credentials and ssh ports are dropped; the
+ * path keeps its case. Returns null for anything else (local paths, file:, ftp:, no repo path, whitespace).
+ * packages/shared/src/projectRepos.ts has the same function; both are tested against the same table.
+ */
+export function normaliseRemote(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!s || s.length > 500 || /[\s\0\\]/.test(s)) return null;
+  if (/(^|[/:])\.\.($|\/)/.test(s)) return null; // no dot-dot segments, in any spelling
+  let host, port = '', p;
+  if (s.includes('://')) {
+    let u;
+    try { u = new URL(s); } catch { return null; }
+    if (!['https:', 'http:', 'ssh:', 'git:'].includes(u.protocol)) return null;
+    host = u.hostname.toLowerCase();
+    if (u.protocol === 'https:' || u.protocol === 'http:') port = u.port && u.port !== (u.protocol === 'https:' ? '443' : '80') ? `:${u.port}` : '';
+    p = u.pathname;
+  } else {
+    const m = /^(?:[^@/:]+@)?([^/:@]{2,}):(.+)$/.exec(s); // scp-like: [user@]host:path
+    if (!m) return null;
+    host = m[1].toLowerCase();
+    p = m[2];
+  }
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(host)) return null;
+  p = p.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+  if (!p || p.split('/').some((seg) => !seg || seg === '.' || seg === '..')) return null;
+  return `https://${host}${port}/${p}`;
+}
+
 /**
  * Shape-checks a job from GET /jobs/next. Returns the job or null.
  * Old hubs send no `mode`: that is a "new" job, exactly as before. A "resume" job names a sessionId and no folder
@@ -263,20 +310,25 @@ export function parseJob(j) {
   if (typeof j.id !== 'string' && typeof j.id !== 'number') return null;
   const id = String(j.id);
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return null;
-  if (typeof j.prompt !== 'string' || !j.prompt.trim()) return null;
   const mode = j.mode === undefined || j.mode === null ? 'new' : j.mode;
-  if (mode !== 'new' && mode !== 'resume') return null;
-  let folder = null, sessionId = null;
+  if (mode !== 'new' && mode !== 'resume' && mode !== 'sync') return null;
+  // A sync job runs no Claude, so it has no prompt; every other mode needs one.
+  if (mode !== 'sync' && (typeof j.prompt !== 'string' || !j.prompt.trim())) return null;
+  let folder = null, sessionId = null, sync = null;
   if (mode === 'new') {
     if (typeof j.folder !== 'string') return null;
     folder = j.folder;
   } else {
     if (typeof j.sessionId !== 'string') return null;
     sessionId = j.sessionId; // validated (and refused with a reason) in resolveResume, so the hub hears why
+    if (mode === 'sync') {
+      sync = parseSyncSpec(j.sync);
+      if (!sync) return null;
+    }
   }
   const handle = typeof j.bot?.handle === 'string' ? j.bot.handle : j.origin === 'owner' ? 'owner' : '?';
   const room = { id: String(j.room?.id ?? ''), name: typeof j.room?.name === 'string' ? j.room.name : j.origin === 'owner' ? '(from the app)' : '?' };
-  return { id, mode, sessionId, bot: { handle }, room, folder, prompt: j.prompt, origin: j.origin === 'owner' ? 'owner' : 'bot', createdAt: j.createdAt ?? null };
+  return { id, mode, sessionId, sync, bot: { handle }, room, folder, prompt: typeof j.prompt === 'string' ? j.prompt : '', origin: j.origin === 'owner' ? 'owner' : 'bot', createdAt: j.createdAt ?? null };
 }
 
 /**

@@ -1,7 +1,9 @@
 // Job handling for the PC runner, split out of runner.mjs so node:test can drive it with stubs (no tunnel, no dialog,
 // no claude). runner.mjs wires the real pieces in; importing this file has no side effects.
 //
-// Two job modes:
+// Three job modes:
+//   sync    the hub names a mirrored session id, a repo and a way (wip-branch or bundle). No Claude runs: the runner
+//           snapshots that session's repo (see sync.mjs), scans it for secrets, asks, then pushes or uploads.
 //   new     the hub names an allowlisted folder; claude starts a fresh session there (as always).
 //   resume  the hub names a mirrored session id and NO folder. The runner finds that session's transcript on this PC,
 //           reads the working folder it recorded, and only goes on when that folder is (really) inside an allowlisted
@@ -9,8 +11,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { folderFor, parseJob, promptPreview, buildMcpConfig, canRunCode, isInside, SESSION_ID_RE, CONFIRM_TIMEOUT_MS } from './lib.mjs';
+import { folderFor, parseJob, promptPreview, buildMcpConfig, canRunCode, isInside, normaliseRemote, SESSION_ID_RE, CONFIRM_TIMEOUT_MS } from './lib.mjs';
 import { pathInfo, scanHead } from './mirror.mjs';
+import {
+  makeGit, repoToplevel, originUrls, snapshot, diffStats, scanRepo, pushWip, makeBundle, wipNames,
+  syncInfoLines, syncFileListText, SYNC_MAX_BUNDLE_BYTES,
+} from './sync.mjs';
 
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const isFile = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
@@ -124,6 +130,8 @@ export async function handleJob(d, raw) {
   if (!fresh.ok) return refuse('The PC runner config is invalid right now; job refused.');
   const config = fresh.config;
 
+  if (job.mode === 'sync') return handleSync(d, job, config, refuse, (name) => { resolvedFolder = name; });
+
   let folder, cwd, resume = null;
   if (job.mode === 'resume') {
     resume = await resolveResume({ sessionId: job.sessionId, config, projectsDir: d.projectsDir?.(config) });
@@ -163,4 +171,100 @@ export async function handleJob(d, raw) {
     if (typeof r.sessionId === 'string' && r.sessionId && r.sessionId !== job.sessionId) result.newSessionId = r.sessionId;
   }
   await d.postResult(job.id, result);
+}
+
+/**
+ * A sync job (mode 'sync'). Deps used besides handleJob's: gitPath (or git: a runner function, for tests), machine,
+ * uploadBundle(jobId, file) -> Promise, makeTmp() -> a fresh temp folder, normalise (default normaliseRemote).
+ * Order: resolve the session's repo -> check origin -> snapshot -> SCAN -> (blocked: refuse without asking) -> dialog
+ * -> push or bundle+upload -> result. The temp folder (index file, bundle) is always removed.
+ */
+async function handleSync(d, job, config, refuse, setResolved) {
+  const spec = job.sync;
+  const machine = d.machine ?? os.hostname();
+  const names = wipNames(machine, job.sessionId);
+  if (!names) return refuse('This session id is too short or odd to name a wip branch; sync refused.');
+  const git = d.git ?? (d.gitPath ? makeGit(d.gitPath) : null);
+  if (!git) return refuse('git was not found on this PC (it must be on PATH); sync refused.');
+  const normalise = d.normalise ?? normaliseRemote;
+
+  // The same rules as a resume: the session's working folder must be inside an allowlisted folder (links included).
+  const resume = await resolveResume({ sessionId: job.sessionId, config, projectsDir: d.projectsDir?.(config) });
+  if (!resume.ok) return refuse(resume.why);
+  setResolved(resume.folderName);
+
+  const top0 = await repoToplevel(git, resume.cwd);
+  if (!top0) return refuse(`The working folder of this session (${resume.cwd}) is not inside a git repo.`);
+  const top = realOf(top0);
+  const realFolder = realOf(resume.folder.path);
+  if (!top || !realFolder || !isInside(top, realFolder)) {
+    return refuse(`The repo around this session (${top0}) reaches outside the allowlist folder "${resume.folderName}"; allow the whole repo folder in config.json to sync it.`);
+  }
+
+  const want = normalise(spec.remote);
+  if (!want) return refuse('The remote in the job is not a URL this runner recognises; sync refused.');
+  let urls;
+  try { urls = await originUrls(git, top); } catch { return refuse('This repo has no "origin" remote, so it cannot be matched to the project repo; sync refused.'); }
+  const have = normalise(urls.fetchUrl), havePush = normalise(urls.pushUrl);
+  if (have !== want || havePush !== want) {
+    return refuse(`This repo's origin (${have ?? 'not recognised'}${havePush !== have ? `, push: ${havePush ?? 'not recognised'}` : ''}) is not the project repo's remote (${want}); sync refused.`);
+  }
+
+  const tmp = d.makeTmp ? d.makeTmp() : fs.mkdtempSync(path.join(os.tmpdir(), 'pr-sync-'));
+  try {
+    let snap, stats, scan;
+    try {
+      snap = await snapshot({ git, top, tmp, title: resume.title, sessionId: job.sessionId });
+      stats = await diffStats({ git, top, head: snap.head, commit: snap.commit });
+      scan = await scanRepo({ git, top, commit: snap.commit });
+    } catch (e) { return refuse(`Could not snapshot the repo: ${e.message}`); }
+    d.log('sync_scanned', { jobId: job.id, repo: spec.repo, mode: spec.mode, files: stats.files, blocked: scan.blocked, findings: scan.findings.length });
+
+    // A blocked scan is refused without asking: nothing the owner could approve here would make it safe.
+    if (scan.blocked) {
+      const output = `Sync blocked: the scan found ${scan.findings.length} thing${scan.findings.length === 1 ? '' : 's'} that must not leave this PC.\n${scan.findings.join('\n')}`;
+      d.log('job_refused_locally', { jobId: job.id, why: 'sync scan blocked' });
+      await d.postResult(job.id, { ok: false, refusedLocally: true, output, resolvedFolder: resume.folderName, sync: { mode: spec.mode, commit: snap.commit, scan: { blocked: true, findings: scan.findings } } });
+      return;
+    }
+
+    const approved = await d.confirm({
+      infoLines: syncInfoLines({ job, resume, folderName: resume.folderName, folder: resume.folder, remote: want, names, stats, scan }),
+      handle: job.bot.handle, room: job.room.name, folderName: resume.folderName, folderPath: resume.folder.path,
+      mode: 'sync', prompt: syncFileListText(stats), tools: [], mcpServers: [], runsCode: false,
+      timeoutSec: CONFIRM_TIMEOUT_MS / 1000,
+    });
+    if (!approved) return refuse('Refused on the PC (Refuse pressed, dialog closed, or no answer in 10 minutes).');
+    d.log('job_approved_locally', { jobId: job.id });
+
+    try { await d.startJob(job.id); } catch (e) {
+      d.log('job_start_failed', { jobId: job.id, error: e.message });
+      return;
+    }
+    const started = Date.now();
+    const syncInfo = { mode: spec.mode, commit: snap.commit, scan: { blocked: false, findings: [] } };
+    let output;
+    try {
+      if (spec.mode === 'wip-branch') {
+        const r = await pushWip({ git, top, url: urls.pushUrl, commit: snap.commit, machine, sessionId: job.sessionId });
+        syncInfo.branch = r.branch;
+        output = `Pushed ${snap.commit.slice(0, 10)} to ${r.branch} on the remote (${stats.files} changed file${stats.files === 1 ? '' : 's'}).`;
+      } else {
+        const b = await makeBundle({ git, top, tmp, commit: snap.commit, machine, sessionId: job.sessionId, jobId: job.id });
+        if (b.bytes > SYNC_MAX_BUNDLE_BYTES) throw new Error(`the bundle is ${(b.bytes / 1048576).toFixed(1)} MB; the limit is ${SYNC_MAX_BUNDLE_BYTES / 1048576} MB`);
+        if (!d.uploadBundle) throw new Error('this runner cannot upload bundles');
+        await d.uploadBundle(job.id, b.file);
+        syncInfo.bundleBytes = b.bytes; syncInfo.branch = b.branch;
+        output = `Uploaded a bundle of ${snap.commit.slice(0, 10)} (${(b.bytes / 1024).toFixed(0)} KB) to the server.`;
+      }
+    } catch (e) {
+      d.log('job_finished', { jobId: job.id, ok: false, durationMs: Date.now() - started, error: e.message });
+      await d.postResult(job.id, { ok: false, output: `Sync failed: ${e.message}`, resolvedFolder: resume.folderName, durationMs: Date.now() - started, sync: syncInfo });
+      return;
+    }
+    d.log('job_finished', { jobId: job.id, ok: true, durationMs: Date.now() - started, outputBytes: Buffer.byteLength(output) });
+    await d.postResult(job.id, { ok: true, output, resolvedFolder: resume.folderName, durationMs: Date.now() - started, sync: syncInfo });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
