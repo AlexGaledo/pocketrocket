@@ -164,6 +164,48 @@ The owner's own user settings also had `defaultMode: bypassPermissions`. Results
   folder, the first 200 characters of the prompt, your decision, cost and duration. They never hold the
   output or the token.
 
+## Use PocketRocket from Claude Code
+
+A small MCP server (`mcp.mjs`, plain Node, no packages) lets a Claude Code session in your terminal work with
+PocketRocket rooms. It is added to Claude Code once, for your user:
+
+```
+claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"
+```
+
+Run that from cmd. In PowerShell use `"$env:LOCALAPPDATA\PocketRocketRunner\mcp.cmd"`. `install.ps1` copies the
+files and prints the line. Check with `claude mcp list`.
+
+**It only works while the runner is ON.** The server talks to the hub through the runner's SSH tunnel and never
+starts ssh itself. With the runner off, every tool answers with an error asking you to press "PocketRocket Runner
+ON". It needs no approval dialog: it is your own session, and writes are versioned and attributed on the hub.
+
+| Tool | Does |
+|---|---|
+| `list_rooms` | your rooms, with project and whether they have a shared folder |
+| `read_room {room, limit?, before?}` | recent messages, oldest first |
+| `post_to_room {room, text}` | posts as you, working through Claude Code |
+| `read_state {room}` | the room's `current.md` (with hash), project and recent decisions |
+| `read_file {room, path}` | a shared text file with its hash |
+| `write_file {room, path, text, base, sources?}` | replaces a shared text file; `base` is the hash you read |
+| `log_decision {room, title, text, supersedes?, sources?}` | appends to the decision log |
+| `handoff {room, to, task, context?}` | hands a task to a bot, with the context it needs |
+
+`room` is a room id or a room name (any capitalisation). If two rooms share a name, the tool lists their ids.
+
+**The safe-write flow.** Read first (`read_file` or `read_state`), change the text, then `write_file` with the hash
+you read as `base`. If someone else changed the file in the meantime, the hub refuses the write and the tool
+returns the current text and its new hash; Claude is told to merge its change into that text and retry with the new
+hash, never to overwrite. Decisions are append-only: to change one, log a new decision that supersedes it.
+
+**How it authenticates.** It reads the same `token` file as the runner (only your Windows user can read it) and
+sends it as `Authorization: Bearer ...` to `127.0.0.1:<localPort>`, with `x-cc-repo` (the name of the git repo
+Claude Code was started in) and, when `CLAUDE_SESSION_ID` is set, `x-cc-session`. Before sending the token, it
+proves the port is the runner's own tunnel: `runner.pid` must name a live `runner.mjs` process, and every socket on
+the port must belong to an `ssh` process whose parent is that runner (`Get-NetTCPConnection` plus
+`Win32_Process`). Anything else (a squatter, a stale pid, an ssh you started yourself) means nothing is sent. The
+result is remembered for 10 seconds. The server logs only to stderr and never prints the token.
+
 ## Turning it off
 
 - Double-click **PocketRocket Runner OFF**. This stops the runner, its ssh tunnel, any running job and any open
@@ -181,6 +223,8 @@ The owner's own user settings also had `defaultMode: bypassPermissions`. Results
 | File | What it is |
 |---|---|
 | `runner.mjs` | the program: `pair`, `check`, `run` |
+| `mcp.mjs` / `mcp.cmd` | the Claude Code MCP server and its launcher (see "Use PocketRocket from Claude Code"), tested by `mcp.test.mjs` |
+| `local.mjs` | file locations, config and token loading, port-owner lookup; shared by `runner.mjs` and `mcp.mjs` |
 | `lib.mjs` | pure helpers (config check, folder check, claude args, output cap), tested by `lib.test.mjs` |
 | `confirm.ps1` | the Run / Refuse dialog; it reads the job from a temp JSON file and never puts it into script text |
 | `runner-on.ps1` / `runner-off.ps1` | start hidden and write `runner.pid` / stop the runner and everything it started |

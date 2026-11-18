@@ -8,7 +8,7 @@ $dest = Join-Path $env:LOCALAPPDATA 'PocketRocketRunner'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $dest 'logs') | Out-Null
 
-foreach ($f in @('runner.mjs', 'lib.mjs', 'confirm.ps1', 'runner-on.ps1', 'runner-off.ps1', 'config.example.json', 'README.md')) {
+foreach ($f in @('runner.mjs', 'lib.mjs', 'local.mjs', 'mcp.mjs', 'mcp.cmd', 'confirm.ps1', 'runner-on.ps1', 'runner-off.ps1', 'config.example.json', 'README.md')) {
   Copy-Item -LiteralPath (Join-Path $src $f) -Destination (Join-Path $dest $f) -Force
 }
 $config = Join-Path $dest 'config.json'
@@ -35,3 +35,7 @@ if ($newConfig) { Write-Host "Next: edit $config (folders you allow), then copy 
 else { Write-Host "Kept your existing config.json. To (re)pair, copy the runner token from the hub and run:" }
 Write-Host ('  node "' + (Join-Path $dest 'runner.mjs') + '" pair')
 Write-Host ('Check the config any time with: node "' + (Join-Path $dest 'runner.mjs') + '" check')
+Write-Host ''
+Write-Host 'To use PocketRocket from Claude Code (one time, after the runner is paired), run:'
+Write-Host '  claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"'
+Write-Host '(In PowerShell, run that line from cmd, or write $env:LOCALAPPDATA instead of %LOCALAPPDATA%.) It only works while the runner is ON.'

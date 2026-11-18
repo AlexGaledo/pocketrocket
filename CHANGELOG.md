@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each room and project folder can keep a `decisions.md`: an append-only log of what was decided and why. Bots add to it with `log_decision` (naming the decision it supersedes when one changes); their own file and shell tools cannot edit, move or delete it.
 - `GET/POST /api/rooms/:id/files/text` reads and writes a text file with its hash. A write sends the hash it last read and is refused with `409` and the current text when someone changed the file in between, so a stale copy never overwrites newer work. Also `GET …/files/history?path=` and `POST …/files/decision`. These are the base for linking Claude Code sessions on your PC (`docs/specs/claude-code-bridge.md`, phase 1).
 
+### Use PocketRocket from Claude Code
+
+- The PC runner now ships a small MCP server, so a Claude Code session in your terminal can list your rooms, read them, post to them, read and edit their shared files, log decisions and hand tasks to a bot. Add it once with `claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"` (the installer prints the line). It only works while the runner is ON, and when it is not, Claude is told to ask you to turn it on.
+- Edits are safe by design: Claude reads a file first and sends the hash it read, and if a bot or you changed the file in the meantime the write is refused and Claude gets the current text to merge instead of overwriting it. Decisions are append-only. The MCP server sends the runner token only after checking that the port belongs to the runner's own tunnel.
+
 ## [0.3.0] - 2026-11-18
 
 Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.

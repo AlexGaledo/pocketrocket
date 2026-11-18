@@ -18,11 +18,9 @@ import {
   validateConfig, folderFor, parseJob, buildClaudeArgs, buildMcpConfig, parseClaudeResult, capOutput, promptPreview,
   cleanToken, backoffMs, logFileName, resolveClaudePath, canRunCode, listenerIsOurs, isInside, gitHardenedEnv,
 } from './lib.mjs';
+import { BASE, TOKEN_PATH, loadConfig, readToken, listenersOn } from './local.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const BASE = process.env.POCKETROCKET_RUNNER_DIR || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'PocketRocketRunner');
-const CONFIG_PATH = path.join(BASE, 'config.json');
-const TOKEN_PATH = path.join(BASE, 'token');
 const MCP_SNAPSHOT_PATH = path.join(BASE, 'mcp-snapshot.json');
 const LOG_DIR = path.join(BASE, 'logs');
 const HEARTBEAT_MS = 15_000;
@@ -45,18 +43,6 @@ function log(event, fields = {}) {
     fs.appendFileSync(path.join(LOG_DIR, logFileName()), line + '\n');
   } catch { /* logging must never stop the runner */ }
   if (process.stdout.isTTY) console.log(line);
-}
-
-function loadConfig() {
-  let raw;
-  try { raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch (e) {
-    return { ok: false, errors: [`cannot read ${CONFIG_PATH}: ${e.code || e.message}`] };
-  }
-  return validateConfig(raw);
-}
-
-function readToken() {
-  try { return cleanToken(fs.readFileSync(TOKEN_PATH, 'utf8')); } catch { return null; }
 }
 
 function powershell(args, opts = {}) {
@@ -164,26 +150,6 @@ let tunnel = null;
 /** True only after the listener on localPort was confirmed to be our own ssh child. Nothing is sent before. */
 let tunnelVerified = false;
 const currentChildren = new Set();
-
-/**
- * Every TCP socket whose LOCAL port is `port`, as [{address, pid}]: the listener plus connections it accepted, all
- * owned by whoever listens. Our own outgoing fetches have it as the remote port, so they don't show up. No -State
- * filter: some Windows setups report State as 0 for live listeners, and a filtered query would then find nothing.
- * The port goes in through an env var, never into the script text.
- */
-function listenersOn(port) {
-  // spawnSync, not execFileSync: PowerShell exits 1 when nothing matches, which here just means "no listener yet".
-  const r = spawnSync(BIN.powershell, ['-NoProfile', '-NonInteractive', '-Command',
-    '$p = [int]$env:PR_RUNNER_PORT; Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue | ' +
-    "ForEach-Object { $_.LocalAddress + '|' + $_.OwningProcess }"],
-  { encoding: 'utf8', windowsHide: true, timeout: 20_000, env: { ...process.env, PR_RUNNER_PORT: String(port) } });
-  if (r.error) throw r.error;
-  const out = r.stdout || '';
-  return out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
-    const i = l.lastIndexOf('|');
-    return { address: l.slice(0, i), pid: Number(l.slice(i + 1)) };
-  });
-}
 
 /** Waits for the ssh child's listener and checks nobody else holds the port. Resolves true/false. */
 async function verifyTunnel(child, port) {
