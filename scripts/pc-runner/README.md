@@ -20,6 +20,24 @@ Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no aut
    own config (see "Isolation"). It stops the job after 15 minutes and sends back the result, capped at 20 KB,
    with its cost and duration.
 
+### Resume jobs
+
+A job can also ask to **resume** a session the mirror showed in PocketRocket. The hub sends only the session id, never a
+folder. The runner then:
+
+1. looks for exactly `<claudeProjectsDir>/<project>/<id>.jsonl` (a subagent id, or anything that is not a plain session
+   id, is refused; a transcript that is really a link elsewhere does not count),
+2. reads the working folder the session recorded and requires that it exists and sits inside one of your `folders`,
+   checked twice: the written path with `..` resolved, and the real path (so a junction or symlink cannot lead out),
+3. uses that folder's tools and MCP servers, the same isolation flags as a new job, and runs
+   `claude -p --resume <id>` with the folder as the working directory,
+4. shows the dialog with mode, session title, working folder and the allowlist folder it matched, and reports the
+   allowlist folder name back as `resolvedFolder`.
+
+Checked on Claude Code 2.1.327 with the isolation flags on: `--resume` appends to the same `<id>.jsonl` (same session
+id, earlier turns remembered), so the mirror shows the new turns in the same transcript. If a version ever starts a new
+session instead, the runner reports it as `newSessionId`.
+
 Before the runner sends its token anywhere, it checks that whatever listens on `127.0.0.1:<localPort>` is its
 own ssh process (`Get-NetTCPConnection`, owner pid = ssh pid). It does this when the tunnel starts and after every
 restart. If another program holds the port, the runner sends nothing, logs `port_squatted`, kills its ssh and
@@ -122,7 +140,7 @@ A job folder is a repo that bots can push to, so its own `.claude/settings.json`
 | `--strict-mcp-config --mcp-config <runner temp file>` | only the folder's `mcpServers`; `.mcp.json` and `~/.claude.json` servers are ignored |
 | `--tools <built-ins>` | only the built-in tools the list names exist |
 | `--allowedTools` / `--disallowedTools` | the folder's list, and the always-denied git commands and git-metadata edits |
-| `--no-session-persistence` | no transcript is left on disk |
+| `--no-session-persistence` | no transcript is left on disk (new jobs; a resume job drops it and uses `--resume <id>` instead) |
 | process environment | the hardened git environment above |
 
 Every flag was checked against `claude --help` (Claude Code 2.1.319). `--permission-mode default` is not one of

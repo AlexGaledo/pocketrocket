@@ -246,3 +246,46 @@ test('runner.mjs never passes a bypass flag and never logs the token', () => {
   // It is sent only as a Bearer header.
   assert.match(src, /authorization: `Bearer \$\{token\}`/);
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// Bridge phase 4: resume jobs
+test('parseJob: an old-style job (no mode) is a new job; resume needs a sessionId and no folder', () => {
+  const old = parseJob({ id: 'j1', bot: { handle: 'dev' }, room: { id: 'r', name: 'Room' }, folder: 'pocketrocket', prompt: 'hi' });
+  assert.equal(old.mode, 'new');
+  assert.equal(old.sessionId, null);
+  assert.equal(old.origin, 'bot');
+  assert.equal(parseJob({ id: 'j1', mode: null, folder: 'a', prompt: 'p' }).mode, 'new');
+  assert.equal(parseJob({ id: 'j1', mode: 'new', sessionId: null, folder: 'a', prompt: 'p' }).folder, 'a');
+  assert.equal(parseJob({ id: 'j1', mode: 'new', folder: null, prompt: 'p' }), null, 'new needs a folder');
+
+  const r = parseJob({ id: 'j2', mode: 'resume', sessionId: '11111111-2222-3333-4444-555555555555', folder: null, prompt: 'go on', origin: 'owner', bot: null, room: null });
+  assert.equal(r.mode, 'resume');
+  assert.equal(r.sessionId, '11111111-2222-3333-4444-555555555555');
+  assert.equal(r.folder, null);
+  assert.equal(r.origin, 'owner');
+  assert.equal(r.bot.handle, 'owner');
+  assert.equal(parseJob({ id: 'j2', mode: 'resume', folder: null, prompt: 'p' }), null, 'resume needs a sessionId');
+  assert.equal(parseJob({ id: 'j2', mode: 'fork', sessionId: 'x', folder: 'a', prompt: 'p' }), null, 'unknown mode');
+});
+
+test('buildClaudeArgs for resume: --resume <id>, session kept on disk, every isolation flag unchanged', () => {
+  const sid = '11111111-2222-3333-4444-555555555555';
+  const tools = [...DEFAULT_ALLOWED_TOOLS];
+  const base = buildClaudeArgs({ allowedTools: tools, ...files });
+  const args = buildClaudeArgs({ allowedTools: tools, ...files, resumeSessionId: sid });
+  assert.equal(valueOf(args, '--resume'), sid);
+  assert.ok(!args.includes('--no-session-persistence'), 'the new turns must land in the same transcript');
+  assert.ok(!args.includes('--fork-session') && !args.includes('--continue'));
+  assert.deepEqual(args.filter((a) => a !== '--resume' && a !== sid), base.filter((a) => a !== '--no-session-persistence'));
+  assert.ok(!base.includes('--resume'));
+  for (const f of ['--mcp-config', '--tools', '--allowedTools', '--disallowedTools']) assert.match(args[args.indexOf(f) + 2], /^--/, f);
+  for (const bad of ['', 'a:b', 'x y', '--evil', '../x', 'C:\\x', 5, null]) {
+    assert.throws(() => buildClaudeArgs({ allowedTools: tools, ...files, resumeSessionId: bad }), /session id/, JSON.stringify(bad));
+  }
+});
+
+test('parseClaudeResult carries the session id claude ran', () => {
+  const r = parseClaudeResult(JSON.stringify({ result: 'ok', session_id: '11111111-2222-3333-4444-555555555555' }), 0);
+  assert.equal(r.sessionId, '11111111-2222-3333-4444-555555555555');
+  assert.equal(parseClaudeResult(JSON.stringify({ result: 'ok', session_id: '--x y' }), 0).sessionId, undefined);
+});

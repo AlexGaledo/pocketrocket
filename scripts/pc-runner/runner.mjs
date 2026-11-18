@@ -20,6 +20,7 @@ import {
 } from './lib.mjs';
 import { BASE, TOKEN_PATH, MIRROR_PAUSED_PATH, loadConfig, readToken, listenersOn } from './local.mjs';
 import { createMirror, httpRequester } from './mirror.mjs';
+import { handleJob } from './jobs.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MCP_SNAPSHOT_PATH = path.join(BASE, 'mcp-snapshot.json');
@@ -231,15 +232,11 @@ async function postResult(cfg, token, id, result) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Shows the Run / Refuse dialog. The job goes to the dialog in a temp JSON file, never inside script text. */
-async function confirmLocally(job, folder) {
+async function confirmLocally(payload) {
   if (process.platform !== 'win32') return false;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-runner-'));
   const file = path.join(dir, 'job.json');
-  fs.writeFileSync(file, JSON.stringify({
-    handle: job.bot.handle, room: job.room.name, folderName: job.folder, folderPath: folder.path,
-    prompt: job.prompt, tools: folder.allowedTools, mcpServers: folder.mcpServers, runsCode: canRunCode(folder.allowedTools),
-    timeoutSec: CONFIRM_TIMEOUT_MS / 1000,
-  }), { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(file, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
   try {
     const code = await new Promise((resolve) => {
       const child = spawn(BIN.powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-STA', '-WindowStyle', 'Hidden',
@@ -259,9 +256,9 @@ async function confirmLocally(job, folder) {
 /**
  * Runs claude in the folder with the prompt on stdin, isolated from the folder's own config: the runner writes
  * the only settings file and MCP config the job sees into a temp folder outside the job folder (see buildClaudeArgs).
- * Resolves { ok, output, costUsd?, durationMs? }.
+ * `cwd` is the allowlisted folder, or for a resume job the session's own working folder (inside one). Resolves { ok, output, costUsd?, durationMs?, sessionId? }.
  */
-function runClaude(claudePath, folder, mcpDefs, prompt) {
+function runClaude(claudePath, { folder, cwd, mcpDefs, prompt, resumeSessionId }) {
   const started = Date.now();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-runner-job-'));
   const settingsPath = path.join(dir, 'settings.json');
@@ -270,7 +267,7 @@ function runClaude(claudePath, folder, mcpDefs, prompt) {
   fs.writeFileSync(mcpConfigPath, JSON.stringify(buildMcpConfig(folder.mcpServers, mcpDefs).config), { mode: 0o600 });
   const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
   let args;
-  try { args = buildClaudeArgs({ allowedTools: folder.allowedTools, settingsPath, mcpConfigPath }); } catch (e) {
+  try { args = buildClaudeArgs({ allowedTools: folder.allowedTools, settingsPath, mcpConfigPath, resumeSessionId }); } catch (e) {
     cleanup();
     return Promise.resolve({ ok: false, output: `refused to build the claude command: ${e.message}`, durationMs: 0 });
   }
@@ -278,7 +275,7 @@ function runClaude(claudePath, folder, mcpDefs, prompt) {
     let out = '', err = '', timedOut = false, outBytes = 0;
     // gitHardenedEnv: every git the job runs ignores system/user git config and has fsmonitor, pager, hooks and
     // sshCommand forced off, whatever the repo's .git/config says.
-    const child = spawn(claudePath, args, { cwd: folder.path, env: gitHardenedEnv(process.env), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(claudePath, args, { cwd, env: gitHardenedEnv(process.env), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     currentChildren.add(child);
     const t = setTimeout(() => { timedOut = true; killTree(child); }, JOB_TIMEOUT_MS);
     // Keep memory bounded: the JSON result can't be parsed past ~4 MB anyway.
@@ -302,42 +299,14 @@ function runClaude(claudePath, folder, mcpDefs, prompt) {
   });
 }
 
-async function handleJob(cfgAtStart, claudePath, token, raw) {
-  const job = parseJob(raw);
-  if (!job) { log('job_malformed', { id: typeof raw?.id === 'string' ? raw.id.slice(0, 80) : null }); return; }
-  const meta = { jobId: job.id, bot: job.bot.handle, room: job.room.name, folder: job.folder, prompt: promptPreview(job.prompt), promptChars: job.prompt.length };
-  log('job_received', meta);
-  const refuse = async (why) => {
-    log('job_refused_locally', { jobId: job.id, why });
-    await postResult(cfgAtStart, token, job.id, { ok: false, refusedLocally: true, output: why });
-  };
-
-  // Re-read config so removing a folder takes effect right away, then re-check the allowlist.
-  const fresh = loadConfig();
-  if (!fresh.ok) return refuse('The PC runner config is invalid right now; job refused.');
-  const folder = folderFor(fresh.config, job.folder);
-  if (!folder) return refuse(`Folder "${String(job.folder).slice(0, 60)}" is not in this PC's allowlist.`);
-  if (!fs.existsSync(folder.path) || !fs.statSync(folder.path).isDirectory()) return refuse(`Folder "${job.folder}" does not exist on this PC.`);
-  // claude.exe was resolved at start; a folder added since must not contain it.
-  if (Object.values(fresh.config.folders).some((f) => isInside(claudePath, f.path))) {
-    return refuse('claude.exe now sits inside an allowlisted folder; restart the runner after fixing config.json.');
-  }
-  const mcpDefs = mcpDefinitions(fresh.config);
-  const { missing } = buildMcpConfig(folder.mcpServers, mcpDefs);
-  if (missing.length) return refuse(`MCP server(s) ${missing.join(', ')} are not set up on this PC (run: node runner.mjs check).`);
-
-  const approved = await confirmLocally(job, folder);
-  if (!approved) return refuse('Refused on the PC (Refuse pressed, dialog closed, or no answer in 10 minutes).');
-  log('job_approved_locally', { jobId: job.id });
-
-  try { await api(cfgAtStart, token, 'POST', `/jobs/${encodeURIComponent(job.id)}/start`); } catch (e) {
-    log('job_start_failed', { jobId: job.id, error: e.message });
-    return; // the hub didn't accept the start (cancelled, expired); don't run
-  }
-  const r = await runClaude(claudePath, folder, mcpDefs, job.prompt);
-  log('job_finished', { jobId: job.id, ok: r.ok, costUsd: r.costUsd ?? null, durationMs: r.durationMs ?? null, outputBytes: Buffer.byteLength(r.output) });
-  await postResult(cfgAtStart, token, job.id, { ok: r.ok, output: r.output, ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}), ...(r.durationMs !== undefined ? { durationMs: r.durationMs } : {}) });
-}
+/** The real pieces handleJob (jobs.mjs) works with. */
+const jobDeps = (cfg, claudePath, token) => ({
+  log, claudePath, loadConfig, mcpDefinitions,
+  confirm: confirmLocally,
+  startJob: (id) => api(cfg, token, 'POST', `/jobs/${encodeURIComponent(id)}/start`),
+  run: (j) => runClaude(claudePath, j),
+  postResult: (id, result) => postResult(cfg, token, id, result),
+});
 
 async function run() {
   const r = loadConfig();
@@ -402,7 +371,7 @@ async function run() {
     try {
       const job = await api(cfg, token, 'GET', '/jobs/next');
       lastPollError = '';
-      if (job) await handleJob(cfg, claude.path, token, job);
+      if (job) await handleJob(jobDeps(cfg, claude.path, token), job);
     } catch (e) {
       if (e.message !== lastPollError) log('poll_failed', { error: e.message });
       lastPollError = e.message;

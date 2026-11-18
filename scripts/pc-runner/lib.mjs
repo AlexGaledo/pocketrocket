@@ -250,16 +250,33 @@ export function folderFor(config, name) {
 }
 
 /** Shape-checks a job from GET /jobs/next. Returns the job or null. */
+/** A Claude Code session uuid as the mirror knows it. A subagent id ("<parent>:<agent>") never matches. */
+export const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+/**
+ * Shape-checks a job from GET /jobs/next. Returns the job or null.
+ * Old hubs send no `mode`: that is a "new" job, exactly as before. A "resume" job names a sessionId and no folder
+ * (the runner finds the folder from the session itself); `origin` 'owner' jobs may have no bot or room.
+ */
 export function parseJob(j) {
   if (!j || typeof j !== 'object') return null;
   if (typeof j.id !== 'string' && typeof j.id !== 'number') return null;
   const id = String(j.id);
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return null;
   if (typeof j.prompt !== 'string' || !j.prompt.trim()) return null;
-  if (typeof j.folder !== 'string') return null;
-  const handle = typeof j.bot?.handle === 'string' ? j.bot.handle : '?';
-  const room = { id: String(j.room?.id ?? ''), name: typeof j.room?.name === 'string' ? j.room.name : '?' };
-  return { id, bot: { handle }, room, folder: j.folder, prompt: j.prompt, createdAt: j.createdAt ?? null };
+  const mode = j.mode === undefined || j.mode === null ? 'new' : j.mode;
+  if (mode !== 'new' && mode !== 'resume') return null;
+  let folder = null, sessionId = null;
+  if (mode === 'new') {
+    if (typeof j.folder !== 'string') return null;
+    folder = j.folder;
+  } else {
+    if (typeof j.sessionId !== 'string') return null;
+    sessionId = j.sessionId; // validated (and refused with a reason) in resolveResume, so the hub hears why
+  }
+  const handle = typeof j.bot?.handle === 'string' ? j.bot.handle : j.origin === 'owner' ? 'owner' : '?';
+  const room = { id: String(j.room?.id ?? ''), name: typeof j.room?.name === 'string' ? j.room.name : j.origin === 'owner' ? '(from the app)' : '?' };
+  return { id, mode, sessionId, bot: { handle }, room, folder, prompt: j.prompt, origin: j.origin === 'owner' ? 'owner' : 'bot', createdAt: j.createdAt ?? null };
 }
 
 /**
@@ -275,9 +292,12 @@ export function parseJob(j) {
  *                             ~/.claude.json servers are ignored
  *   --tools                   only these built-in tools exist
  *   --allowedTools / --disallowedTools       the per-folder allow list, and the git escapes that are always denied
- *   --no-session-persistence  no transcript left on disk
+ *   --no-session-persistence  no transcript left on disk (new jobs only)
+ *   --resume <id>             resume jobs: continue that session in place. Persistence stays on, because the point
+ *                             is that the new turns land in the same transcript the mirror shows.
  */
-export function buildClaudeArgs({ allowedTools, settingsPath, mcpConfigPath } = {}) {
+export function buildClaudeArgs({ allowedTools, settingsPath, mcpConfigPath, resumeSessionId } = {}) {
+  if (resumeSessionId !== undefined && (typeof resumeSessionId !== 'string' || !SESSION_ID_RE.test(resumeSessionId))) throw new Error('resumeSessionId must be a session id');
   if (!Array.isArray(allowedTools) || allowedTools.length === 0) throw new Error('allowedTools must be a non-empty array');
   for (const t of allowedTools) { const e = toolError(t); if (e) throw new Error(`bad tool ${JSON.stringify(t)}: ${e}`); }
   if (typeof settingsPath !== 'string' || !settingsPath) throw new Error('settingsPath is required');
@@ -293,7 +313,7 @@ export function buildClaudeArgs({ allowedTools, settingsPath, mcpConfigPath } = 
     '--tools', builtinToolsOf(allowedTools).join(','),
     '--allowedTools', allowedTools.join(','),
     '--disallowedTools', DISALLOWED_TOOLS.join(','),
-    '--no-session-persistence',
+    ...(resumeSessionId === undefined ? ['--no-session-persistence'] : ['--resume', resumeSessionId]),
   ];
   // Belt and braces: whatever changes above, these never leave this function.
   if (args.some((a) => /dangerously|bypassPermissions/i.test(a))) throw new Error('refusing to build a permission-bypass command');
@@ -311,7 +331,7 @@ export function capOutput(text, max = OUTPUT_CAP_BYTES) {
   return buf.subarray(0, end).toString('utf8') + note;
 }
 
-/** Reads `claude -p --output-format json` stdout. Returns { ok, output, costUsd?, durationMs? }. */
+/** Reads `claude -p --output-format json` stdout. Returns { ok, output, costUsd?, durationMs?, sessionId? }. */
 export function parseClaudeResult(stdout, exitCode) {
   let j = null;
   const text = String(stdout ?? '').trim();
@@ -325,6 +345,7 @@ export function parseClaudeResult(stdout, exitCode) {
   const out = { ok: exitCode === 0 && j.is_error !== true, output: capOutput(typeof j.result === 'string' ? j.result : JSON.stringify(j.result ?? '')) };
   if (typeof j.total_cost_usd === 'number' && Number.isFinite(j.total_cost_usd)) out.costUsd = j.total_cost_usd;
   if (typeof j.duration_ms === 'number' && Number.isFinite(j.duration_ms)) out.durationMs = Math.round(j.duration_ms);
+  if (typeof j.session_id === 'string' && SESSION_ID_RE.test(j.session_id)) out.sessionId = j.session_id;
   return out;
 }
 
