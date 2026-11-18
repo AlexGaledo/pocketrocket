@@ -33,3 +33,6 @@ export * from './botExport.js';
 
 // PC session mirror (bridge P3)
 export * from './pcSessions.js';
+
+// Project repo lists and sync (bridge P5)
+export * from './projectRepos.js';

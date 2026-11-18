@@ -92,6 +92,8 @@ export function checkContentType(req: IncomingMessage, url: URL): { ok: true } |
   if (!MUTATING.has(req.method ?? 'GET')) return { ok: true };
   const ct = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
   if (ct === 'application/json') return { ok: true };
+  // The one raw upload: the runner's git bundle. Anything else on that path still has to be JSON.
+  if (ct === 'application/octet-stream' && /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/bundle$/.test(url.pathname)) return { ok: true };
   return { ok: false, status: 415, reason: 'Content-Type must be application/json (got ' + (ct || '(none)') + ')' };
 }
 
@@ -414,6 +416,8 @@ const RUNNER_ALLOW: readonly [method: string, path: RegExp][] = [
   ['POST', /^\/api\/pc-runner\/heartbeat$/],
   ['GET', /^\/api\/pc-runner\/jobs\/next$/],
   ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(start|result)$/],
+  // A bundle-mode sync's git bundle (raw body, up to 200 MB; api/pcRunner.ts streams it to disk).
+  ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/bundle$/],
   // Claude Code terminal sessions on the PC, through the runner's MCP server (api/cc.ts).
   ['GET', /^\/api\/cc\/rooms$/],
   ['GET', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|state|files\/text)$/],
