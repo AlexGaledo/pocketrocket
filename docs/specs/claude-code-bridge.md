@@ -184,9 +184,15 @@ P1-P2 give the biggest win first: terminal sessions and bots share correct, attr
 - P6: move a session mid-task, worker continues with full memory of earlier turns, pull back, `claude --resume` on the PC continues; trying to resume locally while on VPS is refused.
 - P7: a bot in room A cannot `cat` a file in project B's repo copy, with Bash.
 
-## 10. Open questions for the owner
+## 10. Answers (owner, 2026-11-18)
 
-1. Mirror covers sessions in every folder, including personal ones (school, private notes). OK for @persona to read those too, or should some folders be excluded by path?
-2. Which repos are **client** repos (PC-only until P7)? Proposed: equilife, wika-*, planliftar.
-3. Offload workers: which model by default on the VPS (Sonnet 5.5 to save the Max quota, or the session's own model)?
-4. Should @persona get API-provider routing too (for example Gemini for long reading), or only PC/VPS for now?
+1. **Mirror scope:** everything, as decided in section 1. The runner keeps an exclude list of folder paths in its `config.json`, empty by default, for the owner to fill in later.
+2. **Client repos (PC-only until P7):** equilife, wika-*, planliftar.
+3. **Offload model:** Claude Sonnet 5.5 by default on the VPS.
+4. **API-provider routing for @persona:** later, with the providers work (v0.5.0). P4 covers PC and VPS only.
+
+## 11. Progress
+
+| Phase | State |
+| --- | --- |
+| P1 | PR #137: `file_revisions`, `log_decision` / `file_history`, decisions.md guard, versioned text API |
