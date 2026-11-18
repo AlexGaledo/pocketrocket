@@ -1,4 +1,4 @@
-//! Checks on `tauri.conf.json > plugins.updater` (test-only module).
+//! Checks on `tauri.conf.json > plugins.updater`. `pubkey_is_set` is also used at runtime by update.rs.
 //!
 //! The committed config carries the placeholder pubkey `OWNER_STEP_PASTE_UPDATER_PUBKEY` until the owner pastes
 //! the real minisign public key (`cargo tauri signer generate`; the private key never enters the repo). Local and
@@ -17,6 +17,7 @@ pub const PUBKEY_PLACEHOLDER: &str = "OWNER_STEP_PASTE_UPDATER_PUBKEY";
 pub const RELEASE_TAG_ENV: &str = "POCKETROCKET_RELEASE_TAG";
 const ENDPOINT_PREFIX: &str = "https://github.com/AlexGaledo/pocketrocket/releases/";
 
+#[cfg(test)]
 const TAURI_CONF: &str = include_str!("../tauri.conf.json");
 
 fn updater(conf: &Value) -> Result<&Value, String> {

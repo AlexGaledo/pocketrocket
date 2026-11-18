@@ -97,8 +97,25 @@ or Desktop tool.
 
 ## Updating
 
-There's no auto-updater yet. **Check for updates** in the tray icon menu opens the releases page: download the
-newer installer and run it over the existing install. Your bots, chats and settings are kept.
+The desktop app checks for a new version when it starts and once a day while it runs, in every mode. It never
+interrupts you: when an update is out you get one notification, and the tray menu item changes to
+**Update to vX.Y.Z…** (with **What's new in vX.Y.Z** under it). **Check for updates** in the tray menu checks
+right away. Your bots, chats and settings are kept.
+
+When you pick **Update to vX.Y.Z…** the app asks first (**Install and restart** or **Later**; Later stops the
+reminder for that version). Then:
+
+- **This PC mode:** the app waits until no bot is mid-reply and no approval is open (the menu shows what it is
+  waiting for; click it to cancel), stops the hub cleanly, installs and restarts. New messages queue meanwhile
+  and run afterwards.
+- **Server mode:** only the desktop app is updated; the bots on your server keep running. Update the server
+  separately (see `docs/SERVER.md`).
+- **Attached to another hub,** or a hub older than 0.3.0: the app can't see whether bots are busy, so it asks
+  you to make sure nothing important is running first.
+- **Linux .deb install:** the app can't replace a package, so it opens the release page to download the new one.
+
+You can always download the newer installer from the
+[releases page](https://github.com/AlexGaledo/pocketrocket/releases) and run it over the existing install.
 
 ## Uninstalling
 

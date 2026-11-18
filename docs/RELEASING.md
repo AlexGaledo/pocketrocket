@@ -69,6 +69,17 @@ Settings → Environments → New environment `release`:
   them only in the `env` of the tauri-action build step, so `pnpm install`, tests and postinstall
   scripts never see them.
 
+The desktop app updates itself from the release's signed `latest.json`
+(`tauri-plugin-updater`, checked at launch and every 24 h; the install is always the user's choice and, in
+local mode, waits until `GET /api/busy` reports nothing blocking). A build whose `plugins.updater.pubkey` is still
+the placeholder never checks and its tray item reads "Updates not configured".
+
+**Testing an update before it goes out:** publish the release as a prerelease (which `releases/latest` ignores),
+then start an older installed build with
+`POCKETROCKET_UPDATE_ENDPOINT=https://github.com/AlexGaledo/pocketrocket/releases/download/vX.Y.Z-rc.N/latest.json`.
+Any value outside `https://github.com/AlexGaledo/pocketrocket/releases/` is ignored (and logged); the download is
+still verified against the pubkey.
+
 ## Checklist
 
 1. **Close the running app.** `PocketRocket.exe` (and any `node.exe` sidecar it spawned) must not
