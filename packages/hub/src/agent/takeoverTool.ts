@@ -15,7 +15,8 @@ export interface TakeoverToolCtx {
   turnId: string;
   hop: number;
   causeId: string;
-  runId?: string;
+  /** What this turn belongs to (`routine:<runId>`...); see rooms/ownerRef.ts. */
+  ownerRef?: string;
   repos: Repos;
   control: ComputerControlService;
   signal: AbortSignal;
@@ -52,7 +53,7 @@ export function takeoverTool(ctx: TakeoverToolCtx): HubTool {
       });
       events.emitEvent({ type: 'message.new', message: msg });
       ctx.control.beginTakeover(ctx.bot.id, {
-        messageId: msg.id, roomId: ctx.room.id, reason: a.reason, causeId: ctx.causeId, hop: ctx.hop, runId: ctx.runId ?? null,
+        messageId: msg.id, roomId: ctx.room.id, reason: a.reason, causeId: ctx.causeId, hop: ctx.hop, ownerRef: ctx.ownerRef ?? null,
       });
       ctx.setState('waiting');
       const h = await ctx.control.waitHandBack(ctx.bot.id, ctx.signal);

@@ -75,8 +75,8 @@ export interface TurnRequest {
    * even when the hub is in bypass mode. RoomRouter sets it from `requiresApprovals(causeId)`.
    */
   strictApprovals?: boolean;
-  /** P2: the routine run this turn belongs to, so a parked turn can still close it when it resumes. */
-  runId?: string;
+  /** What this turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`), so a parked turn can still settle it when it resumes. */
+  ownerRef?: string;
   /** The last turn here was cut off (token brake, step limit): start a fresh, small session instead of resuming the big one. */
   freshSession?: boolean;
 }
@@ -398,7 +398,7 @@ export class BotRunner {
     const permCtx = {
       bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s),
       strictApprovals: !!req.strictApprovals,
-      runId: req.runId, park, controlBlocked,
+      ownerRef: req.ownerRef, park, controlBlocked,
     };
 
     // key-registry.json, read once per turn (an edit applies to the next turn), names only.
@@ -481,7 +481,7 @@ export class BotRunner {
     // P2: a bot with a computer can hand it to the user (log in, captcha) and wait for it back.
     if ((desktopOn || browserOn) && this.control) {
       tools.push(takeoverTool({
-        bot, room, turnId, hop: req.hop, causeId: req.causeId, runId: req.runId, repos: this.repos, control: this.control,
+        bot, room, turnId, hop: req.hop, causeId: req.causeId, ownerRef: req.ownerRef, repos: this.repos, control: this.control,
         signal: ac.signal, setState: (s) => setState(s), park, useComputer,
       }));
     }
@@ -954,7 +954,7 @@ export class BotRunner {
     const setState = (st: BotState, note?: string) => this.hooks.setState(bot.id, room.id, st, note);
     const permCtx = {
       bot, room, turnId, hop: 0, causeId, setState: (st: 'blocked' | 'working') => setState(st),
-      strictApprovals: false, runId: undefined, park: () => undefined, controlBlocked: () => null,
+      strictApprovals: false, ownerRef: undefined, park: () => undefined, controlBlocked: () => null,
     };
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: 0, causeId,

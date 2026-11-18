@@ -446,7 +446,7 @@ export class TriggerService {
     if (!spendCapsOff() && spent >= t.budgetUsd) return skip('Daily budget reached ($' + spent.toFixed(2) + ' of $' + t.budgetUsd.toFixed(2) + ').');
 
     const fire = this.repo.addFire({ triggerId: t.id, eventId: o.eventId, title: event.title, status: 'running', test: o.test }, now);
-    const payload: TriggerPayload = { triggerId: t.id, fireId: fire.id, name: t.name, source: t.source, eventId: o.eventId };
+    const payload: TriggerPayload = { triggerId: t.id, fireId: fire.id, name: t.name, source: t.source, eventId: o.eventId, ...(o.test ? { manual: true } : {}) };
     let messageId = '';
     const msg = this.o.router.fireTrigger(room, bot, {
       name: t.name, prompt: t.prompt, event, payload, budgetUsd: spendCapsOff() ? Infinity : t.budgetUsd - spent,

@@ -119,7 +119,7 @@ export class RoutineScheduler {
     const room = this.repos.getRoom(r.roomId);
     if (!bot || !room) return false;
     const run = this.repos.createRun(r.id, null);
-    const payload: RoutinePayload = { routineId: r.id, runId: run.id, name: r.name };
+    const payload: RoutinePayload = { routineId: r.id, runId: run.id, name: r.name, ...(opts.manual ? { manual: true } : {}) };
     const msg = this.router.fireRoutine(room, bot, '[Routine "' + r.name + '"] ' + r.prompt, payload, (res) => {
       this.repos.finishRun(run.id, res.ok ? 'success' : 'error', res.costUsd);
     });

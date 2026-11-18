@@ -276,7 +276,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
-  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedRunIds(), ...control.parkedRunIds()] });
+  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedOwnerRefs(), ...control.parkedOwnerRefs()] });
 
   // P2: take over / hand back / pause, and resuming turns that parked on the user.
   const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
@@ -295,11 +295,11 @@ export function createHub(opts: HubOptions = {}): Hub {
   runner.control = control;
   router.control = control;
   broker.onParkedDecision = (p, decision) => {
-    router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, runId: p.runId, note: parkedDecisionNote(p, decision) });
+    router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, ownerRef: p.ownerRef, note: parkedDecisionNote(p, decision) });
   };
   control.onParkedHandBack = (botId, t, note) => {
     router.resumeParked(botId, t.roomId, {
-      causeId: t.causeId, hop: t.hop, runId: t.runId,
+      causeId: t.causeId, hop: t.hop, ownerRef: t.ownerRef,
       note: note === null
         ? '(Nobody took over your computer within ' + Math.round(control.maxParkMs / 3_600_000) + ' hours of your request "' + t.reason +
           '", so you have control again. Do not ask again right away; tell the user what is still blocked.)'
