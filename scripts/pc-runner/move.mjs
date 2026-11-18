@@ -299,7 +299,8 @@ export async function handleMove(d, job, config, refuse, setResolved, h) {
         const b = await makeBundle({ git, top: it.top, tmp: it.sub, commit: it.snap.commit, machine, sessionId: job.sessionId, jobId: `${job.id}-${it.i}` });
         if (b.bytes > SYNC_MAX_BUNDLE_BYTES) throw new Error(`the bundle of ${it.spec.repo} is ${(b.bytes / 1048576).toFixed(1)} MB; the limit is ${SYNC_MAX_BUNDLE_BYTES / 1048576} MB`);
         await d.uploadBundle(job.id, b.file, { repo: it.spec.repo });
-        move.repos.push({ repo: it.spec.repo, commit: it.snap.commit, branch: b.branch, bundleBytes: b.bytes });
+        // toplevel: the hub swaps this PC prefix for the VPS worktree in the session file (and back on pull).
+        move.repos.push({ repo: it.spec.repo, commit: it.snap.commit, branch: b.branch, bundleBytes: b.bytes, toplevel: it.top });
       }
       // A copy, so a transcript that grows while it uploads cannot disagree with its own hash and length.
       const copy = path.join(tmp, 'session.jsonl');
