@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createServer, makeVerifier, repoNameFor, TOOLS } from './mcp.mjs';
+import { createServer, makeVerifier, repoNameFor, TOOLS, ON_VPS_WARNING } from './mcp.mjs';
 import { tunnelOwnerCheck } from './lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -280,4 +280,38 @@ test('real process over stdio: newline-delimited framing end to end, stderr only
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// Bridge P6: the session lock warning
+test('lock: a session on the VPS gets a warning line on every tool result (success and error); a local one does not', async () => {
+  for (const [state, warned] of [['on-vps', true], ['moving', true], ['pulling', true], ['local', false]]) {
+    const s = mk({ env: { CLAUDE_SESSION_ID: 'sess-1' } });
+    routes['GET /api/cc/session-state'] = () => [200, { state }];
+    const ok = await call(s, 'list_rooms', {});
+    assert.equal(ok.text.includes(ON_VPS_WARNING), warned, state);
+    assert.match(ok.text, /Wika Dev/);
+    const bad = await call(s, 'read_room', { room: 'nope' });
+    assert.equal(bad.isError, true);
+    assert.equal(bad.text.includes(ON_VPS_WARNING), warned, `${state} (error result)`);
+    assert.equal(seen.filter((q) => q.url === '/api/cc/session-state').length, 1, 'asked once, then cached');
+    assert.equal(seen.find((q) => q.url === '/api/cc/session-state').headers['x-cc-session'], 'sess-1');
+  }
+  assert.match(ON_VPS_WARNING, /on the VPS; pull it back before continuing/);
+});
+
+test('lock: no session id means no lookup; an older hub (404) or an unreachable runner means no warning', async () => {
+  let s = mk({ env: {} });
+  routes['GET /api/cc/session-state'] = () => [200, { state: 'on-vps' }];
+  const r = await call(s, 'list_rooms', {});
+  assert.equal(r.text.includes(ON_VPS_WARNING), false);
+  assert.equal(seen.some((q) => q.url === '/api/cc/session-state'), false);
+
+  s = mk({ env: { CLAUDE_SESSION_ID: 'sess-2' } }); // no route: 404
+  assert.equal((await call(s, 'list_rooms', {})).text.includes(ON_VPS_WARNING), false);
+
+  s = mk({ env: { CLAUDE_SESSION_ID: 'sess-3' }, verify: async () => ({ ok: false, message: 'runner off' }) });
+  const off = await call(s, 'list_rooms', {});
+  assert.equal(off.isError, true);
+  assert.equal(off.text, 'runner off');
 });

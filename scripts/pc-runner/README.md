@@ -76,6 +76,44 @@ by `.gitignore` (so a normal `.env` stays here), and any `.env*` file even when 
 Environment files are never copied. A repo whose `.gitattributes` names a filter driver runs that driver while the
 snapshot is built, the same as `git add` does for you.
 
+### Move a session to the VPS and pull it back
+
+Two more no-Claude jobs let the SAME conversation continue on the server and come back (bridge phase 6).
+
+**move.** The hub names the session and every linked repo (bundle repos only, never client repos). The runner finds the
+local repo for each one (the session's own repo, a repo that is an allowlisted folder, or a repo directly inside an
+allowlisted folder), requires its `origin` to match the project remote and the repo to lie inside the allowlist, then
+snapshots and scans EVERY repo before asking. One blocked scan refuses the whole move without a dialog. One dialog lists
+the session and each repo with its changed files. On Run it uploads a bundle per repo
+(`POST /jobs/<id>/bundle?repo=<name>`, x-bundle-sha256, cap 200 MB; nothing is pushed to any remote) and then the
+session transcript (`POST /jobs/<id>/session`, raw bytes, Content-Length, x-session-sha256, cap 100 MB; a copy of the
+file, so a transcript that grows mid-upload cannot disagree with its hash), all through the verified tunnel. The result
+is `move: { repos: [{ repo, commit, branch, bundleBytes }], sessionBytes }`. Your folders, branches, indexes and the
+transcript are not changed by a move.
+
+**pull.** The runner downloads the transcript (`GET /jobs/<id>/session`) and one bundle per repo
+(`GET /jobs/<id>/bundle?repo=<name>`). Every download needs the hub's `x-session-sha256` / `x-bundle-sha256` header and
+must match it; the transcript must be JSON lines whose `cwd` values sit inside your repos; each bundle is verified and
+unpacked in a throwaway bare repo that borrows your objects (with `transfer.fsckObjects`), and the branch it carries must
+be exactly `wip/<machine>/<session first 8>`. One dialog lists, per repo, the files changed on the server and whether your
+folder still equals what was moved. On Run:
+
+1. each bundle is fetched into your repo as that one branch (`refs/heads/wip/<machine>/<sid8>`, forced, it is the
+   session's own) and nothing else;
+2. if your working folder still equals the snapshot that was moved (checked in a temporary index), the server's final
+   files are written into it as uncommitted edits: removed files are deleted, new and changed files are written with
+   `checkout-index` from a temporary index. HEAD, your branch and the real index file are not touched. If the folder
+   changed since the move, it is left alone and the result says so: the server's work is on the wip branch for you to merge;
+3. the transcript is replaced; the old one is kept next to it as `<id>.jsonl.pocketrocket-bak` (Claude ignores it).
+
+The result is `pull: { repos: [{ repo, commit, applied, note }], sessionBytes }`.
+
+**The lock.** While a session is moving, on the VPS or coming back, this PC refuses to `resume` it (the hub marks the job
+`onVps`, and the runner remembers its own moves), the mirror stops shipping PC-side appends to it (the hub also flags it in
+`/api/pc-sessions/sync` and the PUT/POST answers with `onVps`), and the MCP server adds a warning line to every tool
+result in that terminal when the hub's `GET /api/cc/session-state` says `{ "state": "moving" | "on-vps" | "pulling" }`
+(or any answer carries `x-cc-session-state`).
+
 Before the runner sends its token anywhere, it checks that whatever listens on `127.0.0.1:<localPort>` is its
 own ssh process (`Get-NetTCPConnection`, owner pid = ssh pid). It does this when the tunnel starts and after every
 restart. If another program holds the port, the runner sends nothing, logs `port_squatted`, kills its ssh and
@@ -334,7 +372,8 @@ mirrored sessions: only you can, in the app. The runner log (`logs\`) holds coun
 | `confirm.ps1` | the Run / Refuse dialog; it reads the job from a temp JSON file and never puts it into script text |
 | `runner-on.ps1` / `runner-off.ps1` | start hidden and write `runner.pid` / stop the runner and everything it started |
 | `mirror.mjs` / `scrub.mjs` / `mirror-toggle.ps1` | the session mirror (mapper and tailer), the shared scrub rules, and the pause-resume toggle; tested by `mirror.test.mjs` |
-| `jobs.mjs` / `sync.mjs` | job handling (new, resume, sync) and the sync pieces: snapshot, scan, push, bundle, upload; tested by `jobs.test.mjs` and `sync.test.mjs` |
+| `jobs.mjs` / `sync.mjs` | job handling (new, resume, sync) and the sync pieces: snapshot, scan, push, bundle, upload and download; tested by `jobs.test.mjs` and `sync.test.mjs` |
+| `move.mjs` | move and pull jobs (session to the VPS and back); tested by `move.test.mjs` |
 | `install.ps1` | copies the files and makes the Desktop shortcuts |
 
 Tests: `node --test scripts/pc-runner`. For development, `POCKETROCKET_RUNNER_DIR` points the runner at another
