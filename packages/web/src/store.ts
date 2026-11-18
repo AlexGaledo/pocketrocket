@@ -19,7 +19,7 @@ import type { SectionId } from './components/dialogs/SettingsDialog';
 
 export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
 /** What the main pane shows over the chat. Null is the chat. */
-export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' };
+export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' } | { kind: 'pcsessions' };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
