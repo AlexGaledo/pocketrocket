@@ -32,11 +32,24 @@ export type PcJobStatus = 'pending_approval' | 'queued' | 'claimed' | 'running' 
 const OPEN: readonly PcJobStatus[] = ['pending_approval', 'queued', 'claimed', 'running'];
 const TERMINAL = new Set<PcJobStatus>(['done', 'failed', 'refused', 'expired', 'cancelled']);
 
+export type PcJobMode = 'new' | 'resume';
+export type PcJobOrigin = 'bot' | 'owner';
+
 export interface PcJob {
   id: string;
-  botId: string;
-  roomId: string;
-  folder: string;
+  /** Null for a job the owner started from the app. Stored as '' (the column is NOT NULL). */
+  botId: string | null;
+  roomId: string | null;
+  /** Null for a resume: the PC resolves the folder from the session's own directory. Stored as ''. */
+  folder: string | null;
+  mode: PcJobMode;
+  /** The mirrored Claude Code session a resume continues. */
+  sessionId: string | null;
+  origin: PcJobOrigin;
+  /** The allowed folder name a resume ran in, as the PC reported it. */
+  resolvedFolder: string | null;
+  /** Set when the PC says the resume continued under another session id. */
+  newSessionId: string | null;
   prompt: string;
   status: PcJobStatus;
   result: string | null;
@@ -75,9 +88,14 @@ const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex
 
 const toJob = (r: Record<string, unknown>): PcJob => ({
   id: r.id as string,
-  botId: r.bot_id as string,
-  roomId: r.room_id as string,
-  folder: r.folder as string,
+  botId: (r.bot_id as string) || null,
+  roomId: (r.room_id as string) || null,
+  folder: (r.folder as string) || null,
+  mode: (r.mode as string) === 'resume' ? 'resume' : 'new',
+  sessionId: (r.session_id as string | null) ?? null,
+  origin: (r.origin as string) === 'owner' ? 'owner' : 'bot',
+  resolvedFolder: (r.resolved_folder as string | null) ?? null,
+  newSessionId: (r.new_session_id as string | null) ?? null,
   prompt: r.prompt as string,
   status: r.status as PcJobStatus,
   result: (r.result as string | null) ?? null,
@@ -236,25 +254,26 @@ export class PcRunner {
   }
 
   /** A job waiting for the owner's card. Not served until approve() moves it to `queued`. */
-  create(j: { botId: string; roomId: string; folder: string; prompt: string }): PcJob {
+  create(j: { botId?: string | null; roomId?: string | null; folder?: string | null; prompt: string; mode?: PcJobMode; sessionId?: string | null; origin?: PcJobOrigin }): PcJob {
     if (this.openCount() >= MAX_PC_QUEUE) throw new PcRunnerError(429, 'The PC already has ' + MAX_PC_QUEUE + ' jobs waiting or running. Wait for them to finish.');
     const id = nanoid(12);
     const t = this.now();
     this.opts.db.run(
-      'INSERT INTO pc_jobs (id, bot_id, room_id, folder, prompt, status, result, cost_usd, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      id, j.botId, j.roomId, j.folder, j.prompt, 'pending_approval', null, null, t, t,
+      'INSERT INTO pc_jobs (id, bot_id, room_id, folder, prompt, status, result, cost_usd, created_at, updated_at, mode, session_id, origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, j.botId ?? '', j.roomId ?? '', j.folder ?? '', j.prompt, 'pending_approval', null, null, t, t,
+      j.mode ?? 'new', j.sessionId ?? null, j.origin ?? 'bot',
     );
     changed(id);
     return this.get(id)!;
   }
 
-  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null; durationMs?: number | null } = {}): boolean {
+  private setStatus(id: string, status: PcJobStatus, from: readonly PcJobStatus[], extra: { result?: string | null; costUsd?: number | null; durationMs?: number | null; resolvedFolder?: string | null; newSessionId?: string | null } = {}): boolean {
     const t = this.now();
     const r = this.opts.db.run(
-      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), duration_ms = COALESCE(?, duration_ms), updated_at = ?, ' +
+      'UPDATE pc_jobs SET status = ?, result = COALESCE(?, result), cost_usd = COALESCE(?, cost_usd), duration_ms = COALESCE(?, duration_ms), resolved_folder = COALESCE(?, resolved_folder), new_session_id = COALESCE(?, new_session_id), updated_at = ?, ' +
         'started_at = COALESCE(started_at, ?), finished_at = COALESCE(finished_at, ?) ' +
         'WHERE id = ? AND status IN (' + from.map(() => '?').join(',') + ')',
-      status, extra.result ?? null, extra.costUsd ?? null, extra.durationMs ?? null, t,
+      status, extra.result ?? null, extra.costUsd ?? null, extra.durationMs ?? null, extra.resolvedFolder ?? null, extra.newSessionId ?? null, t,
       status === 'running' ? t : null, TERMINAL.has(status) ? t : null, id, ...from,
     );
     const ok = Number(r.changes) > 0;
@@ -320,12 +339,12 @@ export class PcRunner {
    * What the PC reports. The output is redacted (known secrets, key-shaped strings) and then capped, before it is
    * stored or handed to the bot.
    */
-  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number; durationMs?: number }): PcJob {
+  finish(id: string, r: { ok: boolean; refusedLocally?: boolean; output: string; costUsd?: number; durationMs?: number; resolvedFolder?: string; newSessionId?: string }): PcJob {
     const j = this.get(id);
     if (!j) throw new PcRunnerError(404, 'No such job');
     const status: PcJobStatus = r.refusedLocally ? 'refused' : r.ok ? 'done' : 'failed';
     const output = capOutput(redact(r.output));
-    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null, durationMs: r.durationMs !== undefined ? Math.round(r.durationMs) : null })) {
+    if (!this.setStatus(id, status, ['claimed', 'running'], { result: output, costUsd: r.costUsd ?? null, durationMs: r.durationMs !== undefined ? Math.round(r.durationMs) : null, resolvedFolder: r.resolvedFolder ?? null, newSessionId: r.newSessionId ?? null })) {
       throw new PcRunnerError(409, 'Job is ' + j.status + '; it no longer takes a result');
     }
     return this.get(id)!;
