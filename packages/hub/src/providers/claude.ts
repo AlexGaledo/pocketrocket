@@ -7,7 +7,8 @@ import {
   type Options, type PermissionResult, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput, type PostToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ModelInfo, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
-import { BASH_MAX_OUTPUT_CHARS, CLAUDE_EXE, MAX_MCP_OUTPUT_TOKENS, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { BASH_MAX_OUTPUT_CHARS, CLAUDE_EXE, DATA_DIR, MAX_MCP_OUTPUT_TOKENS, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { browserMcpRoots, sandboxCommand } from './sandbox.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
 import { SESSION_RETENTION_DAYS } from './cliRetention.js';
@@ -588,7 +589,18 @@ export class ClaudeProvider implements AgentProvider {
 
     const options: Options = {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
-      spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
+      // Bridge P7: with settings.sandbox on, the CLI (and the Bash, file tools and Browser MCP it runs) starts inside bubblewrap.
+      // Off: spawned as before. On but unusable: this throws and the turn fails closed.
+      spawnClaudeCodeProcess: (o) => {
+        const sb = sandboxCommand(o, {
+          cwd: o.cwd ?? ctx.workspaceDir,
+          botHome: ctx.botHome,
+          writable: [...(ctx.projectDirs ?? []), ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []), ...(ctx.sandboxWritableDirs ?? [])],
+          readOnly: [...readOnlyDirs, ...(browserOn ? browserMcpRoots(PLAYWRIGHT_MCP_CLI) : [])],
+          resumeToken: ctx.resumeToken,
+        }, { dataDir: DATA_DIR });
+        return spawn(sb?.command ?? o.command, sb?.args ?? o.args, { cwd: sb ? undefined : o.cwd, env: sb?.env ?? o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never;
+      },
       cwd: ctx.workspaceDir,
       // P1: the bot's own computer disk is a working root. P7: the knowledge repo is readable like the bot's
       // home; writes there are stopped by the hook below.

@@ -117,6 +117,8 @@ export interface TurnContext {
   outsideMcpGate?: (toolName: string, input: Record<string, unknown>) => Promise<string | null>;
   /** The bot's own computer disk (Desktop, Downloads): an extra root its file tools may use without asking. */
   computerFilesDir?: string;
+  /** Bridge P7: more folders the sandbox mounts writable, such as a session's VPS worktree. Ignored with the sandbox off. */
+  sandboxWritableDirs?: string[];
   // ---- P2 ----
   /**
    * Control interlock: why this bot's desktop/Browser tools must not act right now (the user has control, or

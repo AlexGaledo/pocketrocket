@@ -5,11 +5,11 @@
  * with POCKETROCKET_RESET_PASSWORD=1.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { AuditEntry, UserSessionInfo } from '@pocketrocket/shared';
+import type { AuditEntry, SandboxStatus, UserSessionInfo } from '@pocketrocket/shared';
 import { api, ApiError } from '../../lib/api';
 import { reconnectWsNow } from '../../lib/ws';
 import { useStore } from '../../store';
-import { Badge, Button, Field, Input, Label } from '../ui';
+import { Badge, Button, Field, Input, Label, Switch } from '../ui';
 import { Card, Group, InlineError, SectionHeader } from './parts';
 
 const ACTOR: Record<AuditEntry['actorKind'], string> = {
@@ -34,6 +34,36 @@ function browserName(ua: string | null): string {
 }
 
 const when = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+/**
+ * Bridge P7: one switch for the per-turn bubblewrap sandbox. The hub says whether it can run here; it is refused (409) when
+ * it cannot, so the switch never claims protection that is not there.
+ */
+function SandboxGroup() {
+  const on = useStore((s) => s.settings.sandbox) === 'on';
+  const updateSettings = useStore((s) => s.updateSettings);
+  const [status, setStatus] = useState<SandboxStatus | null>(null);
+  const load = useCallback(() => { api.sandbox.status().then(setStatus, () => setStatus(null)); }, []);
+  useEffect(load, [load, on]);
+  const text = !status ? 'Checking this server...'
+    : status.active ? 'Active: bot tools run in a sandbox that sees only their own bot folder and the rooms and projects they belong to.'
+    : on ? 'On, but not working, so bot turns are stopped instead of running unprotected. ' + status.reason
+    : status.available ? 'Ready on this server, currently off.'
+    : 'Not available on this server. ' + status.reason;
+  return (
+    <Group title="Bot sandbox">
+      <Card>
+        <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+          <div className="min-w-0">
+            <div id="sandbox-label" className="text-label">Run bot tools in a sandbox (Linux server)</div>
+            <p id="sandbox-hint" role="status" className="text-hint text-muted">{text}</p>
+          </div>
+          <Switch checked={on} disabled={!status || (!status.available && !on)} aria-labelledby="sandbox-label" aria-describedby="sandbox-hint" onChange={(next) => void updateSettings({ sandbox: next ? 'on' : 'off' }).then(load)} />
+        </div>
+      </Card>
+    </Group>
+  );
+}
 
 export function SecuritySection() {
   const toast = useStore((s) => s.toast);
@@ -160,6 +190,8 @@ export function SecuritySection() {
           ))}
         </Card>
       </Group>
+
+      <SandboxGroup />
 
       <Group title="Activity">
         <Card>

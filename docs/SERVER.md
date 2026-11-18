@@ -215,6 +215,38 @@ RESTIC_PASSWORD_FILE=/root/.pocketrocket-restic-pass
 With both set, the daily job takes a restic snapshot instead of a tarball and keeps 7 daily snapshots. It is
 off until you create that file. Offsite copies are up to you.
 
+## Bot sandbox (bubblewrap)
+
+Every bot runs as the one Linux user that owns the hub, so by default a Bash call in one room can read another project's folder, another bot's home, `vault.key`, `hub-token` and the database. The sandbox closes that. With **Settings > Security > Run bot tools in a sandbox** on, each Claude turn starts as `bwrap <mounts> -- claude ...` (`packages/hub/src/providers/sandbox.ts`), and the CLI, its Bash and file tools and the Playwright MCP it starts see only:
+
+| Mount | Mode |
+|---|---|
+| `/usr`, a few `/etc` files (DNS, TLS, passwd) | read-only |
+| the CLI binary, the knowledge repo, the Browser MCP's packages | read-only |
+| the bot's own folder, the shared `workspace/`, the room and project folders it belongs to, its computer's `files/` | read-write |
+| a private `~/.claude` (inside the bot's folder) plus the login file | read-write |
+| `/tmp`, `/proc`, `/dev`, an empty home | private |
+
+Not mounted, so absent inside: the data folder root, `vault.key`, `hub-token`, `pocketrocket.db`, other bots' folders, other projects and rooms, `~/.ssh`, the hub source. The sandbox also uses its own pid, ipc and uts namespaces, `--die-with-parent` and `--new-session`. The network is shared on purpose: the Browser tool reaches the bot's own Chrome on `127.0.0.1:<cdp port>`.
+
+- **Off by default.** Only the owner's `PUT /api/settings` writes `sandbox`; no bot tool, MCP route or paired device can. `GET /api/sandbox/status` returns `{ available, active, reason }`.
+- **Fails closed.** On and bubblewrap unusable: the turn errors with the reason, it never runs unsandboxed. The switch refuses to turn on when it cannot work.
+- **Client repos.** While it is on and working, a repo marked "client repo" syncs like any other. Off: client repos stay on the PC.
+- **Claude only.** The Codex, Grok and OpenCode adapters (dev-only) are not wrapped.
+- **Known limits.** The OAuth login file is mounted read-write (the CLI refreshes its token in place) so a bot with Bash can read it. Loopback is shared, so a bot can reach the hub API (it still needs the token, which it cannot read) and other bots' Chrome debugging ports (`9400+n`). Outside MCP servers run inside the sandbox, so a stdio server must live under `/usr`. Bots still share one Linux uid; this is a filesystem wall, not a network or uid one.
+
+### Ubuntu 24.04: AppArmor
+
+Ubuntu 24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`, so bubblewrap fails with `setting up uid map: Permission denied`. `deploy/setup-vps.sh` installs `deploy/apparmor/pocketrocket-bwrap` to `/etc/apparmor.d/` and loads it. It attaches to `/usr/bin/bwrap` only, grants `userns`, and changes nothing system-wide. By hand:
+
+```bash
+apt-get install -y bubblewrap
+install -m 644 deploy/apparmor/pocketrocket-bwrap /etc/apparmor.d/pocketrocket-bwrap
+apparmor_parser -r /etc/apparmor.d/pocketrocket-bwrap
+runuser -u pocketrocket -- bwrap --ro-bind /usr /usr --proc /proc --dev /dev --unshare-pid -- /usr/bin/true && echo works
+bash deploy/sandbox-check.sh        # the P7 test: bot A cannot read project B or the hub's secrets
+```
+
 ## Kill switch: take every key away from the hub
 
 `deploy/keys.sh`, run as root on the server, lists and pulls every key the hub holds. It never prints a value,

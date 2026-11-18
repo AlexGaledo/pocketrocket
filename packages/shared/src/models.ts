@@ -532,3 +532,13 @@ export interface ApprovalPolicy {
   /** Epoch ms the rule stops applying; null or absent = never. */
   expiresAt?: number | null;
 }
+
+/** GET /api/sandbox/status (Bridge P7): can this server sandbox bot tools, is the setting on, and why not. */
+export interface SandboxStatus {
+  /** bubblewrap is installed and can make a sandbox on this machine. */
+  available: boolean;
+  /** The setting is on and bubblewrap works: turns run sandboxed and client repos may sync. */
+  active: boolean;
+  /** Why it is not available (or, when on but unusable, why turns fail); empty when it works. */
+  reason: string;
+}

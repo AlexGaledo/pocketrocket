@@ -111,7 +111,7 @@ function RepoRow({ r, i, set, onRemove, name, remote, vps, prot }: {
           <Switch checked={r.client} onChange={(client) => set(i, { client })} aria-label={'Client repo: ' + (r.name || 'repo ' + (i + 1))} />
           <span className="min-w-0">
             Client repo
-            <span className="block text-hint leading-snug text-muted">Stays on your PC until bots are sandboxed. Every sync is refused.</span>
+            <span className="block text-hint leading-snug text-muted">Stays on your PC and is never synced, unless the server runs bot tools in a sandbox (Settings, Security).</span>
           </span>
         </label>
         <Tooltip content="Remove this repo"><Button variant="ghost" size="icon" aria-label={'Remove ' + (r.name || 'repo ' + (i + 1))} onClick={onRemove}><Trash2 size={15} /></Button></Tooltip>

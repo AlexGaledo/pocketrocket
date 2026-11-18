@@ -14,6 +14,7 @@ import { settings } from '../services/SettingsStore.js';
 import { listAudit } from '../services/AuditLog.js';
 import { deviceMayAccess, runnerMayAccess } from './guard.js';
 import type { ToolOutput } from '../providers/types.js';
+import { setSandboxProbeForTests } from '../providers/sandbox.js';
 
 /**
  * Bridge P5 (hub half): the owner's repos.json endpoints, sessions mapped to repos, bots on a repo-linked project chat,
@@ -34,6 +35,7 @@ const git = (cwd: string, ...args: string[]) =>
 let hub: Hub;
 let port: number;
 let personaId: string | null = null;
+let sandboxSetting: 'off' | 'on' = 'off';
 beforeAll(async () => {
   hub = createHub({
     port: 0, dbFile: ':memory:', skipBootstrap: true, token: TOKEN, projectsDir: path.join(tmp, 'projects'), roomsDir: path.join(tmp, 'rooms'),
@@ -42,7 +44,7 @@ beforeAll(async () => {
     pcBundleMaxBytes: BUNDLE_CAP,
   });
   port = await hub.listen();
-  vi.spyOn(settings, 'get').mockImplementation(() => ({ ...realGet(), personaBotId: personaId ?? '' }));
+  vi.spyOn(settings, 'get').mockImplementation(() => ({ ...realGet(), personaBotId: personaId ?? '', sandbox: sandboxSetting }));
 });
 afterAll(async () => {
   vi.restoreAllMocks();
@@ -459,6 +461,29 @@ describe('the owner starts a sync (POST /api/pc-runner/jobs)', () => {
     expect((await start(cookie, { mode: 'new', folder: 'site', prompt: 'hi' })).status).toBe(200);
   });
 
+  it('lets a client repo sync once the bot sandbox is on and working (bridge P7), and not when it is on but broken', async () => {
+    await setup();
+    await pair();
+    const cookie = await sessionCookie();
+    const body = { mode: 'sync', sessionId: 'c1c1c1c1-0000-0000-0000-000000000001', project: slug, repo: 'client-site' };
+    try {
+      sandboxSetting = 'on';
+      setSandboxProbeForTests(() => ({ ok: true, reason: '' }));
+      const ok = await start(cookie, body);
+      expect(ok.status).toBe(200);
+      expect(ok.json.sync).toMatchObject({ repo: 'client-site', mode: 'wip-branch' });
+      // On, but bubblewrap stopped working: turns fail closed, so the client repo is refused again.
+      setSandboxProbeForTests(() => ({ ok: false, reason: 'bubblewrap cannot make a sandbox here.' }));
+      const bad = await start(cookie, body);
+      expect(bad.status).toBe(400);
+      expect(bad.json.error).toMatch(/client repo/);
+    } finally {
+      sandboxSetting = 'off';
+      setSandboxProbeForTests();
+    }
+    expect((await start(cookie, body)).status).toBe(400);
+  });
+
   it('turns a blocked scan into a failed job whatever the runner says, and keeps the findings (redacted)', async () => {
     await setup();
     const runner = await pair();
@@ -682,6 +707,21 @@ describe('uploading a bundle', () => {
     await putRepos(slug, [{ name: 'lib', remote: REMOTE_LIB, sync: 'none' }, { name: 'app', remote: REMOTE_APP, sync: 'wip-branch' }]);
     expect((await upload(id, b.buf)).status).toBe(409);
     expect(branches()).toEqual([]);
+  });
+
+  it('takes the upload for a client repo while the bot sandbox is on and working (bridge P7)', async () => {
+    await setup();
+    const b = makeBundle();
+    const id = await newJob();
+    await putRepos(slug, [{ name: 'lib', remote: REMOTE_LIB, sync: 'bundle', client: true }, { name: 'app', remote: REMOTE_APP, sync: 'wip-branch' }]);
+    try {
+      sandboxSetting = 'on';
+      setSandboxProbeForTests(() => ({ ok: true, reason: '' }));
+      expect((await upload(id, b.buf)).status).toBe(200);
+    } finally {
+      sandboxSetting = 'off';
+      setSandboxProbeForTests();
+    }
   });
 
   it('never runs a hook or any program the VPS copy\'s own git config names', async () => {
