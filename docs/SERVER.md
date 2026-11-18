@@ -243,7 +243,7 @@ Ubuntu 24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`, so bubblewra
 apt-get install -y bubblewrap
 install -m 644 deploy/apparmor/pocketrocket-bwrap /etc/apparmor.d/pocketrocket-bwrap
 apparmor_parser -r /etc/apparmor.d/pocketrocket-bwrap
-runuser -u pocketrocket -- bwrap --ro-bind /usr /usr --proc /proc --dev /dev --unshare-pid -- /usr/bin/true && echo works
+runuser -u pocketrocket -- bwrap --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin --proc /proc --dev /dev --unshare-pid -- /usr/bin/true && echo works
 bash deploy/sandbox-check.sh        # the P7 test: bot A cannot read project B or the hub's secrets
 ```
 
