@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The PC helper can move a session to the server and pull it back
+
+- A new kind of PC job moves one of your Claude Code sessions to the server so the same conversation continues there. The PC snapshots and secret-scans every linked repo first (one blocked scan refuses the whole move without asking), shows one Run / Refuse dialog for the whole move, then sends a bundle per repo and the session file. Nothing is pushed to any remote and your folders are not changed.
+- Pulling it back downloads the session and each repo's work, checks them, and puts the server's work on the `wip/<your PC>/<session>` branch of each repo (only that branch). If your folder is still exactly as it was when you moved, the server's file changes are also written into it as uncommitted edits, without moving HEAD, your branch or your staged changes; if you changed it meanwhile, it is left alone and you are told to merge the branch yourself. The session file is replaced and the old one kept next to it as `.pocketrocket-bak`.
+- While a session is on the server, this PC refuses to resume it, the mirror stops sending PC-side changes to it, and the PocketRocket tools in that terminal add a warning line.
+- The installer now also copies `move.mjs`.
+
 ### Project repo lists and syncing PC work to the VPS (hub)
 
 - A project can list its git repos in Settings (stored as `repos.json` in the project folder, which only you can edit): a name, the remote URL, how it syncs (wip branch, bundle or none), extra protected branches, and whether it is a client repo. Repos are matched by remote URL, so no path on your PC is ever stored here. Bots cannot change the list.

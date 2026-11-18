@@ -8,7 +8,7 @@ $dest = Join-Path $env:LOCALAPPDATA 'PocketRocketRunner'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $dest 'logs') | Out-Null
 
-foreach ($f in @('runner.mjs', 'lib.mjs', 'local.mjs', 'mcp.mjs', 'mcp.cmd', 'confirm.ps1', 'runner-on.ps1', 'runner-off.ps1', 'mirror.mjs', 'scrub.mjs', 'jobs.mjs', 'sync.mjs', 'mirror-toggle.ps1', 'config.example.json', 'README.md')) {
+foreach ($f in @('runner.mjs', 'lib.mjs', 'local.mjs', 'mcp.mjs', 'mcp.cmd', 'confirm.ps1', 'runner-on.ps1', 'runner-off.ps1', 'mirror.mjs', 'scrub.mjs', 'jobs.mjs', 'sync.mjs', 'move.mjs', 'mirror-toggle.ps1', 'config.example.json', 'README.md')) {
   Copy-Item -LiteralPath (Join-Path $src $f) -Destination (Join-Path $dest $f) -Force
 }
 $config = Join-Path $dest 'config.json'

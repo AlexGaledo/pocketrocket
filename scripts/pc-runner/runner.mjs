@@ -20,7 +20,7 @@ import {
 } from './lib.mjs';
 import { BASE, TOKEN_PATH, MIRROR_PAUSED_PATH, loadConfig, readToken, listenersOn } from './local.mjs';
 import { createMirror, httpRequester, findGit } from './mirror.mjs';
-import { uploadBundleFile } from './sync.mjs';
+import { uploadBundleFile, uploadSessionFile, downloadBundleFile, downloadSessionFile } from './sync.mjs';
 import { handleJob } from './jobs.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -301,16 +301,27 @@ function runClaude(claudePath, { folder, cwd, mcpDefs, prompt, resumeSessionId }
 }
 
 /** The real pieces handleJob (jobs.mjs) works with. */
-const jobDeps = (cfg, claudePath, token) => ({
+const jobDeps = (cfg, claudePath, token, mirror) => {
+  const baseUrl = `http://127.0.0.1:${cfg.localPort}`;
+  const guard = () => { if (!tunnelVerified) throw new Error('tunnel not verified; nothing sent'); };
+  return {
   log, claudePath, loadConfig, mcpDefinitions,
   confirm: confirmLocally,
   startJob: (id) => api(cfg, token, 'POST', `/jobs/${encodeURIComponent(id)}/start`),
   run: (j) => runClaude(claudePath, j),
   // Sync jobs: git by absolute path, the machine name for wip branches, and the bundle upload through the verified tunnel.
   gitPath: findGit(), machine: os.hostname(),
-  uploadBundle: (id, file) => uploadBundleFile({ baseUrl: `http://127.0.0.1:${cfg.localPort}`, token, jobId: id, file, guard: () => { if (!tunnelVerified) throw new Error('tunnel not verified; nothing sent'); } }),
+  uploadBundle: (id, file, query) => uploadBundleFile({ baseUrl, token, jobId: id, file, query, guard }),
+  // Move / pull jobs (bridge P6): the session transcript, the bundles back, and the mirror's on-the-VPS lock.
+  uploadSession: (id, file) => uploadSessionFile({ baseUrl, token, jobId: id, file, guard }),
+  downloadSession: (id, dest) => downloadSessionFile({ baseUrl, token, jobId: id, dest, guard }),
+  downloadBundle: (id, repo, dest) => downloadBundleFile({ baseUrl, token, jobId: id, query: { repo }, dest, guard }),
+  holdSession: (id) => mirror?.hold(id),
+  releaseSession: (id) => mirror?.release(id),
+  isOnVps: (id) => mirror?.isHeld(id) === true,
   postResult: (id, result) => postResult(cfg, token, id, result),
-});
+  };
+};
 
 async function run() {
   const r = loadConfig();
@@ -375,7 +386,7 @@ async function run() {
     try {
       const job = await api(cfg, token, 'GET', '/jobs/next');
       lastPollError = '';
-      if (job) await handleJob(jobDeps(cfg, claude.path, token), job);
+      if (job) await handleJob(jobDeps(cfg, claude.path, token, mirror), job);
     } catch (e) {
       if (e.message !== lastPollError) log('poll_failed', { error: e.message });
       lastPollError = e.message;
