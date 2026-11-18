@@ -319,7 +319,7 @@ export function httpRequester({ baseUrl, token, guard = () => {}, timeoutMs = 30
     const text = await res.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
-    if (res.ok || [400, 404, 409].includes(res.status)) return { status: res.status, json };
+    if (res.ok || [400, 404, 409, 410].includes(res.status)) return { status: res.status, json };
     const err = new Error(`${method} -> HTTP ${res.status}`);
     err.network = true; // 5xx, 401, 429...: retry with backoff
     throw err;
@@ -387,6 +387,12 @@ export function createMirror(options) {
       firstAt: st.meta.firstAt ?? st.mtimeMs, lastAt: Math.max(st.lastAt, st.mtimeMs),
     };
     const r = await request('PUT', `/${encodeURIComponent(st.id)}`, body);
+    if (r.status === 410) { // deleted in PocketRocket: never mirror it again (until the runner restarts and asks again)
+      log('mirror_session_deleted', { id: st.id });
+      st.dead = true;
+      excluded.add(st.file);
+      return null;
+    }
     if (r.status !== 200 || !Number.isInteger(r.json?.offset)) throw new Error(`PUT session -> HTTP ${r.status}`);
     st.titleSent = st.meta.title;
     return r.json.offset;
@@ -399,7 +405,9 @@ export function createMirror(options) {
     const meta = await scanHead(d.file);
     if (isExcluded(cfg.mirrorExclude, { cwd: meta.cwd })) { excluded.add(d.file); return null; }
     const st = { ...d, meta, lastAt: meta.firstAt ?? d.mtimeMs, offset: 0, toolNames: new Map(), titleSent: null, dead: false, retryAt: 0, sentEntries: 0 };
-    st.offset = await put(st);
+    const offset = await put(st);
+    if (offset === null) return null;
+    st.offset = offset;
     tracked.set(d.file, st);
     stats.sessions++;
     return st;
@@ -419,10 +427,10 @@ export function createMirror(options) {
       const b = batch;
       batch = null;
       if (!b || b.to <= b.from) return true;
-      if (st.meta.title && st.meta.title !== st.titleSent) await put(st);
+      if (st.meta.title && st.meta.title !== st.titleSent && (await put(st)) === null) return true;
       if (!b.entries.length && st.noEmpty) { st.offset = b.to; return true; }
       let r = await request('POST', `/${encodeURIComponent(st.id)}/entries`, { from: b.from, to: b.to, entries: b.entries });
-      if (r.status === 404) { await put(st); r = await request('POST', `/${encodeURIComponent(st.id)}/entries`, { from: b.from, to: b.to, entries: b.entries }); }
+      if (r.status === 404) { if ((await put(st)) === null) return true; r = await request('POST', `/${encodeURIComponent(st.id)}/entries`, { from: b.from, to: b.to, entries: b.entries }); }
       if (r.status === 400 && !b.entries.length) { st.noEmpty = true; st.offset = b.to; return true; } // hub wants non-empty batches
       if (r.status === 409 && Number.isInteger(r.json?.offset)) {
         if (++resyncs > 3) throw Object.assign(new Error('resync loop'), { network: false });
@@ -437,7 +445,7 @@ export function createMirror(options) {
       return true;
     };
     for (;;) {
-      if (stopped) return;
+      if (stopped || st.dead) return;
       batch = fresh(st.offset);
       let again = false;
       for await (const { line, end } of iterLines(st.file, st.offset)) {

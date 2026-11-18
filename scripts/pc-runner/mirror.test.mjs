@@ -218,6 +218,7 @@ async function stubHub(opts = {}) {
       const b = body ? JSON.parse(body) : null;
       if (req.method === 'GET' && id === 'sync') return send(200, { sessions: Object.fromEntries(Object.entries(sessions).map(([k, v]) => [k, { offset: v.offset }])) });
       if (req.method === 'GET' && id === undefined) return send(404, {});
+      if (req.method === 'PUT' && id && hub.gone?.has(id)) return send(410, { error: 'deleted' });
       if (req.method === 'PUT' && id) {
         sessions[id] ??= { offset: 0, entries: [], posts: [] };
         sessions[id].meta = b;
@@ -502,5 +503,21 @@ test('real-shaped repo info lands in the session PUT', async () => {
   // makeRepoInfo checks the folder exists; C:\work\demo does not here, so expect null, then a real folder
   await m.pass({ full: true });
   assert.equal(hub.sessions[SID].meta.repo, null);
+  m.stop(); hub.close(); s.done();
+});
+
+test('mirror: a session deleted in PocketRocket (410) is not sent again', async () => {
+  const hub = await stubHub();
+  hub.gone = new Set([SID]);
+  const s = setup();
+  s.put('dirA', `${SID}.jsonl`, jl(user(0, 'one')));
+  const { m, logs } = rig(hub, s.root);
+  await m.pass({ full: true });
+  fs.appendFileSync(path.join(s.root, 'dirA', `${SID}.jsonl`), jl(user(1, 'two')));
+  await m.pass({ full: true });
+  assert.equal(hub.sessions[SID], undefined);
+  assert.equal(hub.log.filter((l) => l === 'POST :id/entries').length, 0);
+  assert.equal(hub.log.filter((l) => l === 'PUT :id').length, 1);
+  assert.ok(logs.some(([e]) => e === 'mirror_session_deleted'));
   m.stop(); hub.close(); s.done();
 });
