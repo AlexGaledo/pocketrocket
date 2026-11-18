@@ -5,7 +5,7 @@ import { cleanText, displayCta, validateAnswers, MAX_FORM_DESCRIPTION, MAX_FORM_
 import { useStore, botById } from '../store';
 import { wsSend } from '../lib/ws';
 import { displayFields } from '../lib/cardFields';
-import { Badge, Button, Field, Input, Label, Select, Textarea, cn } from './ui';
+import { ActionCard, ActionCardHeader, Badge, Button, Field, Input, Label, Select, Textarea } from './ui';
 
 /*
  * U4 form card and U5 buttons. Everything the bot wrote is drawn as plain text through React text nodes (no markdown,
@@ -47,11 +47,10 @@ export function FormCard({ m }: { m: Message }) {
 
   const status = STATUS_LABEL[p.status];
   return (
-    <div className={cn('w-full max-w-[560px] overflow-hidden rounded-lg ring-1', open ? 'ring-warn/60' : 'ring-line')}>
-      <div className="flex flex-wrap items-start gap-x-2 gap-y-1 px-4 pt-3 text-body">
+    <ActionCard tone={open ? 'warn' : 'quiet'} className="w-full max-w-[560px]">
+      <ActionCardHeader meta={status && <Badge tone={p.status === 'submitted' ? 'ok' : 'muted'}>{status}</Badge>}>
         <span className="min-w-0 flex-1 font-medium">{bot ? bot.name : 'A bot'} {open ? 'asks' : 'asked'}: {title}</span>
-        {status && <Badge tone={p.status === 'submitted' ? 'ok' : 'muted'}>{status}</Badge>}
-      </div>
+      </ActionCardHeader>
       {description && <p className="whitespace-pre-wrap px-4 pt-1 text-ui text-muted">{description}</p>}
       {open ? (
         <form onSubmit={submit} className="flex flex-col gap-3 px-4 pb-4 pt-3" aria-label={title}>
@@ -91,7 +90,7 @@ export function FormCard({ m }: { m: Message }) {
           ))}
         </dl>
       ) : <div className="h-3" />}
-    </div>
+    </ActionCard>
   );
 }
 

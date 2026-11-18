@@ -459,6 +459,31 @@ export function Banner({ tone = 'info', title, children, action, onDismiss, dism
   );
 }
 
+const ACTION_RING = { quiet: 'ring-line', warn: 'ring-warn/60', 'warn-soft': 'ring-warn/40', danger: 'ring-bad/40' } as const;
+
+/**
+ * The shell of a card in the chat that waits for a person: approval, takeover, form, workflow approval. `tone` is
+ * the ring: `warn` while it needs you (`warn-soft` for the lighter tool approval), `danger` for a risky one, `quiet`
+ * once answered. `ActionCardHeader` and `ActionCardActions` carry the shared padding.
+ */
+export function ActionCard({ tone = 'quiet', className, children, ...p }: React.ComponentProps<'div'> & { tone?: keyof typeof ACTION_RING }) {
+  return <div {...p} className={cn('overflow-hidden rounded-lg ring-1', ACTION_RING[tone], className)}>{children}</div>;
+}
+
+/** The title row. `compact` is the one-line tool-approval header (icon first); the default wraps and reads as body text. */
+export function ActionCardHeader({ icon, meta, compact, children }: { icon?: React.ReactNode; meta?: React.ReactNode; compact?: boolean; children: React.ReactNode }) {
+  return compact ? (
+    <div className="flex items-center gap-2 px-4 pt-3 text-ui">{icon}{children}{meta}</div>
+  ) : (
+    <div className="flex flex-wrap items-start gap-x-2 gap-y-1 px-4 pt-3 text-body">{icon}{children}{meta}</div>
+  );
+}
+
+/** The button row at the foot of an open card; wraps on a phone, targets grow to 44px through `.touch-target`. */
+export function ActionCardActions({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <div className={cn('flex flex-wrap gap-2 px-4 pb-4', className)}>{children}</div>;
+}
+
 export const Popover = PopoverPrimitive.Root;
 export const PopoverTrigger = PopoverPrimitive.Trigger;
 export const PopoverAnchor = PopoverPrimitive.Anchor;
