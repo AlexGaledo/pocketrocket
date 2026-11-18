@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - While a session is on the server, this PC refuses to resume it, the mirror stops sending PC-side changes to it, and the PocketRocket tools in that terminal add a warning line.
 - The installer now also copies `move.mjs`.
 
+### PC sessions: fold repo groups
+
+- The PC sessions list can fold each repo group open and closed (click its name), and has Collapse all / Expand all. The app remembers which groups you folded.
+
 ### Move a PC session to the VPS and pull it back (app)
 
 - A mirrored session now has a Move to VPS button. It lists the repos that move with it, asks which chat should follow the server turns when the project has several, and says why it is disabled: PC offline, not signed in, no linked repo, a client repo, or a repo that is not set to bundle sync.
