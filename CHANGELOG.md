@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - While a session is on the server, this PC refuses to resume it, the mirror stops sending PC-side changes to it, and the PocketRocket tools in that terminal add a warning line.
 - The installer now also copies `move.mjs`.
 
+### PC sessions: Active and History, with a running indicator
+
+- PC sessions opens on Active: only the sessions Claude Code is working in right now (written to in the last few minutes) or that are on the VPS, with a count. History has everything mirrored. The app remembers which one you picked.
+- Every session row says Running (green dot) or Idle with how long ago.
+
 ### PC sessions: fold repo groups
 
 - The PC sessions list can fold each repo group open and closed (click its name), and has Collapse all / Expand all. The app remembers which groups you folded.

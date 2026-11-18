@@ -41,7 +41,8 @@ describe('list rendering', () => {
     const groups = groupSessions([S('p', { status: 'live' }), S('p:1', { parentId: 'p', title: 'Explore' })]);
     const html = renderToStaticMarkup(<SessionGroups groups={groups} onOpen={() => undefined} now={1000} />);
     expect(html).toContain('Untitled session');
-    expect(html).toContain('Live');
+    expect(html).toContain('Running');
+    expect(html).toContain('Idle · ');
     expect(html).toContain('1 subagent session');
     expect(html).toContain('aria-expanded="false"');
   });

@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dispatchPcSessionEvent, groupSessions, listQuery, mergeEntries, nextBefore, onPcSessionUpdated, relativeTime, repoOptions, toolRowLabel, type PcSeqEntry, type PcSessionSummary } from './pcSessions';
+import { activeSessions, dispatchPcSessionEvent, groupSessions, listQuery, mergeEntries, nextBefore, onPcSessionUpdated, relativeTime, repoOptions, toolRowLabel, type PcSeqEntry, type PcSessionSummary } from './pcSessions';
 
 const S = (id: string, o: Partial<PcSessionSummary> = {}): PcSessionSummary => ({
   id, parentId: null, machine: 'pc', projectDir: 'C--proj', cwd: null, repo: null, title: null, firstAt: 0, lastAt: 1, entryCount: 1, bytes: 1, truncated: false, status: 'ended', links: [], ...o,
 });
 const repo = (name: string) => ({ name, remote: null, branch: null, head: null });
+
+describe('activeSessions', () => {
+  const mk = (id: string, o: Partial<PcSessionSummary> = {}) => ({ id, status: 'ended', parentId: null, move: null, ...o }) as unknown as PcSessionSummary;
+  it('keeps live sessions, sessions away on the VPS, and a parent whose subagent is live', () => {
+    const list = [
+      mk('live', { status: 'live' }),
+      mk('old'),
+      mk('vps', { move: { state: 'on-vps' } as PcSessionSummary['move'] }),
+      mk('back', { move: { state: 'local' } as PcSessionSummary['move'] }),
+      mk('parent'),
+      mk('parent:kid', { status: 'live', parentId: 'parent' }),
+      mk('live:kid', { parentId: 'live' }),
+    ];
+    expect(activeSessions(list).map((x) => x.id).sort()).toEqual(['live', 'live:kid', 'parent', 'parent:kid', 'vps']);
+  });
+});
 
 describe('groupSessions', () => {
   it('groups by repo name else project dir, newest group first, newest row first', () => {
