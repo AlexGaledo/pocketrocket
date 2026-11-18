@@ -192,7 +192,17 @@ export function createServer(deps = {}) {
   const opt = (a, key) => (typeof a[key] === 'string' && a[key].trim() ? a[key] : undefined);
   const optList = (a, key) => (Array.isArray(a[key]) ? a[key].filter((x) => typeof x === 'string').slice(0, 50) : undefined);
   const enc = encodeURIComponent;
-  const fileLine = (f) => `path: ${f.path}\nhash: ${f.hash}\nrev: ${f.rev}`;
+  // The hub sends rev as a revision object ({ rev, at, author: { label, machine } }) on reads and conflicts, a number on writes.
+  const revText = (r) => {
+    if (r === null || r === undefined) return 'not tracked yet';
+    if (typeof r !== 'object') return `r${r}`;
+    const who = r.author?.label || r.author?.kind || 'unknown';
+    const when = typeof r.at === 'number' ? `, ${fmtTime(r.at)}` : '';
+    return `r${r.rev} by ${who}${r.author?.machine ? ` (${r.author.machine})` : ''}${when}`;
+  };
+  const fileLine = (f) => (f.hash
+    ? `path: ${f.path}\nhash: ${f.hash}\nrev: ${revText(f.rev)}`
+    : `path: ${f.path}\n(does not exist yet: create it with write_file and base = "")`);
 
   const impl = {
     async list_rooms() {
@@ -230,6 +240,7 @@ export function createServer(deps = {}) {
     async read_file(a) {
       const room = await resolveRoom(a.room);
       const f = await hubOk('GET', `/rooms/${enc(room.id)}/files/text?path=${enc(need(a, 'path'))}`);
+      if (!f.hash) return fileLine(f);
       return `${fileLine(f)}\n---\n${f.text}\n---\nTo change it, call write_file with base=${f.hash}.`;
     },
     async write_file(a) {
@@ -240,11 +251,11 @@ export function createServer(deps = {}) {
       if (r.status === 409) {
         const c = r.json?.current ?? {};
         throw new ToolError(`CONFLICT: ${p} changed since you read it (your base was ${base ?? "none: new file"}). Nothing was written.\n`
-          + `Current version: hash ${c.hash}, rev ${c.rev}.\n---\n${c.text ?? ''}\n---\n`
+          + `Current version: hash ${c.hash}, ${revText(c.rev)}.\n---\n${c.text ?? ''}\n---\n`
           + `Merge your change into this current text, then call write_file again with base=${c.hash}. Do not overwrite blindly and do not reuse the old hash.`);
       }
       if (r.status < 200 || r.status >= 300) throw new ToolError(`PocketRocket refused the write (HTTP ${r.status}): ${r.json?.error ?? clean(r.text, 200)}`);
-      return `Written ${r.json?.path ?? p}.\nnew hash: ${r.json?.hash}\nrev: ${r.json?.rev}\nUse this hash as base for your next write to this file.`;
+      return `Written ${r.json?.path ?? p}.\nnew hash: ${r.json?.hash}\nrev: ${revText(r.json?.rev)}\nUse this hash as base for your next write to this file.`;
     },
     async log_decision(a) {
       const room = await resolveRoom(a.room);
