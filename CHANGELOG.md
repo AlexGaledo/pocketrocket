@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The message is one fixed line per kind plus your hub address when you set one up, never a bot, room, tool or message name. It is off until you switch it on, and a Telegram-only owner (no phone subscription) is notified. Phone push and Telegram each coalesce bursts on their own 30 second clock.
 - The hub only reads Telegram while a link code is waiting, aborts that poll on shutdown, and never removes a webhook: if another PocketRocket or a webhook uses the bot, linking says so (409). The bot token is kept encrypted, scrubbed from logs and errors, and never shown again. New routes under `/api/telegram`, for the desktop app only (not paired phones, not bots).
 
+### Bundle budget in CI, Telegram notes in the docs (infra)
+
+- CI now fails if the web entry chunk contains workflow-canvas (`@xyflow`) code or grows past a size budget (`scripts/bundle-budget.mjs`, about today's size plus 15%).
+- Docs: `api.telegram.org` is on the outbound list, the guide has a Telegram notifications section (BotFather, link, what the messages say, revoke), and `deploy/keys.sh` prints the BotFather `/revoke` step for a Telegram integration.
+
 ### Move a PC Claude Code session to the VPS and back (hub)
 
 - A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.
