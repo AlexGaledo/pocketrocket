@@ -93,7 +93,7 @@ export function checkContentType(req: IncomingMessage, url: URL): { ok: true } |
   const ct = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
   if (ct === 'application/json') return { ok: true };
   // The one raw upload: the runner's git bundle. Anything else on that path still has to be JSON.
-  if (ct === 'application/octet-stream' && /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/bundle$/.test(url.pathname)) return { ok: true };
+  if (ct === 'application/octet-stream' && /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(bundle|session)$/.test(url.pathname)) return { ok: true };
   return { ok: false, status: 415, reason: 'Content-Type must be application/json (got ' + (ct || '(none)') + ')' };
 }
 
@@ -418,8 +418,13 @@ const RUNNER_ALLOW: readonly [method: string, path: RegExp][] = [
   ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(start|result)$/],
   // A bundle-mode sync's git bundle (raw body, up to 200 MB; api/pcRunner.ts streams it to disk).
   ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/bundle$/],
+  // Bridge P6: a move job's session file (raw body, up to 100 MB), and what a pull job brings home.
+  ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/session$/],
+  ['GET', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(session|bundle)$/],
   // Claude Code terminal sessions on the PC, through the runner's MCP server (api/cc.ts).
   ['GET', /^\/api\/cc\/rooms$/],
+  // Whether the session in x-cc-session is on the VPS (bridge P6).
+  ['GET', /^\/api\/cc\/session(-state)?$/],
   ['GET', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|state|files\/text)$/],
   ['POST', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|files\/text|decision|handoff)$/],
   // The PC session mirror (api/pcSessions.ts): sync, upsert a session, append entries. The owner's reads are not here.

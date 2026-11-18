@@ -15,6 +15,7 @@ import { gitHardenedEnv, GIT_FORCED_CONFIG } from './lib.mjs';
 import { findSecretShape } from './scrub.mjs';
 
 export const SYNC_MAX_BUNDLE_BYTES = 200 * 1024 * 1024;
+export const SESSION_MAX_BYTES = 100 * 1024 * 1024;
 const MAX_SCAN_COMMITS = 500;
 const MAX_SCAN_BYTES = 32 * 1024 * 1024;
 const MAX_FINDINGS = 30;
@@ -264,30 +265,84 @@ export function sha256File(file) {
 }
 
 /**
- * Streams `file` to POST <baseUrl>/api/pc-runner/jobs/<id>/bundle as application/octet-stream with Content-Length and
- * x-bundle-sha256, bearer token as for every runner request. `guard()` throws unless the tunnel is verified (the token
- * goes nowhere else). The size cap is checked before anything is sent. Resolves { status } for a 2xx; throws otherwise.
+ * Streams `file` to POST <baseUrl>/api/pc-runner/jobs/<id>/<kind> (kind 'bundle' or 'session') as application/octet-stream
+ * with Content-Length and x-<kind>-sha256, bearer token as for every runner request. `query` is an optional object of
+ * query parameters (a move job names the repo for each bundle). `guard()` throws unless the tunnel is verified (the
+ * token goes nowhere else). The size cap is checked before anything is sent. Resolves { status } for a 2xx; throws otherwise.
  */
-export async function uploadBundleFile({ baseUrl, token, jobId, file, guard = () => {}, maxBytes = SYNC_MAX_BUNDLE_BYTES, timeoutMs = 15 * 60_000 }) {
+async function uploadFile(kind, { baseUrl, token, jobId, file, query, guard = () => {}, maxBytes, timeoutMs = 15 * 60_000 }) {
   const bytes = fs.statSync(file).size;
-  if (bytes > maxBytes) throw new Error(`the bundle is ${(bytes / 1048576).toFixed(1)} MB; the limit is ${Math.round(maxBytes / 1048576)} MB`);
-  if (bytes === 0) throw new Error('the bundle is empty');
+  if (bytes > maxBytes) throw new Error(`the ${kind} is ${(bytes / 1048576).toFixed(1)} MB; the limit is ${Math.round(maxBytes / 1048576)} MB`);
+  if (bytes === 0) throw new Error(`the ${kind} is empty`);
   const sha = await sha256File(file);
   guard();
-  const url = new URL(`${baseUrl}/api/pc-runner/jobs/${encodeURIComponent(jobId)}/bundle`);
+  const url = new URL(`${baseUrl}/api/pc-runner/jobs/${encodeURIComponent(jobId)}/${kind}`);
+  for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, String(v));
   return new Promise((resolve, reject) => {
     const req = http.request({
-      hostname: url.hostname, port: url.port, path: url.pathname, method: 'POST', timeout: timeoutMs,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/octet-stream', 'content-length': String(bytes), 'x-bundle-sha256': sha },
+      hostname: url.hostname, port: url.port, path: url.pathname + url.search, method: 'POST', timeout: timeoutMs,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/octet-stream', 'content-length': String(bytes), [`x-${kind}-sha256`]: sha },
     }, (res) => {
       res.resume();
-      res.on('end', () => (res.statusCode >= 200 && res.statusCode < 300 ? resolve({ status: res.statusCode, bytes, sha256: sha }) : reject(new Error(`bundle upload -> HTTP ${res.statusCode}`))));
+      res.on('end', () => (res.statusCode >= 200 && res.statusCode < 300 ? resolve({ status: res.statusCode, bytes, sha256: sha }) : reject(new Error(`${kind} upload -> HTTP ${res.statusCode}`))));
     });
-    req.on('timeout', () => req.destroy(new Error('bundle upload timed out')));
-    req.on('error', (e) => reject(new Error(`bundle upload failed: ${e.code || e.message}`)));
+    req.on('timeout', () => req.destroy(new Error(`${kind} upload timed out`)));
+    req.on('error', (e) => reject(new Error(`${kind} upload failed: ${e.code || e.message}`)));
     fs.createReadStream(file).on('error', (e) => req.destroy(e)).pipe(req);
   });
 }
+
+/** POST .../jobs/<id>/bundle (x-bundle-sha256). Cap 200 MB. `query` (move jobs): { repo }. */
+export const uploadBundleFile = (o) => uploadFile('bundle', { maxBytes: SYNC_MAX_BUNDLE_BYTES, ...o });
+
+/** POST .../jobs/<id>/session (x-session-sha256): a move job's session transcript. Cap 100 MB. */
+export const uploadSessionFile = (o) => uploadFile('session', { maxBytes: SESSION_MAX_BYTES, ...o });
+
+/**
+ * GET <baseUrl>/api/pc-runner/jobs/<id>/<kind>[?query] into `dest`, streamed, size-capped, sha256 computed on the way.
+ * The hub must send x-<kind>-sha256 (or the download is refused: nothing unverifiable is used) and it must match.
+ * `guard()` throws unless the tunnel is verified. Resolves { bytes, sha256 }; on any failure `dest` is removed.
+ */
+export async function downloadFile(kind, { baseUrl, token, jobId, query, dest, guard = () => {}, maxBytes, timeoutMs = 15 * 60_000 }) {
+  guard();
+  const url = new URL(`${baseUrl}/api/pc-runner/jobs/${encodeURIComponent(jobId)}/${kind}`);
+  for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, String(v));
+  try {
+    return await new Promise((resolve, reject) => {
+      const req = http.get({ hostname: url.hostname, port: url.port, path: url.pathname + url.search, timeout: timeoutMs, headers: { authorization: `Bearer ${token}` } }, (res) => {
+        if (res.statusCode !== 200) { res.resume(); return reject(new Error(`${kind} download -> HTTP ${res.statusCode}`)); }
+        const want = String(res.headers[`x-${kind}-sha256`] ?? '').toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(want)) { res.resume(); return reject(new Error(`the hub sent no x-${kind}-sha256, so the ${kind} cannot be verified`)); }
+        const declared = Number(res.headers['content-length']);
+        if (Number.isFinite(declared) && declared > maxBytes) { res.resume(); return reject(new Error(`the ${kind} is ${(declared / 1048576).toFixed(1)} MB; the limit is ${Math.round(maxBytes / 1048576)} MB`)); }
+        const h = crypto.createHash('sha256');
+        const out = fs.createWriteStream(dest, { mode: 0o600 });
+        let bytes = 0;
+        res.on('data', (d) => {
+          bytes += d.length;
+          if (bytes > maxBytes) { reject(new Error(`the ${kind} is over the ${Math.round(maxBytes / 1048576)} MB limit`)); res.destroy(); req.destroy(); return; }
+          h.update(d);
+        });
+        res.pipe(out);
+        res.on('error', reject);
+        out.on('error', reject);
+        out.on('finish', () => {
+          const got = h.digest('hex');
+          if (got !== want) return reject(new Error(`the ${kind} did not match its sha256; discarded`));
+          if (bytes === 0) return reject(new Error(`the ${kind} is empty`));
+          resolve({ bytes, sha256: got });
+        });
+      });
+      req.on('timeout', () => { reject(new Error(`${kind} download timed out`)); req.destroy(); }); // after the headers the error would land on the socket, so reject first
+      req.on('error', (e) => reject(new Error(e.message.startsWith(kind) || /limit|sha256/.test(e.message) ? e.message : `${kind} download failed: ${e.code || e.message}`)));
+    });
+  } catch (e) {
+    try { fs.rmSync(dest, { force: true }); } catch { /* the caller removes the temp folder */ }
+    throw e;
+  }
+}
+export const downloadBundleFile = (o) => downloadFile('bundle', { maxBytes: SYNC_MAX_BUNDLE_BYTES, ...o });
+export const downloadSessionFile = (o) => downloadFile('session', { maxBytes: SESSION_MAX_BYTES, ...o });
 
 // ---------------------------------------------------------------------------------------------------------
 // Dialog text

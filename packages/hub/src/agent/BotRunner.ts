@@ -18,6 +18,7 @@ import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import type { PcRunner } from '../services/PcRunner.js';
 import type { PcSessions } from '../services/PcSessions.js';
+import type { SessionMoves } from '../services/SessionMoves.js';
 import { createHubTools } from './botTools.js';
 import { settings } from '../services/SettingsStore.js';
 import { ModelRouter, canUpgrade, isAuto, type RouteChoice, type RouteRequest } from './ModelRouter.js';
@@ -105,6 +106,34 @@ export interface TurnResult {
   consumedSteers?: string[];
   unansweredSteers?: string[];
 }
+/** Bridge P6: one turn of a moved PC session, run at the VPS (BotRunner.runOffloadTurn). */
+export interface OffloadTurnRequest {
+  /** The room's own member whose tools and permissions the turn uses. */
+  bot: Bot;
+  room: Room;
+  members: Bot[];
+  /** The Claude Code session to resume: the PC session's own id. */
+  sessionId: string;
+  /** The worktree on the VPS: the folder the rewritten session file is filed under. */
+  cwd: string;
+  model: string;
+  prompt: string;
+}
+export interface OffloadTurnOutcome {
+  ok: boolean;
+  finalText: string;
+  costUsd: number;
+  error?: string;
+  /** Set when the CLI continued under another id than the one it was asked to resume. */
+  sessionId?: string;
+}
+
+/** True for a shell command that runs `git push` in any spelling the hub can see: `git push`, `git -C x push`, `git -c a=b push origin`. */
+export function pushesToRemote(command: string): boolean {
+  return /(^|[\s;&|(`])git\b[^;&|\n]*\bpush\b/i.test(command);
+}
+export const OFFLOAD_PUSH_DENIED = 'Pushing is off in a turn on the VPS. Your work is committed to the wip branch for you when the turn ends; the owner pulls it back to the PC.';
+
 /** A person's message for a running turn (RoomRouter): its transcript line and the pictures it carries. */
 export interface SteerRequest {
   uuid: string;
@@ -181,6 +210,8 @@ export class BotRunner {
   pcRunner?: PcRunner;
   /** Bridge P4: the PC session mirror, read-only, for @persona's list_pc_sessions and read_pc_session. */
   pcSessions?: PcSessions;
+  /** Bridge P6: moved PC sessions, for propose_move and the resume lock in run_on_pc. */
+  sessionMoves?: SessionMoves;
   /** G4: saved logins for `fill_credential`. Set by createHub; absent in most unit tests. */
   credentials?: CredentialStore;
   /** The one-shot Haiku call that writes the running room summary when a session rotates. Tests replace it. */
@@ -438,6 +469,7 @@ export class BotRunner {
       routinesChanged: this.hooks.routinesChanged,
       pcRunner: this.pcRunner,
       pcSessions: this.pcSessions,
+      sessionMoves: this.sessionMoves,
       signal: ac.signal,
       keyRegistry: () => keyRegistry,
     });
@@ -900,6 +932,120 @@ export class BotRunner {
     return {
       ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail,
       ...(ac.signal.aborted ? { stopped: true } : {}), ...steerResult(),
+    };
+  }
+
+  /**
+   * Bridge P6: one turn of a moved PC session through the Claude provider. It resumes the session's own id in the
+   * worktree, on the owner's `offloadModel`, with the hub tools and permissions of `req.bot` in `req.room`. Nothing is posted
+   * to the room from here (the caller posts one line when the turn ends) and no (bot, room) session is touched. `git push`
+   * is refused for the turn, approvals bypassed or not.
+   */
+  async runOffloadTurn(req: OffloadTurnRequest): Promise<OffloadTurnOutcome> {
+    const { bot, room } = req;
+    const turnId = nanoid(10);
+    const causeId = nanoid(10);
+    const provider = this.providers.get('claude');
+    const ac = new AbortController();
+    const folder = this.roomFiles?.forBot(room, bot.id) ?? null;
+    const folderDir = folder ? this.roomFiles!.ensure(folder) : null;
+    const roomProject = folder?.kind === 'project' ? this.projects?.get(folder.projectSlug!) : undefined;
+    const bypass = this.broker.bypassed;
+    const setState = (st: BotState, note?: string) => this.hooks.setState(bot.id, room.id, st, note);
+    const permCtx = {
+      bot, room, turnId, hop: 0, causeId, setState: (st: 'blocked' | 'working') => setState(st),
+      strictApprovals: false, runId: undefined, park: () => undefined, controlBlocked: () => null,
+    };
+    const tools = createHubTools({
+      bot, room, members: req.members, turnId, hop: 0, causeId,
+      repos: this.repos, memory: this.memory, skills: this.skills, media: this.media, projects: this.projects,
+      fileRoot: folder ? fileRootOf(room, folder) : null,
+      fileAuthor: { kind: 'bot', id: bot.id, label: '@' + bot.handle, machine: 'vps', sessionId: turnId, roomId: room.id },
+      revisions: this.revisions,
+      dispatchFromBot: () => [],
+      setState: (st) => setState(st),
+      desktop: false,
+      models: [],
+      forms: this.forms,
+      strictApprovals: false,
+      confirmFleetChange: (a) => this.broker.askFleetChange(permCtx, a.tool, a.input, a.reason, ac.signal, { evenUnderBypass: a.evenUnderBypass, machine: a.machine }),
+      confirmOutsideHandoff: (a) => this.broker.askOutsideHandoff(permCtx, a.input, a.reason, ac.signal),
+      routinesChanged: this.hooks.routinesChanged,
+      signal: ac.signal,
+      keyRegistry: () => loadKeyRegistry(),
+    });
+    const mcpToken = this.turns.registerTurn(tools, computerToolGuard(() => null));
+    addSecret(mcpToken);
+    let reported: string | undefined;
+    const texts: string[] = [];
+    const sink: TurnSink = {
+      onSession: (t) => { if (t) reported = t; },
+      onDelta: () => undefined,
+      onText: (t) => { texts.push(t); },
+      onToolUse: () => undefined,
+      onToolResult: () => undefined,
+      onState: () => undefined,
+    };
+    const ctx: TurnContext = {
+      turnId, bot, room, members: req.members,
+      systemPrompt:
+        "You are continuing the owner's Claude Code session on the VPS: the working folder is a git worktree of their repo on a wip branch. " +
+        'Work as before. Do not run git push; your changes are committed to the wip branch when this turn ends.',
+      input: req.prompt,
+      resumeToken: req.sessionId,
+      sessionCostUsd: null,
+      workspaceDir: req.cwd,
+      botHome: botHome(bot.id),
+      tools,
+      allowedBuiltins: bot.allowedTools,
+      bypassPermissions: bypass,
+      permission: async (name, input, extra) => {
+        const r = await this.broker.decide(permCtx, name, input, { signal: ac.signal, blockedPath: extra?.blockedPath });
+        return r.behavior === 'allow' ? 'allow' : 'deny';
+      },
+      permissionDetailed: (name, input, o) =>
+        this.broker.decide(permCtx, name, input, { signal: (o.signal ?? ac.signal) as AbortSignal, suggestions: o.suggestions as never, blockedPath: o.blockedPath }),
+      pluginDir: null,
+      model: req.model,
+      maxBudgetUsd: spendCapsOff() ? Infinity : bot.maxBudgetUsd,
+      maxTurns: MAX_TURNS_PER_QUERY,
+      signal: ac.signal,
+      mcp: { url: this.turns.url(), token: mcpToken },
+      projectDirs: folderDir ? [folderDir] : [],
+      shipGuard: (command) => (pushesToRemote(command) ? OFFLOAD_PUSH_DENIED : null),
+      projectGuard: this.projects || this.roomFiles
+        ? (name, input, cwd) => folderAccessDenied(name, input, cwd, [
+            ...(this.projects ? [{ root: this.projects.root, allowed: roomProject ? [roomProject.slug] : [], known: this.projects.knownSlugs() }] : []),
+            ...(this.roomFiles ? [{ root: this.roomFiles.roomsDir, allowed: folder?.kind === 'room' ? [room.id] : [], known: this.repos.listRooms().map((r) => r.id) }] : []),
+          ])
+        : undefined,
+      fileGuard: this.projects ? (name, input, cwd) => reposFileWriteDenied(name, input, cwd, this.projects!.root) : undefined,
+    };
+    this.activeTurns.add(turnId);
+    this.aborts.set(turnId, ac);
+    this.turnProviders.set(turnId, provider);
+    setState('working', 'continuing a session on the VPS');
+    let outcome: TurnOutcome | null = null;
+    let error: string | undefined;
+    try {
+      outcome = await provider.runTurn(ctx, sink);
+      error = outcome.error;
+      const u = outcome.usage;
+      if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, causeId, u, { model: req.model, routeReason: 'offload', causeKind: 'user' });
+    } catch (e) {
+      error = redact(String((e as Error).message ?? e));
+    } finally {
+      this.activeTurns.delete(turnId);
+      this.aborts.delete(turnId);
+      this.turnProviders.delete(turnId);
+      this.turns.unregister(mcpToken);
+      removeSecret(mcpToken);
+      setState(error ? 'error' : 'done');
+    }
+    const ok = !!outcome?.ok && !error;
+    return {
+      ok, finalText: texts.join('\n\n'), costUsd: outcome?.costUsd ?? 0, ...(error ? { error: redact(error) } : {}),
+      ...(reported && reported !== req.sessionId ? { sessionId: reported } : {}),
     };
   }
 

@@ -340,6 +340,8 @@ export function createMirror(options) {
   const tracked = new Map(); // file -> state
   const excluded = new Set();
   const dirty = new Set();
+  const held = new Set(); // session ids that live on the VPS right now: PC-side appends are not shipped (bridge P6)
+  const warnedHeld = new Set();
   let hubOffsets = null; // id -> offset, from GET /sync
   let excludeKey = '';
   let stopped = false;
@@ -395,6 +397,7 @@ export function createMirror(options) {
     }
     if (r.status !== 200 || !Number.isInteger(r.json?.offset)) throw new Error(`PUT session -> HTTP ${r.status}`);
     st.titleSent = st.meta.title;
+    if (r.json.onVps === true) { held.add(st.id); return r.json.offset; }
     return r.json.offset;
   }
 
@@ -439,6 +442,7 @@ export function createMirror(options) {
         return false;
       }
       if (r.status !== 200) throw new Error(`POST entries -> HTTP ${r.status}`);
+      if (r.json?.onVps === true) held.add(st.id);
       st.offset = b.to;
       st.sentEntries += b.entries.length;
       stats.entries += b.entries.length;
@@ -475,6 +479,10 @@ export function createMirror(options) {
   }
 
   async function handle(d, cfg) {
+    if (held.has(d.id)) {
+      if (!warnedHeld.has(d.id)) { warnedHeld.add(d.id); log('mirror_session_on_vps', { id: d.id }); }
+      return;
+    }
     let st = tracked.get(d.file);
     if (!st) {
       const eligible = d.mtimeMs >= now() - cfg.mirrorBackfillDays * 86_400_000 || (hubOffsets && Object.hasOwn(hubOffsets, d.id));
@@ -482,7 +490,7 @@ export function createMirror(options) {
       st = await adopt(d, cfg);
       if (!st) return;
     }
-    if (st.dead || now() < st.retryAt) return;
+    if (st.dead || now() < st.retryAt || held.has(st.id)) return;
     st.mtimeMs = d.mtimeMs;
     if (d.size === st.offset) return;
     await ship(st, d.size);
@@ -498,6 +506,7 @@ export function createMirror(options) {
       const r = await request('GET', '/sync');
       if (r.status !== 200 || typeof r.json?.sessions !== 'object' || !r.json.sessions) throw new Error(`GET sync -> HTTP ${r.status}`);
       hubOffsets = Object.fromEntries(Object.entries(r.json.sessions).map(([id, v]) => [id, Number(v?.offset) || 0]));
+      for (const [id, v] of Object.entries(r.json.sessions)) { if (v?.onVps === true) held.add(id); else if (v?.onVps === false) { held.delete(id); warnedHeld.delete(id); } }
       full = true;
     }
     const targets = new Map();
@@ -567,6 +576,11 @@ export function createMirror(options) {
     pass,
     start() { loop().catch((e) => log('mirror_error', { error: e.message })); },
     stop() { stopped = true; try { watcher?.close(); } catch { /* closed */ } if (wake) wake(); },
+    /** A moved session is on the VPS: stop shipping its PC file. */
+    hold(id) { held.add(id); },
+    /** The session is back on this PC (pulled): forget what was tracked so it is adopted again from the hub's offset. */
+    release(id) { held.delete(id); warnedHeld.delete(id); for (const [file, st] of tracked) if (st.id === id) tracked.delete(file); },
+    isHeld: (id) => held.has(id),
     stats: () => ({ ...stats, tracked: tracked.size }),
   };
 }

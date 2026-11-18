@@ -16,6 +16,9 @@ const SUPPORTED_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const ROOMS_TTL_MS = 30_000;
 const VERIFY_TTL_MS = 10_000;
 const FETCH_TIMEOUT_MS = 20_000;
+const LOCK_TTL_MS = 15_000;
+export const ON_VPS_WARNING = 'WARNING: This session is on the VPS; pull it back before continuing it here. Changes made on this PC now will be overwritten or lost.';
+const LOCK_STATES = new Set(['moving', 'on-vps', 'pulling']);
 
 const SAFE_FLOW = 'Safe flow for shared files: read_file (or read_state) first, then write_file with the hash you read as `base`.';
 
@@ -132,6 +135,7 @@ export function createServer(deps = {}) {
   const verify = d.verify ?? makeVerifier({ getPort: () => d.loadConfig().config?.localPort });
   const repo = d.repo ?? repoNameFor(d.cwd());
   let roomsCache = null;
+  let lockCache = { at: 0, locked: false };
 
   async function hub(method, p, body) {
     const cfg = d.loadConfig();
@@ -152,7 +156,22 @@ export function createServer(deps = {}) {
     const text = await res.text();
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch { /* not json */ }
+    const hdr = res.headers?.get?.('x-cc-session-state'); // the hub may also say it on any answer
+    if (hdr) lockCache = { at: d.now(), locked: LOCK_STATES.has(hdr) };
     return { status: res.status, json, text };
+  }
+
+  /** True while the hub says this terminal's session is moving to, on, or coming back from the VPS (asked at most every 15 s). */
+  async function sessionLocked() {
+    if (!clean(d.env.CLAUDE_SESSION_ID, 200)) return false;
+    if (d.now() - lockCache.at < LOCK_TTL_MS) return lockCache.locked;
+    let locked = false;
+    try {
+      const r = await hub('GET', '/session-state');
+      if (r.status === 200) locked = LOCK_STATES.has(r.json?.state) || r.json?.onVps === true;
+    } catch { /* runner off or hub older: no warning, the tool result already says what is wrong */ }
+    lockCache = { at: d.now(), locked };
+    return locked;
   }
 
   /** hub() plus the common failure mapping; returns the JSON body of a 2xx. */
@@ -295,10 +314,15 @@ export function createServer(deps = {}) {
         const a = msg.params?.arguments;
         try {
           const text = await fn(a && typeof a === 'object' && !Array.isArray(a) ? a : {});
-          return reply(msg.id, { content: [{ type: 'text', text }] });
+          return reply(msg.id, { content: [{ type: 'text', text: (await sessionLocked()) ? `${text}
+
+${ON_VPS_WARNING}` : text }] });
         } catch (e) {
           if (!(e instanceof ToolError)) process.stderr.write(`pocketrocket-mcp: ${name} failed: ${e?.message}\n`);
-          return reply(msg.id, { isError: true, content: [{ type: 'text', text: e instanceof ToolError ? e.message : `Unexpected error in ${name}: ${e?.message}` }] });
+          const text = e instanceof ToolError ? e.message : `Unexpected error in ${name}: ${e?.message}`;
+          return reply(msg.id, { isError: true, content: [{ type: 'text', text: (await sessionLocked()) ? `${text}
+
+${ON_VPS_WARNING}` : text }] });
         }
       }
       default:

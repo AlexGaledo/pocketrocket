@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Move a PC Claude Code session to the VPS and back (hub)
+
+- A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.
+- While a session is on the VPS the PC's own appends are dropped and a resume or sync of it is refused (409). "Continue" runs one turn at a time through the Claude provider, resuming the same conversation in the worktree with the room's tools; `git push` is always refused there, and the turn's changes are committed to the wip branch only. New lines show in the mirror marked as the VPS, and the room gets a note when a turn starts and ends. Past 120k tokens of context it asks you to pull back instead.
+- Pulling back sends the conversation (paths swapped back, the exact inverse) and a bundle of the wip branch to the PC, then clears the worktree. `propose_move` lets @persona or a project bot propose a move or a pull as a sign-in-only card. `GET /api/cc/session-state` and the `x-cc-session-state` header tell the MCP server where a session is.
+
+### The PC helper can move a session to the server and pull it back
+
+- A new kind of PC job moves one of your Claude Code sessions to the server so the same conversation continues there. The PC snapshots and secret-scans every linked repo first (one blocked scan refuses the whole move without asking), shows one Run / Refuse dialog for the whole move, then sends a bundle per repo and the session file. Nothing is pushed to any remote and your folders are not changed.
+- Pulling it back downloads the session and each repo's work, checks them, and puts the server's work on the `wip/<your PC>/<session>` branch of each repo (only that branch). If your folder is still exactly as it was when you moved, the server's file changes are also written into it as uncommitted edits, without moving HEAD, your branch or your staged changes; if you changed it meanwhile, it is left alone and you are told to merge the branch yourself. The session file is replaced and the old one kept next to it as `.pocketrocket-bak`.
+- While a session is on the server, this PC refuses to resume it, the mirror stops sending PC-side changes to it, and the PocketRocket tools in that terminal add a warning line.
+- The installer now also copies `move.mjs`.
+
+### Move a PC session to the VPS and pull it back (app)
+
+- A mirrored session now has a Move to VPS button. It lists the repos that move with it, asks which chat should follow the server turns when the project has several, and says why it is disabled: PC offline, not signed in, no linked repo, a client repo, or a repo that is not set to bundle sync.
+- A moved session shows an On VPS badge in the list and in its header (Moving to VPS and Pulling back while your PC works). Under it, a Continue on VPS box sends one turn at a time with a live status line, and Pull back asks for confirmation first and waits for a running turn to finish.
+- Move and pull jobs appear in the PC runner job log with their repos, commits, session size and, for a pull, whether the changes were applied to your folder or left on a wip branch.
 ### Bot sandbox on the server, which lets client repos sync (hub, app, deploy)
 
 - A new switch, Settings > Security > "Run bot tools in a sandbox (Linux server)", runs each Claude turn inside bubblewrap. A bot's Bash and file tools (and the Browser tool's Playwright process) then see only the read-only system, their own bot folder, the room and project folders they belong to, the shared workspace and the network. Other projects, other bots' folders, the vault key, the hub token, the database and your server login are not mounted, so they do not exist inside. It is off by default and only you can change it: no bot can switch it off.
@@ -14,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With the sandbox on, a repo you mark as a client repo can sync to the server like any other; with it off, nothing changes and client repos still stay on your PC.
 - Each bot gets its own private Claude config inside the sandbox, so one bot's conversation transcripts are not readable by another. Conversations started before you turned it on carry over the first time a bot resumes them.
 - `deploy/setup-vps.sh` installs bubblewrap and, on Ubuntu 24.04, an AppArmor profile (`deploy/apparmor/pocketrocket-bwrap`) that lets only `/usr/bin/bwrap` create a user namespace. `deploy/sandbox-check.sh` proves it: as the service user it checks that a bot of one project cannot read another project, another bot, or the hub's secrets.
+- While the sandbox is on, a session moved to the VPS cannot run new turns there yet (the sandbox's private Claude folder would hide them); pull it back or turn the sandbox off. Moving a client repo's session stays refused.
 
 ### Project repo lists and syncing PC work to the VPS (hub)
 

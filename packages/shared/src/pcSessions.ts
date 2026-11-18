@@ -40,7 +40,8 @@ export const PcEntrySchema = z.object({
   model: z.string().max(200).optional(),
 });
 export type PcEntry = z.infer<typeof PcEntrySchema>;
-export type PcStoredEntry = PcEntry & { seq: number };
+/** `machine` is set only on entries the hub itself fed from a session that moved to the VPS (bridge P6): 'vps'. */
+export type PcStoredEntry = PcEntry & { seq: number; machine?: string };
 
 export const PcRepoSchema = z.object({
   name: z.string().max(300),
@@ -86,7 +87,35 @@ export interface PcSessionSummary {
   status: 'live' | 'ended';
   /** The project repos this session belongs to (computed at read from each project's repos.json; empty when none). */
   links: PcSessionLink[];
+  /** Bridge P6: where a moved session is. Null (or absent) when it never moved; the hub always sends it. */
+  move?: PcSessionMove | null;
 }
+
+/** 'moving' and 'pulling' are the PC's job in flight; 'local' is a session that came back. */
+export const PC_MOVE_STATES = ['moving', 'on-vps', 'pulling', 'local'] as const;
+export type PcMoveState = (typeof PC_MOVE_STATES)[number];
+
+export interface PcSessionMove {
+  state: PcMoveState;
+  /** The room whose tools the VPS turns use. */
+  room: string | null;
+  project: string | null;
+  repos: { project: string; repo: string; branch: string }[];
+  /** The worktree's own name (`<sid8>`), never a path. */
+  worktree: string | null;
+  movedAt: number;
+  pulledAt: number | null;
+  turnRunning: boolean;
+}
+
+/** POST /api/pc-sessions/:id/continue: one VPS turn on a moved session. Owner, signed-in browser only. */
+export const PcContinueSchema = z.object({ prompt: z.string().min(1).max(8000) });
+export type PcContinue = z.infer<typeof PcContinueSchema>;
+
+/** Past this many input tokens the VPS refuses another turn: pull the session back or start fresh. */
+export const PC_OFFLOAD_MAX_CONTEXT_TOKENS = 120_000;
+/** The default for the `offloadModel` setting. */
+export const PC_OFFLOAD_MODEL = 'claude-sonnet-5-5';
 
 export type PcSessionDetail = PcSessionSummary & { children: PcSessionSummary[] };
 
