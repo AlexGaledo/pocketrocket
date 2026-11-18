@@ -141,6 +141,20 @@ export function validateConfig(raw) {
     errors.push('claudePath must be an absolute local path to claude.exe');
   }
 
+  // Session mirror (mirror.mjs). On by default; `mirror: false` or a mirror.paused file next to config.json stops it.
+  const mirror = raw.mirror ?? true;
+  if (typeof mirror !== 'boolean') errors.push('mirror must be true or false');
+  const mirrorBackfillDays = raw.mirrorBackfillDays ?? 14;
+  if (!Number.isInteger(mirrorBackfillDays) || mirrorBackfillDays < 0 || mirrorBackfillDays > 3650) errors.push('mirrorBackfillDays must be an integer 0-3650');
+  const mirrorExclude = raw.mirrorExclude ?? [];
+  if (!Array.isArray(mirrorExclude) || mirrorExclude.length > 200 || mirrorExclude.some((p) => typeof p !== 'string' || !p.trim() || p.length > 300)) {
+    errors.push('mirrorExclude must be a list of up to 200 non-empty path prefixes or * globs');
+  }
+  const claudeProjectsDir = raw.claudeProjectsDir ?? null;
+  if (claudeProjectsDir !== null && (typeof claudeProjectsDir !== 'string' || !path.win32.isAbsolute(claudeProjectsDir) || /^\\/.test(claudeProjectsDir))) {
+    errors.push('claudeProjectsDir must be an absolute local folder path');
+  }
+
   const mcpServers = {};
   if (raw.mcpServers !== undefined) {
     if (!raw.mcpServers || typeof raw.mcpServers !== 'object' || Array.isArray(raw.mcpServers)) errors.push('mcpServers must be an object of { name: definition }');
@@ -188,7 +202,7 @@ export function validateConfig(raw) {
   }
   if (claudePath && Object.values(folders).some((f) => isInside(claudePath, f.path))) errors.push('claudePath must not be inside an allowlisted folder');
   if (errors.length) return { ok: false, errors };
-  return { ok: true, config: { sshAlias, localPort, claudePath, mcpServers, folders, defaultAllowedTools } };
+  return { ok: true, config: { sshAlias, localPort, claudePath, mcpServers, folders, defaultAllowedTools, mirror, mirrorBackfillDays, mirrorExclude: [...mirrorExclude], claudeProjectsDir } };
 }
 
 /**

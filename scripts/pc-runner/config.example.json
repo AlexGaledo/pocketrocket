@@ -1,6 +1,9 @@
 {
   "sshAlias": "crm-agency",
   "localPort": 7789,
+  "mirror": true,
+  "mirrorBackfillDays": 14,
+  "mirrorExclude": [],
   "defaultAllowedTools": [
     "Read", "Glob", "Grep", "Edit", "Write",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"

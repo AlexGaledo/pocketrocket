@@ -18,7 +18,8 @@ import {
   validateConfig, folderFor, parseJob, buildClaudeArgs, buildMcpConfig, parseClaudeResult, capOutput, promptPreview,
   cleanToken, backoffMs, logFileName, resolveClaudePath, canRunCode, listenerIsOurs, isInside, gitHardenedEnv,
 } from './lib.mjs';
-import { BASE, TOKEN_PATH, loadConfig, readToken, listenersOn } from './local.mjs';
+import { BASE, TOKEN_PATH, MIRROR_PAUSED_PATH, loadConfig, readToken, listenersOn } from './local.mjs';
+import { createMirror, httpRequester } from './mirror.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MCP_SNAPSHOT_PATH = path.join(BASE, 'mcp-snapshot.json');
@@ -139,6 +140,8 @@ function check() {
     if (canRunCode(f.allowedTools)) console.log('    WARNING: these tools can change files and run something from this folder, so a job can run code here');
     if (missing.length) problems++;
   }
+  console.log(!cfg.mirror ? 'mirror: off (mirror is false in config.json)' : fs.existsSync(MIRROR_PAUSED_PATH) ? 'mirror: paused (mirror.paused exists)'
+    : `mirror: on, backfill ${cfg.mirrorBackfillDays} days, ${cfg.mirrorExclude.length} exclude pattern(s)`);
   console.log(readToken() ? 'token: present' : 'token: missing (run: node runner.mjs pair)');
   if (problems) process.exit(1);
 }
@@ -363,6 +366,22 @@ async function run() {
   // Dev only: talk to a hub already listening on localPort (a local test hub) instead of opening the tunnel.
   if (process.env.POCKETROCKET_RUNNER_NO_TUNNEL === '1') { log('tunnel_skipped'); tunnelVerified = true; }
   else startTunnel(cfg);
+
+  // Session mirror: runs only while the tunnel is verified (the request guard throws otherwise, so the token goes
+  // nowhere else), pauses on `mirror: false` or a mirror.paused file (both checked every poll), stops with the runner.
+  const mirror = createMirror({
+    getConfig: () => loadConfig().config ?? null,
+    request: httpRequester({
+      baseUrl: `http://127.0.0.1:${cfg.localPort}`, token,
+      guard: () => { if (!tunnelVerified) throw Object.assign(new Error('tunnel not verified; nothing sent'), { network: true }); },
+    }),
+    isPaused: () => fs.existsSync(MIRROR_PAUSED_PATH),
+    isReady: () => tunnelVerified && !stopping,
+    log,
+  });
+  mirror.start();
+  const stopMirror = () => mirror.stop();
+  process.on('exit', stopMirror);
 
   let lastBeatError = '';
   const beat = async () => {
