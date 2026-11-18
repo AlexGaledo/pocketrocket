@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Telegram notifications card (app)
+
+- Settings › Notifications now shows on every client except a paired phone, with a pointer to "Phone: Devices › Notifications on this device"; the desktop-notification card still appears only in the desktop app.
+- New Telegram card: paste a bot token (checked, then shown as @yourbot), link your chat with a short code, QR code or "Open in Telegram", then turn on "Notify me here". The cloud warning (messages are content-free, Telegram still sees that something happened) is shown above the switch. Send a test, Unlink, a BotFather /revoke pointer and a "one hub per bot token" note are on the card. Needs the hub routes from the Telegram backend change.
+
 ### Workflows: hub foundations
 
 - A turn now belongs to an owner ref (`routine:<runId>` or `workflow:<runId>:<step>`) instead of a bare routine run id, in the lane journal and on parked approvals, and what the turn does when it ends is rebuilt from it after a restart or a parked approval. Routines behave as before (a run still closes when its turn ends, and a turn cut off by two restarts closes its run as an error). Existing rows are filled in by migration 290.
