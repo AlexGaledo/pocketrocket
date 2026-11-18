@@ -30,3 +30,6 @@ export * from './cards.js';
 
 // Bot export / import files
 export * from './botExport.js';
+
+// PC session mirror (bridge P3)
+export * from './pcSessions.js';
