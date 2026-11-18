@@ -764,3 +764,44 @@ registerMigrations([270, 279], [
     },
   },
 ]);
+
+// Claude Code bridge P6 (docs/specs/claude-code-bridge.md 3.4): a PC session moved to the VPS and pulled back.
+// `pc_session_moves` is one row per session that ever moved: where it is now (`state`), the repos that travelled (JSON:
+// project, repo, vps folder, remote, branch, base commit, worktree), the PC toplevel the paths were rewritten from, the
+// worktree the VPS turns run in and how many bytes of its jsonl the mirror has already read. A job row carries the move or
+// pull it is (JSON, NULL for the other modes), and a mirrored entry the hub itself fed from the VPS says so in `machine`.
+registerMigrations([280, 289], [
+  {
+    version: 280,
+    name: 'pc_session_moves (a PC session moved to the VPS)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_session_moves (
+        session_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        project TEXT,
+        room_id TEXT,
+        repos_json TEXT NOT NULL DEFAULT '[]',
+        pc_root TEXT,
+        vps_cwd TEXT,
+        worktree TEXT,
+        feed_offset INTEGER NOT NULL DEFAULT 0,
+        moved_at INTEGER NOT NULL,
+        pulled_at INTEGER,
+        move_job_id TEXT,
+        pull_job_id TEXT,
+        turns INTEGER NOT NULL DEFAULT 0
+      )`);
+    },
+  },
+  {
+    version: 281,
+    name: 'pc_jobs.move_json, move_result_json, pull_json, pull_result_json',
+    up: (db) => {
+      addColumnIfMissing(db, 'pc_jobs', 'move_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'move_result_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'pull_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'pull_result_json', 'TEXT');
+    },
+  },
+  { version: 282, name: 'pc_session_entries.machine', up: (db) => addColumnIfMissing(db, 'pc_session_entries', 'machine', 'TEXT') },
+]);

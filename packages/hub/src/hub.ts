@@ -89,6 +89,7 @@ import { PcRunner, type PcRunnerOptions } from './services/PcRunner.js';
 import { createPcRunnerApi } from './api/pcRunner.js';
 import { createCcApi } from './api/cc.js';
 import { PcSessions, type PcSessionsOptions } from './services/PcSessions.js';
+import { SessionMoves, type SessionMovesDeps } from './services/SessionMoves.js';
 import { createPcSessionsApi } from './api/pcSessions.js';
 import { runnerMayAccess } from './api/guard.js';
 
@@ -142,6 +143,8 @@ export interface HubOptions {
   pcBundleMaxBytes?: number;
   /** Bridge P3: the PC session mirror's clock and caps (tests). */
   pcSessions?: PcSessionsOptions;
+  /** Bridge P6: where the Claude CLI keeps sessions, the VPS turn model and the feed interval (tests), and the session upload cap. */
+  sessionMoves?: Partial<Pick<SessionMovesDeps, 'configDir' | 'model' | 'feedEveryMs' | 'runTurn'>> & { dir?: string; uploadMaxBytes?: number };
   /** What `stop()` ends with once the hub is shut down. Defaults to process.exit; tests pass a fake. */
   exit?: (code: number) => void;
 }
@@ -178,6 +181,8 @@ export interface Hub {
   /** Project folders and their repos.json (bridge P5). */
   projects: ProjectService;
   pcSessions: PcSessions;
+  /** A PC session moved to the VPS (bridge P6). */
+  sessionMoves: SessionMoves;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
   /**
@@ -418,8 +423,23 @@ export function createHub(opts: HubOptions = {}): Hub {
   const pcSessions = new PcSessions(db, opts.pcSessions);
   runner.pcSessions = pcSessions;
   pcSessions.linker = (repo) => projects.linksFor(repo);
-  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db, pcSessions, projects, bundleMaxBytes: opts.pcBundleMaxBytes });
-  const pcSessionsApi = createPcSessionsApi({ pcSessions, db });
+  // Bridge P6: a PC session moved to the VPS; its turns run through the Claude provider (BotRunner.runOffloadTurn).
+  const sessionMoves = new SessionMoves({
+    db, repos, pcRunner, pcSessions, projects,
+    dir: opts.sessionMoves?.dir ?? path.join(DATA_DIR, 'pc-moves'),
+    runTurn: opts.sessionMoves?.runTurn ?? ((r) => runner.runOffloadTurn(r)),
+    configDir: opts.sessionMoves?.configDir, model: opts.sessionMoves?.model, feedEveryMs: opts.sessionMoves?.feedEveryMs,
+  });
+  pcSessions.mover = (id) => {
+    const m = sessionMoves.summary(id);
+    return m;
+  };
+  pcSessions.locked = (id) => sessionMoves.locked(id);
+  pcRunner.onFinished = (job) => sessionMoves.onJobFinished(job);
+  sessionMoves.reconcile();
+  runner.sessionMoves = sessionMoves;
+  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db, pcSessions, projects, sessionMoves, bundleMaxBytes: opts.pcBundleMaxBytes, sessionMaxBytes: opts.sessionMoves?.uploadMaxBytes });
+  const pcSessionsApi = createPcSessionsApi({ pcSessions, db, sessionMoves });
   let pcPruneTimer: NodeJS.Timeout | null = null;
   const prunePcSessions = () => {
     try {
@@ -429,7 +449,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       logError('[pc-sessions]', e);
     }
   };
-  const ccApi = createCcApi({ repos, roomFiles, revisions, router, projects });
+  const ccApi = createCcApi({ repos, roomFiles, revisions, router, projects, sessionMoves });
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
   const projectsApi = createProjectsApi({ projects, repos, db });
@@ -792,7 +812,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       })();
       return stopping;
     },
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner, pcSessions, projects,
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner, pcSessions, sessionMoves, projects,
     control, broker, approvals: approvalStore,
     skills, recorder, distiller, media,
     listen: () =>

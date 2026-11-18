@@ -8,6 +8,7 @@ import {
   type PcRepo,
   type PcSessionDetail,
   type PcSessionLink,
+  type PcSessionMove,
   type PcSessionPut,
   type PcSessionSummary,
   type PcStoredEntry,
@@ -60,6 +61,10 @@ export class PcSessions {
   private pending = new Map<string, { lastSent: number; timer: NodeJS.Timeout | null; lastAt: number }>();
   /** Which project repos a session's repo belongs to (ProjectService.linksFor); set by the hub. Without it no session has links. */
   linker: ((repo: PcRepo | null) => PcSessionLink[]) | null = null;
+  /** Bridge P6: where a moved session is (SessionMoves.summary); set by the hub. Without it no session has a move. */
+  mover: ((id: string) => PcSessionMove | null) | null = null;
+  /** Bridge P6: true while the session is moving, on the VPS or pulling (SessionMoves.locked). The runner reads it as `onVps`. */
+  locked: ((id: string) => boolean) | null = null;
 
   constructor(private db: Db, opts: PcSessionsOptions = {}) {
     this.now = opts.now ?? Date.now;
@@ -77,9 +82,9 @@ export class PcSessions {
   // ---- runner side ----
 
   /** `{ [id]: { offset } }` for every session the hub holds. */
-  syncState(): Record<string, { offset: number }> {
-    const out: Record<string, { offset: number }> = {};
-    for (const r of this.db.all<Row>('SELECT id, offset FROM pc_sessions')) out[r.id as string] = { offset: r.offset as number };
+  syncState(): Record<string, { offset: number; onVps: boolean }> {
+    const out: Record<string, { offset: number; onVps: boolean }> = {};
+    for (const r of this.db.all<Row>('SELECT id, offset FROM pc_sessions')) out[r.id as string] = { offset: r.offset as number, onVps: this.locked?.(r.id as string) ?? false };
     return out;
   }
 
@@ -106,10 +111,51 @@ export class PcSessions {
 
   /** Stores a batch. See the class comment for the offset rule. */
   appendEntries(id: string, from: number, to: number, entries: readonly PcEntry[]): AppendResult {
-    const s = this.db.get<Row>('SELECT offset, bytes, truncated, last_at FROM pc_sessions WHERE id = ?', id);
+    const s = this.db.get<Row>('SELECT offset FROM pc_sessions WHERE id = ?', id);
     if (!s) return { ok: false, conflict: false, notFound: true };
     const offset = s.offset as number;
     if (from !== offset) return { ok: false, conflict: true, offset };
+    const r = this.store(id, entries, null, to);
+    if (r.stored > 0) this.notify(id, r.lastAt);
+    return { ok: true, offset: to, stored: r.stored, truncated: r.truncated };
+  }
+
+  /**
+   * Bridge P6: entries the hub itself read from a session's file on the VPS. They are stored like the PC's (redacted,
+   * capped) and marked with their machine; the PC's byte offset is not touched.
+   */
+  appendServerEntries(id: string, machine: string | null, entries: readonly PcEntry[]): { stored: number } | null {
+    if (!this.db.get('SELECT 1 AS x FROM pc_sessions WHERE id = ?', id)) return null;
+    const r = this.store(id, entries, machine, null);
+    if (r.stored > 0) this.notify(id, r.lastAt);
+    return { stored: r.stored };
+  }
+
+  /**
+   * A batch for a session that is on the VPS: the offset rule applies as for appendEntries, but nothing is stored (the VPS
+   * copy of the file is the live one) and the offset moves on so the runner does not resend it.
+   */
+  skipEntries(id: string, from: number, to: number): AppendResult {
+    const s = this.db.get<Row>('SELECT offset FROM pc_sessions WHERE id = ?', id);
+    if (!s) return { ok: false, conflict: false, notFound: true };
+    if (from !== (s.offset as number)) return { ok: false, conflict: true, offset: s.offset as number };
+    this.setOffset(id, to);
+    return { ok: true, offset: to, stored: 0, truncated: false };
+  }
+
+  /** Moves the consumed-bytes mark without storing anything: the PC's appends to a session that is on the VPS are dropped, and a pull resets it to the pulled file's size. */
+  setOffset(id: string, offset: number): void {
+    this.db.run('UPDATE pc_sessions SET offset = ? WHERE id = ?', Math.max(0, Math.trunc(offset)), id);
+  }
+
+  /** Tells the app at once that this session changed (a move state change, a VPS turn starting or finishing). */
+  touch(id: string): void {
+    const r = this.db.get<{ last_at: number }>('SELECT last_at FROM pc_sessions WHERE id = ?', id);
+    if (r) events.emitEvent({ type: 'pc_session_updated', id, lastAt: r.last_at });
+  }
+
+  private store(id: string, entries: readonly PcEntry[], machine: string | null, newOffset: number | null): { stored: number; truncated: boolean; lastAt: number } {
+    const s = this.db.get<Row>('SELECT bytes, truncated, last_at FROM pc_sessions WHERE id = ?', id)!;
     let bytes = s.bytes as number;
     let truncated = (s.truncated as number) === 1;
     let lastAt = s.last_at as number;
@@ -117,7 +163,7 @@ export class PcSessions {
     this.db.tx(() => {
       let seq = this.db.get<{ m: number | null }>('SELECT MAX(seq) AS m FROM pc_session_entries WHERE session_id = ?', id)?.m ?? 0;
       const ins = this.db.raw.prepare(
-        'INSERT OR IGNORE INTO pc_session_entries (session_id, seq, uuid, parent_uuid, at, kind, text, tool, is_error, is_sidechain, model) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT OR IGNORE INTO pc_session_entries (session_id, seq, uuid, parent_uuid, at, kind, text, tool, is_error, is_sidechain, model, machine) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       );
       for (const e of entries) {
         const text = capText(redact(e.text), PC_ENTRY_TEXT_CAPS[e.kind]);
@@ -128,7 +174,7 @@ export class PcSessions {
         }
         const r = ins.run(
           id, seq + 1, e.uuid, e.parentUuid ?? null, Math.trunc(e.at), e.kind, text, e.tool ? redact(e.tool) : null,
-          e.isError ? 1 : 0, e.isSidechain ? 1 : 0, e.model ?? null,
+          e.isError ? 1 : 0, e.isSidechain ? 1 : 0, e.model ?? null, machine,
         );
         if (Number(r.changes) === 0) continue; // a resent uuid
         seq++;
@@ -137,12 +183,11 @@ export class PcSessions {
         if (e.at > lastAt) lastAt = Math.trunc(e.at);
       }
       this.db.run(
-        'UPDATE pc_sessions SET offset = ?, bytes = ?, truncated = ?, last_at = ?, entry_count = (SELECT COUNT(*) FROM pc_session_entries WHERE session_id = ?) WHERE id = ?',
-        to, bytes, truncated ? 1 : 0, lastAt, id, id,
+        'UPDATE pc_sessions SET offset = COALESCE(?, offset), bytes = ?, truncated = ?, last_at = ?, entry_count = (SELECT COUNT(*) FROM pc_session_entries WHERE session_id = ?) WHERE id = ?',
+        newOffset, bytes, truncated ? 1 : 0, lastAt, id, id,
       );
     });
-    if (stored > 0) this.notify(id, lastAt);
-    return { ok: true, offset: to, stored, truncated };
+    return { stored, truncated, lastAt };
   }
 
   // ---- owner side ----
@@ -268,6 +313,7 @@ export class PcSessions {
       truncated: (r.truncated as number) === 1,
       status: this.now() - lastAt <= PC_LIVE_MS ? 'live' : 'ended',
       links: this.linker ? this.linker(repo) : [],
+      move: this.mover ? this.mover(r.id as string) : null,
     };
   }
 
@@ -306,6 +352,7 @@ function toEntry(r: Row): PcStoredEntry {
   if (r.is_error) e.isError = true;
   if (r.is_sidechain) e.isSidechain = true;
   if (r.model) e.model = r.model as string;
+  if (r.machine) e.machine = r.machine as string;
   return e;
 }
 

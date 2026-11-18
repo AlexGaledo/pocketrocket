@@ -93,6 +93,9 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
   ['propose_routing_change', 'askEveryTime'],
   // A Claude Code job on the owner's PC; its handler calls askFleetChange with evenUnderBypass.
   ['run_on_pc', 'signInOnly'],
+  // Bridge P6: proposes moving a PC session to the VPS, or pulling it back. The card is the proposal; only a browser
+  // signed in with the owner's password may allow it, and the PC asks again before it runs anything.
+  ['propose_move', 'signInOnly'],
   // Types a saved login into the bot's browser; its handler calls askCredentialFill. Asked on every call, under bypass
   // too, and only a signed-in browser may allow it (G4).
   ['fill_credential', 'signInOnly'],

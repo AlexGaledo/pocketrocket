@@ -107,10 +107,10 @@ describe('principals', () => {
 describe('runner routes', () => {
   it('PUT creates at offset 0, repeats return the stored offset; sync lists offsets', async () => {
     const id = newId();
-    expect((await asRunner('PUT', '/api/pc-sessions/' + id, meta())).json).toEqual({ ok: true, offset: 0 });
+    expect((await asRunner('PUT', '/api/pc-sessions/' + id, meta())).json).toEqual({ ok: true, offset: 0, onVps: false });
     expect((await asRunner('POST', '/api/pc-sessions/' + id + '/entries', { from: 0, to: 100, entries: [ent()] })).status).toBe(200);
-    expect((await asRunner('PUT', '/api/pc-sessions/' + id, meta({ title: 'renamed' }))).json).toEqual({ ok: true, offset: 100 });
-    expect((await asRunner('GET', '/api/pc-sessions/sync')).json.sessions[id]).toEqual({ offset: 100 });
+    expect((await asRunner('PUT', '/api/pc-sessions/' + id, meta({ title: 'renamed' }))).json).toEqual({ ok: true, offset: 100, onVps: false });
+    expect((await asRunner('GET', '/api/pc-sessions/sync')).json.sessions[id]).toEqual({ offset: 100, onVps: false });
     expect((await asOwner('GET', '/api/pc-sessions/' + id)).json.title).toBe('renamed');
   });
 
