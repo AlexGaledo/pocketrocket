@@ -91,6 +91,7 @@ rotate_url() {
     *replicate*) echo "https://replicate.com/account/api-tokens" ;;
     *huggingface*|hf_*) echo "https://huggingface.co/settings/tokens" ;;
     *notion*) echo "https://www.notion.so/my-integrations" ;;
+    *telegram*) echo "Telegram: message @BotFather, send /revoke, pick the bot (the old token stops working at once)" ;;
     *linear*) echo "https://linear.app/settings/api" ;;
     *) echo "the service's dashboard" ;;
   esac
