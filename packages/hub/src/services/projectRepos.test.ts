@@ -154,6 +154,9 @@ describe('wipBranchName', () => {
   it('is wip/<machine>/<first 8 of the session>, safe for a ref', () => {
     expect(wipBranchName('pc', '0a1b2c3d-1111-2222-3333-444455556666')).toBe('wip/pc/0a1b2c3d');
     expect(wipBranchName('My PC!', 'ABCDEF12-3456')).toBe('wip/my-pc/abcdef12');
+    // Must match the PC runner's sanitizeMachine: '_' and other symbols become '-', no trailing '-'.
+    expect(wipBranchName('Alex_PC', 'abcdef12-2222')).toBe('wip/alex-pc/abcdef12');
+    expect(wipBranchName('a'.repeat(29) + '_b', 'abcdef12')).toBe('wip/' + 'a'.repeat(29) + '/abcdef12');
     expect(wipBranchName('../..', 'x')).toMatch(/^wip\/[a-z0-9_-]+\/[a-z0-9]+$/);
   });
 });

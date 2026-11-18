@@ -161,7 +161,8 @@ export const PC_BUNDLE_MAX_BYTES = 200 * 1024 * 1024;
 
 /** `wip/<machine>/<first 8 of the session id>`: the one ref a sync is allowed to write. */
 export function wipBranchName(machine: string, sessionId: string): string {
-  const m = machine.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'pc';
+  // Same rule as the PC runner's sanitizeMachine (scripts/pc-runner/sync.mjs), so both name the same branch.
+  const m = machine.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30).replace(/-+$/g, '') || 'pc';
   const s = sessionId.replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toLowerCase() || 'session';
   return 'wip/' + m + '/' + s;
 }
