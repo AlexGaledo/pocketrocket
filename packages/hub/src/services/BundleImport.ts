@@ -109,7 +109,7 @@ export type ReceiveResult = { ok: true; bytes: number } | { ok: false; status: n
  * Streams the request body to `file`, counting and hashing as it goes, never holding more than a chunk in memory. Fails
  * when more than `expectBytes` arrive, when fewer do, or when the sha256 differs. The partial file is removed on failure.
  */
-export async function receiveToFile(req: IncomingMessage, file: string, o: { expectBytes: number; sha256: string }): Promise<ReceiveResult> {
+export async function receiveToFile(req: IncomingMessage, file: string, o: { expectBytes: number; sha256: string; /** What it is, for the error text. Default 'bundle'. */ what?: string; header?: string }): Promise<ReceiveResult> {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const hash = createHash('sha256');
   let bytes = 0;
@@ -134,7 +134,7 @@ export async function receiveToFile(req: IncomingMessage, file: string, o: { exp
   }
   if (hash.digest('hex') !== o.sha256.toLowerCase()) {
     fs.rmSync(file, { force: true });
-    return { ok: false, status: 400, error: 'The bundle does not match x-bundle-sha256' };
+    return { ok: false, status: 400, error: 'The ' + (o.what ?? 'bundle') + ' does not match ' + (o.header ?? 'x-bundle-sha256') };
   }
   return { ok: true, bytes };
 }
