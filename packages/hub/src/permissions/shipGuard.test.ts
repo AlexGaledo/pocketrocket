@@ -91,3 +91,34 @@ describe('against a real repo', () => {
     expect(defaultBranchPushDenied('git push', path.join(dir, '.git', 'hooks', 'nowhere'))).toMatch(/Name it/);
   });
 });
+
+describe('a repo\'s protected branches (repos.json)', () => {
+  const remotes: Record<string, string> = { origin: 'git@github.com:Org/app.git', fork: 'https://github.com/someone/fork.git' };
+  const info: GitInfo = { currentBranch: () => 'feature', defaultBranch: () => null, remoteUrl: (_d, r) => remotes[r] ?? null };
+  const extra = (remote: string) => (remote.toLowerCase().includes('org/app') ? ['staging', 'release/1.x'] : []);
+  const d = (cmd: string, i: GitInfo = info) => defaultBranchPushDenied(cmd, '/repo', i, extra);
+
+  it('blocks a push to a listed branch when origin is that repo, however it is spelled', () => {
+    for (const cmd of [
+      'git push origin staging',
+      'git push -u origin staging',
+      'git push --force origin +staging',
+      'git push origin HEAD:staging',
+      'git push origin feature:refs/heads/release/1.x',
+      'git push origin :staging',
+      'git push --delete origin staging',
+      'git push https://github.com/Org/app staging',
+      'git push ssh://git@github.com/Org/app.git staging',
+    ]) expect(d(cmd), cmd).not.toBeNull();
+    expect(d('git push', { ...info, currentBranch: () => 'staging' })).not.toBeNull();
+  });
+  it('leaves other branches, other remotes and the unlisted case alone', () => {
+    expect(d('git push origin feature')).toBeNull();
+    expect(d('git push origin staging-fix')).toBeNull();
+    expect(d('git push fork staging')).toBeNull();
+    expect(d('git push https://github.com/someone/fork staging')).toBeNull();
+    expect(defaultBranchPushDenied('git push origin staging', '/repo', info)).toBeNull();
+    // main is still protected with or without the list
+    expect(d('git push origin main')).not.toBeNull();
+  });
+});

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { dispatchPcSessionEvent, groupSessions, listQuery, mergeEntries, nextBefore, onPcSessionUpdated, relativeTime, repoOptions, toolRowLabel, type PcSeqEntry, type PcSessionSummary } from './pcSessions';
 
 const S = (id: string, o: Partial<PcSessionSummary> = {}): PcSessionSummary => ({
-  id, parentId: null, machine: 'pc', projectDir: 'C--proj', cwd: null, repo: null, title: null, firstAt: 0, lastAt: 1, entryCount: 1, bytes: 1, truncated: false, status: 'ended', ...o,
+  id, parentId: null, machine: 'pc', projectDir: 'C--proj', cwd: null, repo: null, title: null, firstAt: 0, lastAt: 1, entryCount: 1, bytes: 1, truncated: false, status: 'ended', links: [], ...o,
 });
 const repo = (name: string) => ({ name, remote: null, branch: null, head: null });
 

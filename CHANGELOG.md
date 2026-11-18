@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Project repo lists and syncing PC work to the VPS (hub)
+
+- A project can list its git repos in Settings (stored as `repos.json` in the project folder, which only you can edit): a name, the remote URL, how it syncs (wip branch, bundle or none), extra protected branches, and whether it is a client repo. Repos are matched by remote URL, so no path on your PC is ever stored here. Bots cannot change the list.
+- Mirrored PC sessions now show which project repos they belong to. A bot on that project's chat can list and read only the sessions of its repos, see the repo list (`list_repos`), and propose to continue or sync one; each proposal is still a card only a browser signed in with your password can allow.
+- A sync copies a session's working tree to the VPS without touching your PC's own branches: either a `wip/<machine>/<session>` branch pushed to the remote, or a git bundle uploaded to the hub and imported into the project's copy of the repo on that one branch (git runs with hooks and credential helpers off). Client repos and repos set to none are never synced. A blocked pre-push scan on the PC shows up as a failed job with the findings.
+- Bots on a project with repos can no longer push to a repo's protected branches (main and master always count).
+
 ### The PC helper can sync a session's repo to the server, after a secret scan
 
 - A new kind of PC job copies the repo around one of your mirrored Claude Code sessions to the server: either as a work-in-progress branch pushed to the repo's remote (only `wip/<your PC>/<session>`, never `main` or any other branch), or as a bundle uploaded to the server with nothing pushed. It sends a snapshot of your working tree, including uncommitted and untracked files, without touching your folder, index, branches or stash.

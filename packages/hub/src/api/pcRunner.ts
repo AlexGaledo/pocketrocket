@@ -7,7 +7,11 @@ import type { Repos } from '../db/repos.js';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { MAX_PC_FOLDERS, MAX_PC_PROMPT_BYTES, PC_FOLDER_RE, PcRunnerError, type PcJob, type PcRunner } from '../services/PcRunner.js';
 import type { PcSessions } from '../services/PcSessions.js';
-import { MachinePolicyInputSchema, PC_MACHINE_ID, PC_SESSION_ID_RE, type PcRunnerJob } from '@pocketrocket/shared';
+import { MachinePolicyInputSchema, PC_BUNDLE_MAX_BYTES, PC_MACHINE_ID, PC_SESSION_ID_RE, REPO_NAME_RE, wipBranchName, type PcRunnerJob, type PcSyncJobInfo } from '@pocketrocket/shared';
+import { ProjectError, type ProjectService } from '../services/ProjectService.js';
+import { BundleError, importBundle, incomingPath, receiveToFile } from '../services/BundleImport.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Machines } from '../services/Machines.js';
 import { logError } from '../providers/redact.js';
 
@@ -26,10 +30,20 @@ const HeartbeatInput = z.object({ folders: z.array(z.string().regex(PC_FOLDER_RE
 /** A session id the app or a bot may resume: a uuid-like id, never a subagent's `<uuid>:<file>`. */
 const RESUMABLE_ID = z.string().regex(PC_SESSION_ID_RE).refine((v) => !v.includes(':'), 'not a resumable session id');
 const JobCreateInput = z.object({
-  mode: z.enum(['new', 'resume']),
+  mode: z.enum(['new', 'resume', 'sync']),
   sessionId: RESUMABLE_ID.optional(),
   folder: z.string().regex(PC_FOLDER_RE).optional(),
-  prompt: z.string().min(1).max(8000),
+  /** Required for new and resume; a sync takes none. */
+  prompt: z.string().min(1).max(8000).optional(),
+  project: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/).optional(),
+  repo: z.string().regex(REPO_NAME_RE).optional(),
+});
+const SyncResultInput = z.object({
+  mode: z.enum(['wip-branch', 'bundle']),
+  branch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/).optional(),
+  commit: z.string().regex(/^[0-9a-f]{7,64}$/),
+  bundleBytes: z.number().int().min(0).max(PC_BUNDLE_MAX_BYTES).optional(),
+  scan: z.object({ blocked: z.boolean(), findings: z.array(z.string().max(500)).max(100) }),
 });
 const ResultInput = z.object({
   /** The allowed folder NAME a resume ran in. */
@@ -41,6 +55,8 @@ const ResultInput = z.object({
   output: z.string(),
   costUsd: z.number().finite().min(0).optional(),
   durationMs: z.number().finite().min(0).optional(),
+  /** Sync jobs: the snapshot commit, the branch pushed, and what the pre-push scan found. */
+  sync: SyncResultInput.optional(),
 });
 
 /**
@@ -50,10 +66,12 @@ const ResultInput = z.object({
  *   POST   /api/pc-runner/token      -> { token }   fresh 32-byte token, shown once, replaces the old one
  *   GET    /api/pc-runner            -> { paired, folders, lastSeenAt, online }
  *   DELETE /api/pc-runner            kill switch: forget the token, cancel every open job
- *   POST   /api/pc-runner/jobs       { mode: 'new'|'resume', sessionId?, folder?, prompt } -> PcRunnerJob (queued). The click IS the
+ *   POST   /api/pc-runner/jobs       { mode: 'new'|'resume'|'sync', sessionId?, folder?, prompt?, project?, repo? } -> PcRunnerJob (queued). The click IS the
  *                                    approval, so only a browser signed in with the owner's password may do it: the hub token, the
  *                                    desktop app and a paired phone get 403. 409 when no runner is paired; 400 for a resume whose
- *                                    session is not in the mirror, or a new job in a folder the PC does not allow.
+ *                                    session is not in the mirror, or a new job in a folder the PC does not allow. A sync (sessionId,
+ *                                    project, repo; no prompt) is 400 for a client repo, a repo whose sync is none, or a session that is
+ *                                    not mapped to that repo (bridge P5).
  *   GET    /api/pc-runner/jobs?limit=50  -> PcRunnerJob[] newest first (limit 1..200)
  *   GET    /api/pc-runner/jobs/:id       -> PcRunnerJob
  *   GET    /api/pc-runner/machines       -> MachineInfo[] (policy per machine: never | ask | always)
@@ -63,13 +81,18 @@ const ResultInput = z.object({
  * The helper on the PC (runner principal only; the hub token gets 403 here, guard.ts keeps the runner out of
  * everything else):
  *   POST /api/pc-runner/heartbeat          { folders: string[] }
- *   GET  /api/pc-runner/jobs/next          -> 204 | { id, mode, sessionId, folder, origin, bot: { handle }, room: { id, name }, prompt, createdAt }
- *                                            (a resume has folder null: the PC finds the session's directory itself)
+ *   GET  /api/pc-runner/jobs/next          -> 204 | { id, mode, sessionId, folder, origin, bot: { handle }, room: { id, name }, prompt, createdAt, sync? }
+ *                                            (a resume has folder null: the PC finds the session's directory itself; a sync carries
+ *                                            sync: { project, repo, remote, mode, protected } and a sessionId whose working tree to snapshot)
+ *   POST /api/pc-runner/jobs/:id/bundle    raw application/octet-stream, Content-Length required (max 200 MB), x-bundle-sha256: the
+ *                                            bundle of a bundle-mode sync, streamed to disk, verified and imported on wip/<machine>/<session>
+ *                                            in the project's VPS copy -> { ok, branch, bytes }
  *   POST /api/pc-runner/jobs/:id/start
- *   POST /api/pc-runner/jobs/:id/result    { ok, refusedLocally?, output, costUsd?, durationMs?, resolvedFolder?, newSessionId? }
+ *   POST /api/pc-runner/jobs/:id/result    { ok, refusedLocally?, output, costUsd?, durationMs?, resolvedFolder?, newSessionId?, sync? }
  */
-export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: Db; pcSessions?: PcSessions }) {
-  const { pcRunner, repos, db, pcSessions } = deps;
+export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: Db; pcSessions?: PcSessions; projects?: ProjectService; bundleMaxBytes?: number }) {
+  const { pcRunner, repos, db, pcSessions, projects } = deps;
+  const bundleMax = deps.bundleMaxBytes ?? PC_BUNDLE_MAX_BYTES;
   const machines = new Machines(db, pcRunner);
   /** The owner's view of a job. `result` is the PC's output, or the hub's reason when it dropped the job. */
   const view = (j: PcJob): PcRunnerJob => {
@@ -94,8 +117,57 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
       finishedAt: j.finishedAt,
       refusedLocally: j.status === 'refused',
       error: dropped ? j.result : null,
+      sync: j.sync,
+      syncResult: j.syncResult,
+      hubImport: j.syncImport,
     };
   };
+  /** A refusal made before the body is read: close the connection rather than drain up to 200 MB nobody will use. */
+  const refuse = (req: IncomingMessage, res: ServerResponse, status: number, error: string): true => {
+    res.setHeader('connection', 'close');
+    send(res, status, { error });
+    res.once('finish', () => req.destroy());
+    return true;
+  };
+
+  /** POST /api/pc-runner/jobs/:id/bundle: the runner's bundle for a bundle-mode sync. See services/BundleImport.ts. */
+  async function receiveBundle(req: IncomingMessage, res: ServerResponse, jobId: string): Promise<true> {
+    const job = pcRunner.get(jobId);
+    if (!job) return refuse(req, res, 404, 'No such job');
+    if (job.mode !== 'sync' || !job.sync || job.sync.mode !== 'bundle') return refuse(req, res, 409, 'This job does not take a bundle.');
+    if (job.status !== 'claimed' && job.status !== 'running') return refuse(req, res, 409, 'Job is ' + job.status + ', not claimed or running.');
+    if (job.syncImport) return refuse(req, res, 409, 'A bundle was already uploaded for this job.');
+    const ct = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+    if (ct !== 'application/octet-stream') return refuse(req, res, 415, 'Content-Type must be application/octet-stream');
+    if (String(req.headers['transfer-encoding'] ?? '').toLowerCase().includes('chunked') || !/^[0-9]{1,12}$/.test(String(req.headers['content-length'] ?? ''))) {
+      return refuse(req, res, 411, 'Content-Length is required');
+    }
+    const length = Number(req.headers['content-length']);
+    if (length < 1) return refuse(req, res, 400, 'The bundle is empty.');
+    if (length > bundleMax) return refuse(req, res, 413, 'The bundle is over ' + Math.round(bundleMax / 1024 / 1024) + ' MB.');
+    const sha = String(req.headers['x-bundle-sha256'] ?? '');
+    if (!/^[0-9a-fA-F]{64}$/.test(sha)) return refuse(req, res, 400, 'x-bundle-sha256 must be a sha256 in hex.');
+    // The repo list is the owner's and may have changed since the job was made.
+    const repo = projects?.reposFile(job.sync.project).repos.find((r) => r.name === job.sync!.repo);
+    if (!projects || !repo || repo.client || repo.sync !== 'bundle') return refuse(req, res, 409, 'That repo no longer takes bundle syncs.');
+    const session = job.sessionId ? pcSessions?.get(job.sessionId) : null;
+    if (!session || !job.sessionId) return refuse(req, res, 409, 'The session is no longer in the mirror.');
+    const projectDir = projects.dirOf(job.sync.project);
+    const file = incomingPath(projectDir, repo.vps, job.id);
+    try {
+      const got = await receiveToFile(req, file, { expectBytes: length, sha256: sha });
+      if (!got.ok) return refuse(req, res, got.status, got.error);
+      const branch = wipBranchName(session.machine, job.sessionId);
+      const { commit } = await importBundle({ projectDir, vps: repo.vps, bundleFile: file, branch });
+      pcRunner.setSyncImport(job.id, { branch, vps: repo.vps, bytes: got.bytes, at: Date.now() });
+      recordAudit(db, job.botId ? { kind: 'bot', id: job.botId } : { kind: 'anonymous', id: 'pc-runner' }, 'pc-runner.bundle.imported', job.id, job.sync.project + '/' + job.sync.repo + ' ' + branch + ' ' + commit.slice(0, 12) + ', ' + got.bytes + ' bytes');
+      return send(res, 200, { ok: true, branch, bytes: got.bytes });
+    } finally {
+      fs.rmSync(file, { force: true });
+      try { fs.rmdirSync(path.dirname(file)); } catch { /* not empty or gone */ }
+    }
+  }
+
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname !== '/api/pc-runner' && !url.pathname.startsWith('/api/pc-runner/')) return false;
@@ -107,6 +179,15 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
     const runnerRoute = parts[0] === 'heartbeat' || (parts[0] === 'jobs' && (parts[1] === 'next' || parts.length === 3));
     if (runnerRoute ? kind !== 'runner' : kind !== 'hub') {
       return send(res, 403, { error: runnerRoute ? 'Only the PC runner can do this' : 'Only the desktop app can do this' });
+    }
+    if (kind === 'runner' && method === 'POST' && parts.length === 3 && parts[0] === 'jobs' && parts[2] === 'bundle') {
+      try {
+        return await receiveBundle(req, res, parts[1]);
+      } catch (e) {
+        if (e instanceof BundleError) return send(res, e.status, { error: e.message });
+        logError('[pc-runner bundle]', e);
+        return send(res, 500, { error: 'PC runner error' });
+      }
     }
     let body: unknown;
     if (method === 'POST' || method === 'PUT') {
@@ -149,10 +230,22 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
         if (machines.policy(PC_MACHINE_ID) === 'never') {
           return send(res, 409, { error: 'Your PC is set to "never" in Machines. Change its policy to run jobs there.' });
         }
-        if (Buffer.byteLength(p.data.prompt, 'utf8') > MAX_PC_PROMPT_BYTES) return send(res, 400, { error: 'The prompt is over 8 KB.' });
+        const prompt = p.data.prompt ?? '';
+        if (p.data.mode !== 'sync' && !prompt) return send(res, 400, { error: 'A prompt is required.' });
+        if (Buffer.byteLength(prompt, 'utf8') > MAX_PC_PROMPT_BYTES) return send(res, 400, { error: 'The prompt is over 8 KB.' });
         let sessionId: string | null = null;
         let folder: string | null = null;
-        if (p.data.mode === 'resume') {
+        let sync: PcSyncJobInfo | null = null;
+        if (p.data.mode === 'sync') {
+          const sid = p.data.sessionId;
+          const sess = sid && pcSessions ? pcSessions.get(sid) : null;
+          if (!sid || !sess) return send(res, 400, { error: 'Sync needs a sessionId that is in the PC session mirror.' });
+          if (sess.parentId) return send(res, 400, { error: 'That is a subagent transcript; sync its parent session.' });
+          if (!p.data.project || !p.data.repo) return send(res, 400, { error: 'Sync needs project and repo.' });
+          if (!projects) return send(res, 400, { error: 'Projects are not available here.' });
+          sync = projects.syncTarget(sess, p.data.project, p.data.repo);
+          sessionId = sid;
+        } else if (p.data.mode === 'resume') {
           const sid = p.data.sessionId;
           const sess = sid && pcSessions ? pcSessions.get(sid) : null;
           if (!sid || !sess) return send(res, 400, { error: 'Resume needs a sessionId that is in the PC session mirror.' });
@@ -165,10 +258,13 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
             return send(res, 400, { error: 'New needs one of the folders the PC allows' + (allowed.length ? ': ' + allowed.join(', ') + '.' : ' (it has not reported any).') });
           }
         }
-        const job = pcRunner.create({ mode: p.data.mode, sessionId, folder, prompt: p.data.prompt, origin: 'owner' });
+        const job = pcRunner.create({
+          mode: p.data.mode, sessionId, folder, origin: 'owner', sync,
+          prompt: sync ? 'Sync ' + sync.project + '/' + sync.repo + ' (' + sync.mode + ')' : prompt,
+        });
         pcRunner.approve(job.id);
         const actor = actorOf(req);
-        if (actor) recordAudit(db, actor, 'pc-runner.job.approved', job.id, 'owner, from the app: ' + p.data.mode + ', ' + (sessionId ? 'session ' + sessionId : folder));
+        if (actor) recordAudit(db, actor, 'pc-runner.job.approved', job.id, 'owner, from the app: ' + p.data.mode + ', ' + (sync ? sync.project + '/' + sync.repo + ' session ' + sessionId : sessionId ? 'session ' + sessionId : folder));
         return send(res, 200, view(pcRunner.get(job.id)!));
       }
       if (!runnerRoute && parts[0] === 'jobs' && parts.length === 2 && method === 'GET') {
@@ -208,6 +304,7 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
           room: { id: j.roomId ?? '', name: j.origin === 'owner' ? '(the app)' : room?.name ?? '(deleted room)' },
           prompt: j.prompt,
           createdAt: j.createdAt,
+          ...(j.mode === 'sync' && j.sync ? { sync: j.sync } : {}),
         });
       }
       if (parts.length === 3 && parts[0] === 'jobs' && parts[2] === 'start' && method === 'POST') {
@@ -217,14 +314,26 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
       if (parts.length === 3 && parts[0] === 'jobs' && parts[2] === 'result' && method === 'POST') {
         const p = ResultInput.safeParse(body);
         if (!p.success) return bad(p.error);
-        const j = pcRunner.finish(parts[1], p.data);
-        const detail = 'machine pc, ' + (j.resolvedFolder ?? j.folder ?? 'resume ' + j.sessionId) + (j.newSessionId ? ', continued as ' + j.newSessionId : '') + (p.data.durationMs !== undefined ? ', ' + Math.round(p.data.durationMs / 1000) + ' s' : '') + (j.costUsd !== null ? ', $' + j.costUsd.toFixed(4) : '');
+        const cur = pcRunner.get(parts[1]);
+        let ok = p.data.ok;
+        if (cur?.mode === 'sync' && ok && !p.data.refusedLocally) {
+          const s = p.data.sync;
+          if (!s) return send(res, 400, { error: 'A sync result needs a sync object.' });
+          if (cur.sync && s.mode !== cur.sync.mode) return send(res, 400, { error: 'sync.mode does not match the job.' });
+          if (s.mode === 'wip-branch' && !s.scan.blocked && !(s.branch && s.branch.startsWith('wip/'))) return send(res, 400, { error: 'A wip-branch sync reports the wip/ branch it pushed.' });
+          if (s.mode === 'bundle' && !s.scan.blocked && !cur.syncImport) return send(res, 400, { error: 'No bundle was uploaded for this job.' });
+          // A blocked scan is never a success, whatever the runner says.
+          if (s.scan.blocked) ok = false;
+        }
+        const j = pcRunner.finish(parts[1], { ...p.data, ok });
+        const detail = 'machine pc, ' + (j.mode === 'sync' && j.sync ? 'sync ' + j.sync.project + '/' + j.sync.repo + ' ' + (j.syncResult?.branch ?? j.syncResult?.commit ?? '') : j.resolvedFolder ?? j.folder ?? 'resume ' + j.sessionId) + (j.newSessionId ? ', continued as ' + j.newSessionId : '') + (p.data.durationMs !== undefined ? ', ' + Math.round(p.data.durationMs / 1000) + ' s' : '') + (j.costUsd !== null ? ', $' + j.costUsd.toFixed(4) : '');
         recordAudit(db, j.botId ? { kind: 'bot', id: j.botId } : { kind: 'anonymous', id: 'pc-runner' }, 'pc-runner.job.' + j.status, j.id, detail);
         return send(res, 200, { ok: true, status: j.status });
       }
       return send(res, 404, { error: 'Not found' });
     } catch (e) {
       if (e instanceof PcRunnerError) return send(res, e.status, { error: e.message });
+      if (e instanceof ProjectError) return send(res, e.status, { error: e.message });
       logError('[pc-runner]', e);
       return send(res, 500, { error: 'PC runner error' });
     }

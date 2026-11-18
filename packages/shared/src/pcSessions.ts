@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { PcSessionLink } from './projectRepos.js';
 
 /**
  * PC session mirror (Claude Code bridge P3, docs/specs/claude-code-bridge.md 3.1). The runner on the owner's PC sends
@@ -83,6 +84,8 @@ export interface PcSessionSummary {
   truncated: boolean;
   /** 'live' when lastAt is within 10 minutes (computed at read). */
   status: 'live' | 'ended';
+  /** The project repos this session belongs to (computed at read from each project's repos.json; empty when none). */
+  links: PcSessionLink[];
 }
 
 export type PcSessionDetail = PcSessionSummary & { children: PcSessionSummary[] };

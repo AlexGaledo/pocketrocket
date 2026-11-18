@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { events } from '../events.js';
 import { readBody } from './body.js';
 import type { Repos } from '../db/repos.js';
+import type { Db } from '../db/db.js';
+import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { ProjectError, type ProjectService } from '../services/ProjectService.js';
 import { logError } from '../providers/redact.js';
 
@@ -26,10 +28,12 @@ const send = (res: ServerResponse, status: number, body: unknown): true => {
  *   PUT    /api/projects/:slug/room     { roomId | null }; links a group chat to the folder
  *   GET    /api/projects/:slug/search   ?q=&archived=1, with no AI turn
  *   GET    /api/projects/:slug/lint     what has gone stale or messy
+ *   GET    /api/projects/:slug/repos    { repos: ProjectRepo[] } from repos.json (bridge P5)
+ *   PUT    /api/projects/:slug/repos    { repos } -> saved file; 400 names every schema problem. Remotes only, never a PC path
  *   DELETE /api/projects/:slug          forgets it; the folder and any cloned bots stay
  */
-export function createProjectsApi(deps: { projects: ProjectService; repos: Repos }) {
-  const { projects, repos } = deps;
+export function createProjectsApi(deps: { projects: ProjectService; repos: Repos; db?: Db }) {
+  const { projects, repos, db } = deps;
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname !== '/api/projects' && !url.pathname.startsWith('/api/projects/')) return false;
@@ -74,6 +78,16 @@ export function createProjectsApi(deps: { projects: ProjectService; repos: Repos
         return send(res, 200, projects.search([slug], q, { includeArchived: url.searchParams.get('archived') === '1', limit: 10 }));
       }
       if (parts.length === 2 && action === 'lint' && method === 'GET') return send(res, 200, projects.lint(slug));
+      if (parts.length === 2 && action === 'repos' && method === 'GET') {
+        projects.need(slug);
+        return send(res, 200, projects.reposFile(slug));
+      }
+      if (parts.length === 2 && action === 'repos' && method === 'PUT') {
+        const saved = projects.setRepos(slug, body);
+        const actor = actorOf(req);
+        if (db && actor) recordAudit(db, actor, 'project.repos.saved', slug, saved.repos.map((r) => r.name + ':' + r.sync + (r.client ? ':client' : '')).join(', ').slice(0, 300));
+        return send(res, 200, saved);
+      }
       return send(res, 404, { error: 'Not found' });
     } catch (e) {
       if (e instanceof ProjectError) return send(res, e.status, { error: e.message });
