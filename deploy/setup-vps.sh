@@ -35,7 +35,7 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir "
 need_pkgs=()
 for p in xvfb x11vnc novnc websockify xauth fonts-liberation fonts-noto-color-emoji dbus-x11 \
          xfwm4 xfce4-panel xfdesktop4 xfce4-settings thunar xfce4-terminal mousepad ristretto \
-         adwaita-icon-theme xdotool scrot; do
+         adwaita-icon-theme xdotool scrot zstd; do
   dpkg -s "$p" >/dev/null 2>&1 || need_pkgs+=("$p")
 done
 if [ ${#need_pkgs[@]} -gt 0 ]; then
@@ -76,7 +76,7 @@ chown "$APP_USER:$APP_USER" "$DATA_DIR" 2>/dev/null || true
 # Clear the files an earlier setup generated so nobody goes looking for a password that is never asked for.
 rm -f "$DATA_DIR/vnc-passwd" "$DATA_DIR/vnc-passwd.txt"
 
-echo "==> daily backup of data/ (keeps 7; copied, not symlinked, so a bot can't rewrite root's cron job)"
+echo "==> daily backup of data/ (keeps 3; copied, not symlinked, so a bot can't rewrite root's cron job)"
 install -m 755 -o root -g root deploy/backup.sh /etc/cron.daily/pocketrocket-backup
 
 echo "==> hourly Claude Code CLI update (new models need a minimum CLI version)"

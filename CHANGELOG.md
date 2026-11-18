@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Smaller server backups
+
+- The daily server backup now leaves out folders that can be rebuilt, such as `node_modules`, `.next`, Python virtual environments and Rust `target` folders, wherever they sit inside a project. `dist` and `build` are still kept because they can hold real output.
+- Backups are compressed with zstd when the server has it (`data-<date>.tar.zst`), which is smaller and faster than gzip; older `.tgz` backups are still rotated and can still be restored. See `docs/SERVER.md` for the restore command.
+
 ### The hub can keep a read-only copy of your PC's Claude Code sessions
 
 - The PC helper can now mirror your Claude Code transcripts to the hub as compact entries (what you and Claude said, which tools ran and a short result), so you can read them in the app from anywhere. Subagent runs hang under their parent session.

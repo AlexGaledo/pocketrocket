@@ -78,7 +78,7 @@ VPS), see [Per-bot computers](#per-bot-computers) below.
 xdotool/scrot + a pinned Playwright Chromium, and starts `pocketrocket-screen.service`, also as
 `pocketrocket`, not root.
 
-What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket`, 7 kept):
+What persists (all under `data/`, backed up daily to `/var/backups/pocketrocket`, 3 kept, as `data-<stamp>.tar.zst`, or `.tgz` when zstd is not installed):
 
 - `data/workspace`: the desktop folder itself (Desktop/Downloads/Documents point here)
 - `data/desktop-home`: XFCE settings, panel layout, app config, and the X auth cookie
@@ -100,7 +100,7 @@ through approval cards, so only give them to bots you trust with the logged-in s
 machine.
 
 Ops: `systemctl status pocketrocket-screen`, `journalctl -u pocketrocket-screen -f`. Restore a
-backup: stop both services, untar into `/home/pocketrocket/pocketrocket`, move `db-snapshot/pocketrocket.db` to
+backup: stop both services, untar into `/home/pocketrocket/pocketrocket` (`tar --zstd -xf data-<stamp>.tar.zst -C /home/pocketrocket/pocketrocket`, or `zstd -dc data-<stamp>.tar.zst | tar -x -C /home/pocketrocket/pocketrocket`; for a `.tgz` use `tar -xzf`), move `db-snapshot/pocketrocket.db` to
 `data/pocketrocket.db` (delete any `data/pocketrocket.db-wal` and `-shm` first) and `.claude/projects` to
 `/home/pocketrocket/.claude/projects`, `chown -R pocketrocket:pocketrocket` both, start them again.
 
@@ -198,7 +198,11 @@ Add swap on small VPSes; Chromium is the part that grows with heavy sites.
 
 ### Backups with many bots
 
-The daily tarball includes every computer but skips browser and desktop caches (`deploy/backup.sh`), so its
+The daily tarball includes every computer but skips browser and desktop caches and anything a package manager
+or build tool recreates, at any depth under `data/`: `node_modules`, `.next`, `.nuxt`, `.turbo`, `.parcel-cache`,
+`.venv`, `venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, and a Rust `target/` beside a `Cargo.toml`.
+`dist/` and `build/` are kept (they can be real output). After a restore, run the project's install command to
+get `node_modules` back. It is compressed with zstd when installed (`setup-vps.sh` installs it), else gzip. Its
 size grows with logins and the files bots keep, bounded by the per-bot quota. For incremental, deduplicated
 backups that stay on the VPS, install restic and create `/etc/default/pocketrocket-backup`
 (root-only, mode 600):
