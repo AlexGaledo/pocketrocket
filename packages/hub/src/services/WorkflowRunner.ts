@@ -503,6 +503,9 @@ export class WorkflowRunner {
     } else {
       result = this.writeFile(room, run, node.path ?? '', text);
       if (result) return result;
+      // A file is not a message: say where it went, or the chat's last word on the run is "waiting for your approval".
+      const wf = this.repo.get(run.workflowId);
+      this.deps.router.systemNote(room, 'Workflow "' + clean(wf?.name ?? 'workflow') + '" saved its output to ' + clean(node.path ?? '') + ' in this chat\'s files.', run.causeId, 0);
     }
     const steps = run.steps.slice();
     steps[i] = { ...steps[i], status: 'done', output: node.target === 'file' ? 'Saved to ' + node.path : 'Posted to the chat', startedAt: t, endedAt: t };

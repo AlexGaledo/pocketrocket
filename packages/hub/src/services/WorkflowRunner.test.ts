@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { Bot, Message, WorkflowGraph, WorkflowNode } from '@pocketrocket/shared';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
@@ -26,7 +29,7 @@ const HOUR = 3_600_000;
 
 type Script = (req: TurnRequest, n: number) => Promise<TurnResult> | TurnResult;
 
-function engine(opts: { repos?: Repos; script?: Script; t0?: number } = {}) {
+function engine(opts: { repos?: Repos; script?: Script; t0?: number; roomFiles?: unknown } = {}) {
   const repos = opts.repos ?? new Repos(new Db(':memory:'));
   const usage = new UsageTracker(repos);
   const router = new RoomRouter(repos, usage);
@@ -53,7 +56,7 @@ function engine(opts: { repos?: Repos; script?: Script; t0?: number } = {}) {
     interruptLane: () => true,
   } as unknown as BotRunner;
   const repo = new WorkflowRepo(repos.db, () => clock.t);
-  const wf = new WorkflowRunner({ repos, workflows: repo, router, usage, now: () => clock.t });
+  const wf = new WorkflowRunner({ repos, workflows: repo, router, usage, now: () => clock.t, roomFiles: opts.roomFiles as never });
   return { repos, usage, router, reqs, clock, repo, wf, steers };
 }
 type Engine = ReturnType<typeof engine>;
@@ -103,6 +106,18 @@ describe('workflow runs', () => {
     expect(last.text).toBe('result-3');
     expect(last.authorId).toBe(w.cy.id);
     expect(e.repo.get(w.wf.id)!.lastRun?.status).toBe('success');
+  });
+
+  it('a file output is written to the chat files and the chat is told where it went', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-file-'));
+    const roomFiles = { folderOf: () => ({ kind: 'room', dir }), ensure: () => dir };
+    const e = engine({ roomFiles, script: () => ({ ok: true, turnId: 't', finalText: '# Report', costUsd: 0 }) });
+    const w = team(e.repos);
+    const wf = e.wf.create({ name: 'Audit', enabled: true, roomId: w.room.id, graph: line(agent('a', w.ann), { id: 'f', kind: 'output', target: 'file', path: 'audits/report.md' }), budgetUsd: 2 });
+    const run = e.wf.start(wf.id, { manual: true });
+    await until(() => runOf(e, run.id).status === 'success');
+    expect(fs.readFileSync(path.join(dir, 'audits', 'report.md'), 'utf8')).toBe('# Report');
+    expect(notes(e, w.room.id).some((t) => t.includes('"Audit" saved its output to audits/report.md'))).toBe(true);
   });
 
   it('a step output cannot close the fence early, and is passed as data even when it says otherwise', async () => {
