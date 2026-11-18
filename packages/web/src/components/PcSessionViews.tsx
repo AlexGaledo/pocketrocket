@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { ChevronRight, Monitor } from 'lucide-react';
 import { relativeTime, sessionTitle, toolRowLabel, type PcSeqEntry, type PcSessionSummary, type SessionGroup } from '../lib/pcSessions';
 import { linksOf } from '../lib/projectRepos';
+import { moveBadge } from '../lib/pcMove';
 import { Badge, Banner, EmptyState, cn } from './ui';
+import { MoveBadge } from './PcMovePanel';
 import { Markdown } from './Markdown';
 
 /** How to turn the mirror on. Shown when there is nothing to list. */
@@ -55,8 +57,9 @@ function SessionRow({ s, onOpen, now, nested }: { s: PcSessionSummary; onOpen: (
         <span className={cn('block truncate text-ui', nested ? 'text-muted' : 'text-fg')}>{sessionTitle(s)}</span>
         {where && <span className="block truncate text-hint text-muted">{where}</span>}
         {s.cwd && <span className="block truncate font-mono text-hint text-dim" title={s.cwd}>{s.cwd}</span>}
-        {linksOf(s).length > 0 && (
+        {(moveBadge(s) || linksOf(s).length > 0) && (
           <span className="mt-1 flex flex-wrap gap-1">
+            <MoveBadge s={s} />
             {linksOf(s).map((l) => <Badge key={l.project + '/' + l.repo} tone="accent">{l.project} / {l.repo}</Badge>)}
           </span>
         )}
