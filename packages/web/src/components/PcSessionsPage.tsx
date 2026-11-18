@@ -2,19 +2,28 @@
 // transcript. The list refreshes (debounced) and the open transcript appends when the hub sends
 // `pc_session_updated`. Nothing here sends anything back to Claude Code; the only write is deleting the mirror.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, Trash2 } from 'lucide-react';
+import { ArrowLeft, Play, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
 import { api } from '../lib/api';
 import {
   PC_ENTRY_PAGE, groupSessions, mergeEntries, mergeSessions, nextBefore, onPcSessionUpdated, repoOptions, sessionTitle,
   type PcSeqEntry, type PcSessionDetail, type PcSessionSummary,
 } from '../lib/pcSessions';
+import { PcRunForm, usePcStart, usePcStatus } from './PcRunForm';
+import { canResume, resumeBody } from '../lib/pcRun';
 import { Badge, Banner, Button, Input, Select, Skeleton, SkeletonGroup, Tooltip, cn, confirmAction } from './ui';
 import { FleetHeader, PageBody } from './FleetPages';
 import { MirrorEmptyState, SessionGroups, TranscriptEntries } from './PcSessionViews';
 
 export function PcSessionsPage() {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const focus = useStore((s) => s.pcSessionFocus);
+  const [openId, setOpenId] = useState<string | null>(focus);
+  // A job log link asks for a transcript; take it once.
+  useEffect(() => {
+    if (!focus) return;
+    setOpenId(focus);
+    useStore.setState({ pcSessionFocus: null });
+  }, [focus]);
   // Leaving a transcript returns to the list with its search and scroll intact, so the list stays mounted behind it.
   return (
     <>
@@ -114,6 +123,11 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [moreBusy, setMoreBusy] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const openDialog = useStore((s) => s.openDialog);
+  const { blocked } = usePcStatus();
+  const run = usePcStart();
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(false);
   const lastSeq = useRef(0);
@@ -183,6 +197,11 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
           </h1>
           <div className="truncate text-hint text-muted">{where || detail?.cwd || ' '}</div>
         </div>
+        {canResume(id) && (
+          <Button size="sm" variant={composeOpen ? 'outline' : 'primary'} aria-expanded={composeOpen} aria-controls="continue-on-pc" onClick={() => setComposeOpen((o) => !o)}>
+            <Play size={13} aria-hidden /> Continue on PC
+          </Button>
+        )}
         <Tooltip content="Delete the mirrored copy"><Button variant="ghost" size="icon" aria-label="Delete mirrored session" onClick={() => void remove()}><Trash2 size={15} /></Button></Tooltip>
       </header>
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-6">
@@ -201,6 +220,24 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
           {more && <div className="mt-3 flex justify-center"><Button onClick={() => void loadMore()} disabled={moreBusy}>{moreBusy ? 'Loading…' : 'Load more'}</Button></div>}
         </div>
       </div>
+      {composeOpen && canResume(id) && (
+        <section id="continue-on-pc" aria-label="Continue on PC" className="shrink-0 border-t border-line px-5 py-3">
+          <div className="mx-auto w-full max-w-[var(--page-max)]">
+            <PcRunForm
+              blocked={blocked}
+              prompt={prompt}
+              onPrompt={setPrompt}
+              submitLabel="Send to PC"
+              busy={run.busy}
+              placeholder="What should Claude do next in this session?"
+              error={run.error}
+              job={run.job}
+              onOpenLog={() => openDialog({ kind: 'settings', section: 'pc-runner' })}
+              onSubmit={() => { void run.start(resumeBody(id, prompt)).then((ok) => ok && setPrompt('')); }}
+            />
+          </div>
+        </section>
+      )}
     </div>
   );
 }

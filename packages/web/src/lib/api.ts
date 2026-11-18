@@ -13,8 +13,9 @@ import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
 import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
 import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
-import type { MachineInfo, MachinePolicy, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { MachineInfo, MachinePolicy, PcRunnerStatus } from '@pocketrocket/shared';
 import type { BotExportResult, BotImportResult, LaneQueue, Task, TaskStatus } from '@pocketrocket/shared';
+import type { PcJobRequest, PcJobView } from './pcRun';
 import { listQuery, PC_ENTRY_PAGE, type PcSessionDetail, type PcSessionQuery, type PcSessionSummary, type PcSeqEntry } from './pcSessions';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
@@ -320,8 +321,10 @@ export const api = {
   // The owner's PC as a job runner. Hub principal only; a paired phone and the runner itself get 403.
   pcRunner: {
     status: () => req<PcRunnerStatus>('GET', '/api/pc-runner'),
-    jobs: (limit = 50) => req<PcRunnerJob[]>('GET', '/api/pc-runner/jobs?limit=' + limit),
-    job: (id: string) => req<PcRunnerJob>('GET', '/api/pc-runner/jobs/' + encodeURIComponent(id)),
+    jobs: (limit = 50) => req<PcJobView[]>('GET', '/api/pc-runner/jobs?limit=' + limit),
+    /** Owner starts a run (bridge P4). The click in a password-signed-in browser is the approval: 403 otherwise, 409 if the runner is off. */
+    start: (body: PcJobRequest) => req<PcJobView>('POST', '/api/pc-runner/jobs', body),
+    job: (id: string) => req<PcJobView>('GET', '/api/pc-runner/jobs/' + encodeURIComponent(id)),
     /** Shown once and never stored here: the caller keeps it in component state only. Replaces the old token. */
     mintToken: () => req<{ token: string }>('POST', '/api/pc-runner/token', {}),
     turnOff: () => req<{ ok: true; cancelled: number }>('DELETE', '/api/pc-runner'),
