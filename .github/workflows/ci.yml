@@ -68,6 +68,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The same `pnpm test` the release job runs on Windows, so a Windows-only failure (CRLF checkout, slow
+      # fsync, path separators) shows up on the PR instead of at tag time. Rides this job's install: ~1-2 min.
+      - name: Test (Windows)
+        run: pnpm test
+
       # tauri-build validates that every externalBin sidecar and resources dir exists, even for `cargo check`,
       # so run the same prepare step the release uses (hub bundle + web + Node sidecar).
       - name: Prepare desktop resources
