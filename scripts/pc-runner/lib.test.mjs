@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_ALLOWED_TOOLS, validateConfig, folderFor, parseJob, buildClaudeArgs, capOutput, parseClaudeResult,
-  promptPreview, cleanToken, toolError, backoffMs, logFileName,
+  promptPreview, cleanToken, toolError, backoffMs, logFileName, normaliseRemote, parseSyncSpec,
   DISALLOWED_TOOLS, RUNNER_SETTINGS, GIT_FORCED_CONFIG, gitHardenedEnv, canRunCode, resolveClaudePath, isInside, buildMcpConfig, listenerIsOurs,
 } from './lib.mjs';
 
@@ -288,4 +288,69 @@ test('parseClaudeResult carries the session id claude ran', () => {
   const r = parseClaudeResult(JSON.stringify({ result: 'ok', session_id: '11111111-2222-3333-4444-555555555555' }), 0);
   assert.equal(r.sessionId, '11111111-2222-3333-4444-555555555555');
   assert.equal(parseClaudeResult(JSON.stringify({ result: 'ok', session_id: '--x y' }), 0).sessionId, undefined);
+});
+
+// The same table is in packages/shared/src/projectRepos.test.ts (normaliseRemote there): keep both identical.
+const REMOTE_TABLE = [
+  ['git@github.com:org/repo.git', 'https://github.com/org/repo'],
+  ['git@GitHub.com:org/repo', 'https://github.com/org/repo'],
+  ['git@github.com:/org/repo.git', 'https://github.com/org/repo'],
+  ['https://github.com/org/repo', 'https://github.com/org/repo'],
+  ['https://GitHub.com/org/repo.git', 'https://github.com/org/repo'],
+  ['https://github.com/org/repo.git/', 'https://github.com/org/repo'],
+  ['  https://github.com/org/repo.git  ', 'https://github.com/org/repo'],
+  ['http://github.com/org/repo.git', 'https://github.com/org/repo'],
+  ['https://user:secret@github.com/org/repo.git', 'https://github.com/org/repo'],
+  ['https://x-access-token:abc@github.com/org/repo', 'https://github.com/org/repo'],
+  ['ssh://git@github.com/org/repo.git', 'https://github.com/org/repo'],
+  ['ssh://git@github.com:22/org/repo.git', 'https://github.com/org/repo'],
+  ['git://github.com/org/repo.git', 'https://github.com/org/repo'],
+  ['https://github.com:443/org/repo', 'https://github.com/org/repo'],
+  ['https://git.example.com:8443/org/repo.git', 'https://git.example.com:8443/org/repo'],
+  ['git@gitlab.com:group/sub/repo.git', 'https://gitlab.com/group/sub/repo'],
+  ['https://github.com/Org/Repo', 'https://github.com/Org/Repo'],
+  ['', null],
+  ['   ', null],
+  ['not a url', null],
+  ['github.com', null],
+  ['https://github.com', null],
+  ['https://github.com/', null],
+  ['git@github.com:', null],
+  ['https://github.com/org/../repo', null],
+  ['ftp://github.com/org/repo', null],
+  ['file:///srv/git/repo.git', null],
+  ['C:\repos\app', null],
+  ['/srv/git/repo.git', null],
+  ['https://exa mple.com/o/r', null],
+  [undefined, null],
+  [42, null],
+];
+
+test('normaliseRemote: the shared table', () => {
+  for (const [input, want] of REMOTE_TABLE) assert.equal(normaliseRemote(input), want, JSON.stringify(input));
+  // equivalent spellings are equal; different repos are not
+  assert.equal(normaliseRemote('git@github.com:org/repo.git'), normaliseRemote('https://github.com/org/repo'));
+  assert.notEqual(normaliseRemote('git@github.com:org/repo.git'), normaliseRemote('git@github.com:org/other.git'));
+});
+
+test('parseJob: a sync job names a session and a valid sync spec, and needs no prompt', () => {
+  const spec = { project: 'wika', repo: 'app', remote: 'git@github.com:org/app.git', mode: 'wip-branch', protected: ['main', 'staging'] };
+  const j = parseJob({ id: 's1', mode: 'sync', origin: 'owner', sessionId: 'abc-123', sync: spec });
+  assert.equal(j.mode, 'sync');
+  assert.equal(j.sessionId, 'abc-123');
+  assert.deepEqual(j.sync, spec);
+  assert.equal(j.prompt, '');
+  assert.equal(j.folder, null);
+  assert.equal(parseJob({ id: 's1', mode: 'sync', sessionId: 'abc', sync: { ...spec, mode: 'bundle', protected: undefined } }).sync.protected.length, 0);
+  assert.equal(parseJob({ id: 's1', mode: 'sync', sessionId: 'abc' }), null, 'no sync object');
+  assert.equal(parseJob({ id: 's1', mode: 'sync', sync: spec }), null, 'no session');
+  for (const bad of [{ mode: 'none' }, { mode: 'force-push' }, { repo: 'Bad Name' }, { project: '../x' }, { remote: '' }, { protected: 'main' }, { protected: [1] }]) {
+    assert.equal(parseJob({ id: 's1', mode: 'sync', sessionId: 'abc', sync: { ...spec, ...bad } }), null, JSON.stringify(bad));
+  }
+  assert.equal(parseSyncSpec([]), null);
+  // other modes still need a prompt; old jobs still parse as before
+  assert.equal(parseJob({ id: 'a', mode: 'resume', sessionId: 'x' }), null);
+  assert.equal(parseJob({ id: 'a', folder: 'f' }), null);
+  assert.equal(parseJob({ id: 'a', folder: 'f', prompt: 'p' }).mode, 'new');
+  assert.equal(parseJob({ id: 'a', folder: 'f', prompt: 'p' }).sync, null);
 });

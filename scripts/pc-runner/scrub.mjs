@@ -34,3 +34,29 @@ export function scrub(text) {
   }
   return { text: out, hits };
 }
+
+// What the pre-push scan (sync.mjs) looks for in added lines. It reuses the SHAPES above, with three changes so that
+// ordinary code does not block a push: the "bearer" shape is left out (it fires on the word in prose), the sk/xai/ghp
+// shape needs a dash or underscore after the prefix (so "skeletonLoaderComponent" is not a key), and AKIA keys are added.
+// Labelled passwords and personal data are not scanned: they are too common in tests and docs to block on.
+const SCAN_SHAPES = [
+  ['an API key (sk-)', /\bsk-[A-Za-z0-9_-]{16,}/],
+  ['an API key (xai/ghp/gho)', /\b(?:xai|ghp|gho)[-_][A-Za-z0-9_-]{16,}/],
+  ['a GitHub token', /\bgithub_pat_[A-Za-z0-9_]{20,}/],
+  ['a GitHub token', /\bgh[usr]_[A-Za-z0-9]{20,}/],
+  ['an AWS access key', /\bAKIA[0-9A-Z]{16}\b/],
+  ['a Slack token', /\bxox[abeoprs]-[A-Za-z0-9-]{10,}/],
+  ['a Slack token', /\bxapp-[A-Za-z0-9-]{10,}/],
+  ['a Paystack key', /\bpk_\d+_[A-Za-z0-9]{16,}/],
+  ['a Google OAuth token', /\bya29\.[A-Za-z0-9._-]{20,}/],
+  ['a Google refresh token', /\b1\/\/[A-Za-z0-9_-]{20,}/],
+  ['a JWT', /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
+  ['a private key block', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+];
+
+/** The label of the first secret shape found in one line of text, or null. Never returns the matched text. */
+export function findSecretShape(line) {
+  const s = String(line).slice(0, 5000);
+  for (const [label, re] of SCAN_SHAPES) if (re.test(s)) return label;
+  return null;
+}

@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A sync copies a session's working tree to the VPS without touching your PC's own branches: either a `wip/<machine>/<session>` branch pushed to the remote, or a git bundle uploaded to the hub and imported into the project's copy of the repo on that one branch (git runs with hooks and credential helpers off). Client repos and repos set to none are never synced. A blocked pre-push scan on the PC shows up as a failed job with the findings.
 - Bots on a project with repos can no longer push to a repo's protected branches (main and master always count).
 
+### The PC helper can sync a session's repo to the server, after a secret scan
+
+- A new kind of PC job copies the repo around one of your mirrored Claude Code sessions to the server: either as a work-in-progress branch pushed to the repo's remote (only `wip/<your PC>/<session>`, never `main` or any other branch), or as a bundle uploaded to the server with nothing pushed. It sends a snapshot of your working tree, including uncommitted and untracked files, without touching your folder, index, branches or stash.
+- Before anything is sent, the PC scans the snapshot and any commits you have not pushed yet. Files named `.env*` (except `.env.example`), `*.pem`, `*.p8`, `*.p12`, `*.key`, `*.keystore` or `id_rsa*`, and lines that look like API keys, tokens or private keys, block the sync, and the PC refuses without asking you. Otherwise the Run / Refuse dialog shows the repo, remote, mode, target branch, how many files and lines change and the scan result.
+- The PC only syncs a repo whose `origin` is the project's remote, and only from a folder you allow. Environment files are never copied.
+- The installer now also copies `jobs.mjs`, which resume jobs from the previous release needed.
+
 ### Smaller server backups
 
 - The daily server backup now leaves out folders that can be rebuilt, such as `node_modules`, `.next`, Python virtual environments and Rust `target` folders, wherever they sit inside a project. `dist` and `build` are still kept because they can hold real output.

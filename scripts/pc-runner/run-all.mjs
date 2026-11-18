@@ -3,3 +3,4 @@ import './lib.test.mjs';
 import './mcp.test.mjs';
 import './mirror.test.mjs';
 import './jobs.test.mjs';
+import './sync.test.mjs';
