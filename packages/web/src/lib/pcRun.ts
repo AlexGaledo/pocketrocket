@@ -8,7 +8,9 @@ export type PcJobView = PcRunnerJob;
 /** POST /api/pc-runner/jobs */
 export type PcJobRequest =
   | { mode: 'resume'; sessionId: string; prompt: string }
-  | { mode: 'new'; folder: string; prompt: string };
+  | { mode: 'new'; folder: string; prompt: string }
+  // Bridge P5: snapshot the session's working tree and push it (the hub refuses client repos and sync "none").
+  | { mode: 'sync'; sessionId: string; project: string; repo: string };
 
 export const PC_PROMPT_MAX = 8000;
 
@@ -64,8 +66,8 @@ export function promptOk(prompt: string): boolean {
   return n > 0 && n <= PC_PROMPT_MAX;
 }
 
-export function modeLabel(j: Partial<Pick<PcJobView, 'mode'>>): string {
-  return j.mode === 'resume' ? 'Resume' : 'New';
+export function modeLabel(j: { mode?: string }): string {
+  return j.mode === 'resume' ? 'Resume' : j.mode === 'sync' ? 'Sync' : 'New';
 }
 
 export function originLabel(j: Partial<Pick<PcJobView, 'origin'>>): string {

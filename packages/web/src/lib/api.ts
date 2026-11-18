@@ -16,6 +16,7 @@ import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketr
 import type { MachineInfo, MachinePolicy, PcRunnerStatus } from '@pocketrocket/shared';
 import type { BotExportResult, BotImportResult, LaneQueue, Task, TaskStatus } from '@pocketrocket/shared';
 import type { PcJobRequest, PcJobView } from './pcRun';
+import type { ProjectReposFile, ReposPutBody } from './projectRepos';
 import { listQuery, PC_ENTRY_PAGE, type PcSessionDetail, type PcSessionQuery, type PcSessionSummary, type PcSeqEntry } from './pcSessions';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
@@ -159,6 +160,8 @@ export const api = {
     create: (input: { name: string; team?: boolean }) => req<{ project: ProjectInfo; bots: Bot[] }>('POST', '/api/projects', input),
     setMembers: (slug: string, memberIds: string[]) => req<ProjectInfo>('PUT', '/api/projects/' + encodeURIComponent(slug) + '/members', { memberIds }),
     lint: (slug: string) => req<ProjectLint>('GET', '/api/projects/' + encodeURIComponent(slug) + '/lint'),
+    repos: (slug: string) => req<ProjectReposFile>('GET', '/api/projects/' + encodeURIComponent(slug) + '/repos'),
+    setRepos: (slug: string, body: ReposPutBody) => req<ProjectReposFile>('PUT', '/api/projects/' + encodeURIComponent(slug) + '/repos', body),
   },
   auth: {
     status: () => req<{ passwordSet: boolean; signedIn: boolean }>('GET', '/api/auth/status'),

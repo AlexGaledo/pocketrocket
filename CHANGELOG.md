@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The PC only syncs a repo whose `origin` is the project's remote, and only from a folder you allow. Environment files are never copied.
 - The installer now also copies `jobs.mjs`, which resume jobs from the previous release needed.
 
+### Project repo lists and Sync from a PC session (app)
+
+- Settings > Projects has a Repos editor for each project: a name, the remote URL, a sync mode (off, push a wip branch, or send a bundle to the VPS), protected branches, an optional VPS folder, and a Client repo switch that keeps the repo on your PC until bots are sandboxed. Mistakes such as a bad name, a missing remote, a password in the URL or a duplicate repo are shown under the field, and removing a repo asks first. No PC path is typed or stored.
+- PC sessions that belong to a project repo show a project / repo tag. A Sync button in the transcript starts a sync of that session for each linked repo, is disabled with the reason for client repos, repos with sync off and an offline PC, and follows the job live.
+- The job log shows sync jobs with the repo, mode, branch, short commit and bundle size, and lists what the pre-push scan blocked when nothing was pushed.
+
 ### Smaller server backups
 
 - The daily server backup now leaves out folders that can be rebuilt, such as `node_modules`, `.next`, Python virtual environments and Rust `target` folders, wherever they sit inside a project. `dist` and `build` are still kept because they can hold real output.

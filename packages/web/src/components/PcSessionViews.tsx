@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { ChevronRight, Monitor } from 'lucide-react';
 import { relativeTime, sessionTitle, toolRowLabel, type PcSeqEntry, type PcSessionSummary, type SessionGroup } from '../lib/pcSessions';
-import { Banner, EmptyState, cn } from './ui';
+import { linksOf } from '../lib/projectRepos';
+import { Badge, Banner, EmptyState, cn } from './ui';
 import { Markdown } from './Markdown';
 
 /** How to turn the mirror on. Shown when there is nothing to list. */
@@ -54,6 +55,11 @@ function SessionRow({ s, onOpen, now, nested }: { s: PcSessionSummary; onOpen: (
         <span className={cn('block truncate text-ui', nested ? 'text-muted' : 'text-fg')}>{sessionTitle(s)}</span>
         {where && <span className="block truncate text-hint text-muted">{where}</span>}
         {s.cwd && <span className="block truncate font-mono text-hint text-dim" title={s.cwd}>{s.cwd}</span>}
+        {linksOf(s).length > 0 && (
+          <span className="mt-1 flex flex-wrap gap-1">
+            {linksOf(s).map((l) => <Badge key={l.project + '/' + l.repo} tone="accent">{l.project} / {l.repo}</Badge>)}
+          </span>
+        )}
       </span>
       <span className="flex shrink-0 flex-col items-end gap-0.5 text-hint text-muted">
         <span>{relativeTime(s.lastAt, now)}</span>
