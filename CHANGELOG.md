@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: Tauri 2.12 (desktop)
+
+- Tauri 2.11.6 → 2.12.7 (wry 0.57, tao 0.37, webview2-com 0.39).
+- Auto-updater 2.14.1: its archive handling moves to `zip` 9, which fixes six advisories about unpacking (RUSTSEC-2026-0367, 0368, 0369, 0429, 0545, 0548). Updates were already signature-checked before unpacking.
+- Notifications plugin 2.8.1 and dialog plugin 2.8.4; the version pins that held them back are gone.
+- Needs a new installer build to reach installed copies.
+
 ### Server: the hub runs prebuilt (infra)
 
 - `scripts/deploy.sh` now bundles the hub into `packages/hub/dist/hub.mjs` (the same esbuild settings as the desktop app, now shared in `scripts/hub-esbuild.mjs`) and the service runs it with plain `node`. No TypeScript compiler at runtime, one process instead of two, faster restarts.
