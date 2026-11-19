@@ -96,6 +96,7 @@ if (!fs.existsSync(path.join(BUILD, 'node_modules'))) {
 // Every runtime dep is external in the bundle, so a missing one is a crash at first use rather
 // than a build error. Assert the ones that are only reached through dynamic paths.
 const REQUIRED = [
+  '@agentclientprotocol/sdk',
   '@anthropic-ai/claude-agent-sdk',
   '@modelcontextprotocol/sdk',
   '@opencode-ai/sdk',

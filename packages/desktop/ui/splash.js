@@ -381,6 +381,9 @@
         ? 'Claude on the server: not signed in'
         : 'Claude on the server: ' + [planName(c.plan), c.email].filter(Boolean).join(' · ') }));
     }
+    if (r.agy && (r.kind === 'running' || r.kind === 'stopped')) {
+      wrap.append(el('div', { textContent: 'Gemini CLI (agy) on the server: installed' }));
+    }
     const actions = el('div', { className: 'result-actions' });
     if (r.kind === 'running') {
       actions.append(button('Use this server', true, () => saveConfig({ mode: 'remote', sshHost: r.alias, port: portError() ? 7788 : portValue(), hubDir: cfg.hubDir || null })));
