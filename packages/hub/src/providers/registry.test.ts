@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, PROVIDER_IDS, type ProviderId, type Settings } from '@pocketrocket/shared';
 import { ENABLED_PROVIDERS } from '../config.js';
 import { createProviders } from './registry.js';
+import { ProviderHealth } from '../services/ProviderHealth.js';
+import { events } from '../events.js';
 import { StubProvider } from './stub.js';
 import { EMPTY_USAGE, type TurnContext, type TurnSink } from './types.js';
 
@@ -110,5 +112,30 @@ describe('provider registry with only Claude enabled (the v1 default)', () => {
     expect(c.error).toContain('not enabled');
     await reg.shutdown();
     expect(touched).toEqual([]);
+  });
+});
+
+describe('provider limits (M5, spec 01 P0-2)', () => {
+  it('GET /api/providers carries the limits in force, for enabled providers only', async () => {
+    const health = new ProviderHealth();
+    const reg = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'], health });
+    expect(reg.health).toBe(health);
+    const resetsAt = Date.now() + 60_000;
+    health.hold('claude', { kind: 'usage', resetsAt, window: 'five_hour' });
+    health.hold('codex', { kind: 'usage', resetsAt });
+    const res = await reg.response();
+    expect(res.limits).toMatchObject([{ provider: 'claude', status: 'held', window: 'five_hour', resetsAt }]);
+  }, 30_000);
+
+  it('the default ProviderHealth sends each change as the WS provider.limit event', () => {
+    const reg = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'] });
+    const seen: unknown[] = [];
+    const off = events.onEvent((ev) => { if (ev.type === 'provider.limit') seen.push(ev.limits); });
+    try {
+      reg.health.hold('claude', { kind: 'usage', resetsAt: Date.now() + 60_000, window: 'five_hour' });
+    } finally {
+      off();
+    }
+    expect(seen).toMatchObject([[{ provider: 'claude', status: 'held', window: 'five_hour' }]]);
   });
 });

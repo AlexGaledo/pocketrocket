@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, SEND_MODES, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval, type LaneQueue } from './models.js';
 import type { KnowledgeStatus } from './models.js';
-import type { Settings, ProviderId } from './providers.js';
+import type { Settings, ProviderId, ProviderLimitState } from './providers.js';
 import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
@@ -18,6 +18,11 @@ export type ServerEvent =
   | { type: 'settings.changed'; settings: Settings }
   /** Provider switched (or its check changed); clients refetch GET /api/providers. */
   | { type: 'providers.changed'; active: ProviderId }
+  /**
+   * M5: a provider limit was hit, warned about or cleared. Carries every limit in force (the same list as GET
+   * /api/providers → `limits`), so the client replaces its copy. Entries past `until` no longer apply.
+   */
+  | { type: 'provider.limit'; limits: ProviderLimitState[] }
   | { type: 'bots.changed'; bots: Bot[] }
   | { type: 'rooms.changed'; rooms: Room[] }
   | { type: 'message.new'; message: Message }

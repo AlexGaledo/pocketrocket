@@ -1,0 +1,16 @@
+{
+  "_source": "SYNTHETIC. Built from @anthropic-ai/claude-agent-sdk 0.3.278 sdk.d.ts (SDKRateLimitEvent, SDKRateLimitInfo, SDKAssistantMessage.error, SDKResultSuccess), not captured from a real CLI.",
+  "_todo": "Owner: capture a real stream on Claude Max when the 5-hour limit is hit (POCKETROCKET_DEBUG plus a message logger), save it next to this file as limit-rejected.max.json, and add it to claudeLimits.test.ts. Confirm resetsAt is unix seconds and the wording of the synthetic assistant text.",
+  "messages": [
+    { "type": "system", "subtype": "init", "session_id": "sess-limit", "apiKeySource": "none", "model": "claude-sonnet-5", "claude_code_version": "2.1.330", "tools": [], "skills": [], "capabilities": ["interrupt_receipt_v1"] },
+    { "type": "rate_limit_event", "uuid": "00000000-0000-4000-8000-000000000001", "session_id": "sess-limit",
+      "rate_limit_info": { "status": "rejected", "resetsAt": 1795442400, "rateLimitType": "five_hour", "utilization": 1, "overageStatus": "rejected", "overageDisabledReason": "org_level_disabled", "isUsingOverage": false } },
+    { "type": "assistant", "parent_tool_use_id": null, "error": "rate_limit", "uuid": "00000000-0000-4000-8000-000000000002", "session_id": "sess-limit",
+      "message": { "id": "msg-synthetic", "model": "<synthetic>", "role": "assistant", "type": "message", "stop_reason": "stop_sequence",
+        "usage": { "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 },
+        "content": [{ "type": "text", "text": "You've hit your limit · resets 2pm @everyone" }] } },
+    { "type": "result", "subtype": "success", "is_error": true, "result": "You've hit your limit · resets 2pm @everyone", "session_id": "sess-limit",
+      "duration_ms": 120, "duration_api_ms": 0, "num_turns": 1, "stop_reason": null, "total_cost_usd": 0,
+      "usage": { "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 }, "modelUsage": {} }
+  ]
+}

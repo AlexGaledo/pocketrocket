@@ -77,10 +77,45 @@ export interface ProviderInfo {
 /** What every adapter declares up front; `steer`, `check` and `models` are filled in live. */
 export type ProviderStaticInfo = Omit<ProviderInfo, 'check' | 'models' | 'steer'>;
 
+/**
+ * Why a provider stopped answering (spec 01 §4.3). `usage` = a plan or rate limit with a reset time, `overloaded` = the
+ * provider is busy, `down` = unreachable, `auth` = signed out. Only `usage` is held by the hub (ProviderHealth).
+ */
+export const PROVIDER_LIMIT_KINDS = ['usage', 'overloaded', 'down', 'auth'] as const;
+export type ProviderLimitKind = (typeof PROVIDER_LIMIT_KINDS)[number];
+
+/**
+ * A provider, or one of its models, that hit a limit or is close to one. Kept in memory by the hub (never persisted,
+ * so a restart forgets it). Sent in `GET /api/providers` → `limits` and the WS `provider.limit` event.
+ */
+export interface ProviderLimitState {
+  provider: ProviderId;
+  /** Set when the limit covers one model only (Claude's weekly Opus or Sonnet limit). Absent = the whole provider. */
+  model?: string;
+  /**
+   * `held` = it refused a turn at its limit, and turns on it are expected to fail until `until` (the hub does not block
+   * them yet). `warning` = still running, close to the limit.
+   */
+  status: 'held' | 'warning';
+  kind: ProviderLimitKind;
+  /** The provider's own window id. Claude: five_hour, seven_day, seven_day_opus, seven_day_sonnet, overage, ... */
+  window?: string;
+  /** When the provider says the window resets, ms since epoch. Absent when it did not say. */
+  resetsAt?: number;
+  /** When this entry stops applying, ms since epoch: `resetsAt`, or a short default when the provider gave none. */
+  until: number;
+  /** How much of the window is used, exactly as the provider reports it (Claude: believed 0..1, not yet confirmed on Max). */
+  utilization?: number;
+  /** When the hub recorded it, ms since epoch. */
+  at: number;
+}
+
 /** GET /api/providers */
 export interface ProvidersResponse {
   active: ProviderId;
   providers: ProviderInfo[];
+  /** Limits and warnings in force right now (entries past `until` are left out). Absent from hubs older than v0.5. */
+  limits?: ProviderLimitState[];
 }
 
 // ---------- Settings (global, stored in the `settings` table) ----------

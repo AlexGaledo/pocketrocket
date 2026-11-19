@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { Bot, ModelInfo, ProviderCheck, ProviderId, ProviderStaticInfo, Room } from '@pocketrocket/shared';
+import type { Bot, ModelInfo, ProviderCheck, ProviderId, ProviderLimitKind, ProviderStaticInfo, Room } from '@pocketrocket/shared';
 import type { TurnUsage } from '../services/UsageTracker.js';
 import type { OutsideMcpServer } from '../services/outsideMcp.js';
 
@@ -145,6 +145,28 @@ export interface TurnSink {
   onState(s: 'thinking' | 'working'): void;
   /** Init/version info for GET /api/health (Claude reports apiKeySource, model, CLI version, ...). */
   onInit?(info: ProviderInit): void;
+  /**
+   * M5: the provider reported where this login stands against its plan limits (Claude: each `rate_limit_event`).
+   * Bookkeeping only: it never decides the turn. A rejected report also ends the run with `TurnOutcome.limit`.
+   */
+  onLimit?(report: LimitReport): void;
+}
+
+/** One limit report from a provider, normalised. Times are ms since epoch. */
+export interface LimitReport {
+  /** `rejected` = the limit is reached; `allowed_warning` = close to it; `allowed` = fine again. */
+  status: 'allowed' | 'allowed_warning' | 'rejected';
+  kind: ProviderLimitKind;
+  window?: string;
+  resetsAt?: number;
+  utilization?: number;
+}
+
+/** Why a run ended on a provider limit rather than on anything the bot did (spec 01 §4.3). Times are ms since epoch. */
+export interface TurnLimit {
+  kind: ProviderLimitKind;
+  resetsAt?: number;
+  window?: string;
 }
 
 export interface ProviderInit {
@@ -194,6 +216,13 @@ export interface TurnOutcome {
    * so the caller must deliver it again. Absent when the run had none.
    */
   steers?: { consumed: string[]; pending: string[] };
+  /**
+   * M5: the run ended on a provider limit (always with `ok: false`). The provider's own limit text is never posted as
+   * the bot's reply; BotRunner writes the note from this instead.
+   */
+  limit?: TurnLimit;
+  /** The model that actually answered, when the provider says and it differs from `TurnContext.model` (an SDK fallback). */
+  model?: string;
 }
 
 export interface AgentProvider {
