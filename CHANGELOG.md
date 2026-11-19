@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Gemini API key saved in Settings now counts: when it is set and agy's settings select `"modelProvider": "gemini"`, the provider check reports API-key auth and routines, triggers and workflow steps run on the Gemini bot. With no key, or a key agy would ignore, the bot still answers only messages a person sends, and the check's hint says what is missing.
 - Gemini turns now write usage rows, so they show in Usage, the plan meter and usage by provider, with the model agy ran on and token counts when agy reports them (cost is $0 unless agy reports one).
 
+### Gemini: real model list, and unattended runs cannot write files (hub)
+
+- The Gemini model list is now what agy 1.5.12 offers: Gemini 3.1 Pro (default), Gemini 4 Neon, Carbon, Hydrogen and Argon, and Gemini 3.8, 3.7 and 3.6 Flash. Bots and backups saved on the old placeholder models (`gemini-default`, `gemini-3-pro`, `gemini-3-flash`) move to Gemini 3.1 Pro or Gemini 3.8 Flash on their own.
+- agy does not ask before it writes files, so routines, triggers, workflow steps and a failover backup on Gemini now run in agy's read-only `plan` mode. A run that tries to change files, or leaves that mode, is stopped; if agy has no read-only mode the run does not start.
+- A Gemini turn that only called a tool (for example a hand-off, with no reply) now shows in Usage.
+- Gemini records agy 1.5.12 as its tested version. It stays opt-in and marked untested until the Google sign-in and a real limit are checked.
+
 ## [0.5.0] - 2026-11-19
 
 This release also contains the 0.4.0 work (0.4.0 was not tagged separately): workflows, Telegram notifications, moving and syncing PC sessions, the server bot sandbox and more. Gemini support (through the Antigravity CLI) is included but untested until the owner's live test.

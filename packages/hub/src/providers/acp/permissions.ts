@@ -6,6 +6,7 @@ import type {
   RequestPermissionResponse,
   SessionConfigOption,
   SessionModeState,
+  SessionUpdate,
   ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
 import type { TurnContext } from '../types.js';
@@ -131,13 +132,23 @@ export function denyResponse(options: PermissionOption[]): RequestPermissionResp
   return pick(options, ['reject_once', 'reject_always']);
 }
 
+/** ACP tool kinds that change files, or leave the session's mode. Refused on a read-only (strict) turn. */
+export const WRITE_KINDS: ReadonlySet<string> = new Set(['edit', 'delete', 'move', 'switch_mode']);
+
 /**
  * Answers one `session/request_permission`. Bypass answers `allow_once` without asking, except on strict turns
  * (BotRunner never sets `bypassPermissions` on those). The project, shipping and shared-file guards hold under bypass
- * too, as they do on Claude.
+ * too, as they do on Claude. `readOnly` (a strict turn on an agent that does not ask before its own writes) refuses
+ * every write kind without asking anyone.
  */
-export async function decideAcpPermission(req: RequestPermissionRequest, ctx: AcpPermCtx, signal: AbortSignal): Promise<RequestPermissionResponse> {
+export async function decideAcpPermission(
+  req: RequestPermissionRequest,
+  ctx: AcpPermCtx,
+  signal: AbortSignal,
+  readOnly = false,
+): Promise<RequestPermissionResponse> {
   const strict = !!ctx.strictApprovals;
+  if (readOnly && WRITE_KINDS.has(req.toolCall.kind ?? '')) return denyResponse(req.options);
   const asks = brokerAsks(req.toolCall, ctx.workspaceDir);
   if (guardRefusal(asks, ctx)) return denyResponse(req.options);
   if (ctx.bypassPermissions && !strict) return allowResponse(req.options, false);
@@ -172,7 +183,7 @@ function label(m: ModeLike): string {
 /**
  * The most restrictive mode that still asks, from what the agent offers, or null to keep its current one. Prefers a
  * mode that asks before writes and shell; with none, a read-only one; with neither, nothing (the turn then relies on
- * the agent's permission requests, which is why Gemini stays `best-effort` until the live test shows it asks).
+ * the agent's permission requests). An agent whose ask mode lets writes through unasked (agy) uses `readOnlyModeChange`.
  */
 export function strictModeId(modes: ModeLike[], currentId: string | null): string | null {
   const current = modes.find((m) => m.id === currentId);
@@ -198,6 +209,46 @@ export function strictModeChange(
     const flat = opt.options.flatMap((o) => ('group' in o ? o.options : [o]));
     const id = strictModeId(flat.map((o) => ({ id: o.value, name: o.name, description: o.description })), opt.currentValue);
     return id ? { kind: 'config', configId: opt.id, value: id } : null;
+  }
+  return null;
+}
+
+/**
+ * A strict turn on an agent whose ask mode does not ask before its own writes (agy, live G6): the read-only mode to
+ * run in, or null when the agent offers none (the turn is then refused). Unlike `strictModeChange`, a mode that merely
+ * "asks" is not enough. `current` is set when the agent already runs in it.
+ */
+export function readOnlyModeChange(
+  modes: SessionModeState | null | undefined,
+  configOptions: SessionConfigOption[] | null | undefined,
+): { kind: 'mode'; modeId: string; current: boolean } | { kind: 'config'; configId: string; value: string; current: boolean } | null {
+  const ro = (list: ModeLike[]) => list.find((m) => READ_ONLY.test(label(m)) && !PERMISSIVE.test(label(m)));
+  if (modes?.availableModes?.length) {
+    const m = ro(modes.availableModes);
+    return m ? { kind: 'mode', modeId: m.id, current: m.id === modes.currentModeId } : null;
+  }
+  const opt = (configOptions ?? []).find((o) => o.type === 'select' && o.category === 'mode');
+  if (opt && opt.type === 'select') {
+    const flat = opt.options.flatMap((o) => ('group' in o ? o.options : [o]));
+    const m = ro(flat.map((o) => ({ id: o.value, name: o.name, description: o.description })));
+    return m ? { kind: 'config', configId: opt.id, value: m.id, current: m.id === opt.currentValue } : null;
+  }
+  return null;
+}
+
+/**
+ * Why an update breaks a read-only turn, or null. The agent announces each tool call (`tool_call`) before it runs,
+ * so a write kind seen here stops the turn even when the agent never asks; and the agent may not leave the read-only
+ * mode on its own (`current_mode_update`, or a `mode` config option changing).
+ */
+export function readOnlyViolation(u: SessionUpdate, readOnlyId: string): string | null {
+  if ((u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') && u.kind && WRITE_KINDS.has(u.kind)) {
+    return 'tried to ' + (u.kind === 'switch_mode' ? 'leave read-only mode' : 'change files') + ' (' + (u.title ?? u.kind) + ')';
+  }
+  if (u.sessionUpdate === 'current_mode_update' && u.currentModeId !== readOnlyId) return 'left read-only mode (' + u.currentModeId + ')';
+  if (u.sessionUpdate === 'config_option_update') {
+    const mode = u.configOptions.find((o) => o.type === 'select' && o.category === 'mode');
+    if (mode && mode.type === 'select' && mode.currentValue !== readOnlyId) return 'left read-only mode (' + mode.currentValue + ')';
   }
   return null;
 }

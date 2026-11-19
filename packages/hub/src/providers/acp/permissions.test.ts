@@ -7,7 +7,7 @@ import { Db } from '../../db/db.js';
 import { Repos } from '../../db/repos.js';
 import { events } from '../../events.js';
 import { PermissionBroker } from '../../permissions/PermissionBroker.js';
-import { brokerAsks, commandOf, decideAcpPermission, strictModeChange, strictModeId, type AcpPermCtx } from './permissions.js';
+import { brokerAsks, commandOf, decideAcpPermission, readOnlyModeChange, readOnlyViolation, strictModeChange, strictModeId, type AcpPermCtx } from './permissions.js';
 
 /**
  * P2-1b: an ACP `session/request_permission` goes through the real PermissionBroker after it is mapped onto the
@@ -183,5 +183,35 @@ describe('strict mode choice', () => {
     ).toEqual({ kind: 'config', configId: 'approval', value: 'ask' });
     expect(strictModeChange({ currentModeId: 'yolo', availableModes: [m('yolo'), m('default')] }, null)).toEqual({ kind: 'mode', modeId: 'default' });
     expect(strictModeChange(null, null)).toBeNull();
+  });
+});
+
+describe('read-only mode for strict turns on an agent that writes without asking', () => {
+  const m = (id: string, name = id, description?: string) => ({ id, name, description });
+  // agy 1.5.12's modes, live (G7).
+  const AGY = [m('default', 'Default', 'Ask before edits and commands, per your permission settings'), m('accept-edits', 'Accept edits'), m('plan', 'Plan')];
+  it("picks agy's plan mode, never default or accept-edits", () => {
+    expect(readOnlyModeChange({ currentModeId: 'default', availableModes: AGY }, null)).toEqual({ kind: 'mode', modeId: 'plan', current: false });
+    expect(readOnlyModeChange({ currentModeId: 'plan', availableModes: AGY }, null)).toEqual({ kind: 'mode', modeId: 'plan', current: true });
+  });
+  it('NEGATIVE: no read-only mode means none, not the asking one', () => {
+    expect(readOnlyModeChange({ currentModeId: 'default', availableModes: AGY.slice(0, 2) }, null)).toBeNull();
+    expect(readOnlyModeChange(null, null)).toBeNull();
+  });
+  it('works on a mode config option', () => {
+    expect(
+      readOnlyModeChange(null, [
+        { type: 'select', id: 'mode', name: 'Mode', category: 'mode', currentValue: 'default', options: [{ value: 'default', name: 'Default' }, { value: 'plan', name: 'Plan' }] },
+      ]),
+    ).toEqual({ kind: 'config', configId: 'mode', value: 'plan', current: false });
+  });
+  it('an announced write, a switch_mode call or a mode change is a violation; reads and shell are not', () => {
+    expect(readOnlyViolation({ sessionUpdate: 'tool_call', toolCallId: 'a', title: 'write_file', kind: 'edit' }, 'plan')).toMatch(/change files \(write_file\)/);
+    expect(readOnlyViolation({ sessionUpdate: 'tool_call_update', toolCallId: 'a', kind: 'delete' }, 'plan')).toMatch(/change files/);
+    expect(readOnlyViolation({ sessionUpdate: 'tool_call', toolCallId: 'a', title: 'exit plan', kind: 'switch_mode' }, 'plan')).toMatch(/leave read-only/);
+    expect(readOnlyViolation({ sessionUpdate: 'current_mode_update', currentModeId: 'default' }, 'plan')).toMatch(/left read-only mode \(default\)/);
+    expect(readOnlyViolation({ sessionUpdate: 'current_mode_update', currentModeId: 'plan' }, 'plan')).toBeNull();
+    expect(readOnlyViolation({ sessionUpdate: 'tool_call', toolCallId: 'a', title: 'view_file', kind: 'read' }, 'plan')).toBeNull();
+    expect(readOnlyViolation({ sessionUpdate: 'tool_call', toolCallId: 'a', title: 'run_command', kind: 'execute' }, 'plan')).toBeNull();
   });
 });

@@ -59,6 +59,8 @@ export class AcpEventMapper {
   readonly notices: string[] = [];
   /** True once any assistant text arrived this run. */
   answered = false;
+  /** True once the agent did anything this run: text or a tool call (a hand-off with no reply still spent tokens). */
+  worked = false;
   /**
    * Swallow updates: `session/load` replays the whole earlier conversation as updates, which must not be posted again.
    */
@@ -78,6 +80,7 @@ export class AcpEventMapper {
         if (!this.block) this.sink.onState('thinking');
         this.block += t;
         this.answered = true;
+        this.worked = true;
         this.sink.onDelta(t);
         return;
       }
@@ -126,6 +129,7 @@ export class AcpEventMapper {
 
   private open(id: string, name: string, input: unknown) {
     if (this.tools.has(id)) return;
+    this.worked = true;
     this.tools.set(id, { done: false });
     this.sink.onToolUse(id, name, input);
   }

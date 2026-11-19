@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PROVIDER_IDS } from '@pocketrocket/shared';
 import { childEnv } from './env.js';
 import { MCP_STDIO_BRIDGE, findExe } from './acp/client.js';
-import { GEMINI_INFO, agySettingsPath, agyVersionWarning, createGeminiProvider, geminiLimit, inferGeminiAuth, parseAgyVersion, parseGeminiAuth, readAgyModelProvider } from './gemini.js';
+import { AGY_TESTED, GEMINI_INFO, GEMINI_MODELS, agySettingsPath, agyVersionWarning, createGeminiProvider, geminiLimit, geminiPreset, inferGeminiAuth, parseAgyVersion, parseGeminiAuth, readAgyModelProvider } from './gemini.js';
 import { unattendedRefusal } from './unattended.js';
 import type { Bot } from '@pocketrocket/shared';
 
@@ -42,6 +42,20 @@ describe('Gemini preset info', () => {
     expect(GEMINI_INFO.maturity).toBe('untested');
     expect(GEMINI_INFO.permissions).toBe('best-effort');
     expect(GEMINI_INFO.secretKeys).toEqual(['GEMINI_API_KEY']);
+  });
+
+  it('records the live-tested agy version, and strict turns run read-only because writes do not ask (G6)', () => {
+    expect(AGY_TESTED).toEqual({ min: '1.5.12', max: '1.5.12' });
+    expect(GEMINI_INFO.testedVersions).toBe('1.5.12');
+    expect(agyVersionWarning('1.5.12')).toBeNull();
+    expect(geminiPreset({ secrets: { get: () => null } }).strictReadOnly).toBe(true);
+  });
+
+  it('offers the model ids agy 1.5.12 lists, gemini-3.1-pro by default (G8)', () => {
+    expect(GEMINI_MODELS.map((m) => m.id)).toEqual([
+      'gemini-3.1-pro', 'gemini-4-neon', 'gemini-4-carbon', 'gemini-4-hydrogen', 'gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash',
+    ]);
+    expect(GEMINI_MODELS.filter((m) => m.default).map((m) => m.id)).toEqual(['gemini-3.1-pro']);
   });
 
   it('the child env carries GEMINI_API_KEY and no other provider key, and never the hub token', () => {
@@ -135,7 +149,7 @@ describe('check()', () => {
     const c = await createGeminiProvider({ exe: FAKE, secrets: { get: () => null } }).check();
     expect(c.ok).toBe(true);
     expect(c.version).toBe('0.9.1');
-    expect(c.versionWarning).toMatch(/not been tested/);
+    expect(c.versionWarning).toBe('agy 0.9.1 is older than the tested versions (1.5.12-1.5.12)');
     expect(c.exePath).toBe(FAKE);
     expect(c.auth).toBe('unknown');
   });
