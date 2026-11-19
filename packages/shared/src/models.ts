@@ -83,6 +83,46 @@ export const mediaHash = (ref: string): string => ref.slice('img:'.length);
 export const isFileRef = (v: unknown): v is string => typeof v === 'string' && /^file:[0-9a-f]{64}$/.test(v);
 /** The hash inside a file reference. Call after {@link isFileRef}. */
 export const fileHash = (ref: string): string => ref.slice('file:'.length);
+/** One entry of the composer's `/` menu. */
+export interface SlashCommandInfo {
+  /** Without the slash. */
+  name: string;
+  description: string;
+  /**
+   * `claude`: a Claude Code command, run by the Claude CLI itself (other providers just read the text and say they do
+   * not have it). `skill`: a skill one of the room's bots has. `toki`: handled by the app, never sent to a bot.
+   */
+  source: 'claude' | 'skill' | 'toki';
+  argumentHint?: string;
+}
+
+/**
+ * Claude Code's own commands that make sense for a bot (no terminal UI, no login or settings screens). Sent on its own,
+ * one of these reaches a Claude bot as the raw command, so the CLI runs it on that bot's session.
+ */
+export const CLAUDE_SLASH_COMMANDS: readonly SlashCommandInfo[] = [
+  { name: 'compact', description: 'Summarize this conversation to free up context', source: 'claude', argumentHint: '[what to keep]' },
+  { name: 'context', description: 'Show how full the context window is', source: 'claude' },
+  { name: 'cost', description: 'Show what this session has cost so far', source: 'claude' },
+  { name: 'init', description: 'Write a CLAUDE.md for the project folder', source: 'claude' },
+  { name: 'review', description: 'Review a pull request', source: 'claude', argumentHint: '[PR number]' },
+  { name: 'security-review', description: 'Security review of the pending changes', source: 'claude' },
+  { name: 'pr-comments', description: 'Fetch the comments on a pull request', source: 'claude', argumentHint: '[PR number]' },
+  { name: 'release-notes', description: 'Show the Claude Code release notes', source: 'claude' },
+  { name: 'todos', description: 'List the current to-do items', source: 'claude' },
+];
+
+/** Commands the app handles itself. `/clear` starts a fresh session for every bot in the room. */
+export const TOKI_SLASH_COMMANDS: readonly SlashCommandInfo[] = [
+  { name: 'clear', description: 'Start a fresh conversation for the bots in this room (the chat history stays)', source: 'toki' },
+];
+
+/** The command a message starts with (`/compact keep the plan` → `compact`), lower case, or null. */
+export function slashCommandOf(text: string): string | null {
+  const m = /^\/([a-z][a-z0-9:_-]{0,63})(?=\s|$)/i.exec(text.trim());
+  return m ? m[1].toLowerCase() : null;
+}
+
 /** Anything a chat message may carry: a picture or a file. */
 export const isAttachmentRef = (v: unknown): v is string => isMediaRef(v) || isFileRef(v);
 

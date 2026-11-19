@@ -58,6 +58,11 @@ export interface TurnRequest {
   injected: string;
   /** Media refs of the pictures a person attached in the unread window (U2a). */
   images?: string[];
+  /**
+   * A Claude Code command (`/compact`, `/context`...) the person sent as the only new message. A Claude turn sends it
+   * raw, as the whole input, so the CLI runs it; other providers get the transcript as usual and answer it themselves.
+   */
+  slashCommand?: string;
   /** The newest message a person wrote in `injected`. The only text that can ask the router for a stronger model. */
   latestUserText?: string;
   /** On a routine's turn: the routine's own prompt. The only other text that can invoke a skill that asks for Opus. */
@@ -629,7 +634,9 @@ export class BotRunner {
         canProposeRouting: !!routing,
         skillIndex,
       }),
-      input: (stateHeader ? stateHeader + '\n\n' : '') + (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images) + fileNote(files),
+      input: req.slashCommand && provider.id === 'claude'
+        ? req.slashCommand
+        : (stateHeader ? stateHeader + '\n\n' : '') + (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images) + fileNote(files),
       ...(images.length ? { images } : {}),
       resumeToken,
       sessionCostUsd: resumeToken ? state.costTotal : 0,

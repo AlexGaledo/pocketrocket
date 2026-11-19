@@ -335,6 +335,8 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/rooms\/[^/]+\/messages$/],
   // P4-2: the context meter (read only).
   ['GET', /^\/api\/rooms\/[^/]+\/context$/],
+  // The composer's / menu (read-only: names and descriptions of commands and the room's skills).
+  ['GET', /^\/api\/rooms\/[^/]+\/commands$/],
   // Pictures: a phone sees them. Uploading (POST /api/media) is not listed, so it stays with the hub token.
   ['GET', /^\/api\/media\/[0-9a-f]{64}$/],
   // Files on chat messages: a phone may download them and read their names. Uploading stays with the hub token.
