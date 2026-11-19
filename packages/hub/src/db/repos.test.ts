@@ -90,3 +90,42 @@ describe('session state (migration 170)', () => {
     expect(r.getSession(bot.id, other.id).lastSeenSeq).toBe(0);
   });
 });
+
+describe('M6: provider per bot', () => {
+  const base = { name: 'A', handle: 'a', title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1 };
+
+  it('round-trips provider and backup, and defaults both to null', () => {
+    const r = fresh();
+    const plain = r.createBot(base);
+    expect(plain).toMatchObject({ provider: null, backup: null });
+    expect(r.getBot(plain.id)).toMatchObject({ provider: null, backup: null });
+
+    const own = r.createBot({ ...base, handle: 'b', provider: 'codex', backup: { provider: 'claude', model: 'claude-sonnet-5' } });
+    expect(r.getBot(own.id)).toMatchObject({ provider: 'codex', backup: { provider: 'claude', model: 'claude-sonnet-5' } });
+
+    r.updateBot(own.id, { provider: null, backup: null });
+    expect(r.getBot(own.id)).toMatchObject({ provider: null, backup: null });
+    // A patch that leaves them out keeps them.
+    r.updateBot(plain.id, { provider: 'grok', backup: { provider: 'claude', model: 'auto' } });
+    r.updateBot(plain.id, { name: 'Renamed' });
+    expect(r.getBot(plain.id)).toMatchObject({ name: 'Renamed', provider: 'grok', backup: { provider: 'claude', model: 'auto' } });
+  });
+
+  it('reads an unknown stored provider or a broken backup as null', () => {
+    const r = fresh();
+    const b = r.createBot(base);
+    r.db.run("UPDATE bots SET provider='nope', backup='{not json' WHERE id=?", b.id);
+    expect(r.getBot(b.id)).toMatchObject({ provider: null, backup: null });
+  });
+
+  it('records the provider on usage rows and groups by it', () => {
+    const r = fresh();
+    const bot = r.createBot(base);
+    const room = r.createRoom({ kind: 'dm', name: 'A', memberIds: [bot.id], coordinatorBotId: null });
+    const u = { botId: bot.id, roomId: room.id, turnId: 't', causeId: null, costUsd: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, modelUsage: null, durationMs: 1 };
+    r.recordUsage({ ...u, provider: 'claude' });
+    r.recordUsage({ ...u, provider: 'codex', costUsd: 2 });
+    r.recordUsage({ ...u, costUsd: 0.5 });
+    expect(r.usageBy('provider').map((g) => [g.key, g.costUsd])).toEqual([['codex', 2], ['claude', 1], ['', 0.5]]);
+  });
+});

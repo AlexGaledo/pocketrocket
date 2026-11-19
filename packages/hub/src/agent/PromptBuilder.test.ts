@@ -15,6 +15,20 @@ const room: Room = { id: 'r1', kind: 'dm', name: 'DM', memberIds: ['b1'], coordi
 const base = { bot, room, members: [bot], hop: 0, memory: '', identity: '' };
 
 describe('buildSystemPrompt', () => {
+  it('M6 (P1-7): lists skills as text with read_skill when given an index, and is byte-stable for the same index', () => {
+    const skillIndex = [{ name: 'a-skill', description: 'First' }, { name: 'b-skill', description: 'Second' }];
+    const p = buildSystemPrompt({ ...base, toolPrefix: '', skillIndex });
+    expect(p).toContain('## Skills');
+    expect(p).toContain('- a-skill: First\n- b-skill: Second');
+    expect(p).toMatch(/Custom tools: [^\n]*, read_skill\./);
+    expect(buildSystemPrompt({ ...base, toolPrefix: '', skillIndex: skillIndex.map((x) => ({ ...x })) })).toBe(p);
+    // Claude (no index) and a bot with no skills get neither.
+    for (const q of [buildSystemPrompt({ ...base }), buildSystemPrompt({ ...base, toolPrefix: '', skillIndex: [] })]) {
+      expect(q).not.toContain('## Skills');
+    }
+    expect(buildSystemPrompt({ ...base })).not.toContain('read_skill');
+  });
+
   it('prefixes hub tools with mcp__pocketrocket__ by default (Claude)', () => {
     const p = buildSystemPrompt({ ...base });
     expect(p).toContain('Custom tools (each prefixed mcp__pocketrocket__): send_message, handoff');

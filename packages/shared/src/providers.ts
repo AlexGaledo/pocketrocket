@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { MAX_AVATAR_LENGTH, SEND_MODES, isMediaRef } from './models.js';
 
-// ---------- Providers (global choice) ----------
-// The hub runs every bot through ONE provider at a time (settings.provider). Models are chosen per bot
-// from that provider's list. Adapters live in packages/hub/src/providers/.
+// ---------- Providers (per bot) ----------
+// Each bot runs on its own provider (`Bot.provider`), or on the default one (settings.provider) when it names none.
+// Models are chosen per bot from its provider's list. Adapters live in packages/hub/src/providers/.
 
 export const PROVIDER_IDS = ['claude', 'codex', 'opencode', 'grok'] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
@@ -112,6 +112,7 @@ export interface ProviderLimitState {
 
 /** GET /api/providers */
 export interface ProvidersResponse {
+  /** The default provider (settings.provider): what a bot with `provider: null` runs on. */
   active: ProviderId;
   providers: ProviderInfo[];
   /** Limits and warnings in force right now (entries past `until` are left out). Absent from hubs older than v0.5. */
@@ -141,6 +142,10 @@ export function isTimeZone(tz: string): boolean {
 }
 
 export const SettingsSchema = z.object({
+  /**
+   * The default provider: new bots and every bot whose `provider` is null run on it. Changing it moves only those
+   * bots; a bot with its own provider stays where it is. (Before v0.5 it was the one provider every bot ran on.)
+   */
   provider: z.enum(PROVIDER_IDS).default('claude'),
   /** Default model for new bots: `auto`, or an id that belongs to `provider`. */
   defaultModel: z.string().default('auto'),

@@ -3,7 +3,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { DEFAULT_MODEL, type ModelInfo, type ProviderId, type RecordingInfo, type Skill, type SkillVersion, type TraceEvent } from '@pocketrocket/shared';
+import { DEFAULT_MODEL, type ModelInfo, type RecordingInfo, type Skill, type SkillVersion, type TraceEvent } from '@pocketrocket/shared';
 import { CLAUDE_EXE, VERSION } from '../config.js';
 import { childEnv } from '../providers/env.js';
 import { redact } from '../providers/redact.js';
@@ -201,8 +201,12 @@ export interface DistillerDeps {
   skills: SkillService;
   recorder: { get(botId: string, id: string): RecordingInfo | null; readTrace(botId: string, id: string): TraceEvent[]; setSkill(botId: string, id: string, skillId: string): void };
   usage: UsageTracker;
-  activeProvider: () => ProviderId;
-  /** The active provider's models; the distill runs on its Sonnet tier. */
+  /**
+   * M6 (P1-6): Claude is set up (CLI, sign-in) and not held at a limit by ProviderHealth. The pass runs on Claude
+   * whatever provider the bot itself runs on, and is skipped while this is false.
+   */
+  claudeReady: () => boolean;
+  /** Claude's models; the distill runs on its Sonnet tier. */
   models?: () => readonly ModelInfo[];
   exeExists?: () => boolean;
   run?: OneShotRunner;
@@ -217,7 +221,7 @@ export class SkillDistiller {
   constructor(private deps: DistillerDeps) {}
 
   private ready() {
-    if (this.deps.activeProvider() !== 'claude') throw new DistillError(409, 'Distilling a skill needs the Claude provider.');
+    if (!this.deps.claudeReady()) throw new DistillError(409, 'Distilling a skill needs the Claude provider, signed in and not at its usage limit.');
     if (!(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) throw new DistillError(409, 'The Claude CLI was not found on the server.');
   }
 
@@ -231,7 +235,7 @@ export class SkillDistiller {
     const u = out.usage;
     if (u.costUsd || u.inputTokens || u.outputTokens) {
       // Started by the user's click, so it counts as theirs; no cause id, so no thread cost cap is touched.
-      this.deps.usage.record(botId, '', 'skill-' + nanoid(8), null, u, { model, routeReason: 'background', causeKind: 'user' });
+      this.deps.usage.record(botId, '', 'skill-' + nanoid(8), null, u, { model, routeReason: 'background', causeKind: 'user', provider: 'claude' });
     }
     if (!out.ok) throw new DistillError(502, 'The model call failed: ' + redact(out.error ?? 'no result'));
     return out.text;

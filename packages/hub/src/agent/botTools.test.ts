@@ -268,3 +268,78 @@ describe('createHubTools', () => {
     });
   });
 });
+
+describe('M6: provider per bot in the bot tools (P1-3, P1-7)', () => {
+  const MODELS: Record<string, string[]> = {
+    claude: ['claude-sonnet-5', 'claude-opus-5', 'auto'],
+    codex: ['gpt-5-codex', 'auto'],
+  };
+  const modelsFor = (p: string | null) => MODELS[p ?? 'claude'];
+
+  it('update_bot checks a model against the provider the target bot runs on, not the caller\'s', async () => {
+    const s = setup({ modelsFor });
+    const cy = s.repos.createBot({ name: 'Cy', handle: 'cy', title: '', description: 'x', avatar: '', model: 'gpt-5-codex', allowedTools: [], maxBudgetUsd: 1, provider: 'codex' });
+    const tools = createHubTools(s.ctx);
+    // A Claude model on a Codex bot is refused, though the caller (on Claude) lists it.
+    const bad = await byName(tools, 'update_bot').handler({ bot: 'cy', model: 'claude-opus-5' });
+    expect(bad.isError).toBe(true);
+    expect(bad.content[0]).toMatchObject({ text: expect.stringContaining('gpt-5-codex') });
+    expect(s.repos.getBot(cy.id)!.model).toBe('gpt-5-codex');
+    // And a Codex model on the caller's own Claude bot is refused too.
+    expect((await byName(tools, 'update_bot').handler({ bot: 'me', model: 'gpt-5-codex' })).isError).toBe(true);
+    expect((await byName(tools, 'update_bot').handler({ bot: 'cy', model: 'auto' })).isError).toBeFalsy();
+  });
+
+  it('create_bot checks against the default provider, where the new bot runs, even from a bot on another one', async () => {
+    const s = setup({ modelsFor });
+    const onCodex = s.repos.updateBot(s.bot.id, { provider: 'codex', model: 'gpt-5-codex' })!;
+    const tools = createHubTools({ ...s.ctx, bot: onCodex, models: MODELS.codex });
+    expect((await byName(tools, 'create_bot').handler({ name: 'X', handle: 'xx', title: '', description: 'a description', model: 'gpt-5-codex' })).isError).toBe(true);
+    expect((await byName(tools, 'create_bot').handler({ name: 'Y', handle: 'yy', title: '', description: 'a description' })).isError).toBeFalsy();
+    // The default (Claude) default, not the Codex creator's model.
+    expect(s.repos.getBotByHandle('yy')).toMatchObject({ model: 'claude-sonnet-5', provider: null });
+  });
+
+  it('a bot cannot set a provider or a backup, for itself or another bot, even with approvals off', async () => {
+    const s = setup({ modelsFor });
+    const tools = createHubTools(s.ctx); // no confirmFleetChange: every other change would go through unguarded
+    const self = await byName(tools, 'update_bot').handler({ bot: 'me', provider: 'codex' });
+    expect(self.isError).toBe(true);
+    expect(self.content[0]).toMatchObject({ text: expect.stringContaining('only by the owner') });
+    const both = await byName(tools, 'update_bot').handler({ bot: 'me', name: 'Renamed', backup: { provider: 'codex', model: 'gpt-5-codex' } });
+    expect(both.isError).toBe(true);
+    expect(s.repos.getBot(s.bot.id)).toMatchObject({ name: 'Scout', provider: null, backup: null });
+
+    const created = await byName(tools, 'create_bot').handler({ name: 'X', handle: 'xx', title: '', description: 'a description', provider: 'codex' });
+    expect(created.isError).toBe(true);
+    expect(s.repos.getBotByHandle('xx')).toBeUndefined();
+    // Without those fields the same calls still work.
+    expect((await byName(tools, 'update_bot').handler({ bot: 'me', name: 'Renamed' })).isError).toBeFalsy();
+  });
+
+  it('read_skill is offered only for skills as text, and opens only an approved skill assigned to this bot', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prc-skill-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'mine'));
+      fs.writeFileSync(path.join(dir, 'mine', 'SKILL.md'), '# Weekly report\nStep 1: gather numbers.');
+      const s = setup();
+      expect(s.tools.some((t) => t.name === 'read_skill')).toBe(false);
+      const mine = s.repos.upsertSkill({ name: 'mine', description: 'd', path: path.join(dir, 'mine'), source: 'authored', reviewStatus: 'approved', createdByBot: null });
+      const draft = s.repos.upsertSkill({ name: 'draft', description: 'd', path: path.join(dir, 'mine'), source: 'bot', reviewStatus: 'pending', createdByBot: s.bot.id });
+      s.repos.upsertSkill({ name: 'theirs', description: 'd', path: path.join(dir, 'mine'), source: 'authored', reviewStatus: 'approved', createdByBot: null });
+      s.repos.setBotSkills(s.bot.id, [mine.id, draft.id]);
+      const tools = createHubTools({ ...s.ctx, skillsAsText: true });
+      const read = (name: string) => byName(tools, 'read_skill').handler({ name });
+      const ok = await read('mine');
+      expect(ok.isError).toBeFalsy();
+      expect((ok.content[0] as { text: string }).text).toContain('Step 1: gather numbers.');
+      for (const name of ['draft', 'theirs', '../mine']) {
+        const out = await read(name);
+        expect(out.isError).toBe(true);
+        expect((out.content[0] as { text: string }).text).toContain('Yours: mine.');
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

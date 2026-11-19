@@ -242,6 +242,29 @@ export class SkillService {
     return plugin;
   }
 
+  /**
+   * M6 (P1-7): this bot's approved skills as an index, sorted by name so the same set always reads the same. Providers
+   * other than Claude get it in the prompt (Claude loads the plugin dir instead) and open a skill with `read_skill`.
+   */
+  skillIndex(botId: string): { name: string; description: string }[] {
+    return this.assignedApproved(botId)
+      .map((s) => ({ name: s.name, description: s.description.replace(/\s+/g, ' ').trim().slice(0, 200) }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  /** M6 (P1-7): `read_skill`. The SKILL.md of a skill assigned to this bot and approved, or null for any other name. */
+  readAssigned(botId: string, name: string): { skill: Skill; markdown: string } | null {
+    const skill = this.assignedApproved(botId).find((s) => s.name === name);
+    return skill ? { skill, markdown: this.readMarkdown(skill) } : null;
+  }
+
+  private assignedApproved(botId: string): Skill[] {
+    return this.repos
+      .botSkillIds(botId)
+      .map((id) => this.repos.getSkill(id))
+      .filter((s): s is Skill => !!s && s.reviewStatus === 'approved' && !s.parentId);
+  }
+
   /** P8: names of this bot's approved skills that declare `model: opus` (see skillWantsOpus). */
   opusSkillNames(botId: string): string[] {
     return this.repos

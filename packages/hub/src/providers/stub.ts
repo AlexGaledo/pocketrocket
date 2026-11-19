@@ -36,7 +36,8 @@ export class StubProvider implements AgentProvider {
       durationMs: 0,
     };
   }
-  interrupt(): boolean {
+  interrupt(turnId: string): boolean {
+    void turnId;
     return false;
   }
 }

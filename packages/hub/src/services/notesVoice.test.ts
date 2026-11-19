@@ -137,7 +137,7 @@ describe('AutoMemory voice proposals', () => {
     };
     const seen: string[] = [];
     const off = events.onEvent((ev) => { if (ev.type === 'voice.updated') seen.push(ev.botId); });
-    const am = new AutoMemory({ repos, memory, usage: new UsageTracker(repos), activeProvider: () => 'claude', exeExists: () => true, run: async () => reply, voice });
+    const am = new AutoMemory({ repos, memory, usage: new UsageTracker(repos), claudeReady: () => true, exeExists: () => true, run: async () => reply, voice });
     for (let i = 0; i < 2; i++) am.afterTurn(bot.id, room.id, { ok: true });
     await am.afterTurn(bot.id, room.id, { ok: true });
     off();

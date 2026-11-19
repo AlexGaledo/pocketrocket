@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, SEND_MODES, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval, type LaneQueue } from './models.js';
 import type { KnowledgeStatus } from './models.js';
-import type { Settings, ProviderId, ProviderLimitState } from './providers.js';
+import { PROVIDER_IDS, type Settings, type ProviderId, type ProviderLimitState } from './providers.js';
 import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
@@ -190,6 +190,12 @@ export const BotInputSchema = z.object({
   // templates need not send them.
   autoMemory: z.boolean().optional(),
   autoMemoryEvery: z.number().int().min(AUTO_MEMORY_EVERY.min).max(AUTO_MEMORY_EVERY.max).optional(),
+  /**
+   * M6, owner only (REST; the bot tools refuse both): the bot's provider, null to follow the default, and its one
+   * backup. The hub refuses a provider this server does not enable, and a model its provider does not list.
+   */
+  provider: z.enum(PROVIDER_IDS).nullable().optional(),
+  backup: z.object({ provider: z.enum(PROVIDER_IDS), model: z.string().min(1).max(80) }).nullable().optional(),
 });
 export type BotInput = z.infer<typeof BotInputSchema>;
 

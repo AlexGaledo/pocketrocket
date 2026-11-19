@@ -1,4 +1,4 @@
-import type { CauseKind } from '@pocketrocket/shared';
+import type { CauseKind, ProviderId } from '@pocketrocket/shared';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
 
@@ -12,11 +12,12 @@ export interface TurnUsage {
   durationMs: number;
 }
 
-/** P8: which model ran, why the router picked it, and what started the turn. */
+/** P8: which model ran, why the router picked it, and what started the turn. M6: which provider ran it. */
 export interface UsageMeta {
   model?: string;
   routeReason?: string;
   causeKind?: CauseKind;
+  provider?: ProviderId;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
