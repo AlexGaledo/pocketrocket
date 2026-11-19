@@ -72,7 +72,7 @@ describe('provider registry', () => {
     expect(res.providers.map((p) => p.id)).toEqual([...PROVIDER_IDS]);
     const claude = res.providers.find((p) => p.id === 'claude')!;
     expect(claude.permissions).toBe('full');
-    expect(res.providers.filter((p) => p.permissions === 'best-effort').map((p) => p.id)).toEqual(['codex', 'opencode', 'grok']);
+    expect(res.providers.filter((p) => p.permissions === 'best-effort').map((p) => p.id)).toEqual(['codex', 'opencode', 'grok', 'gemini']);
     expect(claude.models.length).toBeGreaterThan(0);
     // response() probes every provider by spawning its real CLI, so this is genuinely slow; the default
     // 5s is enough alone but not when the suite runs it alongside everything else.

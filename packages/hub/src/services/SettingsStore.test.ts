@@ -10,6 +10,7 @@ const MODELS: Record<ProviderId, ModelInfo[]> = {
   codex: [{ id: 'test-model-x', label: 'Codex', default: true }],
   opencode: [],
   grok: [{ id: 'grok-code-fast-1', label: 'Grok', default: true }],
+  gemini: [],
 };
 
 // The switching tests exercise the repoint path across every adapter, so they enable them all.

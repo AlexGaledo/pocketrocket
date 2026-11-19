@@ -265,7 +265,7 @@ describe('P8 migrations', () => {
 describe('provider switch keeps auto bots on auto', () => {
   it('does not repoint a bot whose model is auto', () => {
     const repos = new Repos(new Db(':memory:'));
-    const models: Record<ProviderId, ModelInfo[]> = { claude: CLAUDE, codex: [{ id: 'gpt-x', label: 'X', default: true }], opencode: [], grok: [] };
+    const models: Record<ProviderId, ModelInfo[]> = { claude: CLAUDE, codex: [{ id: 'gpt-x', label: 'X', default: true }], opencode: [], grok: [], gemini: [] };
     const store = new SettingsStore({ repos, enabled: ['claude', 'codex'], models: (p) => models[p] });
     const auto = repos.createBot({ name: 'A', handle: 'a', title: '', description: '', avatar: '', model: AUTO_MODEL, allowedTools: [], maxBudgetUsd: 1 });
     const pinned = repos.createBot({ name: 'P', handle: 'p', title: '', description: '', avatar: '', model: 'claude-opus-5', allowedTools: [], maxBudgetUsd: 1 });

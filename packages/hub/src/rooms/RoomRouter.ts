@@ -44,6 +44,12 @@ export interface LaneItem {
   freshSession?: boolean;
   /** Queue controls: the message behind this item (a person's, a routine's or a trigger's), journaled. */
   messageId?: string;
+  // ---- M7 ----
+  /**
+   * The owner answered a card that queued this item (spec 01 §4.6 rule 3), so it is attended whatever its thread. M8's
+   * failover card ("Continue on <backup>") sets it. Not journaled: after a restart the item is unattended again, the safe side.
+   */
+  attended?: boolean;
 }
 interface Lane {
   running: boolean;
@@ -555,6 +561,9 @@ export class RoomRouter {
           // trigger whose thread already spent the cap is dropped with a note instead of starting a turn,
           // and a turn that does start may spend at most what is left of the cap.
           items = this.withinCostCap(bot, room, takeBatch(lane.pending));
+          // M7 (P2-3): a provider that may not run unattended (Gemini on a Google login) drops the routine, trigger
+          // and workflow items here, with a note; a person's items in the same batch still run.
+          if (items.length) items = await this.attendedOnly(bot, room, items);
           if (!items.length) {
             this.emitQueue(botId, roomId);
             continue;
@@ -707,6 +716,49 @@ export class RoomRouter {
     const w = workflowCause(cause);
     // A run that no longer exists has nothing left to spend.
     return w && this.workflowBudget ? { what: 'Run', label: 'workflow "' + w.name + '"', left: this.workflowBudget(w.runId) ?? 0, error: 'run budget reached' } : null;
+  }
+
+  /**
+   * M7 (P2-3): why `bot` may not run an unattended item right now, or null when it may. Set by hub.ts
+   * (`providers/unattended.ts`): Gemini on its Google login refuses, Gemini with a CLI-reported API key runs.
+   */
+  unattendedRefusal?: (bot: Bot) => Promise<string | null>;
+
+  /**
+   * Spec 01 §4.6: a person is behind this item. Any of: a person started the thread (hand-offs inside it included), the
+   * owner pressed Run now / Test fire on it, or the owner answered a card that queued it (`item.attended`, M8).
+   * Routines, triggers, workflow schedules and timed retries are unattended; so is a thread nobody can be traced to.
+   */
+  isAttended(causeId: string, item?: Pick<LaneItem, 'attended'>): boolean {
+    return !!item?.attended || !this.requiresApprovals(causeId) || this.isManualCause(causeId);
+  }
+
+  /** The items `bot` may run: unattended ones are dropped, with one note per thread, when its provider refuses them. */
+  private async attendedOnly(bot: Bot, room: Room, items: LaneItem[]): Promise<LaneItem[]> {
+    if (!this.unattendedRefusal || items.every((i) => this.isAttended(i.causeId, i))) return items;
+    let why: string | null;
+    try {
+      why = await this.unattendedRefusal(bot);
+    } catch (e) {
+      // A guard that cannot decide refuses: running Gemini unattended on a Google login breaches its terms.
+      why = bot.name + ' did not run: could not check how its provider is signed in (' + String((e as Error).message ?? e) + ').';
+    }
+    if (!why) return items;
+    const keep: LaneItem[] = [];
+    const noted = new Set<string>();
+    for (const i of items) {
+      if (this.isAttended(i.causeId, i)) {
+        keep.push(i);
+        continue;
+      }
+      if (!noted.has(i.causeId)) {
+        noted.add(i.causeId);
+        this.note(room, why, i.causeId, i.hop);
+      }
+      if (i.journalId) this.repos.journalRemove([i.journalId]);
+      i.onDone?.({ ok: false, turnId: '', finalText: '', costUsd: 0, error: 'unattended turn refused' });
+    }
+    return keep;
   }
 
   /** Whether a person started this thread with "Run now" (a routine, a workflow) or "Test fire" (a trigger), rather than a schedule or an event. */

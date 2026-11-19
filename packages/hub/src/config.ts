@@ -197,7 +197,8 @@ export function parseApprovalsEnv(raw: string | undefined): Approvals | null {
 export const APPROVALS_ENV = parseApprovalsEnv(process.env.POCKETROCKET_BYPASS_PERMISSIONS);
 /**
  * Providers this hub offers. v1 ships Claude only; the other adapters stay in the tree and come back for
- * development with `POCKETROCKET_PROVIDERS=claude,opencode`. Claude is always on (it is the default and the
+ * development with `POCKETROCKET_PROVIDERS=claude,opencode`. Gemini (M7) joins the same opt-in list
+ * (`POCKETROCKET_PROVIDERS=gemini`) until the owner's live test, then becomes on by default. Claude is always on (it is the default and the
  * fallback everything resolves to); unknown ids are ignored. Exported for tests.
  */
 export function parseEnabledProviders(raw: string | undefined): ProviderId[] {

@@ -5,6 +5,7 @@ import { ClaudeProvider } from './claude.js';
 import { createCodexProvider } from './codex.js';
 import { createOpenCodeProvider } from './opencode.js';
 import { createGrokProvider } from './grok.js';
+import { createGeminiProvider } from './gemini.js';
 import type { AgentProvider } from './types.js';
 import { ProviderHealth } from '../services/ProviderHealth.js';
 import { events } from '../events.js';
@@ -64,6 +65,8 @@ export function createProviders(deps: RegistryDeps): ProviderRegistry {
     codex: createCodexProvider(),
     opencode: createOpenCodeProvider(),
     grok: createGrokProvider(),
+    // M7: Antigravity CLI over ACP. Opt-in (POCKETROCKET_PROVIDERS) and `untested` until the owner's live test.
+    gemini: createGeminiProvider(),
   };
   const enabled = deps.enabled ?? ENABLED_PROVIDERS;
   const cache = new Map<ProviderId, { at: number; check: ProviderCheck }>();

@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Gemini through the Antigravity CLI, untested (hub)
+
+- A bot can now run on Gemini through Google's Antigravity CLI (`agy`). Gemini is **untested**: it was built and checked against a stand-in, never a real `agy` or Google account, so it stays off unless the hub starts with `POCKETROCKET_PROVIDERS=gemini`. It goes on by default only after the owner's live test.
+- PocketRocket never downloads `agy`. It finds your own copy (`AGY_EXE` first, then your PATH). If `agy` is missing, the check says how to install it and sign in.
+- On a Google sign-in, Gemini answers only what a person starts: your messages, the hand-offs in those threads, and Run now. Routines, triggers and workflow steps don't run on it. They post a note saying so. They do run when `agy` itself reports that it uses a Gemini API key, and approvals still apply then.
+- When Gemini asks to change a file or run a command, the hub decides with the same rules as for Claude. Files in the bot's own folders and safe commands go ahead. Anything else gets an approval card, also on routine turns with approvals bypassed.
+- Under the hood, the hub now speaks the Agent Client Protocol (ACP), so more agents can be added the same way later. The check also reports the CLI's version and warns when that version has not been tested.
+
 ### Plan limits and a provider per bot (web)
+
 - The Usage page shows how full each Claude plan window is, as a bar with the percent and the reset time written out.
   It turns amber from 80% and red at the limit. Nothing shows for a provider signed in with an API key.
 - When a bot in the chat can't reply because its provider hit a plan limit, a calm note above the message box says

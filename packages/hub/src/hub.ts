@@ -27,6 +27,7 @@ import { FollowUp } from './services/FollowUp.js';
 import { KnowledgeRepo } from './services/KnowledgeRepo.js';
 import { VoiceProposals } from './services/VoiceProposals.js';
 import { createProviders } from './providers/registry.js';
+import { unattendedRefusal } from './providers/unattended.js';
 import { TurnRegistry, createMcpHandler, serveTools } from './mcp/httpServer.js';
 import { CONTEXT_CONNECTOR_PREFIX, contextConnectorTools, createContextApi } from './api/context.js';
 import { ContextRepo } from './db/contextRepo.js';
@@ -282,6 +283,8 @@ export function createHub(opts: HubOptions = {}): Hub {
     routinesChanged: () => scheduler.reload(),
   }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing }, media);
   router.runner = runner;
+  // M7 (P2-3): Gemini on a Google login runs only attended turns; the router drops the rest with a note.
+  router.unattendedRefusal = (bot) => unattendedRefusal(providers, bot);
   const forms = new FormBroker(repos);
   runner.forms = forms;
   // M6 (P1-6): the Claude-only passes ask whether Claude itself is ready, not which provider is the default.
