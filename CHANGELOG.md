@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: Rust security patches
+
+- `tokio` 1.54.1 and `rustix` 1.1.6 (lockfile only), for RUSTSEC-2026-0386 and RUSTSEC-2026-0486. The `zip` advisories in the auto-updater need Tauri 2.12 and are tracked separately; updates are signature-checked before they are unpacked.
+
 ### Dependency and CI refresh (all)
 
 - Clears every open `pnpm audit` finding (1 critical, 5 high, 17 moderate, 3 low): `@modelcontextprotocol/sdk` 1.32.2, `zod` ^4.6.7, `vite` ^6.4.5, `vitest` ^5.0.3, plus lockfile-only fixes for proxy-addr, body-parser, qs, follow-redirects, hono, @hono/node-server, fast-uri, ip-address and source-map-js.
