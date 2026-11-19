@@ -35,6 +35,9 @@ const PATTERNS: RegExp[] = [
   /\bxox[abeoprs]-[A-Za-z0-9-]{10,}/g, // Slack bot / user / refresh tokens
   /\bxapp-[A-Za-z0-9-]{10,}/g, // Slack app-level token
   /\bpk_\d+_[A-Za-z0-9]{16,}/g, // ClickUp personal token
+  // Telegram bot token, `<bot id>:<secret>`. It sits in the URL path (`/bot123456789:AAA…/getMe`), where `\b` finds
+  // no boundary between `bot` and the digits, so the guard is a lookbehind on a digit instead.
+  /(?<![0-9])\d{8,10}:[A-Za-z0-9_-]{35,}/g,
   /\bya29\.[A-Za-z0-9._-]{20,}/g, // Google access token
   /\b1\/\/[A-Za-z0-9_-]{20,}/g, // Google refresh token
   /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT (Microsoft access tokens)

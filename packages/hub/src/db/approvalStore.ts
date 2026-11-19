@@ -17,7 +17,8 @@ export interface ParkedApproval {
   reason: string;
   causeId: string;
   hop: number;
-  runId: string | null;
+  /** What the parked turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`); see rooms/ownerRef.ts. */
+  ownerRef: string | null;
   messageId: string | null;
   parkedAt: number;
 }
@@ -29,7 +30,7 @@ export interface StoredPolicy extends ApprovalPolicy {
 
 interface ParkedRaw {
   id: string; bot_id: string; room_id: string; tool_name: string; tool_input: string | null; reason: string | null;
-  cause_id: string | null; hop: number | null; run_id: string | null; message_id: string | null; parked_at: number;
+  cause_id: string | null; hop: number | null; run_id: string | null; owner_ref: string | null; message_id: string | null; parked_at: number;
 }
 interface PolicyRaw {
   id: string; bot_id: string; tool: string; pattern: string; decision: string; scope: string; created_at: number;
@@ -41,7 +42,7 @@ const toParked = (r: ParkedRaw): ParkedApproval => {
   try { input = r.tool_input ? JSON.parse(r.tool_input) : null; } catch { /* keep null */ }
   return {
     id: r.id, botId: r.bot_id, roomId: r.room_id, toolName: r.tool_name, toolInput: input, reason: r.reason ?? '',
-    causeId: r.cause_id ?? r.id, hop: r.hop ?? 0, runId: r.run_id, messageId: r.message_id, parkedAt: r.parked_at,
+    causeId: r.cause_id ?? r.id, hop: r.hop ?? 0, ownerRef: r.owner_ref ?? (r.run_id ? 'routine:' + r.run_id : null), messageId: r.message_id, parkedAt: r.parked_at,
   };
 };
 const toPolicy = (r: PolicyRaw): StoredPolicy => ({
@@ -54,10 +55,10 @@ export class ApprovalStore {
   constructor(readonly db: Db, private now: () => number = Date.now) {}
 
   // ---------- parked approvals ----------
-  park(id: string, p: { causeId: string; hop: number; runId: string | null; messageId: string }) {
+  park(id: string, p: { causeId: string; hop: number; ownerRef: string | null; messageId: string }) {
     this.db.run(
-      "UPDATE approvals SET parked_at=?, cause_id=?, hop=?, run_id=?, message_id=? WHERE id=? AND status='pending'",
-      this.now(), p.causeId, p.hop, p.runId, p.messageId, id,
+      "UPDATE approvals SET parked_at=?, cause_id=?, hop=?, run_id=?, owner_ref=?, message_id=? WHERE id=? AND status='pending'",
+      this.now(), p.causeId, p.hop, p.ownerRef?.startsWith('routine:') ? p.ownerRef.slice(8) : null, p.ownerRef, p.messageId, id,
     );
   }
   getParked(id: string): ParkedApproval | undefined {
@@ -67,9 +68,9 @@ export class ApprovalStore {
   listParked(): ParkedApproval[] {
     return this.db.all<ParkedRaw>("SELECT * FROM approvals WHERE status='pending' AND parked_at IS NOT NULL ORDER BY parked_at").map(toParked);
   }
-  /** Routine runs a parked card still holds open (FollowUp must not close them at startup). */
-  parkedRunIds(): string[] {
-    return this.listParked().map((p) => p.runId).filter((r): r is string => !!r);
+  /** Owner refs a parked card still holds open (FollowUp must not close a routine run at startup). */
+  parkedOwnerRefs(): string[] {
+    return this.listParked().map((p) => p.ownerRef).filter((r): r is string => !!r);
   }
 
   // ---------- approval rules ----------

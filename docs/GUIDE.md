@@ -93,6 +93,35 @@ You don't have to wait for a bot to finish before you correct it.
   Messages between bots (hand-offs) always queue. A routine or trigger turn you join keeps its own
   approvals and budget.
 
+### Telegram notifications
+
+PocketRocket can ping your phone through your own Telegram bot when something needs you. It is
+**content-free**: Telegram only ever sees a fixed sentence and a link back to your hub, never a
+bot, room or tool name and never any message text. Telegram is a cloud service, so assume it can
+see that "something happened".
+
+1. **Make a bot.** In Telegram, message **@BotFather**, send `/newbot`, pick a name, and copy the
+   token it gives you.
+2. **Connect it.** Settings → Notifications → Telegram: paste the token. PocketRocket checks it and
+   shows `@yourbot`. The token goes into the encrypted token store and is not shown again.
+3. **Link your chat.** Press **Link**, open the bot from the button or the QR code, and send it the
+   code shown (valid 10 minutes). Five wrong codes lock linking for a while. It then shows
+   "Linked to <your name>".
+4. **Turn it on** with **Notify me here** and press **Send a test**. Read the cloud note above the
+   switch first.
+
+What the messages say: one fixed line per kind, for example "A bot needs your approval" or "A
+workflow needs you", plus a link to your hub. Nothing else.
+
+Good to know: one hub per bot token (two hubs polling one bot fight over its updates). Only the
+owner can set this up; bots and paired phones cannot. Phones get their own pings under Devices →
+Notifications on this device.
+
+**Revoke.** **Unlink** stops messages to that chat. **Remove token** forgets the bot on this hub.
+To kill the token itself, message **@BotFather**, send `/revoke` and pick the bot; the old token
+stops working at once. `deploy/keys.sh inventory` lists Telegram among the keys it can disable,
+with the same revoke step.
+
 ## Permissions & safety
 
 See [SECURITY.md](../SECURITY.md) for the token model and the full threat model — treat every bot

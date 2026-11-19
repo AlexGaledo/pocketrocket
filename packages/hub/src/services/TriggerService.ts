@@ -50,6 +50,7 @@ export interface TriggerServiceOptions {
   setTimer?: (fn: () => void, ms: number) => { cancel(): void };
 }
 
+
 const ev = (source: TriggerSource, e: Partial<TriggerEvent> & { id: string }): TriggerEvent => ({
   source, title: '', text: '', from: '', url: '', at: '', ...e, fields: Object.fromEntries(Object.entries(e.fields ?? {}).filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => [k, String(v)])),
 });
@@ -75,6 +76,9 @@ export class TriggerService {
   private slack: SlackSocketMode;
   private workspaces = new Map<string, string>();
   private teamsMe: string | null | undefined;
+
+  /** Workflows v1: starts the workflows whose trigger step is this trigger; true means they replace its own prompt. */
+  workflows?: (triggerId: string, event: TriggerEvent, manual: boolean) => boolean;
 
   constructor(private o: TriggerServiceOptions) {
     this.repo = new TriggerRepo(o.db);
@@ -445,8 +449,14 @@ export class TriggerService {
     const spent = this.repo.spentLastDay(t.id, now);
     if (!spendCapsOff() && spent >= t.budgetUsd) return skip('Daily budget reached ($' + spent.toFixed(2) + ' of $' + t.budgetUsd.toFixed(2) + ').');
 
+    if (this.workflows?.(t.id, event, !!o.test)) {
+      const f = this.repo.addFire({ triggerId: t.id, eventId: o.eventId, title: event.title, status: 'success', note: 'Started a workflow run.', test: o.test }, now);
+      this.repo.touchFired(t.id, now);
+      events.emitEvent({ type: 'trigger.fired', triggerId: t.id, fireId: f.id, status: 'success' });
+      return f;
+    }
     const fire = this.repo.addFire({ triggerId: t.id, eventId: o.eventId, title: event.title, status: 'running', test: o.test }, now);
-    const payload: TriggerPayload = { triggerId: t.id, fireId: fire.id, name: t.name, source: t.source, eventId: o.eventId };
+    const payload: TriggerPayload = { triggerId: t.id, fireId: fire.id, name: t.name, source: t.source, eventId: o.eventId, ...(o.test ? { manual: true } : {}) };
     let messageId = '';
     const msg = this.o.router.fireTrigger(room, bot, {
       name: t.name, prompt: t.prompt, event, payload, budgetUsd: spendCapsOff() ? Infinity : t.budgetUsd - spent,

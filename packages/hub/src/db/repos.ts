@@ -630,8 +630,8 @@ export class Repos {
   journalAdd(e: Omit<LaneJournalRow, 'id' | 'attempts' | 'createdAt' | 'status' | 'messageId'> & { attempts?: number; status?: LaneJournalStatus; messageId?: string | null }): string {
     const id = nanoid(10);
     this.db.run(
-      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,note,attempts,created_at,status,message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, e.runId, e.note, e.attempts ?? 0, now(), e.status ?? 'queued', e.messageId ?? null,
+      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,owner_ref,note,attempts,created_at,status,message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, routineRunOf(e.ownerRef), e.ownerRef, e.note, e.attempts ?? 0, now(), e.status ?? 'queued', e.messageId ?? null,
     );
     return id;
   }
@@ -695,7 +695,7 @@ export class Repos {
         causeId: r.cause_id as string,
         hop: r.hop as number,
         triggerSeq: r.trigger_seq as number,
-        runId: (r.run_id as string) ?? null,
+        ownerRef: (r.owner_ref as string) ?? (r.run_id ? 'routine:' + (r.run_id as string) : null),
         note: (r.note as string) ?? null,
         attempts: r.attempts as number,
         createdAt: r.created_at as number,
@@ -705,6 +705,10 @@ export class Repos {
       this.db.run("DELETE FROM lane_journal WHERE status IN ('queued','steered')");
       return rows;
     });
+  }
+  /** Whether a lane item is journaled (queued, running or steered) for this owner: a ref, or any ref starting with `prefix`. */
+  journalHasOwner(prefix: string): boolean {
+    return !!this.db.get("SELECT 1 AS x FROM lane_journal WHERE status IN ('queued','steered') AND substr(owner_ref, 1, ?) = ? LIMIT 1", prefix.length, prefix);
   }
   /** Routine runs still `running`: their turn died with the previous hub process. */
   runningRuns(): { id: string; routineId: string }[] {
@@ -729,7 +733,8 @@ export interface LaneJournalRow {
   causeId: string;
   hop: number;
   triggerSeq: number;
-  runId: string | null;
+  /** What the turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`); its `onDone` is rebuilt from this. */
+  ownerRef: string | null;
   note: string | null;
   attempts: number;
   createdAt: number;
@@ -755,4 +760,9 @@ export interface SessionState {
   identitySnapshot: string | null;
   /** The hub's running room summary, written when the session rotates. */
   summary: string | null;
+}
+
+/** The routine run id inside a `routine:<runId>` owner ref, for the legacy `run_id` column; null for any other ref. */
+function routineRunOf(ownerRef: string | null | undefined): string | null {
+  return ownerRef?.startsWith('routine:') ? ownerRef.slice(8) : null;
 }
