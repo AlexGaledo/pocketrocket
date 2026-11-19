@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server: the hub runs prebuilt (infra)
+
+- `scripts/deploy.sh` now bundles the hub into `packages/hub/dist/hub.mjs` (the same esbuild settings as the desktop app, now shared in `scripts/hub-esbuild.mjs`) and the service runs it with plain `node`. No TypeScript compiler at runtime, one process instead of two, faster restarts.
+- If the bundle step fails, the service falls back to `tsx src/index.ts`. Deploy deletes the previous bundle first, so old code can never keep running by mistake.
+- CI builds the server bundle on every PR.
+- Existing servers pick up the new unit on the next deploy (`deploy/setup-vps.sh` installs it).
+
 ### Desktop: Rust security patches
 
 - `tokio` 1.54.1 and `rustix` 1.1.6 (lockfile only), for RUSTSEC-2026-0386 and RUSTSEC-2026-0486. The `zip` advisories in the auto-updater need Tauri 2.12 and are tracked separately; updates are signature-checked before they are unpacked.

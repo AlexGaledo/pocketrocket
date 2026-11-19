@@ -63,10 +63,19 @@ echo "==> install + build (as $APP_USER)"
 ssh "$HOST" "DIR='$DIR' APP_USER='$APP_USER' bash -s" <<'REMOTE'
 set -e
 sudo -u "$APP_USER" -H bash -lc "cd '$DIR' && export PATH=\$HOME/.local/bin:\$PATH && pnpm install --silent && pnpm build 2>&1 | grep -E 'built in|error' || true"
+# The service runs packages/hub/dist/hub.mjs when it exists and falls back to tsx src/index.ts when it does
+# not (deploy/pocketrocket.service). Delete the old bundle first, so a failed bundle step can only fall back
+# to the new source, never leave the previous release's code running.
+rm -rf "$DIR/packages/hub/dist"
+if sudo -u "$APP_USER" -H bash -lc "cd '$DIR' && pnpm --silent hub:server-bundle"; then
+  echo "hub bundle built: the service runs node dist/hub.mjs"
+else
+  echo "WARNING: hub bundle failed; the service falls back to tsx src/index.ts" >&2
+fi
 REMOTE
 
 echo "==> restart service"
-ssh "$HOST" "systemctl restart pocketrocket && sleep 6 && systemctl is-active pocketrocket && curl -s http://127.0.0.1:7788/api/health && echo"
+ssh "$HOST" "systemctl restart pocketrocket && sleep 6 && systemctl is-active pocketrocket && curl -s http://127.0.0.1:7788/api/health && echo && ps -o args= -C node | grep -m1 -oE 'dist/hub.mjs|tsx[^ ]* src/index.ts' | sed 's/^/running: /' || true"
 
 cat <<EOF
 
