@@ -17,7 +17,8 @@ import { MoveBadge, MovePanel, VpsPanel } from './PcMovePanel';
 import { isOnVps, moveOf } from '../lib/pcMove';
 import { Badge, Banner, Button, Input, Select, Skeleton, SkeletonGroup, Tabs, TabsList, TabsTrigger, Tooltip, cn, confirmAction } from './ui';
 import { getItem, setItem } from '../lib/persist';
-import { FleetHeader, PageBody } from './FleetPages';
+import { PageBody } from './FleetPages';
+import { PageHeader } from './PageHeader';
 import { MirrorEmptyState, SessionGroups, TranscriptEntries } from './PcSessionViews';
 
 export function PcSessionsPage() {
@@ -109,7 +110,7 @@ function SessionList({ onOpen }: { onOpen: (id: string) => void }) {
   const filtered = !!debouncedQ.trim() || !!repo;
   return (
     <>
-      <FleetHeader title="PC sessions" sub="Claude Code on your PC, read-only" />
+      <PageHeader title="PC sessions" sub="Claude Code on your PC, read-only" />
       <PageBody>
         <div className="mb-4 flex flex-wrap gap-2 px-3">
           <Input aria-label="Search sessions" type="search" className="min-w-40 flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search title, folder or repo" />

@@ -1,4 +1,4 @@
-// One workflow: a page over the chat like the other fleet pages. FleetHeader (name, Enabled, Run now), a Canvas | Steps
+// One workflow: a page over the chat like the other fleet pages. PageHeader (name, Enabled, Run now), a Canvas | Steps
 // switch remembered per viewer, an inspector for the selected step (a 320px column at lg, a Dialog below), and the run
 // view. The Steps list is the accessible and phone view; both views edit the same draft and nothing is sent until Save.
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -14,7 +14,7 @@ import {
   RUN_STATUS_LABEL, runIsOpen, useWorkflows, type StepContext,
 } from '../../lib/workflows';
 import { Banner, Button, Dialog, EmptyState, Field, Input, Label, Select, Skeleton, SkeletonGroup, Switch, Tabs, TabsContent, TabsList, TabsTrigger, confirmAction } from '../ui';
-import { FleetHeader } from '../FleetPages';
+import { PageHeader } from '../PageHeader';
 import type { StepOps } from './StepCard';
 import { AddStepMenu, StepsList } from './StepsList';
 import { InspectorBody, InspectorColumn, confirmDeleteStep } from './Inspector';
@@ -176,7 +176,7 @@ export function WorkflowPage({ id }: { id: string }) {
   if (workflows === null) {
     return (
       <>
-        <FleetHeader title="Workflow" sub="Loading…" />
+        <PageHeader title="Workflow" sub="Loading…" />
         <SkeletonGroup label="Loading the workflow" className="space-y-2 px-5 pt-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}</SkeletonGroup>
       </>
     );
@@ -184,7 +184,7 @@ export function WorkflowPage({ id }: { id: string }) {
   if (!wf || !draft || !problems) {
     return (
       <>
-        <FleetHeader title="Workflow" sub="Not found" />
+        <PageHeader title="Workflow" sub="Not found" />
         <EmptyState title="This workflow is gone" as="h2" action={<Button onClick={closePage}>Back to chat</Button>}>It was deleted, or it never reached this device.</EmptyState>
       </>
     );
@@ -201,7 +201,7 @@ export function WorkflowPage({ id }: { id: string }) {
 
   return (
     <>
-      <FleetHeader
+      <PageHeader
         title={wf.name}
         sub={sub}
         actions={canManage && (

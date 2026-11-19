@@ -19,6 +19,7 @@ import type { WorkflowNode, WorkflowStepResult } from '@pocketrocket/shared';
 import { Button, Menu, MenuContent, MenuItem } from '../ui';
 import { KIND_LABEL, describeStep, type StepContext } from '../../lib/workflows';
 import { StepCard, StepMenu, type StepOps } from './StepCard';
+import { useNewPages } from '../PageHeader';
 
 export interface CanvasProps {
   steps: WorkflowNode[];
@@ -125,9 +126,11 @@ export default function WorkflowCanvas({ steps, ctx, results, selectedId, proble
     return { nodes, edges };
   }, [steps, ctx, results, selectedId, problems, ops, readOnly, vertical, onInsert]);
 
+  // New layout: `pr-canvas` takes the shared canvas tokens (WorkflowCanvas.css), so this matches the project map.
+  const shared = useNewPages();
   const height = vertical ? Math.min(Math.max(steps.length * (NODE_H + GAP), 320), 680) : 340;
   return (
-    <div role="group" aria-label="Workflow canvas" className="wf-canvas overflow-hidden rounded-lg ring-1 ring-line" style={{ height }}>
+    <div role="group" aria-label="Workflow canvas" className={'wf-canvas overflow-hidden rounded-lg ring-1 ring-line' + (shared ? ' pr-canvas' : '')} style={{ height }}>
       <ReactFlow<StepNodeT, PlusEdgeT>
         // A new key refits the view when the number of steps or the direction changes, and not on every edit.
         key={(vertical ? 'v' : 'h') + steps.length}
