@@ -1,6 +1,6 @@
 import type { BotPreview } from '@pocketrocket/shared';
 import { create } from 'zustand';
-import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, AccountState, SendMode } from '@pocketrocket/shared';
+import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, ProviderLimitState, AccountState, SendMode } from '@pocketrocket/shared';
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
@@ -180,6 +180,8 @@ interface State {
   toasts: Toast[];
   settings: Settings;
   providers: ProvidersResponse | null;
+  /** Provider limits in force (spec 01 P0-5): from GET /api/providers, replaced whole by WS `provider.limit`. Expired entries stay until the next list; read through `useLimits`. */
+  limits: ProviderLimitState[];
   /** Optional sign-in. SIGNED_OUT (enabled: false) until GET /api/account answers, and if it never does. */
   account: AccountState;
   /**
@@ -333,6 +335,7 @@ export const useStore = create<State>((set, get) => ({
   toasts: [],
   settings: DEFAULT_SETTINGS,
   providers: null,
+  limits: [],
   account: SIGNED_OUT,
   helloReceived: false,
   device: isDevice(),
@@ -425,6 +428,9 @@ export const useStore = create<State>((set, get) => ({
         void get().fetchProviders();
         return;
       }
+      case 'provider.limit':
+        set({ limits: ev.limits });
+        return;
       case 'account.changed':
         set({ account: ev.account });
         return;
@@ -807,7 +813,7 @@ export const useStore = create<State>((set, get) => ({
   fetchProviders: async () => {
     try {
       const providers = await api.providers.list();
-      set({ providers });
+      set({ providers, limits: providers.limits ?? [] });
     } catch {
       set({ providers: get().providers ?? FALLBACK_PROVIDERS });
     }
