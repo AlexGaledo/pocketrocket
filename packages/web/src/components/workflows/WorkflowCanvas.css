@@ -1,0 +1,27 @@
+/*
+ * The canvas theme: React Flow's own variables mapped to our tokens, scoped to one block. This file is imported by the
+ * lazy canvas chunk only, after base.css, so none of it reaches the entry bundle. There is no `colorMode` prop: the
+ * tokens already follow the `.dark` class on <html>.
+ */
+.wf-canvas {
+  --xy-background-color: var(--bg);
+  --xy-background-pattern-color: var(--line);
+  --xy-edge-stroke: var(--faint);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: var(--accent);
+  --xy-attribution-background-color: transparent;
+  --xy-handle-background-color: transparent;
+  font-family: inherit;
+}
+/* Connections are made with the "+" on an edge, never by dragging, so the handles only anchor the edges. */
+.wf-canvas .react-flow__handle { opacity: 0; pointer-events: none; min-width: 0; min-height: 0; width: 1px; height: 1px; }
+.wf-canvas .react-flow__node { cursor: default; }
+.wf-canvas .react-flow__node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-lg); }
+.wf-canvas .react-flow__edge { cursor: default; }
+/* React Flow's attribution link stays; it is restyled as the quietest caption (text-hint, text-dim). */
+.wf-canvas .react-flow__attribution {
+  font-size: var(--text-hint); line-height: var(--text-hint--line-height); letter-spacing: var(--text-hint--letter-spacing);
+  color: var(--dim); background: transparent; padding: 2px 6px;
+}
+.wf-canvas .react-flow__attribution a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.wf-canvas .react-flow__attribution a:focus-visible { outline: 2px solid var(--accent); border-radius: 3px; }

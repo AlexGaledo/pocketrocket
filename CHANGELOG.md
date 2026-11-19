@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Workflows: canvas, steps list and approval card (web)
+
+- Automations has a Workflows section; each workflow opens its own page with Enabled, Run now, a Canvas | Steps switch (remembered per browser), a step inspector, per-step status and cost, run history, Cancel and Retry step.
+- The canvas (React Flow, loaded only when opened) adds steps with a "+" on each line; the Steps list does the same with menus and works on phones. Errors from the shared chain rules show before you save.
+- A workflow's approval step shows as a card in its chat and in Needs you with Approve, Reject and Send back with a note. Only that card answers it.
+- Usage lists "Workflows" as a cause. Cards in the chat now share one `ActionCard` primitive (no visual change).
+
 ### Move a PC Claude Code session to the VPS and back (hub)
 
 - A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.

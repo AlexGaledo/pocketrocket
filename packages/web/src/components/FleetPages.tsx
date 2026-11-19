@@ -9,6 +9,7 @@ import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
 import { Avatar, Button, Input, Label, Select, Textarea, Tooltip, cn, confirmAction, fmtUsd } from './ui';
 import { TriggersSection } from './TriggersSection';
+import { WorkflowsSection } from './workflows/WorkflowsSection';
 
 /** The scrolling column under a page's header, as wide as the chat column. */
 export function PageBody({ children }: { children: ReactNode }) {
@@ -19,7 +20,7 @@ export function PageBody({ children }: { children: ReactNode }) {
   );
 }
 
-export function FleetHeader({ title, sub }: { title: string; sub: string }) {
+export function FleetHeader({ title, sub, actions }: { title: string; sub: string; actions?: ReactNode }) {
   const closePage = useStore((s) => s.closePage);
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
@@ -28,6 +29,7 @@ export function FleetHeader({ title, sub }: { title: string; sub: string }) {
         <h1 className="truncate text-body font-semibold">{title}</h1>
         <div className="truncate text-hint text-muted">{sub}</div>
       </div>
+      {actions && <div className="flex shrink-0 items-center gap-3">{actions}</div>}
     </header>
   );
 }
@@ -36,7 +38,7 @@ export function AutomationsPage() {
   return (
     <>
       <FleetHeader title="Automations" sub="Schedules and triggers, all bots" />
-      <PageBody><RoutinesSection botId={null} /><TriggersSection botId={null} /></PageBody>
+      <PageBody><RoutinesSection botId={null} /><TriggersSection botId={null} /><WorkflowsSection /></PageBody>
     </>
   );
 }
@@ -284,7 +286,8 @@ function UsageSection() {
 }
 
 // ---------- P8: usage by model and by cause ----------
-const CAUSE_LABEL: Record<CauseKind, string> = {
+// 'workflow' is listed by name so this still compiles before the shared CauseKind union has it.
+const CAUSE_LABEL: Record<CauseKind | 'workflow', string> = {
   user: 'Your messages',
   bot: 'Passed between bots',
   routine: 'Schedules',
@@ -292,6 +295,7 @@ const CAUSE_LABEL: Record<CauseKind, string> = {
   training: 'Training',
   memory: 'Auto-memory',
   reflection: 'Skill fixes',
+  workflow: 'Workflows',
 };
 
 /**

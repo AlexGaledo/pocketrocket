@@ -20,6 +20,7 @@ import { MAX_ATTACHMENTS, refusalFor, reencodeImage, uploadAttachment } from '..
 import { IMAGE_TYPES, ImageRefused } from '../lib/media';
 import type { OutboxEntry } from '../lib/outbox';
 import { QueueChips } from './QueueChips';
+import { WorkflowCardsForRoom } from './workflows/WorkflowCard';
 import { laneKey } from '../lib/queue';
 import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
 import type { DeliveryPayload, SendMode } from '@pocketrocket/shared';
@@ -141,6 +142,8 @@ export function ChatPane() {
       </header>
       {/* Keyed so scroll state and the paging bookkeeping start fresh in every room. */}
       <Transcript key={room.id} roomId={room.id} />
+      {/* A workflow's approval step waits here, in the chat it runs in, until you answer it. */}
+      <WorkflowCardsForRoom roomId={room.id} />
       <Composer members={members} />
     </>
   );

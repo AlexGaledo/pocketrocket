@@ -14,12 +14,13 @@ import { isDesktopMode, isDevice } from './lib/auth';
 import { getItem, setItem } from './lib/persist';
 import { newClientId, readJournal, writeJournal, type OutboxEntry } from './lib/outbox';
 import { applyLaneQueue, replaceRoomQueues, type Queues } from './lib/queue';
+import { refreshWorkflows } from './lib/workflows';
 import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
 import type { SectionId } from './components/dialogs/SettingsDialog';
 
 export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
 /** What the main pane shows over the chat. Null is the chat. */
-export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' } | { kind: 'pcsessions' };
+export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'workflow'; id: string } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' } | { kind: 'pcsessions' };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
@@ -402,6 +403,8 @@ export const useStore = create<State>((set, get) => ({
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
         void get().fetchAccount();
+        // Workflows and their approval cards may have changed while the link was down.
+        void refreshWorkflows();
         // Only decoration: a hub or a paired phone that refuses it just shows each bot's title instead.
         void api.previews().then((previews) => set({ previews })).catch(() => undefined);
         // P2: control states that are not the default (agent); older hubs answer 404, which leaves it empty.
