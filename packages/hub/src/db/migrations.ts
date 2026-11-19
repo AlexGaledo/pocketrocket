@@ -890,3 +890,13 @@ registerMigrations([300, 309], [
       )`),
   },
 ]);
+
+// 310-319  Gap 1 Phase 1: provider per bot (docs/specs/openbot-gaps/01-providers-failover.md P1-1). The spec planned
+//          270-279, but the PC session mirror took 270-271 first, so this block moved here (docs/specs/decisions.md).
+//          `bots.provider` NULL = follow settings.provider; `bots.backup` is JSON {provider, model} or NULL;
+//          `usage.provider` is the provider that ran the turn (NULL on rows from before it existed).
+registerMigrations([310, 319], [
+  { version: 310, name: 'bots.provider', up: (db) => addColumnIfMissing(db, 'bots', 'provider', 'TEXT') },
+  { version: 311, name: 'bots.backup', up: (db) => addColumnIfMissing(db, 'bots', 'backup', 'TEXT') },
+  { version: 312, name: 'usage.provider', up: (db) => addColumnIfMissing(db, 'usage', 'provider', 'TEXT') },
+]);

@@ -1,8 +1,8 @@
 import type { BotPreview, SearchHit } from '@pocketrocket/shared';
 import { nanoid } from 'nanoid';
 import {
-  AUTO_MEMORY_EVERY,
-  type Bot, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
+  AUTO_MEMORY_EVERY, PROVIDER_IDS,
+  type Bot, type BotBackup, type ProviderId, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
   type CauseKind, type UsageGroup, type OpenApproval,
   type User,
 } from '@pocketrocket/shared';
@@ -54,6 +54,8 @@ export class Repos {
       autoMemory: !!(r.auto_memory as number),
       autoMemoryEvery: (r.auto_memory_every as number) ?? AUTO_MEMORY_EVERY.default,
       createdAt: r.created_at as number,
+      provider: providerOf(r.provider),
+      backup: backupOf(r.backup),
     };
   }
   listBots(): Bot[] {
@@ -67,13 +69,19 @@ export class Repos {
     const r = this.db.get('SELECT * FROM bots WHERE handle=?', handle);
     return r && this.rowToBot(r);
   }
-  /** The auto-memory fields are optional here and default to on, every {@link AUTO_MEMORY_EVERY}.default turns. */
-  createBot(b: Omit<Bot, 'id' | 'createdAt' | 'autoMemory' | 'autoMemoryEvery'> & Partial<Pick<Bot, 'autoMemory' | 'autoMemoryEvery'>>): Bot {
-    const bot: Bot = { ...b, autoMemory: b.autoMemory ?? true, autoMemoryEvery: b.autoMemoryEvery ?? AUTO_MEMORY_EVERY.default, id: nanoid(10), createdAt: now() };
+  /** The auto-memory fields default to on, every {@link AUTO_MEMORY_EVERY}.default turns; `provider` and `backup` to null. */
+  createBot(
+    b: Omit<Bot, 'id' | 'createdAt' | 'autoMemory' | 'autoMemoryEvery' | 'provider' | 'backup'> & Partial<Pick<Bot, 'autoMemory' | 'autoMemoryEvery' | 'provider' | 'backup'>>,
+  ): Bot {
+    const bot: Bot = {
+      ...b, autoMemory: b.autoMemory ?? true, autoMemoryEvery: b.autoMemoryEvery ?? AUTO_MEMORY_EVERY.default,
+      provider: b.provider ?? null, backup: b.backup ?? null, id: nanoid(10), createdAt: now(),
+    };
     this.db.run(
-      'INSERT INTO bots (id,name,handle,title,description,avatar,model,allowed_tools,max_budget_usd,auto_memory,auto_memory_every,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO bots (id,name,handle,title,description,avatar,model,allowed_tools,max_budget_usd,auto_memory,auto_memory_every,created_at,provider,backup) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       bot.id, bot.name, bot.handle, bot.title, bot.description, bot.avatar, bot.model,
       JSON.stringify(bot.allowedTools), bot.maxBudgetUsd, bot.autoMemory ? 1 : 0, bot.autoMemoryEvery, bot.createdAt,
+      bot.provider, bot.backup ? JSON.stringify(bot.backup) : null,
     );
     return bot;
   }
@@ -82,9 +90,9 @@ export class Repos {
     if (!cur) return undefined;
     const b = { ...cur, ...patch };
     this.db.run(
-      'UPDATE bots SET name=?,handle=?,title=?,description=?,avatar=?,model=?,allowed_tools=?,max_budget_usd=?,auto_memory=?,auto_memory_every=? WHERE id=?',
+      'UPDATE bots SET name=?,handle=?,title=?,description=?,avatar=?,model=?,allowed_tools=?,max_budget_usd=?,auto_memory=?,auto_memory_every=?,provider=?,backup=? WHERE id=?',
       b.name, b.handle, b.title, b.description, b.avatar, b.model, JSON.stringify(b.allowedTools), b.maxBudgetUsd,
-      b.autoMemory ? 1 : 0, b.autoMemoryEvery, id,
+      b.autoMemory ? 1 : 0, b.autoMemoryEvery, b.provider ?? null, b.backup ? JSON.stringify(b.backup) : null, id,
     );
     return b;
   }
@@ -580,14 +588,14 @@ export class Repos {
   recordUsage(u: {
     botId: string; roomId: string; turnId: string; causeId: string | null; costUsd: number; inputTokens: number;
     outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; modelUsage: unknown; durationMs: number;
-    /** P8: the model that ran, why the router chose it, and what kind of cause started the turn. */
-    model?: string; routeReason?: string; causeKind?: CauseKind;
+    /** P8: the model that ran, why the router chose it, and what kind of cause started the turn. M6: the provider that ran it. */
+    model?: string; routeReason?: string; causeKind?: CauseKind; provider?: ProviderId;
   }) {
     this.db.run(
-      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at,model,route_reason,cause_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at,model,route_reason,cause_kind,provider) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       u.botId, u.roomId, u.turnId, u.causeId, u.costUsd, u.inputTokens, u.outputTokens, u.cacheReadTokens,
       u.cacheWriteTokens, JSON.stringify(u.modelUsage ?? null), u.durationMs, now(),
-      u.model ?? null, u.routeReason ?? null, u.causeKind ?? null,
+      u.model ?? null, u.routeReason ?? null, u.causeKind ?? null, u.provider ?? null,
     );
   }
   private totalsFrom(r: Row | undefined): UsageTotals {
@@ -619,9 +627,9 @@ export class Repos {
   }
 
   // ---------- P8: usage by model / cause kind ----------
-  /** Spend grouped by the model that ran or by what started the turn. Rows from before P8 group under ''. */
-  usageBy(by: 'model' | 'causeKind'): UsageGroup[] {
-    const col = by === 'model' ? 'model' : 'cause_kind';
+  /** Spend grouped by the model that ran, what started the turn, or (M6) the provider. Rows from before the column group under ''. */
+  usageBy(by: 'model' | 'causeKind' | 'provider'): UsageGroup[] {
+    const col = by === 'model' ? 'model' : by === 'provider' ? 'provider' : 'cause_kind';
     return this.db
       .all('SELECT COALESCE(' + col + ", '') k, " + SUM + ' FROM usage GROUP BY k ORDER BY cost DESC')
       .map((r) => ({ key: r.k as string, ...this.totalsFrom(r) }));
@@ -765,4 +773,21 @@ export interface SessionState {
 /** The routine run id inside a `routine:<runId>` owner ref, for the legacy `run_id` column; null for any other ref. */
 function routineRunOf(ownerRef: string | null | undefined): string | null {
   return ownerRef?.startsWith('routine:') ? ownerRef.slice(8) : null;
+}
+
+/** A stored `bots.provider`: a provider id this build knows, or null (follow the default). An unknown id reads as null. */
+function providerOf(v: unknown): ProviderId | null {
+  return typeof v === 'string' && (PROVIDER_IDS as readonly string[]).includes(v) ? (v as ProviderId) : null;
+}
+
+/** A stored `bots.backup` (JSON {provider, model}), or null when absent or unreadable. */
+function backupOf(v: unknown): BotBackup | null {
+  if (typeof v !== 'string' || !v) return null;
+  try {
+    const b = JSON.parse(v) as Partial<BotBackup>;
+    const provider = providerOf(b?.provider);
+    return provider && typeof b.model === 'string' && b.model ? { provider, model: b.model } : null;
+  } catch {
+    return null;
+  }
 }

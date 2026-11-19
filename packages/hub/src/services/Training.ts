@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import {
   AUTO_MODEL, MAX_BOT_DESCRIPTION_CHARS, MAX_TRAINING_PENDING, TRAINING_CRON, TRAINING_EVIDENCE_MAX_CHARS, TRAINING_PASS_BUDGET_USD,
   TRAINING_RULE_MAX_CHARS, TRAINING_WEEKLY_CAP_USD,
-  type Bot, type ModelInfo, type ProviderId, type TrainingDecision, type TrainingPassResult, type TrainingProposal, type TrainingState,
+  type Bot, type ModelInfo, type TrainingDecision, type TrainingPassResult, type TrainingProposal, type TrainingState,
 } from '@pocketrocket/shared';
 import { route } from '../agent/ModelRouter.js';
 import { CLAUDE_EXE, spendCapsOff } from '../config.js';
@@ -213,8 +213,12 @@ export interface TrainingDeps {
   repos: Repos;
   memory: Pick<MemoryService, 'writeIdentity'>;
   usage: UsageTracker;
-  activeProvider: () => ProviderId;
-  /** The active provider's models; the router picks the Haiku tier among them. */
+  /**
+   * M6 (P1-6): Claude is set up (CLI, sign-in) and not held at a limit by ProviderHealth. The pass runs on Claude
+   * whatever provider the bot itself runs on, and is skipped while this is false.
+   */
+  claudeReady: () => boolean;
+  /** Claude's models; the router picks the Haiku tier among them. */
   models: () => readonly ModelInfo[];
   exeExists?: () => boolean;
   run?: OneShotRunner;
@@ -307,7 +311,7 @@ export class Training {
   private recordCall(botId: string, model: string, reason: string, u: TurnUsage) {
     if (!u.costUsd && !u.inputTokens && !u.outputTokens) return;
     try {
-      this.deps.usage.record(botId, '', 'train-' + nanoid(8), null, u, { model, routeReason: reason, causeKind: 'training' });
+      this.deps.usage.record(botId, '', 'train-' + nanoid(8), null, u, { model, routeReason: reason, causeKind: 'training', provider: 'claude' });
     } catch (e) {
       logError('[training ' + botId + '] could not record usage', e); // never lose the pass over its bookkeeping
     }
@@ -326,8 +330,8 @@ export class Training {
     const bot = repos.getBot(botId);
     const cfg = this.repo.config(botId);
     if (!bot || !cfg.enabled) return { outcome: 'off', message: 'Training is off for this bot.' };
-    if (this.deps.activeProvider() !== 'claude' || !(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) {
-      return { outcome: 'unavailable', message: 'Training needs the Claude provider and its CLI.' };
+    if (!this.deps.claudeReady() || !(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) {
+      return { outcome: 'unavailable', message: 'Training needs the Claude provider: its CLI, signed in and not at its usage limit.' };
     }
     if (this.repo.pendingCount(botId) >= MAX_TRAINING_PENDING) {
       return { outcome: 'pending_full', message: MAX_TRAINING_PENDING + ' proposals are waiting. Review them first.' };

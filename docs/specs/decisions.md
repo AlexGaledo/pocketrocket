@@ -33,11 +33,14 @@ only, under the same rules as the P0-P9 blocks above:
 |---|---|---|
 | 250-259 | Gap 2 Phases 1-2: steering and queue | `lane_journal.status` (steer rows), `lane_journal.owner_ref`, `messages.cancelled_at` |
 | 260-269 | Gap 2 Phase 3: workflows | `workflows`, `workflow_runs` |
-| 270-279 | Gap 1: providers and failover | `bots.provider`, `bots.backup`, `usage.provider` |
+| 270-279 | ~~Gap 1: providers and failover~~ Taken first by the Claude Code bridge P3 PC session mirror (270-271) | `pc_sessions`, `pc_session_entries`, `pc_session_tombstones` |
 | 280-289 | Gap 3: chat channels | `channel_links`, Telegram link/offset state |
 | 290-299 | Gap 4: multiplayer (deferred) | `user_invites`, `room_members` |
 
-300-309 stays reserved for gap 2 media steps, if they are ever built.
+300-309 stays reserved for gap 2 media steps, if they are ever built. (On `origin/main`, Telegram notifications use 300.)
+
+**Moved 2026-11-19:** gap 1 (providers and failover) uses **310-319**, because 270-279 was already used on `origin/main`.
+M6 uses 310 `bots.provider`, 311 `bots.backup` and 312 `usage.provider`. M8 can use 313-319 for anything failover needs.
 
 ## OpenBot gaps: owner decisions (interview 2026-11-17)
 Full answers are in `docs/specs/openbot-gaps/05-owner-decisions.md`; the concluded plan is `06-direction.md` in the same

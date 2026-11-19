@@ -4,9 +4,10 @@ import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
   BotInputSchema, MaintenanceHoldInputSchema, QueueCancelInputSchema, QueueEditInputSchema, QueuePauseInputSchema, QueueSendNowInputSchema, RoomInputSchema, RoomMessageInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  TASK_STATUSES, isMediaRef, mediaHash,
-  type BusyInfo, type HealthInfo, type ProviderId, type Room, type TaskStatus,
+  AUTO_MODEL, TASK_STATUSES, isMediaRef, mediaHash,
+  type BotInput, type BusyInfo, type HealthInfo, type ProviderId, type Room, type TaskStatus, type UsageResponse,
 } from '@pocketrocket/shared';
+import { modelFor, repointBotModel } from '../services/SettingsStore.js';
 import net from 'node:net';
 import { readBody } from './body.js';
 import { removeBotAttachments } from '../agent/attachments.js';
@@ -139,11 +140,12 @@ export function createRest(deps: RestDeps) {
     const chk = exe.checkExe();
     return {
       ok: chk.ok, error: chk.error,
-      apiKeySource: runner.lastInit.apiKeySource,
+      apiKeySource: runner.lastInit.claude?.apiKeySource,
       provider: settings.get().provider, version: VERSION,
       approvals: settings.approvals(), approvalsLocked: settings.approvalsLocked,
     };
   });
+  // M6: by provider ({ claude: {...}, codex: {...} }), so two bots on two providers do not overwrite each other's.
   add('GET', '/api/debug/last-init', () => runner.lastInit);
   // 04-A3: the desktop updater holds, polls /api/busy until `blocking` is 0, then stops the hub cleanly.
   // Hub token or the owner's browser session only: none of these is in guard.ts DEVICE_ALLOW, so a paired
@@ -313,11 +315,35 @@ export function createRest(deps: RestDeps) {
   add('POST', '/api/account/sign-out', () => account.signOut());
 
   // ---- bots
+  /**
+   * M6 (P1-3): the owner's provider and backup for a bot. Only this API sets them; the bot tools refuse both. A provider
+   * must be enabled here, and a model the request names must be one its provider lists (or `auto`).
+   */
+  const modelIdsOf = (id: ProviderId) => providers.modelsSync(id).map((m) => m.id);
+  const checkModelOn = (field: string, id: ProviderId, model: string) => {
+    const ids = modelIdsOf(id);
+    if (ids.length && model !== AUTO_MODEL && !ids.includes(model)) {
+      throw new HttpError(400, field + ': ' + model + ' is not a ' + providers.get(id).label + ' model. Available: ' + ids.join(', '));
+    }
+  };
+  const checkProviderFields = (input: Partial<BotInput>, modelSent: boolean) => {
+    if (input.provider && !providers.enabled.includes(input.provider)) throw new HttpError(400, 'provider: ' + input.provider + ' is not enabled on this server');
+    if (input.backup) {
+      if (!providers.enabled.includes(input.backup.provider)) throw new HttpError(400, 'backup: ' + input.backup.provider + ' is not enabled on this server');
+      checkModelOn('backup', input.backup.provider, input.backup.model);
+    }
+    if (input.provider !== undefined && modelSent && input.model !== undefined) checkModelOn('model', input.provider ?? settings.get().provider, input.model);
+  };
+  const sent = (body: unknown, key: string) => !!body && typeof body === 'object' && (body as Record<string, unknown>)[key] !== undefined;
+
   add('GET', '/api/bots', () => repos.listBots());
   add('POST', '/api/bots', ({ body }) => {
     const input = parse(BotInputSchema, body);
     needPicture(input.avatar);
     if (repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
+    checkProviderFields(input, sent(body, 'model'));
+    // A new bot on its own provider with no model named gets that provider's default, not the schema's Claude one.
+    if (input.provider && !sent(body, 'model')) input.model = modelFor(providers.modelsSync(input.provider), input.model) ?? input.model;
     const bot = repos.createBot(input);
     memory.ensureHome(bot.id);
     memory.writeIdentity(bot.id, bot.description);
@@ -329,8 +355,15 @@ export function createRest(deps: RestDeps) {
     const input = parsePatch(BotInputSchema.partial(), body);
     needPicture(input.avatar);
     if (input.handle && input.handle !== cur.handle && repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
-    const bot = repos.updateBot(params.id, input)!;
+    checkProviderFields(input, sent(body, 'model'));
+    let bot = repos.updateBot(params.id, input)!;
     if (input.description !== undefined) memory.writeIdentity(bot.id, input.description);
+    // M6: moved to another provider without a model that fits it: its default, with the same note a default switch posts.
+    // The bot's next turn in each room starts a fresh session seeded with a summary (BotRunner, P1-4).
+    const now = bot.provider ?? settings.get().provider;
+    if (input.provider !== undefined && now !== (cur.provider ?? settings.get().provider) && input.model === undefined) {
+      if (repointBotModel(repos, bot, now, providers.modelsSync(now))) bot = repos.getBot(bot.id)!;
+    }
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     return bot;
   });
@@ -630,7 +663,11 @@ export function createRest(deps: RestDeps) {
     const botId = query.get('botId') ?? undefined;
     const roomId = query.get('roomId') ?? undefined;
     // byModel / byCause (P8): where the money went, so automation spend is visible next to chat spend.
-    return { totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown(), byModel: repos.usageBy('model'), byCause: repos.usageBy('causeKind') };
+    const res: UsageResponse = {
+      totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown(),
+      byModel: repos.usageBy('model'), byCause: repos.usageBy('causeKind'), byProvider: repos.usageBy('provider'),
+    };
+    return res;
   });
 
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {

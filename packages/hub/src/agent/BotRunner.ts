@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
-import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type Room, type ToolPayload } from '@pocketrocket/shared';
+import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type ProviderId, type Room, type ToolPayload } from '@pocketrocket/shared';
 import path from 'node:path';
 import { ATTACHMENTS_DIR, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
 import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
@@ -47,7 +47,7 @@ import { computerToolGuard } from '../permissions/controlInterlock.js';
 import { decisionsWriteDenied, relIn, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
 import type { MediaStore } from '../services/MediaStore.js';
 import { AUTO_MEMORY_MODEL, runPass, type PassOutcome } from '../services/AutoMemory.js';
-import { buildSeed, buildSummaryPrompt, cleanSummary, readRoomNotes, rotationNote, rotationReason, SUMMARY_SYSTEM_PROMPT } from '../services/SessionRotation.js';
+import { buildSeed, buildSummaryPrompt, cleanSummary, readRoomNotes, rotationNote, rotationReason, SUMMARY_SYSTEM_PROMPT, SWITCH_SEED_LEAD, switchNote } from '../services/SessionRotation.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -191,8 +191,18 @@ export class BotRunner {
   private aborts = new Map<string, AbortController>();
   /** Turns the owner stopped (Stop, a queue's Send now): they end with a "stopped by you" note, not a failure. */
   private ownerStops = new Set<string>();
-  /** Last init info reported by the active provider (GET /api/health). */
-  lastInit: ProviderInit = {};
+  /**
+   * Last init info each provider reported, by provider (GET /api/health reads Claude's; GET /api/debug/last-init
+   * returns them all). Keyed so two bots on two providers do not overwrite each other's.
+   */
+  lastInit: Partial<Record<ProviderId, ProviderInit>> = {};
+  /**
+   * M6 (P1-6): Claude is set up and not at a limit (ProviderHealth), so the Claude-only rotation summary may run.
+   * Set by createHub to `providers.claudeReady`; left unset (unit tests) it counts as ready.
+   */
+  claudeReady?: () => boolean;
+  /** M6: the skill index a session started with, by `botId:roomId`, so a non-Claude prompt stays byte-stable while it is resumed. */
+  private skillIndexShown = new Map<string, { name: string; description: string }[]>();
   /** P8: picks the model for bots on `auto`. hub.ts replaces it with one that has the optional classifier. */
   router = new ModelRouter();
   /** P4: set by createHub. Adds the tools of the integrations this bot was granted to every turn. */
@@ -247,7 +257,8 @@ export class BotRunner {
   interrupt(turnId: string, by?: 'owner') {
     const ac = this.aborts.get(turnId);
     if (by === 'owner' && ac) this.ownerStops.add(turnId);
-    const stopped = (this.turnProviders.get(turnId) ?? this.providers.active()).interrupt(turnId);
+    // Only the provider the turn started on can stop it: with a provider per bot, the default one may not be running it.
+    const stopped = this.turnProviders.get(turnId)?.interrupt(turnId) ?? false;
     if (ac) ac.abort();
     return stopped || !!ac;
   }
@@ -264,8 +275,9 @@ export class BotRunner {
    */
   steer(botId: string, roomId: string, req: SteerRequest): LaneSteerResult {
     const lane = this.laneTurns.get(botId + ':' + roomId);
-    // No turn yet (semaphore wait, rotation summary, classifier): the turn about to start will be on the active provider.
-    if (!(lane?.provider ?? this.providers.active()).steer) return { status: 'queued', reason: 'provider' };
+    // No turn yet (semaphore wait, rotation summary, classifier): the turn about to start will be on the bot's provider.
+    const bot = lane ? null : this.repos.getBot(botId);
+    if (!(lane?.provider ?? (bot ? this.providerFor(bot) : this.providers.active())).steer) return { status: 'queued', reason: 'provider' };
     if (!lane?.running) return { status: 'queued', reason: 'between-runs' };
     const images = materializeImages(this.media, ATTACHMENTS_DIR, botId, req.images);
     const input: SteerInput = { uuid: req.uuid, text: req.text + imageNote(images), ...(images.length ? { images } : {}) };
@@ -286,11 +298,25 @@ export class BotRunner {
     for (const id of [...this.activeTurns]) this.interrupt(id);
   }
 
+  /** M6: the provider `bot` runs on. Test doubles of the registry that predate `forBot` get the default one. */
+  private providerFor(bot: Bot): AgentProvider {
+    return this.providers.forBot ? this.providers.forBot(bot) : this.providers.active();
+  }
+
+  /** Model ids a provider offers, plus `auto` (P8), for the bot tools' checks; [] when it has no list. Null = the default provider. */
+  private modelIdsOf(id: ProviderId | null): string[] {
+    const p = id ? this.providers.get(id) : this.providers.active();
+    const ms = p.modelsSync();
+    return ms.length ? [...ms.map((m) => m.id), AUTO_MODEL] : [];
+  }
+
   async runTurn(req: TurnRequest): Promise<TurnResult> {
     const { bot, room } = req;
     const turnId = nanoid(10);
     const budgetUsd = spendCapsOff() ? Infinity : Math.min(bot.maxBudgetUsd, req.causeBudgetUsd ?? Infinity);
-    const provider = this.providers.active();
+    const provider = this.providerFor(bot);
+    // M6 (P1-4): the provider that wrote this (bot, room)'s session, read before `getSession` drops a token another one wrote.
+    const sessionProvider = this.repos.getSession(bot.id, room.id).provider;
     const session = this.repos.getSession(bot.id, room.id, provider.id);
     const state = this.repos.getSessionState(bot.id, room.id);
     this.memory.ensureHome(bot.id);
@@ -301,17 +327,24 @@ export class BotRunner {
     // The room's own file folder (current.md lives there); also used below for the turn's working roots.
     const folder = this.roomFiles?.forBot(room, bot.id) ?? null;
     const rotateWhy = resumeToken && provider.id === 'claude' ? (req.freshSession ? 'cutoff' : rotationReason(state, Date.now())) : null;
-    if (rotateWhy) {
+    // M6 (P1-4): the bot moved to another provider since its last turn here (the owner changed its provider, or the
+    // default it follows). The old session cannot be resumed on the new one, so it starts over seeded with the summary,
+    // the room notes and the recent messages, as a rotation does. Switching back seeds again: there is no token per
+    // provider, because the session's cost baseline (`costTotal`) is not per provider and resuming an old session on
+    // a zero baseline would stop it at once.
+    const switched = !!sessionProvider && sessionProvider !== provider.id;
+    if (rotateWhy || switched) {
       resumeToken = null;
       // Forgotten now, so a rotated run that dies before it reports a session cannot leave the old one to resume.
       this.repos.saveSession(bot.id, room.id, { sdkSessionId: null, provider: provider.id });
       const note = this.repos.insertMessage({
-        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: rotationNote(bot.name, rotateWhy, state.contextTokens),
+        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
+        text: switched ? switchNote(bot.name, provider.label) : rotationNote(bot.name, rotateWhy!, state.contextTokens),
         payload: null, causeId: req.causeId, hop: req.hop, turnId,
       });
       events.emitEvent({ type: 'message.new', message: note });
       const summary = (await this.writeSummary(bot, room.id, session.lastSeenSeq, state.summary)) ?? state.summary;
-      seed = buildSeed(this.repos, room.id, session.lastSeenSeq, { summary, roomNotes: readRoomNotes(folder?.dir) });
+      seed = buildSeed(this.repos, room.id, session.lastSeenSeq, { summary, roomNotes: readRoomNotes(folder?.dir), ...(switched ? { lead: SWITCH_SEED_LEAD } : {}) });
     }
     // The system prompt has to be byte-identical across resumed turns for the prompt cache to hit, but memory.md
     // changes between them (update_memory, auto-memory). A session keeps the memory and identity it started with;
@@ -322,6 +355,15 @@ export class BotRunner {
     const memoryText = keepSnapshot ? state.memorySnapshot! : this.memory.read(bot.id);
     const identity = keepSnapshot ? state.identitySnapshot! : this.memory.readIdentity(bot.id) || bot.description;
     if (!keepSnapshot) this.repos.saveSessionState(bot.id, room.id, { memorySnapshot: memoryText, identitySnapshot: identity });
+    // M6 (P1-7): Claude loads skills from the plugin dir; other providers get them as text, an index in the prompt and
+    // `read_skill`. The index is kept with the session, like memory, so the prompt does not change while it is resumed.
+    const skillsAsText = provider.id !== 'claude';
+    let skillIndex: { name: string; description: string }[] | undefined;
+    if (skillsAsText) {
+      const key = bot.id + ':' + room.id;
+      skillIndex = (keepSnapshot ? this.skillIndexShown.get(key) : undefined) ?? this.skills.skillIndex(bot.id);
+      this.skillIndexShown.set(key, skillIndex);
+    }
     // A fresh session's cumulative cost starts at 0, and it starts small.
     if (!resumeToken) this.repos.saveSessionState(bot.id, room.id, { costTotal: 0, contextTokens: 0, contextAt: Date.now() });
     const pluginDir = this.skills.materialize(bot.id, bot.handle);
@@ -379,7 +421,7 @@ export class BotRunner {
     let route: RouteChoice = picked;
     const cu = picked.classifierUsage;
     if (cu && (cu.costUsd || cu.inputTokens || cu.outputTokens)) {
-      this.usage.record(bot.id, room.id, 'cls-' + nanoid(8), req.causeId, cu, { model: 'claude-haiku-4-5-20251001', routeReason: 'classifier', causeKind });
+      this.usage.record(bot.id, room.id, 'cls-' + nanoid(8), req.causeId, cu, { model: 'claude-haiku-4-5-20251001', routeReason: 'classifier', causeKind, provider: 'claude' });
     }
     // In-turn Auto: on Claude, on a thread a person started. A routine or trigger may be reading forwarded text,
     // and that must not be able to buy Opus. The other providers keep their free rules and failure escalation.
@@ -434,6 +476,9 @@ export class BotRunner {
       desktop: false,
       // `auto` is a valid choice wherever the provider has a list to route within (P8).
       models: providerModels.length ? [...providerModels.map((m) => m.id), AUTO_MODEL] : [],
+      // M6 (P1-3): create_bot and update_bot check a model against the provider the target bot runs on.
+      modelsFor: (id) => this.modelIdsOf(id),
+      skillsAsText,
       forms: this.forms,
       strictApprovals: !!req.strictApprovals,
       requestApproval: bestEffort ? (a) => this.broker.ask(permCtx, a, ac.signal) : undefined,
@@ -565,6 +610,7 @@ export class BotRunner {
         // The tools themselves refuse on turns where mayMoveUp / mayPropose is false.
         canMoveUp: provider.id === 'claude' && isAuto(bot),
         canProposeRouting: !!routing,
+        skillIndex,
       }),
       input: (stateHeader ? stateHeader + '\n\n' : '') + (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images),
       ...(images.length ? { images } : {}),
@@ -664,7 +710,7 @@ export class BotRunner {
     };
 
     const sink: TurnSink = {
-      onInit: (info) => { this.lastInit = info; },
+      onInit: (info) => { this.lastInit[provider.id] = info; },
       // M5: plan-limit reports feed ProviderHealth (warnings and holds). Test doubles of the registry leave it out.
       onLimit: (r) => this.providers.health?.report(provider.id, r, route.model),
       onSession: (token) => {
@@ -773,7 +819,7 @@ export class BotRunner {
         const u = o.usage;
         if (u.costUsd || u.inputTokens || u.outputTokens) {
           // P0-4: the model that actually answered (an SDK fallback), not just the one asked for.
-          this.usage.record(bot.id, room.id, turnId, req.causeId, u, { model: o.model ?? route.model, routeReason: route.reason, causeKind });
+          this.usage.record(bot.id, room.id, turnId, req.causeId, u, { model: o.model ?? route.model, routeReason: route.reason, causeKind, provider: provider.id });
         }
       };
       record(outcome);
@@ -1043,7 +1089,7 @@ export class BotRunner {
       outcome = await provider.runTurn(ctx, sink);
       error = outcome.error;
       const u = outcome.usage;
-      if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, causeId, u, { model: req.model, routeReason: 'offload', causeKind: 'user' });
+      if (u.costUsd || u.inputTokens || u.outputTokens) this.usage.record(bot.id, room.id, turnId, causeId, u, { model: req.model, routeReason: 'offload', causeKind: 'user', provider: 'claude' });
     } catch (e) {
       error = redact(String((e as Error).message ?? e));
     } finally {
@@ -1067,6 +1113,9 @@ export class BotRunner {
    * null when there was nothing older than the replayed window or the call failed (the old summary then stays).
    */
   private async writeSummary(bot: Bot, roomId: string, lastSeenSeq: number, previous: string | null): Promise<string | null> {
+    // P1-6: a Haiku call on the Claude login, so not while Claude is missing, signed out or at its limit. The seed then
+    // carries the previous summary and the recent messages.
+    if (this.claudeReady && !this.claudeReady()) return null;
     const prompt = buildSummaryPrompt(this.repos, bot, roomId, lastSeenSeq, previous);
     if (!prompt) return null;
     try {
@@ -1074,7 +1123,7 @@ export class BotRunner {
       const u = outcome.usage;
       // Not tied to the cause: like auto-memory, it must not count toward a thread's cost cap.
       if (u.costUsd || u.inputTokens || u.outputTokens) {
-        this.usage.record(bot.id, roomId, 'sum-' + nanoid(8), null, u, { model: AUTO_MEMORY_MODEL, routeReason: 'session-summary', causeKind: 'memory' });
+        this.usage.record(bot.id, roomId, 'sum-' + nanoid(8), null, u, { model: AUTO_MEMORY_MODEL, routeReason: 'session-summary', causeKind: 'memory', provider: 'claude' });
       }
       const summary = cleanSummary(outcome);
       if (summary) this.repos.saveSessionState(bot.id, roomId, { summary });

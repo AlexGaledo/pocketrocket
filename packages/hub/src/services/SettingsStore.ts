@@ -1,5 +1,5 @@
 import {
-  AUTO_MODEL, DEFAULT_SETTINGS, SettingsSchema, isTimeZone, type Approvals, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
+  AUTO_MODEL, DEFAULT_SETTINGS, SettingsSchema, isTimeZone, type Approvals, type Bot, type ModelInfo, type ProviderId, type Settings, type SettingsPatch,
 } from '@pocketrocket/shared';
 import { APPROVALS_ENV, ENABLED_PROVIDERS, osUserName } from '../config.js';
 import type { Repos } from '../db/repos.js';
@@ -140,36 +140,54 @@ export class SettingsStore {
   }
 
   /**
-   * After a provider switch, bots pointing at a model the new provider does not offer are moved to that
-   * provider's default model, with a system message in every room the bot is in.
+   * After a default-provider switch, bots that follow the default and point at a model the new provider does not
+   * offer are moved to that provider's default model, with a system message in every room the bot is in.
    *
    * Returns false when the provider's model list is not known yet, so the caller can retry asynchronously.
    */
   private repointBots(provider: ProviderId, knownModels?: ModelInfo[]): boolean {
     const models = knownModels ?? this.deps.models?.(provider) ?? [];
     if (!models.length) return false;
-    const fallback = models.find((m) => m.default)?.id ?? models[0].id;
-    const known = new Set(models.map((m) => m.id));
     let changed = false;
     for (const bot of this.deps.repos.listBots()) {
-      // `auto` is resolved per turn against whichever provider is active (P8), so it never needs repointing.
-      if (known.has(bot.model) || bot.model === AUTO_MODEL) continue;
-      const from = bot.model;
-      this.deps.repos.updateBot(bot.id, { model: fallback });
-      changed = true;
-      for (const room of this.deps.repos.listRooms()) {
-        if (!room.memberIds.includes(bot.id)) continue;
-        const msg = this.deps.repos.insertMessage({
-          roomId: room.id, authorType: 'system', authorId: null, kind: 'system',
-          text: bot.name + ' switched to ' + fallback + ' (' + from + ' is not available on ' + provider + ').',
-          payload: null, causeId: null, hop: 0, turnId: null,
-        });
-        events.emitEvent({ type: 'message.new', message: msg });
-      }
+      // M6 (P1-5): only bots that follow the default moved. A bot with its own provider stays where it is.
+      if (bot.provider) continue;
+      if (repointBotModel(this.deps.repos, bot, provider, models)) changed = true;
     }
     if (changed) events.emitEvent({ type: 'bots.changed', bots: this.deps.repos.listBots() });
     return true;
   }
+}
+
+/**
+ * The model a bot moving to a provider with `models` should use instead of `current`, or null when `current` is fine
+ * there: the provider offers it, it is `auto` (P8: resolved per turn against the bot's provider), or the list is unknown.
+ */
+export function modelFor(models: readonly ModelInfo[], current: string): string | null {
+  if (!models.length || current === AUTO_MODEL || models.some((m) => m.id === current)) return null;
+  return models.find((m) => m.default)?.id ?? models[0].id;
+}
+
+/**
+ * A bot now on `provider` (a default-provider switch, or the owner's per-bot change) whose model that provider does not
+ * offer moves to its default model, with a system note in every room the bot is in. Returns whether it moved. The
+ * caller emits `bots.changed`.
+ */
+export function repointBotModel(repos: Repos, bot: Bot, provider: ProviderId, models: readonly ModelInfo[]): boolean {
+  const to = modelFor(models, bot.model);
+  if (!to) return false;
+  const from = bot.model;
+  repos.updateBot(bot.id, { model: to });
+  for (const room of repos.listRooms()) {
+    if (!room.memberIds.includes(bot.id)) continue;
+    const msg = repos.insertMessage({
+      roomId: room.id, authorType: 'system', authorId: null, kind: 'system',
+      text: bot.name + ' switched to ' + to + ' (' + from + ' is not available on ' + provider + ').',
+      payload: null, causeId: null, hop: 0, turnId: null,
+    });
+    events.emitEvent({ type: 'message.new', message: msg });
+  }
+  return true;
 }
 
 // ---- ambient accessor -------------------------------------------------------

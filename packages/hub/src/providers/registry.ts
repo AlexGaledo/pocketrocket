@@ -1,5 +1,6 @@
-import type { ModelInfo, ProviderCheck, ProviderId, ProviderInfo, ProvidersResponse, Settings } from '@pocketrocket/shared';
-import { ENABLED_PROVIDERS } from '../config.js';
+import fs from 'node:fs';
+import type { Bot, ModelInfo, ProviderCheck, ProviderId, ProviderInfo, ProvidersResponse, Settings } from '@pocketrocket/shared';
+import { CLAUDE_EXE, ENABLED_PROVIDERS } from '../config.js';
 import { ClaudeProvider } from './claude.js';
 import { createCodexProvider } from './codex.js';
 import { createOpenCodeProvider } from './opencode.js';
@@ -20,6 +21,8 @@ export interface RegistryDeps {
   enabled?: readonly ProviderId[];
   /** M5: provider limits in force. Defaults to one that sends each change as the WS `provider.limit` event. */
   health?: ProviderHealth;
+  /** Whether the Claude CLI binary is there. Defaults to a file check on CLAUDE_EXE; tests replace it. */
+  claudeExe?: () => boolean;
 }
 
 export interface ProviderRegistry {
@@ -32,8 +35,19 @@ export interface ProviderRegistry {
   list(): AgentProvider[];
   /** A disabled or unknown id resolves to Claude, so nothing disabled can ever run a turn. */
   get(id: ProviderId): AgentProvider;
-  /** The provider every bot runs on right now (settings.provider). */
+  /** The default provider (settings.provider): new bots, and every bot whose `provider` is null, run on it. */
   active(): AgentProvider;
+  /**
+   * M6: the provider `bot` runs on. Its own `provider` when set, else the default. A provider this hub does not
+   * enable resolves to Claude, as `get` does, so a bot pointed at one never runs on it.
+   */
+  forBot(bot: Pick<Bot, 'provider'>): AgentProvider;
+  /**
+   * M6 (P1-6): the Claude-only background passes (auto-memory, rotation summaries, skill distilling and reflection,
+   * training) may run: the CLI is there, the last check did not find it signed out, and ProviderHealth holds no
+   * provider-wide Claude limit. Whatever provider the bots themselves run on.
+   */
+  claudeReady(): boolean;
   modelsSync(id: ProviderId): ModelInfo[];
   /** `modelsSync` but willing to wait for a cold cache (OpenCode shells out to `opencode models`). */
   modelsAwaited(id: ProviderId): Promise<ModelInfo[]>;
@@ -72,6 +86,8 @@ export function createProviders(deps: RegistryDeps): ProviderRegistry {
     return result;
   };
 
+  const claudeExe = deps.claudeExe ?? (() => fs.existsSync(CLAUDE_EXE));
+
   return {
     byId,
     claude,
@@ -80,6 +96,15 @@ export function createProviders(deps: RegistryDeps): ProviderRegistry {
     list: () => enabled.map((id) => byId[id]),
     get,
     active: () => get(deps.settings.get().provider),
+    forBot: (bot) => get(bot.provider ?? deps.settings.get().provider),
+    claudeReady: () => {
+      if (!claudeExe()) return false;
+      // Not checked yet counts as signed in (the turn finds out); a check that timed out says nothing about the login.
+      const last = cache.get('claude')?.check;
+      if (last && !last.ok && !last.unresponsive) return false;
+      // A weekly Opus or Sonnet hold covers that model only; the passes run on Haiku, so only a whole-login hold stops them.
+      return !health.isHeld('claude');
+    },
     modelsSync: (id) => get(id).modelsSync(),
     modelsAwaited: (id) => {
       const p = get(id);

@@ -52,6 +52,14 @@ export function rotationNote(botName: string, why: RotateReason, contextTokens: 
   return lead + '; starting a fresh session to save tokens. A summary and the recent messages carry over.';
 }
 
+/** M6 (P1-4): the room note on the first turn after a bot moved to another provider. */
+export function switchNote(botName: string, providerLabel: string): string {
+  return botName + ' now runs on ' + providerLabel + '; earlier context carried over as a summary.';
+}
+/** The seed's first line after a provider switch, in place of the rotation one. */
+export const SWITCH_SEED_LEAD =
+  'Earlier context (you now run on another AI provider, so your session started over). This is background you already knew, not new messages; do not reply to it.';
+
 /** Longest a single seeded message may be, and the whole seed's message part. */
 export const SEED_MESSAGE_CHARS = 2000;
 export const SEED_MAX_BYTES = 16 * 1024;
@@ -83,7 +91,7 @@ export function seenConversation(repos: Repos, roomId: string, lastSeenSeq: numb
  */
 export function buildSeed(
   repos: Repos, roomId: string, lastSeenSeq: number,
-  opts: { summary?: string | null; roomNotes?: string | null; maxMessages?: number } = {},
+  opts: { summary?: string | null; roomNotes?: string | null; maxMessages?: number; lead?: string } = {},
 ): string {
   const max = opts.maxMessages ?? ROTATE_SEED_MESSAGES;
   const msgs = max > 0 ? seenConversation(repos, roomId, lastSeenSeq).slice(-max) : [];
@@ -96,7 +104,7 @@ export function buildSeed(
   if (!parts.length) return '';
   return [
     '<earlier_context>',
-    'Earlier context (session was reset to save tokens). This is background you already knew, not new messages; do not reply to it.',
+    opts.lead ?? 'Earlier context (session was reset to save tokens). This is background you already knew, not new messages; do not reply to it.',
     '',
     parts.join('\n\n'),
     '</earlier_context>',

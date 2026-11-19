@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
-import { AUTO_MODEL, type Message, type ModelInfo, type ProviderId, type Skill, type SkillVersion, type ToolPayload } from '@pocketrocket/shared';
+import { AUTO_MODEL, type Message, type ModelInfo, type Skill, type SkillVersion, type ToolPayload } from '@pocketrocket/shared';
 import { CLAUDE_EXE } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -84,8 +84,12 @@ export interface SkillReflectionDeps {
   repos: Repos;
   skills: SkillService;
   usage: UsageTracker;
-  activeProvider: () => ProviderId;
-  /** The active provider's models; the router picks the Haiku tier among them. */
+  /**
+   * M6 (P1-6): Claude is set up (CLI, sign-in) and not held at a limit by ProviderHealth. The pass runs on Claude
+   * whatever provider the bot itself runs on, and is skipped while this is false.
+   */
+  claudeReady: () => boolean;
+  /** Claude's models; the router picks the Haiku tier among them. */
   models: () => readonly ModelInfo[];
   exeExists?: () => boolean;
   run?: OneShotRunner;
@@ -117,7 +121,7 @@ export class SkillReflection {
       const runs = skills.versionsRepo.bumpRuns(botId, skill.id);
       const key = botId + ':' + skill.id;
       if (runs < cfg.every || this.inFlight.has(key)) continue;
-      if (this.deps.activeProvider() !== 'claude' || !(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) continue;
+      if (!this.deps.claudeReady() || !(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) continue;
       const spent = skills.versionsRepo.reflectionSpend(botId, startOfUtcDay(this.deps.now?.() ?? Date.now()));
       if (spent + REFLECTION_PASS_BUDGET_USD > cfg.dailyCapUsd) continue; // keeps counting; tries again on a later run
       const pass = this.pass(bot.id, bot.handle, roomId, skill, turnMsgs, Math.min(REFLECTION_PASS_BUDGET_USD, cfg.dailyCapUsd - spent))
@@ -146,7 +150,7 @@ export class SkillReflection {
     const out = await (this.deps.run ?? runOneShot)(prompt, { model: choice.model, budgetUsd, system: SYSTEM });
     const u = out.usage;
     if (u.costUsd || u.inputTokens || u.outputTokens) {
-      usage.record(botId, roomId, 'refl-' + nanoid(8), null, u, { model: choice.model, routeReason: choice.reason, causeKind: 'reflection' });
+      usage.record(botId, roomId, 'refl-' + nanoid(8), null, u, { model: choice.model, routeReason: choice.reason, causeKind: 'reflection', provider: 'claude' });
     }
     if (!out.ok) return;
     const r = parseReflection(out.text);

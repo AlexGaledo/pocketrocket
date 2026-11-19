@@ -57,6 +57,12 @@ export interface PromptCtx {
   keyRegistry?: KeyRegistry;
   /** The owner started this turn, so the bot may propose a line for routing.md. */
   canProposeRouting?: boolean;
+  /**
+   * M6 (P1-7): set on providers that do not load skills from a plugin dir (every one but Claude): the bot's approved
+   * skills, sorted by name. Adds a Skills section and the `read_skill` tool name. Kept per session by BotRunner, so it
+   * changes only when the session starts over.
+   */
+  skillIndex?: { name: string; description: string }[];
 }
 
 /** Points at the Data Engineer's index without putting it in every prompt. */
@@ -195,7 +201,7 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
       ? ['Your computer starts the first time you use Browser or Desktop in a turn, so use them only when the task needs a real browser. If a bot in this room is already doing the browser work, do not repeat it: ask them, or follow along with ' + prefix + 'view_screen. When you finish browser work others depend on, put what they need in your message (URLs, findings, what is left); they do not see your screen. Several of your chats can share your computer: when another chat is on the browser, work only in a tab you opened with browser_tabs action new, and when done close it with action close and no number (closes your current tab). Numbers shift as other chats close tabs, so a numbered close or a select is refused while the browser is shared. After closing, open a new tab before using the browser again.']
       : []),
     // Names once, the prefix once: the full definitions already reach the model with the tools themselves.
-    'Custom tools' + (prefix ? ' (each prefixed ' + prefix + ')' : '') + ': ' + POCKETROCKET_TOOLS.join(', ') + '.',
+    'Custom tools' + (prefix ? ' (each prefixed ' + prefix + ')' : '') + ': ' + [...POCKETROCKET_TOOLS, ...(ctx.skillIndex ? ['read_skill'] : [])].join(', ') + '.',
     'Use update_memory when you learn something durable about the user, the project, or how you should work. Keep memory short and factual.',
     ...(ctx.browser
       ? [
@@ -227,6 +233,7 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
       ? ['Every one of those tools shows ' + USER_NAME + ' an approval card before anything changes and returns only after they answer, so call it once and wait; do not retry or ask in chat first. The one exception: editing your OWN name, title, avatar or description goes through immediately. Changing tools, model or budget on any bot (including yourself), renaming a handle, or touching another bot always asks. If ' + USER_NAME + ' declines, accept it and say so in one line; do not attempt the same change another way. When ' + USER_NAME + ' asks for a change, make the call in that same turn: the card is where they confirm, and confirm=true on delete_bot only records your intent. Deleting yourself is fine when asked; finish your other steps first, delete last, then reply with a short goodbye.']
       : ['These take effect immediately: this hub runs without approval cards, so nothing pauses for ' + USER_NAME + ' to confirm and there is no undo. That makes you responsible for the check ' + USER_NAME + ' is no longer being asked for: change the fleet only when the current instruction actually asks for it, never on your own initiative, and say in the room what you changed. confirm=true on delete_bot and delete_room is your own intent, not consent from ' + USER_NAME + '; if a destructive change is implied rather than asked for, ask in chat first and wait for the answer.']),
     ...keySection(ctx, prefix),
+    ...skillSection(ctx, prefix),
     ...(settings.get().personaBotId === ctx.bot.id
       ? [
           '',
@@ -239,6 +246,18 @@ export function buildSystemPrompt(ctx: PromptCtx): string {
     ctx.memory.trim() || '(empty)',
     ...p7Sections(ctx, prefix, USER_NAME),
   ].join('\n');
+}
+
+/** M6 (P1-7): the skill index for providers that cannot load the plugin dir. Empty when there is no index or no skill. */
+function skillSection(ctx: PromptCtx, prefix: string): string[] {
+  if (!ctx.skillIndex?.length) return [];
+  return [
+    '',
+    '## Skills',
+    'Skills ' + settings.get().userName + ' gave you: step-by-step instructions for tasks you do often. Before a task one of them covers, call ' +
+      prefix + 'read_skill({ name }) and follow what it says.',
+    ...ctx.skillIndex.map((s) => '- ' + s.name + (s.description ? ': ' + s.description : '')),
+  ];
 }
 
 function keySection(ctx: PromptCtx, prefix: string): string[] {

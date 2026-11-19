@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import { z } from 'zod';
 import { AUTO_MODEL, BOT_ICON_KEYS, DEFAULT_MODEL, MAX_ROOM_BOTS, isMediaRef } from '@pocketrocket/shared';
-import type { Bot, Room, HandoffPayload, HandoffResultPayload } from '@pocketrocket/shared';
+import type { Bot, Room, HandoffPayload, HandoffResultPayload, ProviderId } from '@pocketrocket/shared';
 import { removeBotAttachments } from './attachments.js';
-import { ATTACHMENTS_DIR, MAX_HOPS, WORKSPACE_DIR, botRoots } from '../config.js';
+import { ATTACHMENTS_DIR, MAX_HOPS, WORKSPACE_DIR, botHome, botRoots } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from '../services/MemoryService.js';
 import { MAX_MEMORY_BYTES } from '../services/MemoryService.js';
@@ -65,8 +65,16 @@ export interface ToolCtx {
   setState: (s: 'waiting' | 'working') => void;
   /** Attach desktop (computer-use) tools for this turn. */
   desktop?: boolean;
-  /** Model ids the active provider offers; create_bot/update_bot validate against it. */
+  /** Model ids this bot's provider offers (plus `auto`), [] when it has no list. */
   models: string[];
+  /**
+   * M6 (P1-3): model ids a provider offers (plus `auto`); null = the default provider, where a new bot or a bot with
+   * `provider: null` runs. create_bot and update_bot check a model against the target bot's provider with it. Absent
+   * (unit tests), every bot is taken to share `models`.
+   */
+  modelsFor?: (provider: ProviderId | null) => string[];
+  /** M6 (P1-7): this bot's provider does not load skills from a plugin dir (every provider but Claude). Adds `read_skill`. */
+  skillsAsText?: boolean;
   /**
    * Ask the user for approval through the PermissionBroker. Present only for providers whose permission
    * parity is 'best-effort' (everything but Claude); adds the `request_approval` tool.
@@ -250,11 +258,17 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     room.id === ctx.room.id || room.memberIds.includes(ctx.bot.id)
       ? null
       : gate(tool, '@' + ctx.bot.handle + ' wants to ' + verb + ' "' + room.name + '", a chat it is not in', input);
-  const modelHint = ctx.models.length ? ' One of: ' + ctx.models.join(', ') + '.' : '';
-  const checkModel = (m: string | undefined) =>
-    !m || !ctx.models.length || ctx.models.includes(m)
+  /** M6: the models of the provider a bot runs on (its own, or the default for null). */
+  const modelsOf = (provider: ProviderId | null | undefined): string[] => ctx.modelsFor?.(provider ?? null) ?? ctx.models;
+  // New bots run on the default provider, so the hint lists its models.
+  const defaultModels = modelsOf(null);
+  const modelHint = defaultModels.length ? ' One of: ' + defaultModels.join(', ') + '.' : '';
+  const checkModel = (m: string | undefined, provider: ProviderId | null | undefined) => {
+    const models = modelsOf(provider);
+    return !m || !models.length || models.includes(m)
       ? null
-      : err('Unknown model "' + m + '" for the active provider. Available: ' + ctx.models.join(', ') + '.');
+      : err('Unknown model "' + m + '" for the provider this bot runs on. Available: ' + models.join(', ') + '.');
+  };
   /**
    * A new bot's model when create_bot names none: the provider's default (Sonnet on Claude), never the creator's.
    * An Opus lead must not quietly fill a room with Opus workers; they burn the owner's plan limit much faster.
@@ -262,8 +276,8 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
    * there is nothing to check against, so it keeps the creator's model.
    */
   const newBotModel = () =>
-    ctx.models.includes(DEFAULT_MODEL) || (!ctx.models.length && settings.get().provider === 'claude') ? DEFAULT_MODEL
-      : ctx.models.includes(AUTO_MODEL) ? AUTO_MODEL
+    defaultModels.includes(DEFAULT_MODEL) || (!defaultModels.length && settings.get().provider === 'claude') ? DEFAULT_MODEL
+      : defaultModels.includes(AUTO_MODEL) ? AUTO_MODEL
       : ctx.bot.model;
   const MODEL_GUIDE = ' Pick the cheapest model that does the job: Sonnet for most workers, Haiku for routine or simple bots. Opus uses up the plan limit much faster: only when ' + userName + ' asks for it, or for a lead/planner that truly needs it.';
 
@@ -519,7 +533,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     async (a) => {
       if (ctx.repos.listBots().length >= 50) return err('Bot limit reached (50).');
       if (ctx.repos.getBotByHandle(a.handle)) return err('Handle @' + a.handle + ' already exists. Use add_to_room to bring an existing bot in, or pick another handle.');
-      const bad = checkModel(a.model);
+      const bad = checkModel(a.model, null);
       if (bad) return bad;
       const model = a.model ?? newBotModel();
       const denied = await gate(
@@ -655,7 +669,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
       const target = resolveAny(a.bot);
       if (!target) return err('No bot "' + a.bot + '". Existing: ' + ctx.repos.listBots().map((x) => '@' + x.handle).join(', '));
       if (a.handle && a.handle !== target.handle && ctx.repos.getBotByHandle(a.handle)) return err('Handle @' + a.handle + ' is taken.');
-      const bad = checkModel(a.model);
+      const bad = checkModel(a.model, target.provider);
       if (bad) return bad;
       const patch: Partial<Bot> = {};
       if (a.name !== undefined) patch.name = a.name;
@@ -778,7 +792,26 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
     },
   );
 
-  const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, createBot, createRoom, addToRoom, updateBot, deleteBot, removeFromRoom, deleteRoom];
+  const tools: HubTool[] = [sendMessage, handoff, updateMemory, readMemory, saveSkill, listBots, readRoom, listRooms, ownerOnlyFields(createBot), createRoom, addToRoom, ownerOnlyFields(updateBot), deleteBot, removeFromRoom, deleteRoom];
+  // M6 (P1-7): Claude loads skills from its plugin dir; other providers read them as text. Read-only: it opens only a
+  // skill assigned to this bot and approved by the owner.
+  if (ctx.skillsAsText) {
+    tools.push(hubTool(
+      'read_skill',
+      'Read one of your skills (the "Skills" list in your instructions) before doing a task it covers, then follow it. Returns its SKILL.md.',
+      { name: z.string().min(1).max(64).describe('Skill name, exactly as listed') },
+      async (a) => {
+        const got = ctx.skills.readAssigned(ctx.bot.id, a.name.trim());
+        if (!got) {
+          const names = ctx.skills.skillIndex(ctx.bot.id).map((x) => x.name);
+          return err('No skill "' + a.name + '" is assigned to you.' + (names.length ? ' Yours: ' + names.join(', ') + '.' : ' You have none.'));
+        }
+        const body = redact(got.markdown.trim()) || '(this skill has no SKILL.md text)';
+        return text(body + '\n\n(Other files of this skill, if any, are in ' + path.join(botHome(ctx.bot.id), 'plugin', 'skills', got.skill.name) + '.)');
+      },
+      { readOnly: true },
+    ));
+  }
 
   tools.push(...routineTools(ctx, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
   if (ctx.workflows) tools.push(...workflowTools(ctx, ctx.workflows, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
@@ -1025,6 +1058,30 @@ const AUDITED_TOOLS = new Set([
 ]);
 
 const PERSONA_READS = new Set(['read_any_room', 'read_pc_session', 'list_pc_sessions']);
+
+/** M6 (P1-3): Bot fields only the owner sets, in the bot dialog (REST). No bot tool may set them, for itself or another bot. */
+export const OWNER_ONLY_BOT_FIELDS = ['provider', 'backup'] as const;
+
+/**
+ * create_bot and update_bot refuse a provider or a backup outright, rather than dropping the field unseen (the
+ * argument schema would strip it): which provider a bot runs on, and where it fails over to, is the owner's choice.
+ */
+function ownerOnlyFields(t: HubTool): HubTool {
+  return {
+    ...t,
+    handler: async (input) => {
+      const a = (input ?? {}) as Record<string, unknown>;
+      const set = OWNER_ONLY_BOT_FIELDS.filter((k) => a[k] !== undefined);
+      if (set.length) {
+        return err(
+          'Not changed: ' + set.join(' and ') + (set.length > 1 ? ' are' : ' is') + " set only by the owner, in the bot's settings. " +
+            'Ask them in chat if a bot should run on another provider.',
+        );
+      }
+      return t.handler(input);
+    },
+  };
+}
 
 function audited(t: HubTool, ctx: ToolCtx): HubTool {
   return {

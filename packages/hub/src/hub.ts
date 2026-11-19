@@ -284,7 +284,10 @@ export function createHub(opts: HubOptions = {}): Hub {
   router.runner = runner;
   const forms = new FormBroker(repos);
   runner.forms = forms;
-  router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
+  // M6 (P1-6): the Claude-only passes ask whether Claude itself is ready, not which provider is the default.
+  const claudeReady = () => providers.claudeReady();
+  runner.claudeReady = claudeReady;
+  router.autoMemory = new AutoMemory({ repos, memory, usage, claudeReady, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
   const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedOwnerRefs(), ...control.parkedOwnerRefs()] });
@@ -330,11 +333,12 @@ export function createHub(opts: HubOptions = {}): Hub {
   // P6: teach by demonstration (forces control=user while recording), distill/corrections, opt-in reflection.
   const recorder = new Recorder({ computers, control, ...opts.recorder });
   recorder.listen();
-  const activeModels = () => providers.modelsSync(providers.active().id);
-  const distiller = new SkillDistiller({ repos, skills, recorder, usage, activeProvider: () => providers.active().id, models: activeModels });
-  router.skillReflection = new SkillReflection({ repos, skills, usage, activeProvider: () => providers.active().id, models: activeModels });
+  // These passes run on Claude whatever provider the bots run on, so they pick among Claude's models.
+  const claudeModels = () => providers.modelsSync('claude');
+  const distiller = new SkillDistiller({ repos, skills, recorder, usage, claudeReady, models: claudeModels });
+  router.skillReflection = new SkillReflection({ repos, skills, usage, claudeReady, models: claudeModels });
   // Bot training: opt-in per bot, weekly, and only the owner's Approve changes a bot.
-  const training = new Training({ repos, memory, usage, activeProvider: () => providers.active().id, models: activeModels, ...opts.training });
+  const training = new Training({ repos, memory, usage, claudeReady, models: claudeModels, ...opts.training });
   skills.versionsRepo.prune(repos.listBots().map((b) => b.id));
   training.prune(repos.listBots().map((b) => b.id));
   const offP6 = events.onEvent((ev) => {

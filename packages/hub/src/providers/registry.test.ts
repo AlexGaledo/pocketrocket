@@ -51,7 +51,7 @@ describe('provider registry', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toContain('not implemented yet');
     expect(outcome.usage).toEqual(EMPTY_USAGE);
-    expect(stub.interrupt()).toBe(false);
+    expect(stub.interrupt('t1')).toBe(false);
   });
 
   it('caches checks for 60s and re-runs them on force', async () => {
@@ -137,5 +137,40 @@ describe('provider limits (M5, spec 01 P0-2)', () => {
       off();
     }
     expect(seen).toMatchObject([[{ provider: 'claude', status: 'held', window: 'five_hour' }]]);
+  });
+});
+
+describe('M6: provider per bot in the registry', () => {
+  it('forBot uses the bot\'s own provider, else the default; a disabled one resolves to Claude', () => {
+    const reg = createProviders({ settings: { get: () => ({ ...DEFAULT_SETTINGS, provider: 'codex' }) }, enabled: ['claude', 'codex'] });
+    expect(reg.forBot({ provider: null }).id).toBe('codex');
+    expect(reg.forBot({}).id).toBe('codex');
+    expect(reg.forBot({ provider: 'claude' }).id).toBe('claude');
+    expect(reg.forBot({ provider: 'grok' }).id).toBe('claude');
+  });
+
+  it('claudeReady needs the CLI, a sign-in the last check did not deny, and no whole-login hold', async () => {
+    let exe = true;
+    const health = new ProviderHealth();
+    const reg = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'], health, claudeExe: () => exe });
+    expect(reg.claudeReady()).toBe(true);
+    exe = false;
+    expect(reg.claudeReady()).toBe(false);
+    exe = true;
+
+    // A weekly Opus hold covers Opus only: the Haiku passes still run. A five-hour hold stops them until it clears.
+    health.hold('claude', { kind: 'usage', window: 'seven_day_opus', resetsAt: Date.now() + 60_000 }, 'claude-opus-5');
+    expect(reg.claudeReady()).toBe(true);
+    health.hold('claude', { kind: 'usage', window: 'five_hour', resetsAt: Date.now() + 60_000 });
+    expect(reg.claudeReady()).toBe(false);
+
+    const fresh = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'], claudeExe: () => true });
+    fresh.claude.check = async () => ({ ok: false, auth: 'none', error: 'Claude Code is installed but not signed in.' });
+    await fresh.check('claude', true);
+    expect(fresh.claudeReady()).toBe(false);
+    // A check that timed out says nothing about the login.
+    fresh.claude.check = async () => ({ ok: false, auth: 'unknown', unresponsive: true });
+    await fresh.check('claude', true);
+    expect(fresh.claudeReady()).toBe(true);
   });
 });

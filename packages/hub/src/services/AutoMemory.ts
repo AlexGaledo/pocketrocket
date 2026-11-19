@@ -3,7 +3,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import { query, type Options, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { Bot, Message, ProviderId } from '@pocketrocket/shared';
+import type { Bot, Message } from '@pocketrocket/shared';
 import { CLAUDE_EXE, VERSION } from '../config.js';
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
@@ -321,8 +321,11 @@ export interface AutoMemoryDeps {
   repos: Repos;
   memory: MemoryService;
   usage: UsageTracker;
-  /** The global provider; passes only run on Claude (the one v1 ships). */
-  activeProvider: () => ProviderId;
+  /**
+   * M6 (P1-6): Claude is set up (CLI, sign-in) and not held at a limit by ProviderHealth. The pass runs on Claude
+   * whatever provider the bot itself runs on, and is skipped while this is false.
+   */
+  claudeReady: () => boolean;
   /** Tests stub these two; the defaults check the CLI binary and call Haiku. */
   exeExists?: () => boolean;
   run?: (prompt: string, systemPrompt?: string) => Promise<PassOutcome>;
@@ -343,7 +346,7 @@ export class AutoMemory {
   afterTurn(botId: string, roomId: string, result: { ok: boolean; error?: string }): Promise<void> | undefined {
     const { repos } = this.deps;
     if (!result.ok || result.error) return;
-    if (this.deps.activeProvider() !== 'claude' || !(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) return;
+    if (!this.deps.claudeReady() || !(this.deps.exeExists ?? (() => fs.existsSync(CLAUDE_EXE)))()) return;
     const bot = repos.getBot(botId);
     if (!bot?.autoMemory) return;
 
@@ -406,7 +409,7 @@ export class AutoMemory {
   private recordUsage(botId: string, roomId: string, outcome: PassOutcome) {
     const u = outcome.usage;
     if (u.costUsd || u.inputTokens || u.outputTokens) {
-      this.deps.usage.record(botId, roomId, 'mem-' + nanoid(8), null, u, { model: AUTO_MEMORY_MODEL, routeReason: 'background', causeKind: 'memory' });
+      this.deps.usage.record(botId, roomId, 'mem-' + nanoid(8), null, u, { model: AUTO_MEMORY_MODEL, routeReason: 'background', causeKind: 'memory', provider: 'claude' });
     }
   }
 

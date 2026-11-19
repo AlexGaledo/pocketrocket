@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Each bot can run on its own provider (hub)
+
+- A bot can now have its own provider instead of following the one set in Settings. Only you can choose it, through the bot's settings (the REST API). A bot that tries to set a provider or a backup for itself or another bot is refused. The provider picker in the app comes in a later update.
+- The provider in Settings is now the default. New bots run on it, and so does every bot that has no provider of its own. Changing the default moves only those bots. A bot with its own provider stays where it is.
+- After a bot moves to another provider, its next turn in each chat starts a fresh session. It carries over a summary, the chat's notes and the recent messages, and posts "Ada now runs on Codex; earlier context carried over as a summary." Its memory and identity are unchanged. Before, a switch dropped the earlier conversation without saying so. Switching back starts fresh again in the same way.
+- You can store one backup (provider and model) for each bot. Nothing uses it yet. The "continue on the backup" card comes with failover.
+- Stop now goes to the provider that is running the turn, and two bots on two providers can run at the same time. The usage log records which provider ran each turn (`GET /api/usage` adds `byProvider`), and `GET /api/debug/last-init` is split by provider.
+- Auto-memory, rotation summaries, skill distilling, skill reflection and training run on Claude for every bot, whatever provider the bot uses. They pause while Claude is missing, signed out or at its usage limit.
+- Bots on providers other than Claude get their skills as a list in their instructions, plus a read-only `read_skill` tool to open one. The list stays the same for the whole session.
+
 ### Claude limits are understood, not posted (hub)
 
 - When Claude's plan limit is reached, the bot's turn ends with a clear note such as "Ada turn ended: Claude 5-hour limit reached, resets 14:00." in the hub's local time. Claude's own limit message is no longer posted as the bot's reply, so it can no longer wake other bots with an @mention.

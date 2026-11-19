@@ -1,7 +1,7 @@
 /** How many bots one room can hold. Rooms bigger than this get noisy and slow, and every mention fans out to all of them. */
 export const MAX_ROOM_BOTS = 20;
 
-import type { Approvals } from './providers.js';
+import type { Approvals, ProviderId } from './providers.js';
 import type { TriggerPayload } from './triggers.js';
 
 export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done' | 'error';
@@ -94,6 +94,21 @@ export interface Bot {
   autoMemory: boolean;
   autoMemoryEvery: number; // completed turns per (bot, room) between passes
   createdAt: number;
+  /**
+   * M6: the provider this bot runs on, or null to follow the default (settings.provider). Only the owner sets it
+   * (REST); no bot tool can. Absent from hubs older than v0.5: treat as null.
+   */
+  provider?: ProviderId | null;
+  /**
+   * M6: the one backup the owner picked for when this bot's provider hits its limit, or null. Stored and returned
+   * now; the failover card that uses it comes later (M8). Owner-only, like `provider`. Absent from older hubs.
+   */
+  backup?: BotBackup | null;
+}
+/** A bot's backup: a provider and one of its models. */
+export interface BotBackup {
+  provider: ProviderId;
+  model: string;
 }
 /** Bounds and default for `Bot.autoMemoryEvery`. */
 export const AUTO_MEMORY_EVERY = { default: 10, min: 3, max: 100 } as const;
@@ -420,9 +435,20 @@ export const MAX_ROUTING_BYTES = 2048;
 export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'workflow', 'memory', 'reflection', 'training'] as const;
 export type CauseKind = (typeof CAUSE_KINDS)[number];
 
-/** One row of a usage breakdown: `key` is a model id or a cause kind; '' for rows recorded before P8. */
+/**
+ * One row of a usage breakdown: `key` is a model id, a cause kind or a provider id; '' for rows recorded before the
+ * field existed (P8 for model and cause, v0.5 for provider).
+ */
 export interface UsageGroup extends UsageTotals {
   key: string;
+}
+/** GET /api/usage. `byModel`/`byCause` arrive from P8 hubs and `byProvider` from v0.5 hubs; older ones leave them out. */
+export interface UsageResponse {
+  totals: UsageTotals;
+  rows: UsageRow[];
+  byModel?: UsageGroup[];
+  byCause?: UsageGroup[];
+  byProvider?: UsageGroup[];
 }
 
 // ---------- P7: knowledge repo, voice ----------
