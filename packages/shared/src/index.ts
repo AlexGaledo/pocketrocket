@@ -39,3 +39,6 @@ export * from './projectRepos.js';
 
 // Workflows v1 (OpenBot gaps M4)
 export * from './workflows.js';
+
+// Project map and overview (Toki UI B2, B3)
+export * from './projectMap.js';
