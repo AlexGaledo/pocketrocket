@@ -33,7 +33,7 @@ async function setup(opts: { bypass?: boolean } = {}) {
   const conn = await svc.connectToken('github', { token: PAT });
   const confirm = (a: { tool: string; reason: string; input: Record<string, unknown> }) =>
     broker.askIntegrationWrite(permCtx, a.tool, a.input, a.reason, new AbortController().signal);
-  return { svc, f, bot, other, broker, conn, tools: (botId = bot.id) => createIntegrationTools(svc, botId, confirm) };
+  return { svc, f, bot, other, broker, conn, permCtx, tools: (botId = bot.id) => createIntegrationTools(svc, botId, confirm) };
 }
 
 function answerCards(broker: PermissionBroker, d: 'allow' | 'always' | 'deny') {
@@ -201,4 +201,27 @@ describe('pasted tokens', () => {
     await expect(s.svc.connectToken('clickup', { token: 'pk_123_ABCDEFGHIJKLMNOPQRST' })).rejects.toThrow(/Token invalid/);
     expect(s.svc.repo.byProvider('clickup')).toBeUndefined();
   });
+});
+
+describe('Google writes need a signed-in browser', () => {
+  for (const tool of INTEGRATION_TOOLS.google.write) {
+    it(tool + ': a card even under bypass, once only, and the hub token alone cannot allow it', async () => {
+      const s = await setup({ bypass: true });
+      const cards: ApprovalPayload[] = [];
+      const off = events.onEvent((ev) => { if (ev.type === 'approval.request') cards.push(ev.approval); });
+      const pending = s.broker.askIntegrationWrite(
+        s.permCtx, tool, { to: 'boss@example.com', subject: 'hi', body: 'x' }, 'send', new AbortController().signal,
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      off();
+      expect(cards).toHaveLength(1);
+      expect(cards[0].signInRequired).toBe(true);
+      expect(cards[0].once).toBe(true);
+      // A bot that read the hub token answers its own card: refused, the card stays open.
+      expect(s.broker.resolve(cards[0].approvalId, 'allow')).toBe(false);
+      // The owner's signed-in browser allows it.
+      expect(s.broker.resolve(cards[0].approvalId, 'allow', { signedIn: true })).toBe(true);
+      expect((await pending).allowed).toBe(true);
+    });
+  }
 });
