@@ -6,7 +6,7 @@
  * with one real task, with and without it, before cloning from it. See docs/project-folders.md.
  */
 export const DEV_TEAM_TEMPLATE = {
-  version: 2,
+  version: 3,
   /**
    * Existing bots to clone. Their general role text and skills carry over; the project details do not exist yet.
    * Three roles on purpose: one to plan, one to build, and one to check the work independently. Add a specialist such
@@ -17,8 +17,11 @@ export const DEV_TEAM_TEMPLATE = {
     { source: 'software-engineer', suffix: 'engineer', coordinator: false },
     { source: 'quality-engineer', suffix: 'quality', coordinator: false },
   ],
-  /** Every clone gets these, whatever its source has. safe-shipping is what turns on the push block (shipGuard.ts). */
-  skills: ['safe-shipping'],
+  /**
+   * Every clone gets these, whatever its source has. safe-shipping is what turns on the push block (shipGuard.ts).
+   * project-map (v3) tells a bot how to write the project's map.json; it ships with the hub (builtinSkills.ts).
+   */
+  skills: ['safe-shipping', 'project-map'],
   rules: [
     "Never revert, discard, stash away or overwrite changes you did not make, even to tidy up. If someone else's work is in the way, say so and leave it.",
     'Never commit to or push the default branch. Work on a branch and open a pull request for the owner to review.',

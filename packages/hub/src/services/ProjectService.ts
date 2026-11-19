@@ -2,14 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
-  ALWAYS_PROTECTED_BRANCHES, BotInputSchema, ProjectReposFileSchema, normaliseRemote,
-  type Bot, type PcRepo, type PcSessionLink, type PcSyncJobInfo, type ProjectRepo, type ProjectReposFile, type Room,
+  ALWAYS_PROTECTED_BRANCHES, BotInputSchema, MAP_FILE, MAX_MAP_BYTES, ProjectReposFileSchema, checkProjectMap, normaliseRemote,
+  type Bot, type ProjectMapReply, type ProjectOverview, type PcRepo, type PcSessionLink, type PcSyncJobInfo, type ProjectRepo, type ProjectReposFile, type Room,
 } from '@pocketrocket/shared';
 import type { Db, Row } from '../db/db.js';
 import type { Repos } from '../db/repos.js';
 import type { MemoryService } from './MemoryService.js';
 import { DEV_TEAM_TEMPLATE, cloneDescription, templateRecord } from './devTeamTemplate.js';
 import { sandboxActive } from '../providers/sandbox.js';
+import { EMPTY_OVERVIEW, parseProjectOverview } from './projectOverview.js';
 
 export interface Project {
   slug: string;
@@ -32,6 +33,8 @@ export class ProjectError extends Error {
 
 const TEXT = new Set(['.md', '.markdown', '.txt', '.csv', '.json', '.yaml', '.yml']);
 const MAX_FILE_BYTES = 2_000_000;
+/** current.md past this is read only this far for the overview. */
+const MAX_OVERVIEW_BYTES = 256 * 1024;
 const CHUNK_CHARS = 1200;
 const TINY_CHARS = 80;
 const STOP = new Set('a an the is are was were be of to in on for and or what which who how when where why do does did i we our my it its this that these those with at by from as ang ng sa na ba yung mga si ni kay para ano paano saan bakit kailan sino ko mo natin namin ito iyon po ha lang din rin may meron'.split(' '));
@@ -256,6 +259,55 @@ export class ProjectService {
     fs.renameSync(tmp, file);
     this.reposCache.delete(slug);
     return r.data;
+  }
+
+  // ---- map.json and the overview (Toki UI B2, B3) ----
+
+  /**
+   * A file at the top of the project's folder, by a fixed name, or null when it is missing or is not a regular file.
+   * lstat, so a symlink or junction a bot planted there is never followed out of the folder.
+   */
+  private topFile(slug: string, name: string): { file: string; st: fs.Stats } | null {
+    const file = path.join(this.dirOf(slug), name);
+    try {
+      const st = fs.lstatSync(file);
+      return st.isFile() ? { file, st } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The project's map.json, checked against ProjectMapSchema. Never throws for a bad file: the reply carries the error. */
+  map(slug: string): ProjectMapReply {
+    this.need(slug);
+    const hit = this.topFile(slug, MAP_FILE);
+    if (!hit) return { map: null, error: null, mtime: null, droppedEdges: 0 };
+    const mtime = Math.round(hit.st.mtimeMs);
+    if (hit.st.size > MAX_MAP_BYTES) return { map: null, error: 'map.json is too large (over ' + MAX_MAP_BYTES / 1024 + ' KB)', mtime, droppedEdges: 0 };
+    let json: unknown;
+    try {
+      json = JSON.parse(fs.readFileSync(hit.file, 'utf8').replace(/^\uFEFF/, ''));
+    } catch (e) {
+      return { map: null, error: 'map.json is not valid JSON: ' + (e instanceof Error ? e.message : String(e)).slice(0, 200), mtime, droppedEdges: 0 };
+    }
+    const r = checkProjectMap(json);
+    if ('error' in r) return { map: null, error: 'map.json: ' + r.error, mtime, droppedEdges: 0 };
+    return { map: r.map, error: null, mtime, droppedEdges: r.droppedEdges };
+  }
+
+  /** Stage, next step, done and waiting items from the project's current.md, with no AI turn. */
+  overview(slug: string): ProjectOverview {
+    this.need(slug);
+    const hit = this.topFile(slug, 'current.md');
+    if (!hit) return { ...EMPTY_OVERVIEW, done: [], waiting: [] };
+    const fd = fs.openSync(hit.file, 'r');
+    try {
+      const buf = Buffer.alloc(Math.min(hit.st.size, MAX_OVERVIEW_BYTES));
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      return parseProjectOverview(buf.subarray(0, n).toString('utf8'));
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 
   /** Every repo of every project, with its project's slug. */
