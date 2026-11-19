@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, type ModelInfo, type ProviderId } from '@pocketrocket/shared';
+import { DEFAULT_SETTINGS, type ModelInfo, type ProviderId, type ServerEvent } from '@pocketrocket/shared';
+import { events } from '../events.js';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
 import { MemoryService } from '../services/MemoryService.js';
@@ -105,5 +106,31 @@ describe('M8 (P4-1): rotation for any provider that reports its context size', (
     };
     await s.turn();
     expect(s.notes()).toContain("Ada's Claude session compacted its conversation context to make room; earlier details may be summarised.");
+  });
+});
+
+describe('P4-2: turn.end carries the context meter', () => {
+  const ends = async (s: ReturnType<typeof setup>) => {
+    const seen: ServerEvent[] = [];
+    const off = events.onEvent((ev) => { if (ev.type === 'turn.end' && ev.botId === s.bot.id) seen.push(ev); });
+    try { await s.turn(); } finally { off(); }
+    return seen as Extract<ServerEvent, { type: 'turn.end' }>[];
+  };
+
+  it('with size, window and rotation point when the provider reports context size', async () => {
+    const s = setup();
+    s.claude.reportsContextTokens = true;
+    s.claude.next = () => ({ contextTokens: 84_000, contextWindow: 1_000_000 });
+    const [end] = await ends(s);
+    expect(end.context).toEqual({ contextTokens: 84_000, window: 1_000_000, rotateAt: 120_000 });
+    expect(s.repos.getSessionState(s.bot.id, s.room.id).contextWindow).toBe(1_000_000);
+  });
+
+  it('without it when the provider does not', async () => {
+    const s = setup();
+    s.claude.next = () => ({ contextTokens: 84_000 });
+    const [end] = await ends(s);
+    expect(end).toBeDefined();
+    expect(end.context).toBeUndefined();
   });
 });

@@ -349,6 +349,7 @@ export class Repos {
       costTotal: num(r?.cost_total),
       contextTokens: num(r?.context_tokens),
       contextAt: num(r?.context_at),
+      contextWindow: num(r?.context_window),
       memorySnapshot: str(r?.memory_snapshot),
       identitySnapshot: str(r?.identity_snapshot),
       summary: str(r?.summary),
@@ -357,7 +358,7 @@ export class Repos {
   /** Writes only the fields given (an explicit null clears one). Creates the row when there is none. */
   saveSessionState(botId: string, roomId: string, patch: Partial<SessionState>) {
     const cols: Record<keyof SessionState, string> = {
-      costTotal: 'cost_total', contextTokens: 'context_tokens', contextAt: 'context_at',
+      costTotal: 'cost_total', contextTokens: 'context_tokens', contextAt: 'context_at', contextWindow: 'context_window',
       memorySnapshot: 'memory_snapshot', identitySnapshot: 'identity_snapshot', summary: 'summary',
     };
     const keys = (Object.keys(patch) as (keyof SessionState)[]).filter((k) => k in cols && patch[k] !== undefined);
@@ -764,6 +765,8 @@ export interface SessionState {
   contextTokens: number | null;
   /** When contextTokens was measured (ms). */
   contextAt: number | null;
+  /** P4-2: the model's context window as the provider last reported it; null = never reported. */
+  contextWindow: number | null;
   memorySnapshot: string | null;
   identitySnapshot: string | null;
   /** The hub's running room summary, written when the session rotates. */

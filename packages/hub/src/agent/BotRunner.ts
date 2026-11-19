@@ -47,7 +47,7 @@ import { computerToolGuard } from '../permissions/controlInterlock.js';
 import { decisionsWriteDenied, relIn, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
 import type { MediaStore } from '../services/MediaStore.js';
 import { AUTO_MEMORY_MODEL, runPass, type PassOutcome } from '../services/AutoMemory.js';
-import { buildSeed, buildSummaryPrompt, cleanSummary, readRoomNotes, rotationNote, rotationReason, SUMMARY_SYSTEM_PROMPT, SWITCH_SEED_LEAD, switchNote } from '../services/SessionRotation.js';
+import { buildSeed, buildSummaryPrompt, cleanSummary, contextUsage, readRoomNotes, rotationNote, rotationReason, SUMMARY_SYSTEM_PROMPT, SWITCH_SEED_LEAD, switchNote } from '../services/SessionRotation.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -837,7 +837,9 @@ export class BotRunner {
         cacheRead += o.usage.cacheReadTokens;
         // The session's cumulative cost is the next run's baseline; the last call's input size decides rotation.
         if (o.sessionCostUsd !== undefined) this.repos.saveSessionState(bot.id, room.id, { costTotal: o.sessionCostUsd });
-        if (o.contextTokens !== undefined) this.repos.saveSessionState(bot.id, room.id, { contextTokens: o.contextTokens, contextAt: Date.now() });
+        if (o.contextTokens !== undefined) {
+          this.repos.saveSessionState(bot.id, room.id, { contextTokens: o.contextTokens, contextAt: Date.now(), ...(o.contextWindow ? { contextWindow: o.contextWindow } : {}) });
+        }
         // Only turns the provider actually accounted for become usage rows (matches the pre-provider
         // behaviour: a turn that died before any result reported nothing).
         const u = o.usage;
@@ -977,6 +979,9 @@ export class BotRunner {
     }
 
     flushPending();
+    // P4-2: the session's context size for the meter, from providers that measure it.
+    const ctxUsage = provider.reportsContextTokens ? contextUsage(this.repos.getSessionState(bot.id, room.id)) : undefined;
+    const context = ctxUsage ? { context: ctxUsage } : {};
     if (parkedWhy) {
       // Not a failure: the bot is waiting on the user, and a new turn picks it up with their answer.
       const msg = this.repos.insertMessage({
@@ -985,7 +990,7 @@ export class BotRunner {
         causeId: req.causeId, hop: req.hop, turnId,
       });
       events.emitEvent({ type: 'message.new', message: msg });
-      events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd });
+      events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, ...context });
       setState('done', 'parked');
       return { ok: false, parked: true, turnId, finalText: texts.join('\n\n'), costUsd, model: route.model, modelReason: route.detail, ...steerResult() };
     }
@@ -994,7 +999,7 @@ export class BotRunner {
     if (stoppedByOwner) {
       // 02 task 2.3: a stop the owner asked for is not a failure. No failure note, no error event or state: the router
       // posts one "stopped by you" note once it knows whether unanswered steers or a queue run next.
-      events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, stoppedBy: 'owner' });
+      events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, stoppedBy: 'owner', ...context });
       setState('done');
       return {
         ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail,
@@ -1015,7 +1020,7 @@ export class BotRunner {
       });
       events.emitEvent({ type: 'message.new', message: msg });
     }
-    events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, error });
+    events.emitEvent({ type: 'turn.end', turnId, roomId: room.id, botId: bot.id, messageId: lastMessageId, costUsd, error, ...context });
     setState(error ? 'error' : 'done');
     return {
       ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail,

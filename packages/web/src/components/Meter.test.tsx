@@ -25,6 +25,13 @@ describe('Meter', () => {
     expect(held).toContain('>40%<');
   });
 
+  it('P4-2: reads the marker after the value and draws a tick where it sits', () => {
+    const html = renderToStaticMarkup(<Meter label="Context" value={42} detail="84k of 200k tokens" marker={{ value: 60, label: 'a fresh session starts at 120k' }} />);
+    expect(html).toContain('aria-valuetext="Context 42%, 84k of 200k tokens; a fresh session starts at 120k"');
+    expect(html).toMatch(/data-meter-marker[^>]*left:60%/);
+    expect(renderToStaticMarkup(<Meter label="x" value={42} />)).not.toContain('data-meter-marker');
+  });
+
   it('clamps out-of-range values', () => {
     expect(renderToStaticMarkup(<Meter label="x" value={140} />)).toContain('aria-valuenow="100"');
     expect(renderToStaticMarkup(<Meter label="x" value={-3} />)).toContain('aria-valuenow="0"');

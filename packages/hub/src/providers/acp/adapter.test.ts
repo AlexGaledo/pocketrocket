@@ -90,6 +90,7 @@ describe('ACP adapter: a plain text turn', () => {
     expect(r.only('text')).toEqual([['text', 'Hello there']]);
     expect(r.only('session')).toEqual([['session', 'sess-1']]);
     expect(o.contextTokens).toBe(12345);
+    expect(o.contextWindow).toBe(200000);
     expect(o.costUsd).toBeCloseTo(0.25);
     expect(o.sessionCostUsd).toBeCloseTo(0.25);
 

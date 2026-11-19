@@ -520,6 +520,8 @@ registerMigrations([170, 179], [
       addColumnIfMissing(db, 'sessions', 'summary', 'TEXT');
     },
   },
+  // P4-2: the context window the provider last reported for the session's model, for the context meter. NULL = not reported.
+  { version: 171, name: 'sessions.context_window', up: (db) => addColumnIfMissing(db, 'sessions', 'context_window', 'INTEGER') },
 ]);
 
 // ---------------------------------------------------------------------------------------------------

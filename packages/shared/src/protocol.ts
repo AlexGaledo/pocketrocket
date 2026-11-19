@@ -12,6 +12,13 @@ import { FormAnswersSchema } from './cards.js';
 import type { PcSessionUpdatedEvent } from './pcSessions.js';
 import type { WorkflowApprovalCard, WorkflowRunSummary } from './workflows.js';
 
+/**
+ * P4-2: how full a (bot, room) session's context is. `contextTokens` = input size of the last model call; `window` = the
+ * model's context window; `rotateAt` = the size past which the next turn starts a fresh session (null: rotation off).
+ * Sent on `turn.end` and by GET /api/rooms/:id/context, only for providers that report context size.
+ */
+export interface ContextUsage { contextTokens: number; window: number; rotateAt: number | null }
+
 // ---------- server -> client ----------
 export type ServerEvent =
   | { type: 'hello'; bots: Bot[]; rooms: Room[]; botStates: Record<string, BotState>; settings: Settings; /** Who this connection is (P9): a paired device has narrower rights (guard.ts DEVICE_ALLOW). */ principal?: 'hub' | 'device'; /** This connection carries a browser session (owner password), so it may allow sign-in-required cards. */ signedIn?: boolean; /** Every card still waiting, including ones in rooms this client has not loaded. */ openApprovals?: OpenApproval[] }
@@ -34,8 +41,9 @@ export type ServerEvent =
   /**
    * `stoppedBy: 'owner'`: the owner stopped it (Stop, or a queue's Send now); it carries no `error` then, because a stop
    * the owner asked for is not a failure, and the room gets a "stopped by you" note instead of a failure note.
+   * `context` (P4-2): the (bot, room) session's context size after the turn; only from providers that report it.
    */
-  | { type: 'turn.end'; turnId: string; roomId: string; botId: string; messageId?: string; costUsd?: number; error?: string; stoppedBy?: 'owner' }
+  | { type: 'turn.end'; turnId: string; roomId: string; botId: string; messageId?: string; costUsd?: number; error?: string; stoppedBy?: 'owner'; context?: ContextUsage }
   | { type: 'bot.state'; botId: string; state: BotState; roomId?: string; note?: string }
   | { type: 'approval.request'; roomId: string; botId: string; messageId: string; approval: ApprovalPayload }
   | { type: 'approval.resolved'; approvalId: string; decision: ApprovalPayload['status'] }

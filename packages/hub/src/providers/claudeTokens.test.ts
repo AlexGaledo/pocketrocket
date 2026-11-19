@@ -29,7 +29,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
   },
 }));
 
-const { ClaudeProvider, runCostUsd, sdkBudgetUsd, callInputTokens, claudeChildEnv, tokenBrakeError } = await import('./claude.js');
+const { ClaudeProvider, runCostUsd, sdkBudgetUsd, callInputTokens, claudeChildEnv, tokenBrakeError, contextWindowOf } = await import('./claude.js');
 const { turnFailureNote } = await import('../agent/turnFailure.js');
 const { BASH_MAX_OUTPUT_CHARS, MAX_MCP_OUTPUT_TOKENS } = await import('../config.js');
 
@@ -97,6 +97,21 @@ describe('context size and the token brake', () => {
     const out = await new ClaudeProvider().runTurn(ctx(), sink);
     expect(out.contextTokens).toBe(callInputTokens(usage(30_000)));
     expect(out.braked).toBeUndefined();
+    // The result here carries no contextWindow, so none is reported (the meter falls back to its default).
+    expect(out.contextWindow).toBeUndefined();
+  });
+
+  it('P4-2: reports the context window of the model that answered, from modelUsage', async () => {
+    script = [
+      { ...assistant('m1', 10_000), message: { ...assistant('m1', 10_000).message, model: 'claude-sonnet-5' } },
+      { ...result(0.1, 10_000), modelUsage: { 'claude-haiku-4-5': { costUSD: 0, contextWindow: 200_000 }, 'claude-sonnet-5': { costUSD: 0.1, contextWindow: 1_000_000 } } },
+    ];
+    expect((await new ClaudeProvider().runTurn(ctx(), sink)).contextWindow).toBe(1_000_000);
+    expect(contextWindowOf({ a: { contextWindow: 200_000 }, b: { contextWindow: 1_000_000 } }, 'a')).toBe(200_000);
+    expect(contextWindowOf({ a: { contextWindow: 200_000 }, b: { contextWindow: 500_000 } }, undefined)).toBe(500_000);
+    expect(contextWindowOf({ a: { costUSD: 1 } }, 'a')).toBeUndefined();
+    expect(contextWindowOf({ a: { contextWindow: -1 } }, 'a')).toBeUndefined();
+    expect(contextWindowOf(undefined, 'a')).toBeUndefined();
   });
 
   it('interrupts once the running cache-read sum passes the budget, and says so', async () => {

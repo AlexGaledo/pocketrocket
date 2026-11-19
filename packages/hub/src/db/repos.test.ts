@@ -75,7 +75,7 @@ describe('session state (migration 170)', () => {
     const room = r.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
     // A row written the old way: no cost_total, no context size.
     r.saveSession(bot.id, room.id, { sdkSessionId: 'old', lastSeenSeq: 3, provider: 'claude' });
-    expect(r.getSessionState(bot.id, room.id)).toEqual({ costTotal: null, contextTokens: null, contextAt: null, memorySnapshot: null, identitySnapshot: null, summary: null });
+    expect(r.getSessionState(bot.id, room.id)).toEqual({ costTotal: null, contextTokens: null, contextAt: null, contextWindow: null, memorySnapshot: null, identitySnapshot: null, summary: null });
     r.saveSessionState(bot.id, room.id, { contextTokens: 5000, costTotal: 1.5 });
     r.saveSessionState(bot.id, room.id, { summary: '- s' });
     expect(r.getSessionState(bot.id, room.id)).toMatchObject({ contextTokens: 5000, costTotal: 1.5, summary: '- s' });
