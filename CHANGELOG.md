@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The persona reads every project (hub)
+
+- The persona bot can read every project's folder from any room, read-only. It still writes only in the folder of the room it is in: the other projects are read-only roots (mounted read-only in the bot sandbox, refused by the write guard even with approvals bypassed).
+- Its prompt says so, so it stops telling the owner a project's folder is closed to it.
+- Other rooms' folders, the hub's keys, token and database stay out of reach. Other bots are unchanged.
+
 ## [0.5.1] - 2026-11-20
 
 ### Desktop: Tauri 2.12 (desktop)

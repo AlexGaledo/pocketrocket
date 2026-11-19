@@ -591,6 +591,13 @@ export class BotRunner {
     const folderDir = folder ? this.roomFiles!.ensure(folder) : null;
     const roomProject = folder?.kind === 'project' ? this.projects?.get(folder.projectSlug!) : undefined;
     const projectRepos = roomProject ? this.projects!.reposFile(roomProject.slug).repos : [];
+    // The persona is the owner's admin: it may read every project's folder from any room, read-only. Writes stay
+    // limited to the room's own folder (the read-only roots below are mounted read-only in the sandbox and refused
+    // by the write guard, bypass or not). The hub's key files are never under a project folder.
+    const isPersona = settings.get().personaBotId === bot.id;
+    const personaProjectDirs = isPersona && this.projects
+      ? this.projects.list().filter((p) => p.slug !== roomProject?.slug && (!folderDir || path.resolve(p.dir) !== path.resolve(folderDir))).map((p) => p.dir)
+      : [];
     const mcpToken = this.turns.registerTurn(tools, computerToolGuard(controlBlocked));
     // The per-turn MCP bearer travels in provider config and can surface in a stderr tail; scrub it
     // everywhere until the turn ends (audit 2026-09-09, B22).
@@ -656,7 +663,7 @@ export class BotRunner {
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
-      readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length ? [path.dirname(images[0].path)] : [])],
+      readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length ? [path.dirname(images[0].path)] : []), ...personaProjectDirs],
       projectDirs: folderDir ? [folderDir] : [],
       // The safe-shipping skill turns the default-branch check on per bot; a project's repo list turns it on, with the repos'
       // own protected branches, for any bot on that project's chat.
@@ -670,7 +677,9 @@ export class BotRunner {
         : undefined,
       projectGuard: this.projects || this.roomFiles
         ? (name, input, cwd) => folderAccessDenied(name, input, cwd, [
-            ...(this.projects ? [{ root: this.projects.root, allowed: roomProject ? [roomProject.slug] : [], known: this.projects.knownSlugs() }] : []),
+            ...(this.projects
+              ? [{ root: this.projects.root, allowed: isPersona ? this.projects.knownSlugs() : roomProject ? [roomProject.slug] : [], known: this.projects.knownSlugs() }]
+              : []),
             ...(this.roomFiles
               ? [{ root: this.roomFiles.roomsDir, allowed: folder?.kind === 'room' ? [room.id] : [], known: this.repos.listRooms().map((r) => r.id) }]
               : []),
