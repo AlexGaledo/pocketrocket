@@ -137,7 +137,7 @@ export interface HubOptions {
   /** Recorder overrides (tests: availability, a fake CDP, fake scrot/xdotool, a temp folder). */
   recorder?: Partial<Omit<RecorderDeps, 'computers' | 'control'>>;
   /** Bot training overrides (tests: a fake one-shot runner, a fixed clock or zone). */
-  training?: Partial<Pick<TrainingDeps, 'run' | 'exeExists' | 'now' | 'timezone'>>;
+  training?: Partial<Pick<TrainingDeps, 'run' | 'exeExists' | 'claudeReady' | 'now' | 'timezone'>>;
   /** Uploaded pictures; tests hand in a temp folder. Defaults to data/media. */
   mediaDir?: string;
   /** Outside MCP servers file (data/mcp-servers.json); tests hand in a temp file, and a fake fetch for the check route. */

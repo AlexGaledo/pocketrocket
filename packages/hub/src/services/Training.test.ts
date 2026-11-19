@@ -669,7 +669,7 @@ describe('REST', () => {
   let hub: Hub;
   let port: number;
   beforeAll(async () => {
-    hub = createHub({ port: 0, dbFile: ':memory:', skipBootstrap: true, token: TOKEN, recorder: { dir: (b) => path.join(dir, b) }, training: { run: llm.run, exeExists: () => true, timezone: () => 'UTC' } });
+    hub = createHub({ port: 0, dbFile: ':memory:', skipBootstrap: true, token: TOKEN, recorder: { dir: (b) => path.join(dir, b) }, training: { run: llm.run, exeExists: () => true, claudeReady: () => true, timezone: () => 'UTC' } });
     port = await hub.listen();
   });
   afterAll(async () => {
