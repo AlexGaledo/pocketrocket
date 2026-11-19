@@ -8,7 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PROVIDER_IDS } from '@pocketrocket/shared';
 import { childEnv } from './env.js';
 import { MCP_STDIO_BRIDGE, findExe } from './acp/client.js';
-import { GEMINI_INFO, agyVersionWarning, createGeminiProvider, geminiLimit, parseAgyVersion, parseGeminiAuth } from './gemini.js';
+import { GEMINI_INFO, agySettingsPath, agyVersionWarning, createGeminiProvider, geminiLimit, inferGeminiAuth, parseAgyVersion, parseGeminiAuth, readAgyModelProvider } from './gemini.js';
+import { unattendedRefusal } from './unattended.js';
+import type { Bot } from '@pocketrocket/shared';
 
 /** P2-2: the Gemini preset (`agy acp`). Untested against a real agy; these pin the contract the owner's live test checks. */
 
@@ -20,15 +22,17 @@ const FIXTURE = JSON.parse(fs.readFileSync(path.join(HERE, '__fixtures__', 'gemi
 >;
 
 let tmp: string;
-const saved = { PATH: process.env.PATH, AGY_EXE: process.env.AGY_EXE };
+const saved = { PATH: process.env.PATH, AGY_EXE: process.env.AGY_EXE, GEMINI_API_KEY: process.env.GEMINI_API_KEY };
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-gemini-'));
   delete process.env.AGY_EXE;
+  delete process.env.GEMINI_API_KEY;
 });
 afterEach(() => {
   process.env.PATH = saved.PATH;
   if (saved.AGY_EXE === undefined) delete process.env.AGY_EXE;
   else process.env.AGY_EXE = saved.AGY_EXE;
+  if (saved.GEMINI_API_KEY !== undefined) process.env.GEMINI_API_KEY = saved.GEMINI_API_KEY;
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -75,6 +79,30 @@ describe('reported auth', () => {
   });
 });
 
+describe('auth agy does not report (live P2-4: agy 1.5.12 reports none)', () => {
+  it('a key in the spawn env plus modelProvider "gemini" is API-key auth', () => {
+    expect(inferGeminiAuth({ auth: 'unknown' }, { GEMINI_API_KEY: 'k' }, 'gemini')).toEqual({ auth: 'apiKey', method: 'gemini-api-key' });
+  });
+  it('fails closed: no key, a blank key, or settings that do not select gemini stay the Google login', () => {
+    expect(inferGeminiAuth({ auth: 'unknown' }, {}, 'gemini')).toEqual({ auth: 'unknown' });
+    expect(inferGeminiAuth({ auth: 'unknown' }, { GEMINI_API_KEY: '  ' }, 'gemini')).toEqual({ auth: 'unknown' });
+    expect(inferGeminiAuth({ auth: 'unknown' }, { GEMINI_API_KEY: 'k' }, null)).toEqual({ auth: 'unknown', keyIgnored: true });
+    expect(inferGeminiAuth({ auth: 'unknown' }, { GEMINI_API_KEY: 'k' }, 'google')).toEqual({ auth: 'unknown', keyIgnored: true });
+  });
+  it('an explicit report from agy wins over the key', () => {
+    expect(inferGeminiAuth({ auth: 'subscription', method: 'oauth-personal' }, { GEMINI_API_KEY: 'k' }, 'gemini')).toEqual({ auth: 'subscription', method: 'oauth-personal' });
+  });
+  it('reads modelProvider from agy settings, null when missing or broken', () => {
+    expect(agySettingsPath('/h')).toBe(path.join('/h', '.gemini', 'antigravity-cli', 'settings.json'));
+    const f = path.join(tmp, 'settings.json');
+    expect(readAgyModelProvider(f)).toBeNull();
+    fs.writeFileSync(f, '{ "modelProvider": "gemini" }');
+    expect(readAgyModelProvider(f)).toBe('gemini');
+    fs.writeFileSync(f, '{ not json');
+    expect(readAgyModelProvider(f)).toBeNull();
+  });
+});
+
 describe('limit matcher (synthetic fixture)', () => {
   it('reads a quota error as a usage limit with the retry delay as reset time', () => {
     const now = 1_000_000;
@@ -116,6 +144,49 @@ describe('check()', () => {
     const c = await createGeminiProvider({ exe: FAKE, env: { FAKE_ACP_META_AUTH: 'gemini-api-key' }, secrets: { get: () => null } }).check();
     expect(c.auth).toBe('apiKey');
     expect(c.authMethod).toBe('gemini-api-key');
+  });
+});
+
+describe('check() and the unattended guard with a key in the Secrets store', () => {
+  const gem = { name: 'Gem', provider: 'gemini' } as Bot;
+  function settings(modelProvider?: string) {
+    const f = path.join(tmp, 'agy-settings.json');
+    if (modelProvider) fs.writeFileSync(f, JSON.stringify({ modelProvider }));
+    return f;
+  }
+  function guardFor(p: ReturnType<typeof createGeminiProvider>) {
+    return { forBot: () => p, check: () => p.check() };
+  }
+
+  it('a key saved in Secrets (not in the hub env) with agy set to gemini: apiKey, and a routine may run', async () => {
+    expect(process.env.GEMINI_API_KEY).toBeUndefined();
+    const p = createGeminiProvider({ exe: FAKE, secrets: { get: (k) => (k === 'GEMINI_API_KEY' ? 'AIza-test' : null) }, agySettings: settings('gemini') });
+    const c = await p.check();
+    expect(c.auth).toBe('apiKey');
+    expect(c.authMethod).toBe('gemini-api-key');
+    expect(await unattendedRefusal(guardFor(p), gem)).toBeNull();
+  });
+
+  it('no key: still the Google login, and a routine is refused', async () => {
+    const p = createGeminiProvider({ exe: FAKE, secrets: { get: () => null }, agySettings: settings('gemini') });
+    const c = await p.check();
+    expect(c.auth).toBe('unknown');
+    expect(c.authMethod).toBeUndefined();
+    expect(await unattendedRefusal(guardFor(p), gem)).toMatch(/Gem did not run: Gemini on a Google sign-in/);
+  });
+
+  it('a key agy would ignore (settings not set to gemini): refused, and the hint says why', async () => {
+    const p = createGeminiProvider({ exe: FAKE, secrets: { get: () => 'AIza-test' }, agySettings: settings() });
+    const c = await p.check();
+    expect(c.auth).toBe('unknown');
+    expect(c.hint).toMatch(/"modelProvider": "gemini"/);
+    expect(await unattendedRefusal(guardFor(p), gem)).toMatch(/did not run/);
+  });
+
+  it('agy reporting the Google login wins over a saved key', async () => {
+    const p = createGeminiProvider({ exe: FAKE, env: { FAKE_ACP_META_AUTH: 'oauth-personal' }, secrets: { get: () => 'AIza-test' }, agySettings: settings('gemini') });
+    expect((await p.check()).auth).toBe('subscription');
+    expect(await unattendedRefusal(guardFor(p), gem)).toMatch(/did not run/);
   });
 });
 

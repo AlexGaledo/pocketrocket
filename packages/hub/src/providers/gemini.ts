@@ -1,9 +1,13 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { InitializeResponse } from '@agentclientprotocol/sdk';
 import type { ModelInfo, ProviderAuth, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
 import { SecretsStore } from '../services/SecretsStore.js';
 import { run } from './codex.js';
 import { AcpProvider, ACP_START_TIMEOUT_MS, type AcpPreset, type AcpProviderOptions } from './acp/adapter.js';
 import { findExe } from './acp/client.js';
+import { childEnv } from './env.js';
 import type { TurnLimit } from './types.js';
 
 /**
@@ -109,6 +113,42 @@ export function geminiLimit(text: string, now = Date.now()): TurnLimit | null {
   return null;
 }
 
+/** Where `agy` keeps its settings. Its `modelProvider` decides whether a Gemini API key is used at all. */
+export function agySettingsPath(home = os.homedir()): string {
+  return path.join(home, '.gemini', 'antigravity-cli', 'settings.json');
+}
+
+/** `modelProvider` from agy's settings file, or null when the file is missing, unreadable or has none. */
+export function readAgyModelProvider(file = agySettingsPath()): string | null {
+  try {
+    const v = (JSON.parse(fs.readFileSync(file, 'utf8')) as { modelProvider?: unknown } | null)?.modelProvider;
+    return typeof v === 'string' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The auth a turn would actually run on when `agy` does not report one itself (live P2-4: agy 1.5.12 reports none).
+ * agy uses the API key only when the key is in the env it is spawned with **and** its settings select
+ * `modelProvider: "gemini"`; with either missing it falls back to the Google sign-in. Both are required, so the
+ * unattended guard still fails closed on a half-done setup. An explicit report from agy always wins.
+ */
+export function inferGeminiAuth(
+  reported: { auth: ProviderAuth; method?: string },
+  spawnEnv: NodeJS.ProcessEnv,
+  modelProvider: string | null,
+): { auth: ProviderAuth; method?: string; keyIgnored?: boolean } {
+  if (reported.auth !== 'unknown') return reported;
+  const hasKey = !!spawnEnv[GEMINI_KEY_VAR]?.trim();
+  if (hasKey && modelProvider === 'gemini') return { auth: 'apiKey', method: 'gemini-api-key' };
+  return hasKey ? { ...reported, keyIgnored: true } : reported;
+}
+
+export const GEMINI_KEY_IGNORED_HINT =
+  'A Gemini API key is saved, but agy only uses it when ~/.gemini/antigravity-cli/settings.json has ' +
+  '"modelProvider": "gemini". Until then it runs on the Google sign-in, so routines and triggers stay off.';
+
 export function findAgyExe(): Promise<string | null> {
   // AGY_EXE first; the default install folder is added once a live install confirms it (spec 01 §4.8); then PATH.
   return findExe('agy', 'AGY_EXE');
@@ -116,11 +156,17 @@ export function findAgyExe(): Promise<string | null> {
 
 export interface GeminiProviderOptions extends AcpProviderOptions {
   secrets?: Pick<SecretsStore, 'get'>;
+  /** agy's settings file (tests). Default: `agySettingsPath()`. */
+  agySettings?: string;
 }
 
 export function geminiPreset(opts: GeminiProviderOptions = {}): AcpPreset {
   const secrets = opts.secrets ?? new SecretsStore();
   const findExe = () => (opts.exe ? Promise.resolve(opts.exe) : findAgyExe());
+  const env = (): NodeJS.ProcessEnv => {
+    const key = secrets.get(GEMINI_KEY_VAR);
+    return key ? { [GEMINI_KEY_VAR]: key } : {};
+  };
   return {
     info: GEMINI_INFO,
     envKind: 'gemini',
@@ -129,10 +175,7 @@ export function geminiPreset(opts: GeminiProviderOptions = {}): AcpPreset {
     cliName: 'agy',
     findExe,
     args: ['acp'],
-    env: () => {
-      const key = secrets.get(GEMINI_KEY_VAR);
-      return key ? { [GEMINI_KEY_VAR]: key } : {};
-    },
+    env,
     limitOf: (text) => geminiLimit(text),
     async check(probe): Promise<ProviderCheck> {
       const exe = await findExe();
@@ -147,7 +190,9 @@ export function geminiPreset(opts: GeminiProviderOptions = {}): AcpPreset {
       }
       const version = parseAgyVersion(v.stdout + '\n' + v.stderr) ?? parseAgyVersion(p.init.agentInfo?.version ?? '');
       const warning = agyVersionWarning(version);
-      const auth = parseGeminiAuth(p.init);
+      // The same env the turn spawns agy with (AcpProvider.env): the Secrets store's key, or the hub's own variable.
+      const spawnEnv = childEnv('gemini', { ...env(), ...opts.env });
+      const auth = inferGeminiAuth(parseGeminiAuth(p.init), spawnEnv, readAgyModelProvider(opts.agySettings));
       return {
         ok: true,
         auth: auth.auth,
@@ -155,7 +200,7 @@ export function geminiPreset(opts: GeminiProviderOptions = {}): AcpPreset {
         ...(version ? { version } : {}),
         ...(warning ? { versionWarning: warning } : {}),
         exePath: exe,
-        hint: GEMINI_HINT,
+        hint: auth.keyIgnored ? GEMINI_KEY_IGNORED_HINT + ' ' + GEMINI_HINT : GEMINI_HINT,
       };
     },
   };

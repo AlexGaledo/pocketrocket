@@ -4,11 +4,13 @@
 //
 // Knobs (env, handed through AcpProviderOptions.env):
 //   FAKE_ACP_RECORD    file: every message the client sent, one JSON per line, plus {"env":[...names]} at start
-//   FAKE_ACP_SCENARIO  text | tool | cancel | limit | notice-limit | crash   (default text)
+//   FAKE_ACP_SCENARIO  text | quiet | tool | cancel | limit | notice-limit | crash   (default text)
 //   FAKE_ACP_NO_HTTP   1: do not advertise mcpCapabilities.http
 //   FAKE_ACP_RESUME    1: advertise sessionCapabilities.resume
 //   FAKE_ACP_AUTH      session/new fails with auth_required (-32000)
 //   FAKE_ACP_META_AUTH value reported as _meta.authMethod in initialize
+//   FAKE_ACP_PROMPT_USAGE JSON put as `usage` on the session/prompt answer (the unstable ACP token counts)
+//   FAKE_ACP_MODEL     session/new offers a `model` select option with this current value
 //   FAKE_ACP_KIND / FAKE_ACP_PATH / FAKE_ACP_COMMAND  the tool scenario's permission request
 import fs from 'node:fs';
 
@@ -85,6 +87,13 @@ async function onPrompt(id, params) {
     send({ id, result: { stopReason: 'end_turn' } });
     return;
   }
+  if (scenario === 'quiet') {
+    // agy on Gemini: an answer, a context size, but no cost and (unless asked) no token counts.
+    chunk(sid, 'Hi');
+    update(sid, { sessionUpdate: 'usage_update', used: 24368, size: 1048576 });
+    send({ id, result: { stopReason: 'end_turn', ...(env.FAKE_ACP_PROMPT_USAGE ? { usage: JSON.parse(env.FAKE_ACP_PROMPT_USAGE) } : {}) } });
+    return;
+  }
   // text
   chunk(sid, 'Hel');
   chunk(sid, 'lo there');
@@ -135,6 +144,16 @@ function onMessage(msg) {
               { id: 'plan', name: 'Plan', description: 'read only' },
             ],
           },
+          ...(env.FAKE_ACP_MODEL
+            ? {
+                configOptions: [
+                  {
+                    id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: env.FAKE_ACP_MODEL,
+                    options: [{ value: env.FAKE_ACP_MODEL, name: env.FAKE_ACP_MODEL }],
+                  },
+                ],
+              }
+            : {}),
         },
       });
       return;

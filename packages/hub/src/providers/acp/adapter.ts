@@ -15,6 +15,7 @@ import { VERSION } from '../../config.js';
 import { childEnv, type ProviderKind } from '../env.js';
 import { addSecret, redact } from '../redact.js';
 import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnLimit, type TurnOutcome, type TurnSink } from '../types.js';
+import type { TurnUsage } from '../../services/UsageTracker.js';
 import { limitError } from '../claude.js';
 import { hubMcpServer, startAcp, withTimeout, type AcpProcess } from './client.js';
 import { AcpEventMapper } from './events.js';
@@ -280,10 +281,16 @@ export class AcpProvider implements AgentProvider {
       }
       // The bot's model, when the agent offers it as a model option. Otherwise the agent keeps its own default.
       const modelOpt = (configOptions ?? []).find((o) => o.type === 'select' && o.category === 'model');
-      if (modelOpt && modelOpt.type === 'select' && modelOpt.currentValue !== ctx.model) {
-        const values = modelOpt.options.flatMap((o) => ('group' in o ? o.options : [o])).map((o) => o.value);
-        if (values.includes(ctx.model)) {
-          await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: modelOpt.id, value: ctx.model });
+      // The model the agent runs on, for the usage row: the bot's when applied, else the agent's own current one.
+      let answeredModel: string | undefined;
+      if (modelOpt && modelOpt.type === 'select') {
+        answeredModel = modelOpt.currentValue;
+        if (modelOpt.currentValue !== ctx.model) {
+          const values = modelOpt.options.flatMap((o) => ('group' in o ? o.options : [o])).map((o) => o.value);
+          if (values.includes(ctx.model)) {
+            await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: modelOpt.id, value: ctx.model });
+            answeredModel = ctx.model;
+          }
         }
       }
 
@@ -297,7 +304,10 @@ export class AcpProvider implements AgentProvider {
       const costUsd = ownCost();
       const extra: Partial<TurnOutcome> = {
         costUsd,
-        usage: { ...EMPTY_USAGE, costUsd, durationMs: Date.now() - started },
+        usage: { ...EMPTY_USAGE, ...acpTokens(res), costUsd, durationMs: Date.now() - started },
+        // A finished run is a usage row even when the agent reports no cost or tokens (agy on Gemini reports neither).
+        accounted: true,
+        ...(answeredModel && answeredModel !== ctx.model ? { model: answeredModel } : {}),
         ...(mapper.sessionCostUsd !== undefined ? { sessionCostUsd: mapper.sessionCostUsd } : {}),
       };
       if (budgetHit) return outcome('budget exceeded: $' + costUsd.toFixed(4) + ' over the $' + String(ctx.maxBudgetUsd) + ' cap', extra);
@@ -345,6 +355,20 @@ export class AcpProvider implements AgentProvider {
     }
     return null;
   }
+}
+
+/**
+ * Token counts from the prompt answer's `usage`, an ACP field still marked unstable (not in the stable
+ * `PromptResponse` type), so it is read defensively. Absent or malformed: no counts.
+ */
+export function acpTokens(res: unknown): Pick<TurnUsage, 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens'> | Record<string, never> {
+  const u = (res as { usage?: unknown } | null)?.usage;
+  if (!u || typeof u !== 'object') return {};
+  const n = (k: string) => {
+    const v = (u as Record<string, unknown>)[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : 0;
+  };
+  return { inputTokens: n('inputTokens'), outputTokens: n('outputTokens'), cacheReadTokens: n('cachedReadTokens'), cacheWriteTokens: n('cachedWriteTokens') };
 }
 
 function sleep(ms: number): Promise<void> {

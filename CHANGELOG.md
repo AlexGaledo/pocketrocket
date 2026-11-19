@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Gemini on an API key runs routines, and Gemini turns show in Usage (hub)
+
+- A Gemini API key saved in Settings now counts: when it is set and agy's settings select `"modelProvider": "gemini"`, the provider check reports API-key auth and routines, triggers and workflow steps run on the Gemini bot. With no key, or a key agy would ignore, the bot still answers only messages a person sends, and the check's hint says what is missing.
+- Gemini turns now write usage rows, so they show in Usage, the plan meter and usage by provider, with the model agy ran on and token counts when agy reports them (cost is $0 unless agy reports one).
+
 ## [0.5.0] - 2026-11-19
 
 This release also contains the 0.4.0 work (0.4.0 was not tagged separately): workflows, Telegram notifications, moving and syncing PC sessions, the server bot sandbox and more. Gemini support (through the Antigravity CLI) is included but untested until the owner's live test.
