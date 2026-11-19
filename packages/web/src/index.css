@@ -108,6 +108,32 @@
 .dark { --canvas: #181817; }
 
 /*
+ * New layout, phone width: a dialog is a sheet pulled up from the bottom edge (DialogShell adds `pr-sheet` only in the
+ * new layout). Full width, top corners rounded, clear of the home indicator. Unlayered, so it wins over the centring
+ * utilities; `translate` is the property Tailwind v4's translate utilities set. No transition: nothing new moves.
+ */
+@media (max-width: 639px) {
+  .pr-sheet {
+    top: auto; bottom: 0; left: 0; right: 0;
+    translate: none;
+    width: 100%; max-width: 100%;
+    max-height: calc(100dvh - 2.5rem);
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    /* Room for the home indicator without changing each dialog's own padding: 0 where there is no inset. */
+    border-bottom: env(safe-area-inset-bottom, 0px) solid var(--panel);
+  }
+  /* The same sheet for the two overlays that are not Radix dialogs (onboarding, the token prompt): the overlay
+     drops its padding and holds the card at the bottom edge. */
+  .pr-sheet-host { padding: 0; align-items: flex-end; }
+  .pr-sheet-host > .pr-sheet-card {
+    width: 100%; max-width: 100%;
+    margin: auto 0 0;
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    border-bottom: env(safe-area-inset-bottom, 0px) solid var(--panel);
+  }
+}
+
+/*
  * Weights, per font, so a title looks equally heavy in either. Picked by measuring the capital-I stem from
  * the bundled files, aiming at about .089 / .108 / .125 em. Figtree needs more of its axis to get there.
  * Google Sans's axis is 400-700 and Figtree's is 300-900, so stay inside 400-700.

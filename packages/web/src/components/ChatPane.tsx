@@ -7,13 +7,14 @@ import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Messag
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api, ApiError } from '../lib/api';
-import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Banner, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
+import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Banner, Button, DialogCloseButton, DialogShell, DialogTitle, EmptyState, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { LinkBot, Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { AlwaysAllow, RuleOffer, TakeoverCard } from './ComputerControl';
 import { CtaButtons, FormCard } from './Cards';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
 import { useMediaUrl } from '../lib/media';
+import { useNewLayout } from '../lib/newLayout';
 import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
 import { MAX_ATTACHMENTS, reencodeImage, uploadAttachment } from '../lib/attach';
 import { MAX_FILE_BYTES, MAX_VIDEO_BYTES, fileHash, isFileRef, slashCommandOf, type SlashCommandInfo, type StoredFileMeta } from '@pocketrocket/shared';
@@ -36,10 +37,26 @@ export function ChatPane({ hideHeader = false }: { hideHeader?: boolean } = {}) 
   const helloReceived = useStore((s) => s.helloReceived);
   // P9: a paired phone may not create or edit bots and rooms (the hub answers 403), so it is not offered.
   const device = useStore((s) => s.device);
+  // New layout (docs/specs/toki-ui.md, W10): the same empty states built from EmptyState; with projects, the first
+  // one says a project can be picked too. Never on a paired phone, so these need no device branch.
+  const fresh = useNewLayout();
+  const hasProjects = useStore((s) => s.projects.length > 0);
 
   if (!room && !helloReceived) {
     // Until the hub's hello arrives there is no telling whether the team is empty, so claim nothing.
     return <div className="flex h-full flex-col px-6 py-8"><TranscriptSkeleton label="Connecting" /></div>;
+  }
+
+  if (!room && bots.length > 0 && fresh) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center">
+        <EmptyState
+          size="lg"
+          title={hasProjects ? 'Pick a project or a bot' : 'Pick a bot to start'}
+          action={<Button onClick={() => openDialog({ kind: 'room', room: null })}>New group chat</Button>}
+        />
+      </div>
+    );
   }
 
   if (!room && bots.length > 0) {
@@ -49,6 +66,27 @@ export function ChatPane({ hideHeader = false }: { hideHeader?: boolean } = {}) 
           <div className="text-title-sm">Pick a bot to start</div>
         </div>
         {!device && <Button onClick={() => openDialog({ kind: 'room', room: null })}>New group chat</Button>}
+      </div>
+    );
+  }
+
+  if (!room && fresh) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center">
+        <RocketMark size={56} />
+        <EmptyState
+          size="lg"
+          className="pt-4"
+          title="Your team is empty"
+          action={
+            <>
+              <Button variant="primary" onClick={() => openDialog({ kind: 'bot', bot: null })}>Create a bot</Button>
+              <Button onClick={() => openDialog({ kind: 'room', room: null })}>New group chat</Button>
+            </>
+          }
+        >
+          Create a bot, then message it.
+        </EmptyState>
       </div>
     );
   }

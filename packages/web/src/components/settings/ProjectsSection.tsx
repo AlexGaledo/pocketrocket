@@ -3,11 +3,12 @@
  * tool reaches it. Creating a project can also clone the development team template, with its own group chat.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { FolderGit2, Plus, TriangleAlert } from 'lucide-react';
+import { ArrowRight, FolderGit2, Map as MapIcon, Plus, TriangleAlert } from 'lucide-react';
+import { useNewLayout } from '../../lib/newLayout';
 import { useStore } from '../../store';
 import { api, type ProjectInfo, type ProjectLint } from '../../lib/api';
-import { Badge, Button, EmptyState, Input, Label, Switch } from '../ui';
-import { Card, Group, InlineError, SectionHeader } from './parts';
+import { Badge, Button, EmptyState, Input, Label, Switch, cn } from '../ui';
+import { Card, Group, InlineError, SectionHeader, shortPath } from './parts';
 import { ReposEditor } from './ReposEditor';
 
 export function ProjectsSection() {
@@ -74,6 +75,24 @@ function ProjectCard({ project, onChanged, onError }: { project: ProjectInfo; on
   const bots = useStore((s) => s.bots);
   const [lint, setLint] = useState<ProjectLint | null>(null);
   const [reposOpen, setReposOpen] = useState(false);
+  // New layout: a project with a chat gets "Map" and "Open project", which close Settings and open its map or chat.
+  const fresh = useNewLayout();
+  const roomId = project.roomId;
+  const go = (map: boolean) => {
+    if (!roomId) return;
+    const s = useStore.getState();
+    s.openDialog(null);
+    s.closePage();
+    s.setActiveRoom(roomId);
+    if (map) s.openPage({ kind: 'map', slug: project.slug });
+  };
+  const open = fresh && roomId ? (
+    <span className="flex items-center gap-1">
+      <Button size="sm" variant="ghost" aria-label={'Open the map of ' + project.name} onClick={() => go(true)}><MapIcon size={13} aria-hidden />Map</Button>
+      <Button size="sm" variant="ghost" aria-label={'Open project ' + project.name} onClick={() => go(false)}>Open project <ArrowRight size={13} aria-hidden /></Button>
+    </span>
+  ) : null;
+  const badge = project.templateVersion ? <Badge>Team template v{project.templateVersion}</Badge> : null;
   useEffect(() => { api.projects.lint(project.slug).then(setLint, () => setLint(null)); }, [project.slug, project.memberIds.length]);
 
   const toggle = async (botId: string, on: boolean) => {
@@ -89,12 +108,12 @@ function ProjectCard({ project, onChanged, onError }: { project: ProjectInfo; on
   return (
     <Group
       title={project.name}
-      aside={project.templateVersion ? <Badge>Team template v{project.templateVersion}</Badge> : undefined}
+      aside={badge || open ? <span className="flex items-center gap-2">{badge}{open}</span> : undefined}
     >
       <Card>
-        <p className="flex min-w-0 items-center gap-1.5 text-hint text-muted">
-          <FolderGit2 size={13} aria-hidden className="shrink-0" />
-          <span className="truncate font-mono" title={project.dir}>{project.dir}</span>
+        <p className={cn('flex min-w-0 gap-1.5 text-hint text-muted', fresh ? 'items-start' : 'items-center')}>
+          <FolderGit2 size={13} aria-hidden className={cn('shrink-0', fresh && 'mt-[3px]')} />
+          <span className={fresh ? 'min-w-0 break-all font-mono' : 'truncate font-mono'} title={shortPath(project.dir)}>{shortPath(project.dir)}</span>
         </p>
         {!!lint?.issues.length && (
           <div className="mt-3 rounded-sm border border-warn/40 p-2 text-hint">

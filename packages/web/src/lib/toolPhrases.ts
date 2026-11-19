@@ -95,3 +95,29 @@ export function toolPhrase(name: string, tense: 'done' | 'now' = 'done'): string
   const chosen = phrase ?? fallback;
   return chosen ? chosen[tense === 'done' ? 0 : 1] : humanize(name);
 }
+
+/** The in-progress word of each phrase as a plain verb, for "Wants to …". Listed rather than derived: English drops and doubles letters. */
+const BASE: Record<string, string> = {
+  Opening: 'open', Going: 'go', Reading: 'read', Taking: 'take', Clicking: 'click', Hovering: 'hover', Typing: 'type',
+  Filling: 'fill', Choosing: 'choose', Pressing: 'press', Waiting: 'wait', Switching: 'switch', Scrolling: 'scroll',
+  Using: 'use', Asking: 'ask', Passing: 'pass', Moving: 'move', Proposing: 'propose', Sending: 'send', Updating: 'update',
+  Saving: 'save', Listing: 'list', Creating: 'create', Deleting: 'delete', Adding: 'add', Removing: 'remove',
+  Searching: 'search', Writing: 'write', Editing: 'edit', Running: 'run', Finding: 'find', Fetching: 'fetch', Loading: 'load',
+};
+
+/** File tools whose in-progress phrase has no object ("Editing"); asking for one names it. */
+const ASK_BUILTIN: Record<string, string> = {
+  Read: 'read a file', Write: 'write a file', Edit: 'edit a file', MultiEdit: 'edit a file', NotebookEdit: 'edit a notebook',
+};
+
+/**
+ * What a bot asks to do, lower case, to follow "Wants to": Bash reads "run a command", an unmapped tool
+ * "use gmail search".
+ */
+export function toolAsk(name: string): string {
+  if (ASK_BUILTIN[name]) return ASK_BUILTIN[name];
+  const now = toolPhrase(name, 'now');
+  const [first, ...rest] = now.split(' ');
+  const verb = BASE[first];
+  return verb ? [verb, ...rest].join(' ') : 'use ' + now.toLowerCase();
+}

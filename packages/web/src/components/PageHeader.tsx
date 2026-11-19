@@ -5,17 +5,11 @@
 import type { ReactNode } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useStore } from '../store';
-import { useLayout } from '../lib/layout';
+import { useNewLayout } from '../lib/newLayout';
 import { Button, Tooltip } from './ui';
 
-/**
- * True when the restyled pages are drawn: the "New layout" switch is on and this is not a paired phone, which keeps
- * the classic app (the same rule as the sidebar).
- */
-export function useNewPages(): boolean {
-  const device = useStore((s) => s.device);
-  return useLayout() === 'toki' && !device;
-}
+/** True when the restyled pages are drawn (lib/newLayout.ts); kept under this name for the pages that use it. */
+export const useNewPages = useNewLayout;
 
 export function PageHeader({ title, sub, actions, leading, titleAside, tabs }: {
   title: string;
