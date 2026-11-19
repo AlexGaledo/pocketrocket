@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: pnpm/action-setup 6.1.1, actions/setup-node 7.1.0, Swatinem/rust-cache 2.9.3, actions/upload-artifact 7.0.2. Release dispatch dry runs skip the test step (tag builds still run it).
 - Not taken: tauri-plugin-dialog 2.8.4, tauri-plugin-notification 2.8.x and webview2-com 0.39 (each needs Tauri 2.12, see the pin in Cargo.toml), and the major bumps vite 8, @vitejs/plugin-react 6 and react-markdown 10.
 
+### UX fixes
+
+- The sidebar and the screen panel come back when the window grows past their breakpoint again, if shrinking it was what closed them. A pane you closed yourself stays closed.
+- A room whose coordinator bot was deleted no longer shows "coordinator @undefined" in its header; schedules and triggers for a deleted bot or room say so instead of "@undefined in".
+- The Podium's "Your assistant" star uses the theme's warning colour, so it reads right in light and dark.
+- Desktop: the app opens in a normal maximized window with its title bar and resize border instead of OS full screen. Alt+Enter and the tray menu still toggle full screen. Needs a new installer build to reach installed copies.
+
 ### Sending mail or a calendar invite needs your signed-in browser (hub)
 
 - `gmail_send` and `calendar_create_event` now raise a sign-in-only card, like a job on your PC. Each send asks on its own (no "for this session" answer, no rule can pre-approve it), and only a browser signed in with your password can allow it. This holds under the bypass approvals setting too.

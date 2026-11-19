@@ -222,7 +222,7 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
                 <button className="min-w-0 flex-1 text-left" onClick={() => openEdit(r)}>
                   <div className="truncate font-medium">{r.name}</div>
                   <div className="truncate text-muted">{scheduleLabel(r, tz)}</div>
-                  <div className="truncate text-muted">@{b?.handle} in {rm?.name}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
+                  <div className="truncate text-muted">{b ? '@' + b.handle : 'a deleted bot'} in {rm?.name ?? 'a deleted room'}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
                 </button>
                 <Tooltip content="Run now. This does real work."><Button size="icon" variant="ghost" aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button></Tooltip>
                 <Tooltip content="Run history"><Button size="icon" variant="ghost" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button></Tooltip>
