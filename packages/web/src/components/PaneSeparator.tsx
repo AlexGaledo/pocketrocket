@@ -1,6 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent, type PointerEvent } from 'react';
 import { useStore } from '../store';
-import { COLLAPSE_PAST, PANES, applyPaneVars, panelDefault, paneLayout, paneRange, type PaneId } from '../lib/panes';
+import { COLLAPSE_PAST, PANES, applyPaneVars, panelDefault, paneLayout, paneRange, separatorPane } from '../lib/panes';
 
 const subscribeResize = (onChange: () => void) => {
   window.addEventListener('resize', onChange);
@@ -16,13 +16,16 @@ const STEP_LARGE = 64;
  * During a drag it only sets CSS variables: no store write and no React render, so the chat does not re-render
  * and the screen's iframe is left alone, with no new ticket and no reconnect. The store is written on release.
  */
-export function PaneSeparator({ pane, label, controls }: { pane: PaneId; label: string; controls: string }) {
+export function PaneSeparator({ pane, label, controls }: { pane: 'sidebar' | 'panel'; label: string; controls: string }) {
   const open = useStore((s) => (pane === 'sidebar' ? s.sidebarOpen : s.panelOpen));
   const setPaneW = useStore((s) => s.setPaneW);
   const setPaneOpen = useStore((s) => s.setPaneOpen);
   // Subscribed so the values below stay right as the other pane or the window changes size.
   useStore((s) => s.paneW);
   useStore((s) => s.panelExpanded);
+  // The right slot keeps one width for the screen and files, another for the overview.
+  const target = useStore((s) => separatorPane(pane, s));
+  const setOverviewRail = useStore((s) => s.setOverviewRail);
   useStore((s) => (pane === 'sidebar' ? s.panelOpen : s.sidebarOpen));
   const vw = useSyncExternalStore(subscribeResize, windowWidth);
   const state = useStore.getState();
@@ -79,9 +82,12 @@ export function PaneSeparator({ pane, label, controls }: { pane: PaneId; label: 
     if (!d || e.pointerId !== d.id) return;
     endDrag();
     if (!d.moved) return;
-    // Collapsing keeps the width the drag started from, so reopening restores it.
-    if (d.raw < PANES[pane].min - COLLAPSE_PAST) setPaneOpen(pane, false);
-    else setPaneW(pane, paint(d.raw));
+    // Collapsing keeps the width the drag started from, so reopening restores it. The overview folds to its rail
+    // instead, since the new layout never leaves that slot empty.
+    if (d.raw < PANES[target].min - COLLAPSE_PAST) {
+      if (target === 'overview') setOverviewRail(true);
+      else setPaneOpen(pane, false);
+    } else setPaneW(target, paint(d.raw));
   };
   /** The store was never written, so going back only means repainting what it holds. */
   const onCancel = () => {
@@ -98,16 +104,17 @@ export function PaneSeparator({ pane, label, controls }: { pane: PaneId; label: 
       e.stopPropagation();
       onCancel();
     } else if (e.key === 'Enter') {
-      setPaneOpen(pane, !open);
+      if (target === 'overview') setOverviewRail(true);
+      else setPaneOpen(pane, !open);
     } else if (!open) {
       return;
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       const step = (e.shiftKey ? STEP_LARGE : STEP) * (e.key === 'ArrowRight' ? dir : -dir);
-      setPaneW(pane, paint(width + step));
+      setPaneW(target, paint(width + step));
     } else if (e.key === 'Home') {
-      setPaneW(pane, PANES[pane].min);
+      setPaneW(target, PANES[target].min);
     } else if (e.key === 'End') {
-      setPaneW(pane, max);
+      setPaneW(target, max);
     } else {
       return;
     }
@@ -115,7 +122,7 @@ export function PaneSeparator({ pane, label, controls }: { pane: PaneId; label: 
   };
   const onDoubleClick = () => {
     if (!open) setPaneOpen(pane, true);
-    setPaneW(pane, pane === 'panel' ? panelDefault(window.innerWidth) : PANES[pane].def);
+    setPaneW(target, target === 'panel' ? panelDefault(window.innerWidth) : PANES[target].def);
   };
 
   return (

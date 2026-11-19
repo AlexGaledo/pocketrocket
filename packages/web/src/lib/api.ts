@@ -7,6 +7,7 @@ import type {
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import type { AuditEntry, UserSessionInfo } from '@pocketrocket/shared';
+import type { ProjectMapReply, ProjectOverview } from '@pocketrocket/shared';
 import type { Workflow, WorkflowApprovalCard, WorkflowDecision, WorkflowInput, WorkflowPatch, WorkflowRun, WorkflowRunSummary } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
@@ -165,6 +166,10 @@ export const api = {
     lint: (slug: string) => req<ProjectLint>('GET', '/api/projects/' + encodeURIComponent(slug) + '/lint'),
     repos: (slug: string) => req<ProjectReposFile>('GET', '/api/projects/' + encodeURIComponent(slug) + '/repos'),
     setRepos: (slug: string, body: ReposPutBody) => req<ProjectReposFile>('PUT', '/api/projects/' + encodeURIComponent(slug) + '/repos', body),
+    /** Parsed from the project's current.md, with no AI turn (Toki UI B3). */
+    overview: (slug: string) => req<ProjectOverview>('GET', '/api/projects/' + encodeURIComponent(slug) + '/overview'),
+    /** The project's map.json, checked against ProjectMapSchema (Toki UI B2). */
+    map: (slug: string) => req<ProjectMapReply>('GET', '/api/projects/' + encodeURIComponent(slug) + '/map'),
   },
   auth: {
     status: () => req<{ passwordSet: boolean; signedIn: boolean }>('GET', '/api/auth/status'),

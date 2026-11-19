@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New layout preview, phase 2: project header and overview panel (web)
+
+- With the "New layout" switch on, a project's chat opens under a project header: its name, where its plan stands (stage, ticked of total, or "No plan yet", read from `current.md`), and Chat | Map tabs. A slim line under it keeps the room's name, faces, badges and the group details, Files and Screen buttons in their old order. The Map tab says "No map yet" until the map canvas lands in phase 3.
+- The right panel now holds an overview of the open chat: what needs you there (Review opens the chat at the card, Deny only where Needs you already offers it; approving stays on the chat's card), its bots, and for a project, Next, Rooms and Done behind three icons. A fold button turns it into a 56px rail of icons with counts. It is open by default on windows 1280px and wider and starts as the rail below that. Closing Files or the screen brings it back instead of leaving an empty slot.
+- On narrow windows the overview stays out of the way. A Needs you button in the project header opens it over the window.
+- With the switch off, the app is pixel-identical to before. The hub's bare `projects.changed` event now refreshes the project list.
+
 ### New layout preview, phase 1: projects in the sidebar (web)
 
 - A "New layout" switch in Settings › Appearance, stored on this browser only and off by default. While the layout is unfinished, the switch shows only after the app has been opened once with `?layout=preview`. Spec: `docs/specs/toki-ui.md`.

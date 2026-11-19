@@ -5,7 +5,7 @@
  *   watch   split beside the chat, after the user asks to see the screen
  *   focus   full pane, while this browser has control
  *
- * The right panel showing Files counts as not watching: the thumbnail may still come up beside it.
+ * The right panel showing Files (or the new layout's overview) counts as not watching: the thumbnail may still come up beside it.
  *
  * The screen follows the chat. The one exception is a screen this browser holds, which stays up whatever chat is
  * open, because leaving it would strand a bot that cannot act until it gets its screen back. RightPanel warns then.
@@ -45,7 +45,7 @@ export interface ScreenState {
   panelBotId: string | null;
   panelOpen: boolean;
   /** Missing reads as 'screen'. */
-  panelKind?: 'screen' | 'files';
+  panelKind?: 'screen' | 'files' | 'overview';
   control: Record<string, ControlStatus>;
   botStates: Record<string, BotState>;
   messages: Record<string, Message[]>;
@@ -93,8 +93,8 @@ export function computerUse(botId: string, s: ScreenState): string | null {
   return site ? 'Browsing ' + site : 'Using its screen';
 }
 
-/** The user asked to see the screen: the panel is open on it, not on Files. */
-const watching = (s: ScreenState) => s.panelOpen && s.panelKind !== 'files';
+/** The user asked to see the screen: the panel is open on it, not on Files or the overview. */
+const watching = (s: ScreenState) => s.panelOpen && (s.panelKind ?? 'screen') === 'screen';
 
 export function selectScreenBotId(s: ScreenState): string | null {
   const held = s.bots.filter((b) => holdsScreen(s.control[b.id]));
