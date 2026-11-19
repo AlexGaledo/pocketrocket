@@ -39,13 +39,13 @@ export function readOnlyWriteDecision(
     const hit = bashWritesReadOnly(String(input.command ?? ''), cwd, readOnlyRoots);
     if (!hit) return null;
     return bypass
-      ? { decision: 'deny', reason: denyMessage('not_allowed', { subject: 'this shell command', note: 'the knowledge repo is read-only and it writes there: ' + hit, alt: 'write inside your own workspace instead, or say so in the room' }) }
-      : { decision: 'ask', reason: 'Shell write into the read-only knowledge repo: ' + hit };
+      ? { decision: 'deny', reason: denyMessage('not_allowed', { subject: 'this shell command', note: 'that folder is read-only for you (the knowledge repo, or a project folder outside this room) and it writes there: ' + hit, alt: 'write inside your own workspace instead, or say so in the room' }) }
+      : { decision: 'ask', reason: 'Shell write into a read-only folder: ' + hit };
   }
   if (!(WRITE_TOOLS as readonly string[]).includes(toolName)) return null;
   const hits = pathsFromInput(toolName, input).filter((p) => isInside(p, readOnlyRoots, cwd));
   if (!hits.length) return null;
   return bypass
-    ? { decision: 'deny', reason: denyMessage('not_allowed', { subject: toolName, note: 'the knowledge repo is read-only: ' + hits.join(', '), alt: 'write inside your own workspace instead, or say so in the room' }) }
-    : { decision: 'ask', reason: toolName + ' into the read-only knowledge repo: ' + hits.join(', ') };
+    ? { decision: 'deny', reason: denyMessage('not_allowed', { subject: toolName, note: 'that folder is read-only for you (the knowledge repo, or a project folder outside this room): ' + hits.join(', '), alt: 'write inside your own workspace instead, or say so in the room' }) }
+    : { decision: 'ask', reason: toolName + ' into a read-only folder: ' + hits.join(', ') };
 }

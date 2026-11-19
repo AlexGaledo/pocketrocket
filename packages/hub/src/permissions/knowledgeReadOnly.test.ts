@@ -77,7 +77,7 @@ describe('PermissionBroker with a read-only knowledge root', () => {
     ] as const) {
       const r = await decide(tool, input as Record<string, unknown>);
       expect(r.behavior, tool).toBe('deny');
-      expect(r.card, tool).toMatch(/read-only knowledge repo/);
+      expect(r.card, tool).toMatch(/into a read-only folder/);
     }
     expect(fs.readFileSync(kfile, 'utf8')).toBe('# Handbook\n');
   });
