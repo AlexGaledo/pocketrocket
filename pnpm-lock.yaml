@@ -32,13 +32,13 @@ importers:
     dependencies:
       '@agentclientprotocol/sdk':
         specifier: 2.4.0
-        version: 2.4.0(zod@4.5.4)
+        version: 2.4.0(zod@4.6.6)
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.278
-        version: 0.3.278(@anthropic-ai/sdk@0.124.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(zod@4.5.4))(zod@4.5.4)
+        version: 0.3.278(@anthropic-ai/sdk@0.124.0(zod@4.6.6))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.6))(zod@4.6.6)
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
-        version: 1.30.0(zod@4.5.4)
+        version: 1.30.0(zod@4.6.6)
       '@opencode-ai/sdk':
         specifier: 1.18.29
         version: 1.18.29
@@ -67,8 +67,8 @@ importers:
         specifier: ^8.18.0
         version: 8.21.3
       zod:
-        specifier: ^4.1.0
-        version: 4.5.4
+        specifier: ^4.6.6
+        version: 4.6.6
     devDependencies:
       '@types/http-proxy':
         specifier: ^1.17.17
@@ -92,8 +92,8 @@ importers:
   packages/shared:
     dependencies:
       zod:
-        specifier: ^4.1.0
-        version: 4.5.4
+        specifier: ^4.6.6
+        version: 4.6.6
 
   packages/site: {}
 
@@ -148,8 +148,8 @@ importers:
         specifier: ^4.0.0
         version: 4.0.1
       zod:
-        specifier: ^4.1.0
-        version: 4.5.4
+        specifier: ^4.6.6
+        version: 4.6.6
       zustand:
         specifier: ^5.0.3
         version: 5.0.15(@types/react@19.2.18)(react@19.2.8)(use-sync-external-store@1.7.0(react@19.2.8))
@@ -318,8 +318,8 @@ packages:
     peerDependencies:
       '@babel/core': ^7.0.0-0
 
-  '@babel/runtime@7.29.7':
-    resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
+  '@babel/runtime@7.29.14':
+    resolution: {integrity: sha512-Y5tqevQaUAZhhj82BpYMNC1ssvLQTVAfwKdm8iy8qwmhvC2/CpcAu8OC+QEtjM7pMk7knx83u1Qj8gzkicyelw==}
     engines: {node: '>=6.9.0'}
 
   '@babel/template@7.29.7':
@@ -2692,8 +2692,8 @@ packages:
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
 
-  standardwebhooks@1.1.1:
-    resolution: {integrity: sha512-bCbX9ZEyFkWPsRz7Bl3NuQUJohmwGSev/yhr7vhaGPlc4AfIrspIRa6cPTBuI1ItmrTDJ4d/S2hCsfe4+vQGnQ==}
+  standardwebhooks@1.3.0:
+    resolution: {integrity: sha512-5W9skHjqAm2dlA9wWvglTP+oX47JX4lFXVk1aJV7+TG1snvTR4QXaVgPscEzvOw9GRreeavMwbqEeL+MGhZHCg==}
 
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
@@ -2940,8 +2940,8 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@4.5.4:
-    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+  zod@4.6.6:
+    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
   zustand@4.5.7:
     resolution: {integrity: sha512-CHOUy7mu3lbD6o6LJLfllpjkzhHXSBlX8B9+qPddUsIfeF5S/UZ5q0kmCsnRqT1UHFQZchNFDDzMbQsuesHWlw==}
@@ -2981,9 +2981,9 @@ packages:
 
 snapshots:
 
-  '@agentclientprotocol/sdk@2.4.0(zod@4.5.4)':
+  '@agentclientprotocol/sdk@2.4.0(zod@4.6.6)':
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.6
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.278':
     optional: true
@@ -3009,11 +3009,11 @@ snapshots:
   '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.278':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk@0.3.278(@anthropic-ai/sdk@0.124.0(zod@4.5.4))(@modelcontextprotocol/sdk@1.30.0(zod@4.5.4))(zod@4.5.4)':
+  '@anthropic-ai/claude-agent-sdk@0.3.278(@anthropic-ai/sdk@0.124.0(zod@4.6.6))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.6))(zod@4.6.6)':
     dependencies:
-      '@anthropic-ai/sdk': 0.124.0(zod@4.5.4)
-      '@modelcontextprotocol/sdk': 1.30.0(zod@4.5.4)
-      zod: 4.5.4
+      '@anthropic-ai/sdk': 0.124.0(zod@4.6.6)
+      '@modelcontextprotocol/sdk': 1.30.0(zod@4.6.6)
+      zod: 4.6.6
     optionalDependencies:
       '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.278
       '@anthropic-ai/claude-agent-sdk-darwin-x64': 0.3.278
@@ -3024,12 +3024,12 @@ snapshots:
       '@anthropic-ai/claude-agent-sdk-win32-arm64': 0.3.278
       '@anthropic-ai/claude-agent-sdk-win32-x64': 0.3.278
 
-  '@anthropic-ai/sdk@0.124.0(zod@4.5.4)':
+  '@anthropic-ai/sdk@0.124.0(zod@4.6.6)':
     dependencies:
       json-schema-to-ts: 3.1.1
-      standardwebhooks: 1.1.1
+      standardwebhooks: 1.3.0
     optionalDependencies:
-      zod: 4.5.4
+      zod: 4.6.6
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -3120,7 +3120,7 @@ snapshots:
       '@babel/core': 7.29.7
       '@babel/helper-plugin-utils': 7.29.7
 
-  '@babel/runtime@7.29.7': {}
+  '@babel/runtime@7.29.14': {}
 
   '@babel/template@7.29.7':
     dependencies:
@@ -3347,7 +3347,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@modelcontextprotocol/sdk@1.30.0(zod@4.5.4)':
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.6.6)':
     dependencies:
       '@hono/node-server': 2.1.1(hono@4.13.7)
       ajv: 8.20.0
@@ -3364,8 +3364,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 4.5.4
-      zod-to-json-schema: 3.25.2(zod@4.5.4)
+      zod: 4.6.6
+      zod-to-json-schema: 3.25.2(zod@4.6.6)
     transitivePeerDependencies:
       - supports-color
 
@@ -4742,7 +4742,7 @@ snapshots:
 
   json-schema-to-ts@3.1.1:
     dependencies:
-      '@babel/runtime': 7.29.7
+      '@babel/runtime': 7.29.14
       ts-algebra: 2.0.0
 
   json-schema-traverse@1.0.0: {}
@@ -5466,7 +5466,7 @@ snapshots:
 
   stackback@0.0.2: {}
 
-  standardwebhooks@1.1.1:
+  standardwebhooks@1.3.0:
     dependencies:
       '@stablelib/base64': 1.0.1
       fast-sha256: 1.3.0
@@ -5671,11 +5671,11 @@ snapshots:
 
   yallist@3.1.1: {}
 
-  zod-to-json-schema@3.25.2(zod@4.5.4):
+  zod-to-json-schema@3.25.2(zod@4.6.6):
     dependencies:
-      zod: 4.5.4
+      zod: 4.6.6
 
-  zod@4.5.4: {}
+  zod@4.6.6: {}
 
   zustand@4.5.7(@types/react@19.2.18)(react@19.2.8):
     dependencies:
