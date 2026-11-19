@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Continue on the backup when a provider hits its limit (hub)
+
+- When a bot's provider reaches its usage limit, the turn ends at once with the usual note. If the bot has a backup, you also get a card: continue on the backup, or wait for the reset. The card is listed with the other things waiting for you, and it closes at the reset time. Nothing else waits on it, so the bot's other work and the hub's turn slots stay free.
+- Continue runs that request once on the backup, in the same thread. The backup sees the message it never answered, plus a summary of the conversation. Approvals always apply on the backup, even with approvals bypassed, and it can spend only what the stopped turn had left. If the backup also hits its limit, no second card appears.
+- After you press Continue, what you send that bot runs on the backup until the original provider resets. Routines, triggers and workflow steps stay on the bot's own provider. They switch only if you press their own card.
+- A card nobody answers ends with a quiet note at the reset time ("Not continued on Gemini. Claude reset at 14:00; ..."). Nothing ever switches without a press. There is no card for a sign-in problem, an outage or a turn you stopped.
+- Without a backup there is no card. The note says "Set a backup in Ada's settings to continue on another provider next time."
+- Only you can answer the card, from the app or a paired phone. A bot, a chat message or a button a bot made cannot answer it. The card's buttons arrive in the app in a later update.
+- Sessions on any provider that reports its context size (Claude, and agents through ACP such as Gemini) now start fresh when they grow too large, as Claude's already did. When an ACP agent compacts its own context, the chat gets a quiet note.
+
 ### Gemini through the Antigravity CLI, untested (hub)
 
 - A bot can now run on Gemini through Google's Antigravity CLI (`agy`). Gemini is **untested**: it was built and checked against a stand-in, never a real `agy` or Google account, so it stays off unless the hub starts with `POCKETROCKET_PROVIDERS=gemini`. It goes on by default only after the owner's live test.
@@ -36,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A bot can now have its own provider instead of following the one set in Settings. Only you can choose it, through the bot's settings (the REST API). A bot that tries to set a provider or a backup for itself or another bot is refused. The provider picker in the app comes in a later update.
 - The provider in Settings is now the default. New bots run on it, and so does every bot that has no provider of its own. Changing the default moves only those bots. A bot with its own provider stays where it is.
 - After a bot moves to another provider, its next turn in each chat starts a fresh session. It carries over a summary, the chat's notes and the recent messages, and posts "Ada now runs on Codex; earlier context carried over as a summary." Its memory and identity are unchanged. Before, a switch dropped the earlier conversation without saying so. Switching back starts fresh again in the same way.
-- You can store one backup (provider and model) for each bot. Nothing uses it yet. The "continue on the backup" card comes with failover.
+- You can store one backup (provider and model) for each bot. The failover card offers it when the bot hits a usage limit.
 - Stop now goes to the provider that is running the turn, and two bots on two providers can run at the same time. The usage log records which provider ran each turn (`GET /api/usage` adds `byProvider`), and `GET /api/debug/last-init` is split by provider.
 - Auto-memory, rotation summaries, skill distilling, skill reflection and training run on Claude for every bot, whatever provider the bot uses. They pause while Claude is missing, signed out or at its usage limit.
 - Bots on providers other than Claude get their skills as a list in their instructions, plus a read-only `read_skill` tool to open one. The list stays the same for the whole session.

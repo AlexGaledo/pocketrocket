@@ -40,7 +40,7 @@ only, under the same rules as the P0-P9 blocks above:
 300-309 stays reserved for gap 2 media steps, if they are ever built. (On `origin/main`, Telegram notifications use 300.)
 
 **Moved 2026-11-19:** gap 1 (providers and failover) uses **310-319**, because 270-279 was already used on `origin/main`.
-M6 uses 310 `bots.provider`, 311 `bots.backup` and 312 `usage.provider`. M8 can use 313-319 for anything failover needs.
+M6 uses 310 `bots.provider`, 311 `bots.backup` and 312 `usage.provider`. M8 uses 313 `failover_cards`; 314-319 stay free.
 
 ## OpenBot gaps: owner decisions (interview 2026-11-17)
 Full answers are in `docs/specs/openbot-gaps/05-owner-decisions.md`; the concluded plan is `06-direction.md` in the same

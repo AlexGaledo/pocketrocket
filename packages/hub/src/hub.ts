@@ -61,6 +61,9 @@ import { TriggerService } from './services/TriggerService.js';
 import { WorkflowRepo } from './db/workflowRepo.js';
 import { WorkflowRunner } from './services/WorkflowRunner.js';
 import { createWorkflowsApi } from './api/workflows.js';
+import { createFailoverApi } from './api/failover.js';
+import { FailoverRepo } from './db/failoverRepo.js';
+import { FailoverService } from './services/Failover.js';
 import { createTriggersApi } from './api/triggers.js';
 import type { SocketFactory } from './services/SlackSocketMode.js';
 // P9: devices, pairing, push
@@ -183,6 +186,8 @@ export interface Hub {
   /** Workflows v1: the run engine and the rows behind it. */
   workflows: WorkflowRunner;
   workflowRepo: WorkflowRepo;
+  /** M8: failover cards (spec 01 P3-1). */
+  failover: FailoverService;
   // ---- P6 ----
   skills: SkillService;
   recorder: Recorder;
@@ -284,7 +289,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing }, media);
   router.runner = runner;
   // M7 (P2-3): Gemini on a Google login runs only attended turns; the router drops the rest with a note.
-  router.unattendedRefusal = (bot) => unattendedRefusal(providers, bot);
+  router.unattendedRefusal = (bot, provider) => unattendedRefusal(providers, bot, provider);
   const forms = new FormBroker(repos);
   runner.forms = forms;
   // M6 (P1-6): the Claude-only passes ask whether Claude itself is ready, not which provider is the default.
@@ -443,6 +448,21 @@ export function createHub(opts: HubOptions = {}): Hub {
   triggers.workflows = (id, event, manual) => workflows.fireTrigger(id, event, { manual });
   runner.workflows = workflows;
   const workflowsApi = createWorkflowsApi({ repos, workflows: workflowRepo, runner: workflows });
+  // M8 (P3-1): the failover card. A limited turn's bot with a backup gets a person-only card; Continue queues one strict turn there.
+  const failover = new FailoverService({
+    repo: new FailoverRepo(db), repos,
+    label: (id) => providers.get(id).label,
+    enabled: (id) => providers.enabled.includes(id),
+    isHeld: (id, model) => providers.health.isHeld(id, model),
+    note: (roomId, text, causeId, hop) => {
+      const room = repos.getRoom(roomId);
+      if (room) router.systemNote(room, text, causeId, hop);
+    },
+    continueTurn: (c) => router.continueOnBackup(c),
+    onChange: (s) => events.emitEvent({ type: 'failover.changed', ...s }),
+  });
+  router.failover = failover;
+  const failoverApi = createFailoverApi({ failover });
   // A bot works without a card only in the folder of the room it is replying in.
   setRoomRootsResolver((botId, roomId) => {
     const room = repos.getRoom(roomId);
@@ -735,6 +755,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await telegramApi(req, res)) return;
       if (await triggersApi(req, res)) return;
       if (await workflowsApi(req, res)) return;
+      if (await failoverApi(req, res)) return;
       if (await contextApi(req, res)) return;
       if (await projectsApi(req, res)) return;
       if (await filesApi(req, res)) return;
@@ -849,7 +870,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       return stopping;
     },
     server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, telegram, triggers, devices, push, pcRunner, pcSessions, sessionMoves, projects,
-    control, broker, approvals: approvalStore, workflows, workflowRepo,
+    control, broker, approvals: approvalStore, workflows, workflowRepo, failover,
     skills, recorder, distiller, media,
     listen: () =>
       new Promise<number>((resolve, reject) => {
@@ -863,7 +884,8 @@ export function createHub(opts: HubOptions = {}): Hub {
           // P2: re-apply view-only as computers come up; give up on parked cards and takeovers after 24 h.
           control.start();
           broker.sweepParked();
-          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); workflows.sweep(); }, 60_000);
+          failover.sweep();
+          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); workflows.sweep(); failover.sweep(); }, 60_000);
           p2Timer.unref();
           prunePcSessions();
           pcPruneTimer ??= setInterval(prunePcSessions, 24 * 60 * 60_000);

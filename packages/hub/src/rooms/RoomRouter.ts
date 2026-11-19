@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { pickCoordinator } from './coordinator.js';
 import { MAX_ATTACHMENTS, QUEUE_PREVIEW_CHARS } from '@pocketrocket/shared';
-import type { Bot, BotState, CauseKind, DeliveryPayload, LaneQueue, Message, QueueItem, QueueReason, Room, SendMode, TriggerEvent, TriggerPayload, WorkflowPayload } from '@pocketrocket/shared';
-import { CAUSE_COST_CAP_USD, CUTOFF_RETRIES, MAX_CONCURRENT_TURNS, MAX_HOPS } from '../config.js';
+import type { Bot, BotBackup, BotState, CauseKind, DeliveryPayload, LaneQueue, Message, ProviderId, QueueItem, QueueReason, Room, SendMode, TriggerEvent, TriggerPayload, WorkflowPayload } from '@pocketrocket/shared';
+import { CAUSE_COST_CAP_USD, CUTOFF_RETRIES, MAX_CONCURRENT_TURNS, MAX_HOPS, spendCapsOff } from '../config.js';
+import type { LimitedTurn } from '../services/Failover.js';
 import { ownerTag, settings } from '../services/SettingsStore.js';
 import { quoteTags } from './transcript.js';
 import type { Repos } from '../db/repos.js';
@@ -50,6 +51,24 @@ export interface LaneItem {
    * failover card ("Continue on <backup>") sets it. Not journaled: after a restart the item is unattended again, the safe side.
    */
   attended?: boolean;
+  // ---- M8 ----
+  /**
+   * Failover (P3-1): run on this backup instead of the bot's own provider. Set only by the failover card's Continue,
+   * always with `forceStrict`, `attended` and `solo`. Not journaled: after a restart the item runs as an ordinary one.
+   */
+  providerOverride?: BotBackup;
+  /** Approvals apply to this item's turn even in bypass mode (decision 05 §01 #3: the backup always runs strict). */
+  forceStrict?: boolean;
+  /**
+   * The limited turn's read window. If the bot has read nothing since, its cursor goes back to `fromSeq` when this item
+   * starts, so the backup is shown the message(s) the limited turn never answered.
+   */
+  rewind?: { fromSeq: number; toSeq: number };
+}
+/** M8: what the router needs from the failover service (services/Failover.ts). */
+export interface FailoverHooks {
+  limited(t: LimitedTurn): unknown;
+  stickyFor(botId: string): BotBackup | null;
 }
 interface Lane {
   running: boolean;
@@ -553,6 +572,7 @@ export class RoomRouter {
         let result: TurnResult;
         let shownRoster: string | null = null;
         let sessionBefore: string | null = null;
+        let fromSeq = 0;
         const wokeByTool = new Set<string>();
         try {
           // A hold or a queue pause that began while this lane waited for a slot: hand the slot back and wait above.
@@ -568,6 +588,12 @@ export class RoomRouter {
             this.emitQueue(botId, roomId);
             continue;
           }
+          // M8 (P3-1): a Continue press runs on the backup. So does any batch a person is behind while that press is in
+          // force (until the limit resets); a routine, trigger or workflow step never switches without its own press.
+          let override = items.find((i) => i.providerOverride)?.providerOverride;
+          if (!override && this.failover && items.every((i) => this.isAttended(i.causeId, i))) override = this.failover.stickyFor(bot.id) ?? undefined;
+          const rewind = items.find((i) => i.rewind)?.rewind;
+          if (rewind && this.repos.getSession(bot.id, room.id).lastSeenSeq === rewind.toSeq) this.repos.saveSession(bot.id, room.id, { lastSeenSeq: rewind.fromSeq });
           lane.active = items;
           const hop = Math.max(...items.map((i) => i.hop));
           const causeId = items[0].causeId;
@@ -596,7 +622,8 @@ export class RoomRouter {
           const causeKind = items.find((i) => i.causeKind === 'user')?.causeKind ?? items[0].causeKind;
           // Decision Q6: a turn any of whose causes the human did not start (a routine, later a trigger)
           // goes through approvals even when the hub runs in bypass mode.
-          const strictApprovals = items.some((i) => this.requiresApprovals(i.causeId));
+          // M8: a turn on a backup is always strict (05 §01 #3).
+          const strictApprovals = !!override || items.some((i) => i.forceStrict || this.requiresApprovals(i.causeId));
           // Only a person's own newest words can ask for a stronger model, never a forwarded trigger payload.
           const latestUserText = unread.filter((m) => m.authorType === 'user').at(-1)?.text;
           // A routine's own prompt may invoke a skill. Its owner wrote it, unlike anything else in the transcript.
@@ -605,8 +632,9 @@ export class RoomRouter {
           // The composer's pick is for what a person starts here. Hand-offs and schedules keep each bot's own model.
           const chatModel = items.some((i) => i.causeKind === 'user' && i.hop === 0) ? room.chatModel ?? undefined : undefined;
           const images = this.userImages(bot, unread);
-          req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), ...(items.some((i) => i.freshSession) ? { freshSession: true } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, ownerRef: items.find((i) => i.ownerRef)?.ownerRef };
+          req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), ...(items.some((i) => i.freshSession) ? { freshSession: true } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, ownerRef: items.find((i) => i.ownerRef)?.ownerRef, ...(override ? { providerOverride: override } : {}) };
           sessionBefore = session.sdkSessionId;
+          fromSeq = session.lastSeenSeq;
           result = await this.runner.runTurn(req);
         } finally {
           this.release();
@@ -636,6 +664,19 @@ export class RoomRouter {
         else if (result.stoppedBy === 'owner' && !left) this.note(room, stoppedNote(bot.name, sendNow && lane.pending.length > 0), req.causeId, req.hop);
         // The cursor moved: other lanes' queued messages this turn read are no longer editable.
         this.emitRoomQueues(roomId, key);
+        // M8 (P3-1): the turn ended on a usage limit. Its note is already posted; the failover service decides on a card.
+        if (result.limit && !left && this.failover) {
+          try {
+            const turnBudget = spendCapsOff() ? null : Math.min(bot.maxBudgetUsd, req.causeBudgetUsd ?? Infinity);
+            this.failover.limited({
+              bot, roomId, causeId: req.causeId, hop: req.hop, limit: result.limit, provider: result.provider ?? 'claude', model: result.model,
+              stopped: !!result.stopped, onBackup: !!req.providerOverride, fromSeq, toSeq: startSeq,
+              budgetLeftUsd: turnBudget === null || !Number.isFinite(turnBudget) ? null : Math.max(0, turnBudget - result.costUsd),
+            });
+          } catch (e) {
+            logError('[failover]', e);
+          }
+        }
         // Counts the turn and, every N turns, starts a background pass; never awaited, so the lane moves on.
         this.autoMemory?.afterTurn(bot.id, room.id, result);
         // P6: same idea per skill, for bots that opted in; never awaited either.
@@ -722,7 +763,9 @@ export class RoomRouter {
    * M7 (P2-3): why `bot` may not run an unattended item right now, or null when it may. Set by hub.ts
    * (`providers/unattended.ts`): Gemini on its Google login refuses, Gemini with a CLI-reported API key runs.
    */
-  unattendedRefusal?: (bot: Bot) => Promise<string | null>;
+  unattendedRefusal?: (bot: Bot, provider?: ProviderId) => Promise<string | null>;
+  /** M8: the failover card service. Set by hub.ts; absent in most unit tests (then no card and no backup turns). */
+  failover?: FailoverHooks;
 
   /**
    * Spec 01 §4.6: a person is behind this item. Any of: a person started the thread (hand-offs inside it included), the
@@ -738,7 +781,7 @@ export class RoomRouter {
     if (!this.unattendedRefusal || items.every((i) => this.isAttended(i.causeId, i))) return items;
     let why: string | null;
     try {
-      why = await this.unattendedRefusal(bot);
+      why = await this.unattendedRefusal(bot, items.find((i) => i.providerOverride)?.providerOverride?.provider);
     } catch (e) {
       // A guard that cannot decide refuses: running Gemini unattended on a Google login breaches its terms.
       why = bot.name + ' did not run: could not check how its provider is signed in (' + String((e as Error).message ?? e) + ').';
@@ -1102,6 +1145,24 @@ export class RoomRouter {
     this.enqueue(bot, room, {
       causeId: o.causeId, hop: o.hop, triggerSeq: this.repos.maxSeq(room.id), note: o.note, ownerRef: o.ownerRef ?? undefined,
       causeKind: this.resumedCauseKind(o.causeId),
+    });
+    return true;
+  }
+
+  /**
+   * M8 (P3-1): the owner pressed Continue on a failover card. One new lane item on the same thread, on the backup,
+   * strict, attended and alone, capped at what the limited turn had left (`budgetUsd`; the cause cap still applies), and
+   * shown the messages that turn never answered. False when the bot is no longer in the room.
+   */
+  continueOnBackup(c: { botId: string; roomId: string; causeId: string; hop: number; backup: BotBackup; fromSeq: number; toSeq: number; budgetUsd: number | null }): boolean {
+    const bot = this.repos.getBot(c.botId);
+    const room = this.repos.getRoom(c.roomId);
+    if (!bot || !room || !room.memberIds.includes(bot.id)) return false;
+    const cause = this.repos.getMessage(c.causeId);
+    this.enqueue(bot, room, {
+      causeId: c.causeId, hop: c.hop, triggerSeq: cause?.roomId === room.id ? cause.seq : c.toSeq, causeKind: this.resumedCauseKind(c.causeId),
+      providerOverride: { provider: c.backup.provider, model: c.backup.model }, forceStrict: true, attended: true, solo: true,
+      rewind: { fromSeq: c.fromSeq, toSeq: c.toSeq }, ...(c.budgetUsd !== null ? { budgetUsd: c.budgetUsd } : {}),
     });
     return true;
   }

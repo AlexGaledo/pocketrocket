@@ -95,7 +95,8 @@ describe('ACP adapter: a plain text turn', () => {
 
     const init = calls('initialize')[0].params!;
     expect(init.protocolVersion).toBe(1);
-    expect(init.clientCapabilities).toEqual({ fs: { readTextFile: false, writeTextFile: false }, terminal: false });
+    // M8 (P4-1): compaction is asked for, so an agent may report one (it becomes a quiet note).
+    expect(init.clientCapabilities).toEqual({ fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } });
     const sn = calls('session/new')[0].params!;
     expect(sn.cwd).toBe(path.join(tmp, 'workspace'));
     expect(sn.mcpServers).toEqual([

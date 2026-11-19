@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, SEND_MODES, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval, type LaneQueue } from './models.js';
 import type { KnowledgeStatus } from './models.js';
-import { PROVIDER_IDS, type Settings, type ProviderId, type ProviderLimitState } from './providers.js';
+import { PROVIDER_IDS, type Settings, type ProviderId, type ProviderLimitState, type FailoverState } from './providers.js';
 import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
@@ -23,6 +23,8 @@ export type ServerEvent =
    * /api/providers → `limits`), so the client replaces its copy. Entries past `until` no longer apply.
    */
   | { type: 'provider.limit'; limits: ProviderLimitState[] }
+  /** M8: a failover card was raised, answered or expired, or a bot started or stopped running on its backup. The whole state (same as GET /api/failover). */
+  | { type: 'failover.changed'; cards: FailoverState['cards']; active: FailoverState['active'] }
   | { type: 'bots.changed'; bots: Bot[] }
   | { type: 'rooms.changed'; rooms: Room[] }
   | { type: 'message.new'; message: Message }

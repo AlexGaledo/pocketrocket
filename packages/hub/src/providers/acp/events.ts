@@ -4,6 +4,9 @@ import type { TurnSink } from '../types.js';
 /** Longest tool output kept per call; BotRunner caps again before storing. */
 const MAX_TOOL_OUTPUT = 20_000;
 
+/** The quiet note for a compaction the agent finished (P4-1). The runner puts the bot's name in front. */
+export const COMPACTION_NOTE = 'compacted its conversation context to make room; earlier details may be summarised.';
+
 /** The text of one content block, or '' for anything that is not text. */
 export function blockText(b: ContentBlock | null | undefined): string {
   return b && b.type === 'text' ? b.text : '';
@@ -42,6 +45,8 @@ function toolInput(u: Pick<ToolCall, 'title' | 'kind' | 'locations' | 'rawInput'
  * - `tool_call` / `tool_call_update` become tool chips, settled once the call reports `completed` or `failed`.
  * - `usage_update` gives the context size (`used`), and the session's cost when the agent reports it in dollars.
  * - `notice` with severity error/warning is kept for the provider's limit matcher; nothing is posted from it.
+ * - `compaction_update` (M8, P4-1): a compaction that completed becomes one quiet note (`onNote`), once per compaction id.
+ *   The agent's summary is not posted; the context size drops on the next `usage_update`.
  */
 export class AcpEventMapper {
   /** Input tokens in the session's context, from the last `usage_update`. */
@@ -60,6 +65,7 @@ export class AcpEventMapper {
   muted = false;
   private block = '';
   private tools = new Map<string, { done: boolean }>();
+  private compactions = new Set<string>();
 
   constructor(private sink: TurnSink) {}
 
@@ -101,8 +107,13 @@ export class AcpEventMapper {
       case 'notice':
         if (u.severity === 'error' || u.severity === 'warning') this.notices.push(u.title + (u.description ? ': ' + u.description : ''));
         return;
+      case 'compaction_update':
+        if (u.status !== 'completed' || this.compactions.has(u.compactionId)) return;
+        this.compactions.add(u.compactionId);
+        this.sink.onNote?.(COMPACTION_NOTE);
+        return;
       default:
-        // plan, mode/config/commands updates, session info, compaction (P4-1 turns that into a note): nothing to show yet.
+        // plan, mode/config/commands updates, session info, compaction summary chunks: nothing to show yet.
         return;
     }
   }

@@ -83,6 +83,8 @@ export class AcpProvider implements AgentProvider {
   readonly id: ProviderId;
   readonly label: string;
   readonly info: ProviderStaticInfo;
+  /** M8 (P4-1): `usage_update.used` becomes `contextTokens`, so a session rotates on size as on Claude (0 until the agent reports). */
+  readonly reportsContextTokens = true;
   private active = new Map<string, { cancel: () => void }>();
 
   constructor(private preset: AcpPreset, private opts: AcpProviderOptions = {}) {
@@ -111,7 +113,8 @@ export class AcpProvider implements AgentProvider {
       p.conn.agent.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         // No fs/terminal: the agent keeps its own tools and asks through session/request_permission (P2-5 may change it).
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        // `session.compaction` (M8, P4-1): an agent may only report a compaction to a client that asks for it; it becomes a quiet note.
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } },
         clientInfo: { name: 'pocketrocket', version: VERSION },
       }),
       ACP_START_TIMEOUT_MS,

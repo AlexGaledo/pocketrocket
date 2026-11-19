@@ -899,4 +899,35 @@ registerMigrations([310, 319], [
   { version: 310, name: 'bots.provider', up: (db) => addColumnIfMissing(db, 'bots', 'provider', 'TEXT') },
   { version: 311, name: 'bots.backup', up: (db) => addColumnIfMissing(db, 'bots', 'backup', 'TEXT') },
   { version: 312, name: 'usage.provider', up: (db) => addColumnIfMissing(db, 'usage', 'provider', 'TEXT') },
+  // M8 (P3-1): failover cards. One row per card; `status` leaves 'pending' once. A 'continued' row whose `expires_at` is
+  // still ahead is what sends the bot's attended turns to its backup. `from_seq`/`to_seq` are the read window of the
+  // limited turn, so Continue can show the bot the messages it never answered; `budget_usd` is what that turn had left
+  // (NULL = no dollar cap), so Continue never raises it.
+  {
+    version: 313,
+    name: 'failover_cards',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS failover_cards (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        cause_id TEXT NOT NULL,
+        hop INTEGER NOT NULL DEFAULT 0,
+        provider TEXT NOT NULL,
+        model TEXT,
+        limit_window TEXT,
+        backup_provider TEXT NOT NULL,
+        backup_model TEXT NOT NULL,
+        resets_at INTEGER,
+        expires_at INTEGER NOT NULL,
+        from_seq INTEGER NOT NULL DEFAULT 0,
+        to_seq INTEGER NOT NULL DEFAULT 0,
+        budget_usd REAL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        answered_at INTEGER
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_failover_cards_status ON failover_cards(status, expires_at)');
+    },
+  },
 ]);

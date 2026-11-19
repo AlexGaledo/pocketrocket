@@ -10,13 +10,18 @@ export const ATTENDED_ONLY_ON_LOGIN: ReadonlySet<ProviderId> = new Set<ProviderI
 
 export interface UnattendedDeps {
   forBot(bot: Pick<Bot, 'provider'>): AgentProvider;
+  /** M8: the provider a failover item runs on instead of the bot's own. */
+  get?(id: ProviderId): AgentProvider;
   /** `force` re-runs the detection: an unattended turn decides on what the CLI says now, not a minute ago. */
   check(id: ProviderId, force?: boolean): Promise<ProviderCheck>;
 }
 
-/** The note for a refused unattended turn, or null when `bot` may run one. Used as `RoomRouter.unattendedRefusal`. */
-export async function unattendedRefusal(deps: UnattendedDeps, bot: Bot): Promise<string | null> {
-  const p = deps.forBot(bot);
+/**
+ * The note for a refused unattended turn, or null when `bot` may run one. Used as `RoomRouter.unattendedRefusal`.
+ * `provider` (M8): the turn runs on that provider instead of the bot's own (a failover backup).
+ */
+export async function unattendedRefusal(deps: UnattendedDeps, bot: Bot, provider?: ProviderId): Promise<string | null> {
+  const p = provider && deps.get ? deps.get(provider) : deps.forBot(bot);
   if (!ATTENDED_ONLY_ON_LOGIN.has(p.id)) return null;
   const c = await deps.check(p.id, true);
   if (c.auth === 'apiKey') return null;
