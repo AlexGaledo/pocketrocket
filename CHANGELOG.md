@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-20
+
 ### Desktop: Tauri 2.12 (desktop)
 
 - Tauri 2.11.6 → 2.12.7 (wry 0.57, tao 0.37, webview2-com 0.39).
