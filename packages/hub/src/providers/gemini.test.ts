@@ -129,7 +129,9 @@ describe('finding agy', () => {
     fs.writeFileSync(path.join(tmp, 'agy.ps1'), '');
     fs.writeFileSync(path.join(tmp, 'agy.cmd'), '@echo off\r\n');
     process.env.PATH = tmp + ';' + saved.PATH;
-    expect(await findExe('agy', 'AGY_EXE')).toBe(path.join(tmp, 'agy.cmd'));
+    // Compare real paths: on CI the temp dir is an 8.3 short name (RUNNER~1) and the lookup may return the long form.
+    const found = await findExe('agy', 'AGY_EXE');
+    expect(found && fs.realpathSync.native(found)).toBe(fs.realpathSync.native(path.join(tmp, 'agy.cmd')));
   });
 
   it.runIf(process.platform !== 'win32')('elsewhere takes the first agy on PATH', async () => {
