@@ -45,7 +45,7 @@ describe('FailoverCardView', () => {
     expect(h).toContain('lucide-gauge');
     expect(h).toContain('Ada hit Claude&#x27;s 5-hour limit.');
     expect(h).toContain('Continue on Gemini');
-    expect(h).toMatch(/Wait until \d/);
+    expect(h).toMatch(/Wait until (?:[A-Z][a-z]{2} )?\d/);
     expect(h).toContain('with approvals on');
   });
 
