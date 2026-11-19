@@ -286,13 +286,11 @@ function UsageSection() {
 }
 
 // ---------- P8: usage by model and by cause ----------
-// 'workflow' is listed by name so this still compiles before the shared CauseKind union has it.
-const CAUSE_LABEL: Record<CauseKind | 'workflow', string> = {
+const CAUSE_LABEL: Record<CauseKind, string> = {
   user: 'Your messages',
   bot: 'Passed between bots',
   routine: 'Schedules',
   trigger: 'Triggers',
-  workflow: 'Workflow',
   training: 'Training',
   memory: 'Auto-memory',
   reflection: 'Skill fixes',
