@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Dependency and CI refresh (all)
+
+- Clears every open `pnpm audit` finding (1 critical, 5 high, 17 moderate, 3 low): `@modelcontextprotocol/sdk` 1.32.2, `zod` ^4.6.7, `vite` ^6.4.5, `vitest` ^5.0.3, plus lockfile-only fixes for proxy-addr, body-parser, qs, follow-redirects, hono, @hono/node-server, fast-uri, ip-address and source-map-js.
+- Minor bumps: `lucide-react` ^1.73.0, `ws` ^8.22.0, React and React DOM ^19.3.0 (kept in step), Rust `open` 5.4.5 and `serde_json` 1.0.154.
+- CI: pnpm/action-setup 6.1.1, actions/setup-node 7.1.0, Swatinem/rust-cache 2.9.3, actions/upload-artifact 7.0.2. Release dispatch dry runs skip the test step (tag builds still run it).
+- Not taken: tauri-plugin-dialog 2.8.4, tauri-plugin-notification 2.8.x and webview2-com 0.39 (each needs Tauri 2.12, see the pin in Cargo.toml), and the major bumps vite 8, @vitejs/plugin-react 6 and react-markdown 10.
+
 ### Sending mail or a calendar invite needs your signed-in browser (hub)
 
 - `gmail_send` and `calendar_create_event` now raise a sign-in-only card, like a job on your PC. Each send asks on its own (no "for this session" answer, no rule can pre-approve it), and only a browser signed in with your password can allow it. This holds under the bypass approvals setting too.
