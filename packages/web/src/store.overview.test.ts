@@ -73,4 +73,22 @@ describe('the overview in the store (new layout)', () => {
     store.getState().applyEvent({ type: 'projects.changed' });
     expect(load).toHaveBeenCalledOnce();
   });
+
+  it("remembers who was asked for a map until that bot's turn in the room ends, then refetches it", async () => {
+    const store = await boot(1440, true);
+    const sent: string[] = [];
+    const loadMap = vi.fn(async () => undefined);
+    store.setState({
+      activeRoomId: 'r1', projects: [{ slug: 'toki', name: 'Toki', dir: 'x', memberIds: ['b1'], roomId: 'r1', templateVersion: 3, createdAt: 0 }],
+      maps: { toki: { map: null, error: null, mtime: null, droppedEdges: 0 } }, sendMessage: (t: string) => void sent.push(t), loadMap,
+    });
+    store.getState().askForMap('toki', 'b1', '@lead draw it');
+    expect(sent).toEqual(['@lead draw it']);
+    expect(store.getState().mapAsks.toki).toEqual({ botId: 'b1', roomId: 'r1', phase: 'sent' });
+    store.getState().applyEvent({ type: 'turn.end', turnId: 't', roomId: 'r1', botId: 'b2' });
+    expect(store.getState().mapAsks.toki.phase).toBe('sent');
+    store.getState().applyEvent({ type: 'turn.end', turnId: 't', roomId: 'r1', botId: 'b1' });
+    expect(store.getState().mapAsks.toki.phase).toBe('done');
+    expect(loadMap).toHaveBeenCalledWith('toki');
+  });
 });

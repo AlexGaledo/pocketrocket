@@ -8,7 +8,7 @@ import type { Skill, ComputerStatus, OpenApproval, RecorderStatus } from '@pocke
 import { api, MESSAGE_PAGE, type AccountActionResponse, type ProjectInfo } from './lib/api';
 import { fetchProjects, projectOfRoom } from './lib/projects';
 import { getLayout, subscribeLayout } from './lib/layout';
-import type { ProjectOverview } from '@pocketrocket/shared';
+import type { ProjectMapReply, ProjectOverview } from '@pocketrocket/shared';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { notifyEvent } from './lib/notifyEvents';
@@ -88,6 +88,8 @@ function readOverviewRail(vw: number): boolean {
   const v = getItem(OVERVIEW_RAIL_KEY);
   return v === '1' ? true : v === '0' ? false : vw < OVERVIEW_OPEN_MIN;
 }
+
+export interface MapAsk { botId: string; roomId: string; phase: 'sent' | 'done' }
 
 export interface Toast {
   id: number;
@@ -192,6 +194,13 @@ interface State {
   overviewRail: boolean;
   /** Per project slug: its parsed current.md; null when the hub refused or has no such endpoint. */
   overviews: Record<string, ProjectOverview | null>;
+  /** Each project's map.json as the hub read it, by slug; null when the hub could not be asked (older hub, device). */
+  maps: Record<string, ProjectMapReply | null>;
+  /**
+   * The bot asked to draw a project's map from the Map tab, by slug. `sent` until that bot's turn in the project room
+   * ends, then `done`, so the canvas can say "No map was made" if that turn wrote no valid map.
+   */
+  mapAsks: Record<string, MapAsk>;
   /**
    * Files was opened over a screen the user was watching. That viewer stays mounted, hidden, so its noVNC
    * connection survives a look at the files; it is let go when the panel closes.
@@ -283,6 +292,9 @@ interface State {
   loadProjects: () => Promise<void>;
   /** Fetches one project's overview (GET /api/projects/:slug/overview). */
   loadOverview: (slug: string) => Promise<void>;
+  loadMap: (slug: string) => Promise<void>;
+  /** Sends `text` to the open chat (the project's room) as an ordinary message, and remembers who was asked. */
+  askForMap: (slug: string, botId: string, text: string) => void;
   /** New layout: shows the overview in the right slot; `rail: false` unfolds it. */
   openOverview: (opts?: { rail?: boolean }) => void;
   setOverviewRail: (rail: boolean) => void;
@@ -379,6 +391,8 @@ export const useStore = create<State>((set, get) => ({
   panelKind: overviewHome(window.innerWidth) ? 'overview' : 'screen',
   overviewRail: readOverviewRail(window.innerWidth),
   overviews: {},
+  maps: {},
+  mapAsks: {},
   screenParked: false,
   filesTarget: null,
   filesRev: {},
@@ -453,6 +467,20 @@ export const useStore = create<State>((set, get) => ({
       // An older hub (404) or a refused device: no plan, said quietly as "No plan yet".
       set({ overviews: { ...get().overviews, [slug]: null } });
     }
+  },
+  loadMap: async (slug) => {
+    try {
+      const m = await api.projects.map(slug);
+      set({ maps: { ...get().maps, [slug]: m } });
+    } catch {
+      set({ maps: { ...get().maps, [slug]: null } });
+    }
+  },
+  askForMap: (slug, botId, text) => {
+    const roomId = get().activeRoomId;
+    if (!roomId) return;
+    get().sendMessage(text);
+    set({ mapAsks: { ...get().mapAsks, [slug]: { botId, roomId, phase: 'sent' } } });
   },
   openOverview: (opts) => set((s) => ({
     panelOpen: true,
@@ -597,6 +625,12 @@ export const useStore = create<State>((set, get) => ({
         // A bot may have just ticked a box in its project's current.md: refresh what the header and overview say.
         const project = projectOfRoom(s.projects, ev.roomId);
         if (project && project.slug in s.overviews) void get().loadOverview(project.slug);
+        // ...or written map.json (bot file writes send no files.changed, so a finished turn is the cue).
+        if (project && project.slug in s.maps) void get().loadMap(project.slug);
+        const ask = project && s.mapAsks[project.slug];
+        if (project && ask && ask.phase === 'sent' && ask.botId === ev.botId && ask.roomId === ev.roomId) {
+          set({ mapAsks: { ...get().mapAsks, [project.slug]: { ...ask, phase: 'done' } } });
+        }
         const roomActive = ev.roomId === s.activeRoomId;
         if (ev.error) {
           play('error', { roomActive });

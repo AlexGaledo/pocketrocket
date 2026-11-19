@@ -46,7 +46,6 @@ describe('the stored layout', () => {
   it('starts classic on a browser that never chose', async () => {
     const { layout } = await load();
     expect(layout.getLayout()).toBe('classic');
-    expect(layout.layoutSwitchShown()).toBe(false);
   });
 
   it('survives a reload', async () => {
@@ -70,8 +69,8 @@ describe('the stored layout', () => {
     expect(seen).toEqual(['toki', 'classic']);
   });
 
-  it('shows the switch after a preview visit, or while the layout is on', async () => {
-    expect((await load({ 'pocketrocket.layoutPreview': '1' })).layout.layoutSwitchShown()).toBe(true);
+  it('shows the switch to everyone from phase 3', async () => {
+    expect((await load()).layout.layoutSwitchShown()).toBe(true);
     expect((await load({ 'pocketrocket.layout': 'toki' })).layout.layoutSwitchShown()).toBe(true);
   });
 });

@@ -7,9 +7,12 @@
 // Nothing here calls window.open. The hub's /raw route adds nosniff and a sandbox CSP for direct requests too.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Map as MapIcon } from 'lucide-react';
 import type { FileEntry } from '@pocketrocket/shared';
 import { api, ApiError } from '../../lib/api';
+import { useStore } from '../../store';
+import { useActiveProject } from '../../lib/useProject';
+import { PANEL_INLINE_MIN } from '../../lib/panes';
 import { Button, DialogCloseButton, DialogShell, DialogTitle } from '../ui';
 import { Markdown, FileLinkBase } from '../Markdown';
 import { RowIcon } from './FileIcon';
@@ -93,6 +96,12 @@ export function FilePreview({ roomId, folder, files, index, onIndex, onClose, on
     };
   }, [roomId, folder, entry]);
 
+  // New layout: the project's own map.json opens on the Map tab too.
+  const project = useActiveProject();
+  const openPage = useStore((s) => s.openPage);
+  const closePanel = useStore((s) => s.closePanel);
+  const isMap = !!project && project.roomId === roomId && folder === '' && entry?.name === 'map.json';
+
   if (!entry) return null;
   const go = (step: number) => {
     const next = index + step;
@@ -132,6 +141,14 @@ export function FilePreview({ roomId, folder, files, index, onIndex, onClose, on
               <Button size="icon" variant="ghost" aria-label="Previous file" title="Previous file (Left arrow)" disabled={index === 0} onClick={() => go(-1)}><ChevronLeft size={16} /></Button>
               <Button size="icon" variant="ghost" aria-label="Next file" title="Next file (Right arrow)" disabled={index === files.length - 1} onClick={() => go(1)}><ChevronRight size={16} /></Button>
             </>
+          )}
+          {isMap && project && (
+            <Button size="sm" variant="ghost" onClick={() => {
+              onClose();
+              // Where Files covers the window, it steps aside so the map shows.
+              if (window.innerWidth < PANEL_INLINE_MIN) closePanel();
+              openPage({ kind: 'map', slug: project.slug });
+            }}><MapIcon size={14} aria-hidden />Show on map</Button>
           )}
           <Button size="icon" variant="ghost" aria-label={'Download ' + entry.name} title="Download" onClick={() => onDownload(entry)}><Download size={15} /></Button>
           <DialogCloseButton />

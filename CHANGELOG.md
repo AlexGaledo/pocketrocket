@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New layout preview, phase 3: the project map (web)
+
+- The "New layout" switch in Settings › Appearance is now shown to everyone (still off by default, still per browser).
+- A project's Map tab draws its `map.json`: boxes with a lowercase mono label and a tech line, grouped in columns (client, core, data, ai, infra), or a left-to-right path of milestones for a roadmap. Drag to pan, wheel or pinch to zoom, and Fit and zoom buttons in a small toolbar. Clicking a box (or Enter on it) rings it, puts a faint static sphere behind it, and offers "Ask about it" and "Details". Escape clears it. Nothing on the map moves by itself.
+- A prompt bar under the map sends your words to the room's coordinator as an ordinary message, naming the boxes you picked. You stay on the map and a toast links to the chat.
+- A Map | List switch shows the same map as text. The list is the default on narrow windows, where the map is read-only.
+- No map yet: "Generate map" asks a bot that has the project-map skill (coordinator first) for a system map or a roadmap, and says it uses one turn. While that bot works in the room, the map and the room line say so. When its turn ends the map reloads, or "No map was made" points to its reply. A broken `map.json` shows the hub's reason instead of a partial map.
+- `map.json` in the project folder gets "Show on map" in the file preview. Toasts sit higher on the Map tab so they clear the prompt bar.
+- The map and its canvas load as separate chunks, so the app's first load does not grow.
+
 ### New layout preview, phase 2: project header and overview panel (web)
 
 - With the "New layout" switch on, a project's chat opens under a project header: its name, where its plan stands (stage, ticked of total, or "No plan yet", read from `current.md`), and Chat | Map tabs. A slim line under it keeps the room's name, faces, badges and the group details, Files and Screen buttons in their old order. The Map tab says "No map yet" until the map canvas lands in phase 3.

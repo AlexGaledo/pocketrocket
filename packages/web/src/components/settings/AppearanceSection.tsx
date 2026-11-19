@@ -101,7 +101,7 @@ export function AppearanceSection({ readOnly = false }: { readOnly?: boolean } =
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div id={layoutLabelId} className="text-label">New layout</div>
-                <p id={layoutHintId} className="text-hint text-muted">Projects first in the sidebar. A preview, on this browser only.</p>
+                <p id={layoutHintId} className="text-hint text-muted">Projects first, with an overview and a map. A preview, on this browser only.</p>
               </div>
               <Switch checked={layout === 'toki'} aria-labelledby={layoutLabelId} aria-describedby={layoutHintId} onChange={(next) => setLayout(next ? 'toki' : 'classic')} />
             </div>

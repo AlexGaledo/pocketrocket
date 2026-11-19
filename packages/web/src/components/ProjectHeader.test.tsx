@@ -13,7 +13,8 @@ vi.mock('../store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) => sel(state),
   botById: (bots: Bot[], id: string | null) => bots.find((b) => b.id === id),
 }));
-vi.mock('../lib/useProject', () => ({ useOverview: () => overview }));
+let drawing: { bot: Bot | null; phase: 'sent' | 'done' | null; running: boolean } = { bot: null, phase: null, running: false };
+vi.mock('../lib/useProject', () => ({ useOverview: () => overview, useMapDrawing: () => drawing }));
 vi.mock('../lib/useInbox', () => ({ useInbox: () => inbox }));
 vi.mock('../lib/useMediaQuery', () => ({ useMediaQuery: () => wide }));
 vi.mock('../lib/botStatus', async (orig) => ({ ...(await orig<typeof import('../lib/botStatus')>()), useBotStatus: () => ({ statusOf: () => 'idle', needsYouRoom: () => null }) }));
@@ -85,5 +86,15 @@ describe('ProjectHeader', () => {
   it('hides room editing on a paired phone', () => {
     setup({ device: true });
     expect(render()).not.toContain('Group details');
+  });
+
+  it('shows a map chip in the room line only while the asked bot is drawing', () => {
+    setup();
+    expect(render()).not.toContain('is drawing the map');
+    drawing = { bot: bots[0], phase: 'sent', running: true };
+    expect(render()).toContain('aria-label="@lead is drawing the map. Open the map"');
+    drawing = { bot: bots[0], phase: 'sent', running: false };
+    expect(render()).not.toContain('is drawing the map');
+    drawing = { bot: null, phase: null, running: false };
   });
 });
