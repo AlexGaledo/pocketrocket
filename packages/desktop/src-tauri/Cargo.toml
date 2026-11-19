@@ -23,7 +23,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 # local desktop notifications; the hub page reaches only the notify commands, see capabilities/hub-notify.json
 # pinned: 2.4.x is the last line that accepts the tauri 2.11 this repo locks (2.5+ needs tauri 2.12, which moves webview2-com past what lib.rs uses)
-tauri-plugin-notification = "=2.4.0"
+tauri-plugin-notification = "=2.8.1"
 # signed self-updates from GitHub Releases. Registered in Rust only: no capability grants updater:* and there is
 # no #[tauri::command] for it, so the hub page cannot trigger a check or an install.
 # pinned: 2.12.0 is the last version that accepts tauri 2.11 (2.13+ needs tauri ^2.12); bump together with tauri.
