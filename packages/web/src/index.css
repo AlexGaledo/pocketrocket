@@ -88,6 +88,26 @@
 }
 
 /*
+ * Roles for the project-first layout (docs/specs/toki-ui.md). Aliases and mixes of the tokens above, so each theme
+ * gets its own value through them; only the canvas needs a dark value of its own.
+ *   --needs   "waiting on the owner": counts, rows and cards that need you. New code says `needs`, never `warn`,
+ *             for these, so a reviewer can grep for every use.
+ *   --canvas  the map and workflow surface. Light stays paper, never a dark box.
+ *   --edge    map edges: a 3:1 shape colour, never text.
+ *   --glow    a static halo for a focused node; not a motion effect.
+ */
+:root {
+  --needs: var(--warn);
+  --canvas: var(--bg);
+  --canvas-dot: var(--line);
+  --node: color-mix(in oklab, var(--card) 92%, transparent);
+  --node-line: color-mix(in oklab, var(--accent) 40%, var(--line));
+  --edge: var(--faint);
+  --glow: 0 0 22px -8px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+.dark { --canvas: #181817; }
+
+/*
  * Weights, per font, so a title looks equally heavy in either. Picked by measuring the capital-I stem from
  * the bundled files, aiming at about .089 / .108 / .125 em. Figtree needs more of its axis to get there.
  * Google Sans's axis is 400-700 and Figtree's is 300-900, so stay inside 400-700.
@@ -112,6 +132,12 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
+  --color-needs: var(--needs);
+  --color-canvas: var(--canvas);
+  --color-canvas-dot: var(--canvas-dot);
+  --color-node: var(--node);
+  --color-node-line: var(--node-line);
+  --color-edge: var(--edge);
   --color-user: var(--user);
   --color-ink: var(--ink);
   --color-ink-fg: var(--ink-fg);

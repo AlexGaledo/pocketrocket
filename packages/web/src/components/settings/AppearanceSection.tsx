@@ -1,5 +1,6 @@
 /**
- * Settings › Appearance: theme (follow the computer, light, dark), font, and sound cues with previews.
+ * Settings › Appearance: theme (follow the computer, light, dark), font, the "New layout" preview (per browser,
+ * lib/layout.ts), and sound cues with previews.
  * Both apply the moment they change; the store saves them and rolls back if the save fails.
  * `readOnly` (a paired phone, which may not write hub settings): shown, not changeable; previews still play.
  */
@@ -8,6 +9,7 @@ import { Volume2 } from 'lucide-react';
 import type { Settings } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { preview, type Cue } from '../../lib/sounds';
+import { layoutSwitchShown, setLayout, useLayout } from '../../lib/layout';
 import { Button, Switch, cn } from '../ui';
 import { Card, Group, SectionHeader } from './parts';
 
@@ -42,6 +44,9 @@ export function AppearanceSection({ readOnly = false }: { readOnly?: boolean } =
   const fontLabelId = useId();
   const soundsLabelId = useId();
   const soundsHintId = useId();
+  const layout = useLayout();
+  const layoutLabelId = useId();
+  const layoutHintId = useId();
 
   return (
     <>
@@ -88,6 +93,21 @@ export function AppearanceSection({ readOnly = false }: { readOnly?: boolean } =
           ))}
         </div>
       </Group>
+
+      {/* Per browser, not a hub setting, so a paired phone (readOnly) keeps the classic layout and never sees it. */}
+      {!readOnly && layoutSwitchShown() && (
+        <Group>
+          <Card>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div id={layoutLabelId} className="text-label">New layout</div>
+                <p id={layoutHintId} className="text-hint text-muted">Projects first in the sidebar. A preview, on this browser only.</p>
+              </div>
+              <Switch checked={layout === 'toki'} aria-labelledby={layoutLabelId} aria-describedby={layoutHintId} onChange={(next) => setLayout(next ? 'toki' : 'classic')} />
+            </div>
+          </Card>
+        </Group>
+      )}
 
       <Group>
         <Card>
