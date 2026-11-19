@@ -11,6 +11,7 @@ import { AutoCharacter, BotCharacter } from '../lib/botCharacter';
 import type { Bot, BotState, Room } from '@pocketrocket/shared';
 import { botIcon } from '../lib/botIcon';
 import { useMediaUrl } from '../lib/media';
+import { useNewLayout } from '../lib/newLayout';
 
 export function cn(...a: (string | false | null | undefined)[]) {
   return clsx(a);
@@ -101,7 +102,22 @@ export function Label({ children, hint, htmlFor, id }: { children: React.ReactNo
  * and renders `DialogTitle` itself.
  */
 /** `stacked` raises a dialog over another open one, so its overlay dims the dialog underneath too. */
+/**
+ * New layout: `pr-sheet` makes the dialog a sheet pulled up from the bottom on a phone-width window (index.css), the
+ * native place for it under a thumb. Same content, focus trap, Escape and focus return; no added motion.
+ */
 export function DialogShell({ open, onOpenChange, className, hasDescription, role, stacked, children }: { open: boolean; onOpenChange: (o: boolean) => void; className?: string; hasDescription?: boolean; role?: 'dialog' | 'alertdialog'; stacked?: boolean; children: React.ReactNode }) {
+  const sheet = useNewLayout();
+  // Our dialogs open from the store, not a Radix Trigger, so Radix's own focus return has nothing to go back to and
+  // lands on <body>. Remember what had focus when the dialog opened and go back there on close, if it is still on
+  // the page (a menu item that opened the dialog is gone by then; its menu already put focus on the menu button).
+  const returnTo = React.useRef<HTMLElement | null>(null);
+  if (open && !returnTo.current && typeof document !== 'undefined') returnTo.current = document.activeElement as HTMLElement | null;
+  const onCloseAutoFocus = (e: Event) => {
+    const el = returnTo.current;
+    returnTo.current = null;
+    if (el && el.isConnected && el !== document.body) { e.preventDefault(); el.focus({ preventScroll: true }); }
+  };
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
@@ -110,8 +126,9 @@ export function DialogShell({ open, onOpenChange, className, hasDescription, rol
           // Radix warns unless a dialog either has a Description or opts out with an explicit undefined.
           {...(hasDescription ? {} : { 'aria-describedby': undefined })}
           {...(role ? { role } : {})}
+          onCloseAutoFocus={onCloseAutoFocus}
           // max-w keeps every dialog inside a phone-width window instead of running off the right edge.
-          className={cn('fixed left-1/2 top-1/2 max-w-[calc(100vw-1.5rem)]', stacked ? 'z-[52]' : 'z-50', '-translate-x-1/2 -translate-y-1/2 rounded-xl bg-panel shadow-[var(--shadow-lg)] focus:outline-none', className)}
+          className={cn('fixed left-1/2 top-1/2 max-w-[calc(100vw-1.5rem)]', stacked ? 'z-[52]' : 'z-50', '-translate-x-1/2 -translate-y-1/2 rounded-xl bg-panel shadow-[var(--shadow-lg)] focus:outline-none', className, sheet && 'pr-sheet')}
         >
           {children}
         </DialogPrimitive.Content>
@@ -594,18 +611,20 @@ export function Kbd({ children, className }: { children: React.ReactNode; classN
 }
 
 /** Placeholder for a list or pane with nothing in it. `icon` is decorative (hidden from assistive tech); `title` carries the meaning. */
-export function EmptyState({ icon, title, children, action, as: Title = 'div', className }: {
+/** `size="lg"`: the dialog-title size, for an empty state that fills a whole pane (no chat open). */
+export function EmptyState({ icon, title, children, action, as: Title = 'div', size = 'md', className }: {
   icon?: React.ReactNode;
   title: React.ReactNode;
   children?: React.ReactNode;
   action?: React.ReactNode;
   as?: 'div' | 'h2' | 'h3' | 'h4';
+  size?: 'md' | 'lg';
   className?: string;
 }) {
   return (
     <div className={cn('flex flex-col items-center gap-1 px-6 py-10 text-center', className)}>
       {icon && <div aria-hidden className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-card2 text-muted">{icon}</div>}
-      <Title className="text-ui font-semibold text-fg">{title}</Title>
+      <Title className={cn(size === 'lg' ? 'text-title-sm' : 'text-ui font-semibold', 'text-fg')}>{title}</Title>
       {children && <p className="max-w-[40ch] text-ui text-muted">{children}</p>}
       {action && <div className="mt-3 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>

@@ -3,12 +3,24 @@ import type { SearchHit } from '@pocketrocket/shared';
 import { api } from '../../lib/api';
 import { useStore } from '../../store';
 import { Dialog, Input } from '../ui';
+import { useNewLayout } from '../../lib/newLayout';
+import { projectOfRoom } from '../../lib/projects';
 
 /** The match inside a snippet, marked. Case-insensitive, like the hub's search. */
 function Marked({ text, query }: { text: string; query: string }) {
   const at = text.toLowerCase().indexOf(query.toLowerCase());
   if (at < 0) return <>{text}</>;
   return <>{text.slice(0, at)}<mark className="rounded-xs bg-[#f5b53d] text-[#1a1200]">{text.slice(at, at + query.length)}</mark>{text.slice(at + query.length)}</>;
+}
+
+/** New layout: where a hit is, with its project first when the chat belongs to one; wraps rather than cut off. */
+function HitPlace({ name, project }: { name: string; project?: string }) {
+  return (
+    <span className="min-w-0 break-words">
+      {project && project !== name && <span className="text-fg">{project} · </span>}
+      {project === name ? <span className="text-fg">{name}</span> : name}
+    </span>
+  );
 }
 
 /** Finds a message in any chat. Picking one opens that chat at the message, with the words highlighted. */
@@ -18,6 +30,9 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
   const toast = useStore((s) => s.toast);
   const openHit = useStore((s) => s.openSearchHit);
   const term = query.trim();
+  // New layout: a hit in a project's chat says which project, before the chat's name.
+  const fresh = useNewLayout();
+  const projects = useStore((s) => s.projects);
 
   useEffect(() => {
     if (term.length < 2) { setHits(null); return; }
@@ -43,7 +58,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
                 onClick={() => { openHit(h.roomId, h.seq, term); onClose(); }}
               >
                 <span className="flex items-baseline justify-between gap-2 text-hint text-muted">
-                  <span className="truncate">{h.roomName}</span>
+                  {fresh ? <HitPlace name={h.roomName} project={projectOfRoom(projects, h.roomId)?.name} /> : <span className="truncate">{h.roomName}</span>}
                   <span className="shrink-0">{new Date(h.createdAt).toLocaleDateString()}</span>
                 </span>
                 <span className="mt-0.5 block text-ui"><Marked text={h.snippet} query={term} /></span>

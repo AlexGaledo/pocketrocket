@@ -16,7 +16,8 @@ import { SecuritySection } from '../settings/SecuritySection';
 import { useStore } from '../../store';
 import { api, type HealthResponse } from '../../lib/api';
 import { useMediaQuery } from '../../lib/useMediaQuery';
-import { DialogCloseButton, DialogShell, DialogTitle } from '../ui';
+import { DialogCloseButton, DialogShell, DialogTitle, cn } from '../ui';
+import { useNewLayout } from '../../lib/newLayout';
 import { AccountSection } from '../settings/AccountSection';
 import { ClaudeSection } from '../settings/ClaudeSection';
 import { BotsSection } from '../settings/BotsSection';
@@ -98,6 +99,8 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
   const sections = (device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS);
   const [section, setSection] = useState<SectionId>(opening ?? (device && !DEVICE_SECTIONS.includes(lastSection) ? 'devices' : lastSection));
   const sideNav = useMediaQuery(SIDE_NAV_QUERY);
+  // New layout: the section list uses the sidebar's row shape (rounder, the sidebar's padding) and the needs colour.
+  const fresh = useNewLayout();
   const { health, refresh: refreshHealth } = useHealth();
 
   // A small dot on "Providers" ("Claude" with one) when a provider some bot runs on isn't ready, so the problem is
@@ -133,14 +136,16 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
               <TabsPrimitive.Trigger
                 key={id}
                 value={id}
-                className="flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-ui text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:bg-active data-[state=active]:text-fg sm:gap-2.5 sm:px-3 sm:py-2"
+                className={fresh
+                  ? 'flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-ui text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:bg-active data-[state=active]:text-fg sm:gap-2.5'
+                  : 'flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-ui text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:bg-active data-[state=active]:text-fg sm:gap-2.5 sm:px-3 sm:py-2'}
               >
                 {/* Icons only in the side list; the top strip needs the room to fit every name (it scrolls when it cannot). */}
                 <Icon size={15} aria-hidden className="hidden shrink-0 sm:block" />
                 {id === 'claude' && list.length > 1 ? 'Providers' : label}
                 {id === 'claude' && claudeNeedsAttention && (
                   <>
-                    <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn sm:ml-auto" />
+                    <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full sm:ml-auto', fresh ? 'bg-needs' : 'bg-warn')} />
                     <span className="sr-only">(needs attention)</span>
                   </>
                 )}
@@ -149,7 +154,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
           </TabsPrimitive.List>
         </aside>
 
-        <div className="relative min-h-0 flex-1 border-t border-line sm:border-t-0">
+        <div className="relative min-h-0 min-w-0 flex-1 border-t border-line sm:border-t-0">
           <div className="absolute right-4 top-4 z-10 hidden sm:block"><DialogCloseButton /></div>
           <div className="h-full overflow-y-auto overscroll-contain">
             {/* tabIndex -1: every panel has its own controls to Tab into, so the panel itself needn't be a stop. */}

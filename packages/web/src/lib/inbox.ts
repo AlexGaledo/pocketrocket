@@ -5,7 +5,7 @@
  * added; a source that would need one is listed in the changelog notes instead.
  */
 import { ASK_EVERY_TIME_TOOLS, SIGN_IN_TOOLS, type ApprovalPayload, type ControlStatus, type FailoverCard, type FormPayload, type Message, type OpenApproval, type Skill, type WorkflowApprovalCard } from '@pocketrocket/shared';
-import { toolPhrase } from './toolPhrases';
+import { toolAsk } from './toolPhrases';
 
 export type InboxKind = 'approval' | 'takeover' | 'skill' | 'form' | 'workflow' | 'failover';
 
@@ -112,7 +112,7 @@ export function selectInbox({ openApprovals, messages, control, skills, workflow
       kind: 'approval',
       botId,
       roomId,
-      title: p ? 'Wants to ' + toolPhrase(p.toolName, 'now').toLowerCase() : 'Needs your approval',
+      title: p ? 'Wants to ' + toolAsk(p.toolName) : 'Needs your approval',
       approval: p ? { toolName: p.toolName, toolInput: p.toolInput } : undefined,
       detail: p?.reason ? p.reason : null,
       since: card?.m.createdAt ?? null,

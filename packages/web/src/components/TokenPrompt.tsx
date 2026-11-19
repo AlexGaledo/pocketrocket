@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { getNeedsToken, getPairError, redeemPairingCode, setToken, subscribeAuthFailure, wasUnpaired } from '../lib/auth';
 import { probeHub, reconnectWsNow } from '../lib/ws';
 import { useStore } from '../store';
-import { Button, Input } from './ui';
+import { Button, Input, cn } from './ui';
+import { useNewLayout } from '../lib/newLayout';
 
 /**
  * The hub always requires a token. When it rejects the one this page holds (lib/ws.ts has confirmed a real
@@ -11,6 +12,8 @@ import { Button, Input } from './ui';
  */
 export function TokenPrompt() {
   const [needsToken, setNeedsToken] = useState(getNeedsToken());
+  // New layout: the dialogs' surface (panel colour and dialog radius) instead of a card.
+  const fresh = useNewLayout();
   const [value, setValue] = useState('');
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,8 +104,8 @@ export function TokenPrompt() {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-labelledby="token-prompt-title" className="w-[380px] max-w-full rounded-lg bg-card p-5 text-ui shadow-[var(--shadow-lg)]">
+    <div className={cn('fixed inset-0 z-[200] flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm', fresh && 'pr-sheet-host')}>
+      <div role="dialog" aria-modal="true" aria-labelledby="token-prompt-title" className={cn('w-[380px] max-w-full p-5 text-ui shadow-[var(--shadow-lg)]', fresh ? 'pr-sheet-card rounded-xl bg-panel' : 'rounded-lg bg-card')}>
         {signIn ? (
           <>
             <div id="token-prompt-title" className="mb-3 text-title-sm">Sign in</div>

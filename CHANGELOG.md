@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New layout preview, phase 5: settings, dialogs, onboarding (web)
+
+- With "New layout" on, every dialog opens as a sheet from the bottom edge on a phone-width window, and so do the setup steps and the token prompt. On wider windows they stay centred, with the dialogs' surface.
+- Settings: the section list uses the sidebar's row shape. Each project in Settings › Projects gets "Map" and "Open project", which close Settings and open that project's map or chat. A long folder path wraps instead of being cut off.
+- Search shows the project before the chat's name for a hit in a project's chat, and long names wrap.
+- The empty chat area says "Pick a project or a bot" when you have projects. The setup's last step mentions projects and the map.
+- Paired phones and the switch off keep the classic look, apart from these fixes in both layouts:
+  - Needs you no longer reads "Wants to running a command": each tool reads as a plain verb ("Wants to run a command", "Wants to edit a file").
+  - Closing a dialog puts focus back on the button that opened it, instead of the page.
+  - Settings › Projects shows the folder with your home folder folded to `~`, and its cards no longer run past the dialog's edge on a long path.
+
 ### New layout preview, phase 4: the pages (web)
 
 - With "New layout" on, every page over the chat (Needs you, Tasks, PC sessions, Automations, Usage, a workflow, a bot) uses one page header: the same back arrow, title and buttons in the same places, with the title at page-title size. On a narrow window the buttons move under the title instead of squeezing it, and long names wrap instead of being cut off.

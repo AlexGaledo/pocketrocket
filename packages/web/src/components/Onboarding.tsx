@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { api } from '../lib/api';
 import { play } from '../lib/sounds';
 import { Button, Input, cn } from './ui';
+import { useNewLayout } from '../lib/newLayout';
 import { ProviderCard } from './ProviderCard';
 import { AccountSignIn } from './AccountSignIn';
 import { RocketMark } from './RocketMark';
@@ -61,6 +62,7 @@ export function Onboarding() {
   const setActiveRoom = useStore((s) => s.setActiveRoom);
 
   const [current, setCurrent] = useState<Step>('welcome');
+  const fresh = useNewLayout();
   const [providerId, setProviderId] = useState<ProviderId>(settings.provider);
   const [name, setName] = useState(settings.userName === 'you' ? '' : settings.userName);
   const [busy, setBusy] = useState(false);
@@ -130,9 +132,10 @@ export function Onboarding() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex overflow-y-auto overscroll-contain bg-bg/80 backdrop-blur-sm p-4" onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
+    <div className={cn('fixed inset-0 z-[60] flex overflow-y-auto overscroll-contain bg-bg/80 backdrop-blur-sm p-4', fresh && 'pr-sheet-host')} onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
       {/* m-auto rather than centring from the overlay: a card taller than a small window can still scroll to its top. */}
-      <div className="panel m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8">
+      {/* New layout: the card takes the dialogs' surface (panel colour, dialog radius and shadow). */}
+      <div className={cn('m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8', fresh ? 'pr-sheet-card rounded-xl bg-panel shadow-[var(--shadow-lg)]' : 'panel')}>
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
             <RocketMark />
@@ -244,6 +247,7 @@ export function Onboarding() {
             <p className="max-w-[38ch] text-ui text-muted">
               {botCreated ? "Your first bot is ready — say hi." : 'Create a bot whenever you like from the sidebar.'}
             </p>
+            {fresh && <p className="max-w-[38ch] text-ui text-muted">Projects in the sidebar keep a project's chat, bots and map together. Add one in Settings › Projects.</p>}
             <Button variant="primary" autoFocus disabled={busy} onClick={() => void finish()}>
               {busy ? 'Saving…' : error ? 'Try again' : 'Start using PocketRocket'}
             </Button>
