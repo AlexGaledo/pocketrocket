@@ -8,7 +8,7 @@ import { MONTHS, SCHEDULE_PRESETS, WEEKDAYS, cronToPreset, describeCron, presetT
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
 import { Avatar, Badge, Button, Input, Label, Meter, Select, Textarea, Tooltip, cn, confirmAction, fmtUsd } from './ui';
-import { botProvider, limitName, limitPercent, resetPhrase, usesApiKey } from '../lib/limits';
+import { botProvider, limitName, limitPercent, planMeters, resetPhrase } from '../lib/limits';
 import { useLimits } from '../lib/useLimits';
 import { TriggersSection } from './TriggersSection';
 import { WorkflowsSection } from './workflows/WorkflowsSection';
@@ -301,7 +301,7 @@ function PlanLimits() {
   const defaultProvider = useStore((s) => s.settings.provider);
   const inUse = new Set<ProviderId>([defaultProvider, ...bots.map((b) => botProvider(b, defaultProvider))]);
   const onPlan = [...inUse].filter((id) => providers?.providers.find((p) => p.id === id)?.check.auth === 'subscription');
-  const shown = limits.filter((l) => l.kind === 'usage' && !usesApiKey(providers, l.provider));
+  const shown = planMeters(limits, providers);
   if (!shown.length && !onPlan.length) return null;
   const label = (id: ProviderId) => providers?.providers.find((p) => p.id === id)?.label ?? id;
   return (
@@ -316,7 +316,7 @@ function PlanLimits() {
           ))}
         </ul>
       ) : (
-        <p className="mt-1 text-hint text-dim">Nothing close to a limit. {onPlan.map(label).join(' and ')} reports a window here as it fills.</p>
+        <p className="mt-1 text-hint text-dim">Nothing near a limit right now. A window shows here once {onPlan.map(label).join(' or ')} says it is filling up.</p>
       )}
     </section>
   );
@@ -368,8 +368,8 @@ function UsageSplit({ split }: { split: UsageSplitData }) {
   };
   return (
     <>
-      {/* One provider is the common case; a single row would only repeat the total. */}
-      {(split.byProvider.length > 1 || split.byProvider.some((g) => g.key && g.key !== 'claude')) && section('By provider', split.byProvider, providerLabel, false, isEstimate)}
+      {/* Claude alone is the common case: one row (plus rows from before v0.5) would only repeat the total. */}
+      {(split.byProvider.filter((g) => g.key).length > 1 || split.byProvider.some((g) => g.key && g.key !== 'claude')) && section('By provider', split.byProvider, providerLabel, false, isEstimate)}
       {section('By model', split.byModel, modelLabel, true)}
       {section('By what started it', split.byCause, causeLabel, false)}
     </>

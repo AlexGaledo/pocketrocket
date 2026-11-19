@@ -1,7 +1,7 @@
 /**
- * Settings › Claude: is Claude working, which model new bots start with, and an optional API key.
- * v1 ships one provider (Claude), so there is no picker; the provider radio cards only appear when a
- * developer build enables more than one.
+ * Settings › Claude: is Claude working, which model new bots start with, and an optional API key. With more than one
+ * provider enabled the section is "Providers": a card per provider (status, Re-check) and the default, which bots set
+ * to "Default" run on. Each bot can pick its own in the bot dialog (spec 01 P1-8).
  */
 import { useEffect, useState } from 'react';
 import { AUTO_MODEL_INFO, HEAVY_MODEL_HINT, MAX_ROUTING_BYTES, MODELS, isHeavyModel, modelOptionLabel } from '@pocketrocket/shared';
@@ -39,8 +39,8 @@ export function ClaudeSection() {
   return (
     <>
       <SectionHeader
-        title={multiple ? 'Connection' : 'Claude'}
-        description={multiple ? 'Which service your bots use.' : undefined}
+        title={multiple ? 'Providers' : 'Claude'}
+        description={multiple ? 'The default for new bots, and bots set to "Default". Each bot can pick its own in its settings.' : undefined}
       />
 
       <Group>
@@ -86,14 +86,14 @@ export function ClaudeSection() {
   );
 }
 
-/** Developer builds only (more than one service enabled). Switching asks first, as it resets some bots' models. */
+/** Developer builds only (more than one provider enabled). Switching asks first, as it resets some bots' models. */
 function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; current: ProviderId; onChecked: (id: ProviderId, check: ProviderCheck) => void }) {
   const updateSettings = useStore((s) => s.updateSettings);
   const [pending, setPending] = useState<ProviderId | null>(null);
 
   return (
     <>
-      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Service">
+      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Default provider">
         {list.map((p) => (
           <ProviderCard key={p.id} info={p} selected={p.id === current} onSelect={() => p.id !== current && setPending(p.id)} onChecked={(check) => onChecked(p.id, check)} />
         ))}
@@ -101,11 +101,11 @@ function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; cur
       {pending && (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-warn/10 px-3 py-2 text-ui">
           <span>
-            Switch to <strong>{list.find((p) => p.id === pending)?.label}</strong>? Unavailable models reset to default.
+            Make <strong>{list.find((p) => p.id === pending)?.label}</strong> the default? Bots set to "Default" move too, and models it lacks reset.
           </span>
           <div className="flex shrink-0 gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setPending(null)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={() => { void updateSettings({ provider: pending }); setPending(null); }}>Switch</Button>
+            <Button size="sm" variant="primary" onClick={() => { void updateSettings({ provider: pending }); setPending(null); }}>Make default</Button>
           </div>
         </div>
       )}

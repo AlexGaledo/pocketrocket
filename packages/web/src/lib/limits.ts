@@ -26,6 +26,40 @@ export function heldLimitFor(bot: Pick<Bot, 'provider' | 'model'>, defaultProvid
   return hits.reduce<ProviderLimitState | null>((a, l) => (!a || l.until > a.until ? l : a), null);
 }
 
+/**
+ * The composer's model picker names Claude models only, so it shows only while every member of the room runs on
+ * Claude (spec 01 P1-8). An empty room keeps the picker, as before.
+ */
+export function allOnClaude(members: readonly Pick<Bot, 'provider'>[], defaultProvider: ProviderId): boolean {
+  return members.every((b) => botProvider(b, defaultProvider) === 'claude');
+}
+
+/**
+ * The room's bots that cannot reply right now, grouped by the hold that stops them, for the banner above the composer.
+ * A provider signed in with an API key has no plan window, so it never shows here.
+ */
+export function heldGroups<B extends Pick<Bot, 'provider' | 'model'>>(
+  members: readonly B[],
+  defaultProvider: ProviderId,
+  limits: readonly ProviderLimitState[],
+  providers: ProvidersResponse | null,
+): { limit: ProviderLimitState; bots: B[] }[] {
+  const groups: { limit: ProviderLimitState; bots: B[] }[] = [];
+  for (const b of members) {
+    const l = heldLimitFor(b, defaultProvider, limits);
+    if (!l || usesApiKey(providers, l.provider)) continue;
+    const g = groups.find((x) => x.limit === l);
+    if (g) g.bots.push(b);
+    else groups.push({ limit: l, bots: [b] });
+  }
+  return groups;
+}
+
+/** Plan windows worth a meter: a held one, or a warning that says how full it is. API-key logins have no plan. */
+export function planMeters(limits: readonly ProviderLimitState[], providers: ProvidersResponse | null): ProviderLimitState[] {
+  return limits.filter((l) => l.kind === 'usage' && (l.status === 'held' || l.utilization != null) && !usesApiKey(providers, l.provider));
+}
+
 const WINDOW_LABEL: Record<string, string> = {
   five_hour: '5-hour limit',
   seven_day: 'weekly limit',

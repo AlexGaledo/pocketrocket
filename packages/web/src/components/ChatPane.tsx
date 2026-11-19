@@ -6,7 +6,7 @@ import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Messag
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
-import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
+import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Badge, Banner, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { LinkBot, Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { AlwaysAllow, RuleOffer, TakeoverCard } from './ComputerControl';
@@ -20,6 +20,8 @@ import { MAX_ATTACHMENTS, refusalFor, reencodeImage, uploadAttachment } from '..
 import { IMAGE_TYPES, ImageRefused } from '../lib/media';
 import type { OutboxEntry } from '../lib/outbox';
 import { QueueChips } from './QueueChips';
+import { allOnClaude, fmtReset, heldGroups, limitName } from '../lib/limits';
+import { useLimits } from '../lib/useLimits';
 import { WorkflowCardsForRoom } from './workflows/WorkflowCard';
 import { laneKey } from '../lib/queue';
 import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
@@ -705,8 +707,8 @@ function Composer({ members }: { members: Bot[] }) {
   const roomId = useStore((s) => s.activeRoomId);
   const room = useStore(selectActiveRoom);
   const control = useStore((s) => s.control);
-  // Hidden on a paired phone, and on a provider whose models the picker's options do not name.
-  const showPicker = useStore((s) => !s.device && s.settings.provider === 'claude');
+  // Hidden on a paired phone, and in a room where any bot runs on a provider whose models the picker does not name.
+  const showPicker = useStore((s) => !s.device && allOnClaude(members, s.settings.provider));
   // A paired phone may not change settings, and the hub would refuse it.
   const showPermissions = useStore((s) => !s.device);
   const device = useStore((s) => s.device);
@@ -890,6 +892,7 @@ function Composer({ members }: { members: Bot[] }) {
             ))}
           </div>
         )}
+        <LimitBanner members={members} />
         {roomId && <QueueChips roomId={roomId} members={members} textarea={ref} />}
         <div className={cn('flex flex-col gap-1 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent', dragging && 'ring-2 ring-accent')}>
           {dragging && <div role="status" className="text-hint text-accent">Drop pictures to attach</div>}
@@ -1106,6 +1109,33 @@ function PermissionPicker({ textarea }: { textarea: React.RefObject<HTMLTextArea
  * This chat's model. It is stored on the chat, never on the bot, so schedules and hand-offs keep each bot's own model.
  * A pick stays until changed. Choosing what the bot already uses clears the pick rather than storing a copy of it.
  */
+/** "Ada", "Ada and Dev", "Ada, Dev and Max". */
+function nameList(names: string[]): string {
+  return names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+}
+
+/**
+ * Spec 01 P0-5: a calm note above the composer while a bot here cannot reply because its provider is at a plan limit.
+ * It goes away by itself at the reset time (useLimits re-checks then). Not shown for an API-key login, which has no plan.
+ */
+function LimitBanner({ members }: { members: Bot[] }) {
+  const limits = useLimits();
+  const providers = useStore((s) => s.providers);
+  const defaultProvider = useStore((s) => s.settings.provider);
+  const groups = heldGroups(members, defaultProvider, limits, providers);
+  if (!groups.length) return null;
+  const label = (id: string) => providers?.providers.find((p) => p.id === id)?.label ?? id;
+  return (
+    <div className="mb-2 flex flex-col gap-1.5">
+      {groups.map(({ limit, bots }) => (
+        <Banner key={limit.provider + ':' + (limit.model ?? '') + ':' + (limit.window ?? '')} tone="warn" title={limitName(limit, label(limit.provider)) + ' reached'}>
+          {nameList(bots.map((b) => b.name)) + (limit.resetsAt ? " can't reply until it resets at " + fmtReset(limit.resetsAt) + '.' : " can't reply for now. Try again a little later.")}
+        </Banner>
+      ))}
+    </div>
+  );
+}
+
 function ModelPicker({ room, members, busy, textarea }: { room: Room; members: Bot[]; busy: boolean; textarea: React.RefObject<HTMLTextAreaElement | null> }) {
   const providers = useStore((s) => s.providers);
   const toast = useStore((s) => s.toast);
