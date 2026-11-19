@@ -5,7 +5,8 @@ import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
 import type { Skill, ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
-import { api, MESSAGE_PAGE, type AccountActionResponse } from './lib/api';
+import { api, MESSAGE_PAGE, type AccountActionResponse, type ProjectInfo } from './lib/api';
+import { fetchProjects } from './lib/projects';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { notifyEvent } from './lib/notifyEvents';
@@ -250,6 +251,12 @@ interface State {
   // ---- U3 ----
   /** The skill pool, for the Needs you inbox (skills waiting for review). Null until GET /api/skills answers, or if it refuses. */
   inboxSkills: Skill[] | null;
+  /**
+   * Projects (lib/projects.ts), for the project-first sidebar. Loaded after each hello and refetched when bots or
+   * rooms change (the hub has no `projects.changed` yet). Always `[]` on a paired phone, which the hub refuses.
+   */
+  projects: ProjectInfo[];
+  loadProjects: () => Promise<void>;
   loadInboxSkills: () => Promise<void>;
 
   setConnected: (v: boolean) => void;
@@ -401,6 +408,11 @@ export const useStore = create<State>((set, get) => ({
     set({ queues });
   }),
   inboxSkills: null,
+  projects: [],
+  loadProjects: async () => {
+    if (get().device) return set({ projects: [] });
+    set({ projects: await fetchProjects(api.projects.list) });
+  },
 
   setConnected: (connected) => {
     const was = get().connected;
@@ -420,6 +432,12 @@ export const useStore = create<State>((set, get) => ({
 
   applyEvent: (ev) => {
     const s = get();
+    // Ahead of the hub (spec B1): once it sends `projects.changed`, take its list as is.
+    const loose = ev as unknown as { type: string; projects?: unknown };
+    if (loose.type === 'projects.changed') {
+      if (Array.isArray(loose.projects) && !s.device) set({ projects: loose.projects as ProjectInfo[] });
+      return;
+    }
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
@@ -430,6 +448,7 @@ export const useStore = create<State>((set, get) => ({
         void get().fetchProviders();
         void get().fetchFailover();
         void get().fetchAccount();
+        void get().loadProjects();
         // Workflows and their approval cards may have changed while the link was down.
         void refreshWorkflows();
         // Only decoration: a hub or a paired phone that refuses it just shows each bot's title instead.
@@ -463,9 +482,11 @@ export const useStore = create<State>((set, get) => ({
         return;
       case 'bots.changed':
         set({ bots: ev.bots });
+        void get().loadProjects(); // creating a project with a team says only this
         return;
       case 'rooms.changed': {
         set({ rooms: ev.rooms });
+        void get().loadProjects();
         if (s.activeRoomId && !ev.rooms.some((r) => r.id === s.activeRoomId)) get().setActiveRoom(ev.rooms[0]?.id ?? null);
         return;
       }

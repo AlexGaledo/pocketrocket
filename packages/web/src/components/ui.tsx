@@ -302,8 +302,13 @@ export function Switch({ checked, onChange, className, disabled, ...aria }: { ch
 }
 
 export const Tabs = TabsPrimitive.Root;
-/** Segmented control, like a native toolbar. */
-export function TabsList({ children }: { children: React.ReactNode }) {
+type TabsVariant = 'segmented' | 'underline';
+const TabsVariantContext = React.createContext<TabsVariant>('segmented');
+/**
+ * Segmented control, like a native toolbar. `underline` is the quieter strip for a header (Chat | Map): plain labels
+ * with a 2px accent bar under the chosen one; the caller places it, so it brings no margin of its own.
+ */
+export function TabsList({ children, variant = 'segmented', className }: { children: React.ReactNode; variant?: TabsVariant; className?: string }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const lastActive = React.useRef<Element | null>(null);
   // In a narrow pane the strip scrolls, so bring the chosen tab into view. Only when it changes: this runs on
@@ -313,11 +318,21 @@ export function TabsList({ children }: { children: React.ReactNode }) {
     if (active && active !== lastActive.current) active.scrollIntoView({ inline: 'nearest', block: 'nearest' });
     lastActive.current = active;
   });
-  return <TabsPrimitive.List ref={ref} className="mx-3 my-2 flex gap-0.5 overflow-x-auto rounded-md bg-card2 p-0.5">{children}</TabsPrimitive.List>;
+  return (
+    <TabsVariantContext.Provider value={variant}>
+      <TabsPrimitive.List ref={ref} className={cn(variant === 'underline' ? 'flex gap-5 overflow-x-auto' : 'mx-3 my-2 flex gap-0.5 overflow-x-auto rounded-md bg-card2 p-0.5', className)}>{children}</TabsPrimitive.List>
+    </TabsVariantContext.Provider>
+  );
 }
 export function TabsTrigger({ value, children }: { value: string; children: React.ReactNode }) {
+  const variant = React.useContext(TabsVariantContext);
   return (
-    <TabsPrimitive.Trigger value={value} className="flex-1 shrink-0 whitespace-nowrap rounded-sm px-1.5 py-1.5 text-label text-muted hover:text-fg data-[state=active]:bg-panel data-[state=active]:text-fg data-[state=active]:shadow-[var(--shadow-sm)]">
+    <TabsPrimitive.Trigger
+      value={value}
+      className={variant === 'underline'
+        ? 'relative shrink-0 whitespace-nowrap py-2 text-ui text-muted hover:text-fg focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:text-fg data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent'
+        : 'flex-1 shrink-0 whitespace-nowrap rounded-sm px-1.5 py-1.5 text-label text-muted hover:text-fg data-[state=active]:bg-panel data-[state=active]:text-fg data-[state=active]:shadow-[var(--shadow-sm)]'}
+    >
       {children}
     </TabsPrimitive.Trigger>
   );
@@ -395,7 +410,8 @@ export function RoomAvatar({ room, size = 34, className }: { room: Pick<Room, 'i
   );
 }
 
-export function Badge({ children, tone = 'muted' }: { children: React.ReactNode; tone?: 'muted' | 'ok' | 'warn' | 'bad' | 'accent' }) {
+/** `needs` looks like `warn` but names the role: a count of things waiting on the owner (docs/specs/toki-ui.md). */
+export function Badge({ children, tone = 'muted' }: { children: React.ReactNode; tone?: 'muted' | 'ok' | 'warn' | 'needs' | 'bad' | 'accent' }) {
   return (
     <span
       className={cn(
@@ -403,6 +419,7 @@ export function Badge({ children, tone = 'muted' }: { children: React.ReactNode;
         tone === 'muted' && 'bg-card2 text-muted',
         tone === 'ok' && 'bg-ok/12 text-ok',
         tone === 'warn' && 'bg-warn/12 text-warn',
+        tone === 'needs' && 'bg-needs/12 text-needs',
         tone === 'bad' && 'bg-bad/12 text-bad',
         tone === 'accent' && 'bg-accent/12 text-accent',
       )}
@@ -419,7 +436,8 @@ export function Badge({ children, tone = 'muted' }: { children: React.ReactNode;
  * "Claude 5-hour limit 82%, resets 14:00".
  */
 /** `marker`: a tick on the bar at `value` percent (e.g. where a session rotates); its `label` is read after the value. */
-export function Meter({ label, value, detail, atLimit, marker, className }: { label: string; value: number; detail?: string | null; atLimit?: boolean; marker?: { value: number; label: string }; className?: string }) {
+/** `size="thin"`: a 3 px bar, for a quiet row of meters (the sidebar's foot). */
+export function Meter({ label, value, detail, atLimit, marker, size = 'md', className }: { label: string; value: number; detail?: string | null; atLimit?: boolean; marker?: { value: number; label: string }; size?: 'md' | 'thin'; className?: string }) {
   const pct = Math.max(0, Math.min(100, Math.round(value)));
   const full = atLimit || pct >= 100;
   const fill = full ? 'bg-bad' : pct >= 80 ? 'bg-warn' : 'bg-accent';
@@ -434,7 +452,7 @@ export function Meter({ label, value, detail, atLimit, marker, className }: { la
           {detail && <> · {detail}</>}
         </span>
       </div>
-      <div aria-hidden className="relative h-1.5 overflow-hidden rounded-full bg-line">
+      <div aria-hidden className={cn('relative overflow-hidden rounded-full bg-line', size === 'thin' ? 'h-[3px]' : 'h-1.5')}>
         <div className={cn('h-full rounded-full', fill)} style={{ width: pct + '%' }} />
         {tick != null && <div data-meter-marker title={marker!.label} className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-muted" style={{ left: tick + '%' }} />}
       </div>
@@ -496,8 +514,12 @@ const ACTION_RING = { quiet: 'ring-line', warn: 'ring-warn/60', 'warn-soft': 'ri
  * the ring: `warn` while it needs you (`warn-soft` for the lighter tool approval), `danger` for a risky one, `quiet`
  * once answered. `ActionCardHeader` and `ActionCardActions` carry the shared padding.
  */
-export function ActionCard({ tone = 'quiet', className, children, ...p }: React.ComponentProps<'div'> & { tone?: keyof typeof ACTION_RING }) {
-  return <div {...p} className={cn('overflow-hidden rounded-lg ring-1', ACTION_RING[tone], className)}>{children}</div>;
+/**
+ * `edge` adds a 3 px left border: `needs` while the card waits on the owner, `done` (a hairline colour) once answered.
+ * For the overview and Needs-you cards, which sit in a list rather than in the transcript.
+ */
+export function ActionCard({ tone = 'quiet', edge, className, children, ...p }: React.ComponentProps<'div'> & { tone?: keyof typeof ACTION_RING; edge?: 'needs' | 'done' }) {
+  return <div {...p} className={cn('overflow-hidden rounded-lg ring-1', ACTION_RING[tone], edge && 'border-l-[3px]', edge === 'needs' && 'border-needs', edge === 'done' && 'border-line', className)}>{children}</div>;
 }
 
 /** The title row. `compact` is the one-line tool-approval header (icon first); the default wraps and reads as body text. */
@@ -581,6 +603,109 @@ export function EmptyState({ icon, title, children, action, as: Title = 'div', c
       {children && <p className="max-w-[40ch] text-ui text-muted">{children}</p>}
       {action && <div className="mt-3 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
+  );
+}
+
+/**
+ * A section's heading row in a list (the sidebar's "Projects", an overview section): quiet label, optional count, and
+ * an optional control at the end. `as` picks the heading level; the default is a plain div.
+ */
+export function SectionLabel({ children, count, aside, as: Tag = 'div', id, className }: {
+  children: React.ReactNode;
+  count?: number;
+  aside?: React.ReactNode;
+  as?: 'div' | 'h2' | 'h3' | 'h4';
+  id?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex min-h-6 items-center gap-1.5 px-3 text-label text-dim', className)}>
+      <Tag id={id} className="min-w-0 truncate text-label">{children}</Tag>
+      {count != null && <span className="font-mono text-hint">{count}</span>}
+      {aside && <span className="ml-auto flex shrink-0 items-center">{aside}</span>}
+    </div>
+  );
+}
+
+/**
+ * A 28 px pill naming one thing: a map node, a room. `leading` is an avatar or dot; `onRemove` adds an × whose
+ * accessible name is "Remove <label>". Plain text only, never a link.
+ */
+export function Chip({ children, label, leading, onRemove, className }: {
+  children: React.ReactNode;
+  /** What the remove button says it removes; defaults to the text when that is a string. */
+  label?: string;
+  leading?: React.ReactNode;
+  onRemove?: () => void;
+  className?: string;
+}) {
+  const name = label ?? (typeof children === 'string' ? children : 'item');
+  return (
+    <span className={cn('inline-flex h-7 max-w-full shrink-0 items-center gap-1.5 rounded-full bg-card2 text-label text-fg', leading ? 'pl-1' : 'pl-2.5', onRemove ? 'pr-1' : 'pr-2.5', className)}>
+      {leading}
+      <span className="min-w-0 truncate">{children}</span>
+      {onRemove && (
+        <button type="button" aria-label={'Remove ' + name} onClick={onRemove} className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          <X size={12} aria-hidden />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** Where a project's plan stands: `done` of `total` boxes ticked, under the heading `stage`. Null means no plan yet. */
+export interface StagePlan { done: number; total: number; stage: string | null }
+
+/**
+ * A project's progress as a row of small bars (done, current, next), then the stage and `done/total`, or "No plan
+ * yet". The bars are a picture of the numbers, which are always written out; screen readers get one sentence.
+ */
+export function StagePips({ plan, pips = 5, className }: { plan: StagePlan | null; pips?: number; className?: string }) {
+  if (!plan || plan.total <= 0) return <span className={cn('text-hint text-dim', className)}>No plan yet</span>;
+  const done = Math.max(0, Math.min(plan.total, plan.done));
+  const filled = done >= plan.total ? pips : Math.min(pips - 1, Math.floor((done / plan.total) * pips));
+  const said = (plan.stage ? plan.stage + ', ' : '') + done + ' of ' + plan.total + ' done';
+  return (
+    <span role="img" aria-label={said} className={cn('inline-flex min-w-0 items-center gap-2 text-hint text-muted', className)}>
+      <span aria-hidden className="flex shrink-0 gap-[3px]">
+        {Array.from({ length: pips }, (_, i) => (
+          <span key={i} className={cn('h-1 w-3.5 rounded-full', i < filled ? 'bg-line2' : i === filled ? 'bg-accent' : 'bg-line')} />
+        ))}
+      </span>
+      <span aria-hidden className="min-w-0 truncate">
+        {plan.stage && <>{plan.stage} · </>}<span className="font-mono">{done}/{plan.total}</span>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A 40 px square icon button for a rail (the overview's icons). `label` is its accessible name and tooltip; `pressed`
+ * marks the open pane; `count` shows in the corner, in the needs colour when `needs` (things waiting on the owner).
+ */
+export function IconRailButton({ icon, label, pressed, count, needs, onClick }: {
+  icon: React.ReactNode;
+  label: string;
+  pressed?: boolean;
+  count?: number;
+  needs?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip content={label} side="left">
+      <button
+        type="button"
+        aria-label={count ? label + ', ' + count : label}
+        aria-pressed={pressed}
+        onClick={onClick}
+        className={cn('relative flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', pressed && 'bg-active text-fg')}
+      >
+        {icon}
+        {!!count && (
+          <span aria-hidden className={cn('absolute -right-0.5 -top-0.5 min-w-4 rounded-full px-1 text-center font-mono text-hint leading-4', needs ? 'bg-needs text-on-fill' : 'bg-card2 text-muted ring-1 ring-line')}>{count}</span>
+        )}
+      </button>
+    </Tooltip>
   );
 }
 

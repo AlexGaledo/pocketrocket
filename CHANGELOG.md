@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New layout preview, phase 1: projects in the sidebar (web)
+
+- A "New layout" switch in Settings › Appearance, stored on this browser only and off by default. While the layout is unfinished, the switch shows only after the app has been opened once with `?layout=preview`. Spec: `docs/specs/toki-ui.md`.
+- With it on, the sidebar puts projects first. Each project row opens its group chat and unfolds to show that chat and its bots. Group chats that belong to no project are listed under Rooms, then come the podium and the other bots. Paused bots, and rooms or projects with no active bot, are hidden behind "Show paused (n)". "Needs you" becomes a bordered pin at the top.
+- Paired phones keep the classic sidebar. With the switch off, the app looks exactly as before.
+- Under the hood: the web app now loads `/api/projects` into its store. It refetches when bots or rooms change, because the hub sends no projects event yet. New tokens (`--needs`, the canvas set) and new primitives (`SectionLabel`, `Chip`, `StagePips`, `IconRailButton`, plus variants of `Badge`, `ActionCard`, `TabsList` and `Meter`) prepare the later phases.
+
 ### Project map and progress, read-only (hub)
 
 - `GET /api/projects/:slug/map` reads `map.json` from the project's folder and checks it: a file over 64 KB, broken JSON or a wrong shape comes back as an error to show, never a partial map. Links to missing boxes are dropped and counted.

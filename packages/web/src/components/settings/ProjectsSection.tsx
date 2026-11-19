@@ -19,7 +19,8 @@ export function ProjectsSection() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
-    api.projects.list().then(setProjects, (e: Error) => setError(e.message));
+    // Into the store too: the sidebar lists projects, and the hub sends no event for a members change.
+    api.projects.list().then((list) => { setProjects(list); useStore.setState({ projects: list }); }, (e: Error) => setError(e.message));
   }, []);
   useEffect(load, [load]);
 

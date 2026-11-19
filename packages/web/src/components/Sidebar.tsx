@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, Plus, Hand, Settings2, PanelLeftClose, QrCode, Search, UserPlus, MessagesSquare, Inbox, Upload, ListChecks, Monitor } from 'lucide-react';
 import { useStore, botById, NARROW_SIDEBAR_QUERY } from '../store';
-import { Avatar, Badge, Menu, MenuContent, MenuItem, Skeleton, SkeletonGroup, Tooltip, cn } from './ui';
+import { Avatar, Badge, Button, Menu, MenuContent, MenuItem, SectionLabel, Skeleton, SkeletonGroup, Tooltip, cn } from './ui';
 import { useInbox } from '../lib/useInbox';
 import { Podium } from './Podium';
 import { ImportBotDialog } from './dialogs/BotFileDialogs';
@@ -13,6 +13,9 @@ import { STATUS_LABEL, avatarStatus, isWorking, useBotStatus, type BotStatus } f
 import { toolPhrase } from '../lib/toolPhrases';
 import { PopoutButton } from './PopoutButton';
 import { activeFor, onBackupText } from '../lib/failover';
+import { useLayout } from '../lib/layout';
+import { buildProjectTree, type ProjectNode } from '../lib/projectTree';
+import type { InboxItem } from '../lib/inbox';
 import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
 
 /** Shared by bot and room rows: a whole-row button, so Tab reaches every chat and Enter/Space opens it. */
@@ -75,6 +78,24 @@ function useCollapsedSections() {
   return { collapsed, toggle };
 }
 
+const PROJECT_FOLDS_KEY = 'pocketrocket.projectFolds';
+const isFolds = (v: unknown): v is Record<string, boolean> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Which projects are unfolded in the new layout. By default only the one you are in; a project you fold or unfold
+ * yourself stays that way, per device, like the classic sections.
+ */
+function useProjectFolds() {
+  const [open, setOpen] = useState(() => getJson(PROJECT_FOLDS_KEY, isFolds, {}));
+  const isOpen = (slug: string, active: boolean) => open[slug] ?? active;
+  const toggle = (slug: string, active: boolean) => {
+    const next = { ...open, [slug]: !isOpen(slug, active) };
+    setOpen(next);
+    setJson(PROJECT_FOLDS_KEY, next);
+  };
+  return { isOpen, toggle };
+}
+
 export function Sidebar() {
   const { collapsed, toggle } = useCollapsedSections();
   const bots = useStore((s) => s.bots);
@@ -92,7 +113,8 @@ export function Sidebar() {
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const toast = useStore((s) => s.toast);
   const { statusOf, needsYouRoom } = useBotStatus();
-  const waiting = useInbox().length;
+  const inbox = useInbox();
+  const waiting = inbox.length;
   const inboxOpen = useStore((s) => s.page?.kind === 'inbox');
   const tasksOpen = useStore((s) => s.page?.kind === 'tasks');
   const pcSessionsOpen = useStore((s) => s.page?.kind === 'pcsessions');
@@ -101,6 +123,8 @@ export function Sidebar() {
   const helloReceived = useStore((s) => s.helloReceived);
   // P9: a paired phone may not create or edit bots and rooms, change settings or open the workspace (403).
   const device = useStore((s) => s.device);
+  // The project-first layout (docs/specs/toki-ui.md) is per browser; a paired phone keeps the classic tree.
+  const toki = useLayout() === 'toki' && !device;
   // On a narrow window this sidebar is a drawer over the chat (App.tsx), so picking a chat closes it.
   const inDrawer = useMediaQuery(NARROW_SIDEBAR_QUERY);
   const leaveDrawer = () => { if (inDrawer) setSidebarOpen(false); };
@@ -194,13 +218,18 @@ export function Sidebar() {
         </div>
       </div>
       <button
-        className={cn('mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', inboxOpen ? 'bg-active text-fg' : 'text-muted hover:text-fg')}
+        className={cn(
+          'mx-2 flex items-center gap-2.5 rounded-lg px-2.5 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          // New layout: a pinned, bordered row, so the one place that waits on you reads as its own thing.
+          toki ? 'mb-2 h-10 ring-1 ring-inset ring-line' : 'mb-1 py-1.5',
+          inboxOpen ? 'bg-active text-fg' : toki ? 'text-fg' : 'text-muted hover:text-fg',
+        )}
         aria-current={inboxOpen ? 'page' : undefined}
         onClick={() => { useStore.getState().openPage({ kind: 'inbox' }); leaveDrawer(); }}
       >
-        <Inbox size={15} aria-hidden className="shrink-0" />
-        <span className="flex-1">Needs you</span>
-        {waiting > 0 && <Badge tone="warn">{waiting}<span className="sr-only"> waiting</span></Badge>}
+        <Inbox size={15} aria-hidden className={cn('shrink-0', toki && 'text-muted')} />
+        <span className={cn('flex-1', toki && 'font-medium')}>Needs you</span>
+        {waiting > 0 && <Badge tone={toki ? 'needs' : 'warn'}>{waiting}<span className="sr-only"> waiting</span></Badge>}
       </button>
       {!device && (
         <button
@@ -259,6 +288,20 @@ export function Sidebar() {
             </ul>
           </section>
         )}
+        {toki ? (
+          <ProjectsTree
+            inbox={inbox}
+            statusOf={statusOf}
+            podiumBots={podiumBots}
+            dmFor={dmFor}
+            collapsed={collapsed}
+            toggle={toggle}
+            row={row}
+            openRoom={openRoom}
+            openDm={(id) => void openDm(id)}
+            onRoomSettings={device ? undefined : (r) => openDialog({ kind: 'room', room: r })}
+          />
+        ) : (<>
         {bots.length > 0 && (
           <Podium
             bots={podiumBots}
@@ -308,6 +351,7 @@ export function Sidebar() {
             );
           })
         )}
+        </>)}
       </div>
 
       <div className="flex items-center gap-1 pr-2.5">
@@ -316,6 +360,196 @@ export function Sidebar() {
       </div>
       {importing && <ImportBotDialog onClose={() => setImporting(false)} />}
     </aside>
+  );
+}
+
+/** Left edge of every label in the new layout: past the fold chevron, in line with the project dots and room names. */
+const TREE_LABEL = 'pl-8';
+
+/**
+ * The new layout's list (docs/specs/toki-ui.md, W4): Projects (each unfolding to its group chat and bots), then the
+ * group chats that belong to no project, then Bots (podium and solo), then "Show paused". The rows themselves are the
+ * classic ones: BotRow, GroupHeader and the fold chevron.
+ */
+function ProjectsTree({ inbox, statusOf, podiumBots, dmFor, collapsed, toggle, row, openRoom, openDm, onRoomSettings }: {
+  inbox: InboxItem[];
+  statusOf: (botId: string) => BotStatus;
+  podiumBots: Bot[];
+  dmFor: (botId: string) => Room | undefined;
+  collapsed: Set<string>;
+  toggle: (id: string) => void;
+  row: (b: Bot) => ReactNode;
+  openRoom: (roomId: string) => void;
+  openDm: (botId: string) => void;
+  onRoomSettings?: (room: Room) => void;
+}) {
+  const projects = useStore((s) => s.projects);
+  const rooms = useStore((s) => s.rooms);
+  const bots = useStore((s) => s.bots);
+  const activeRoomId = useStore((s) => s.activeRoomId);
+  const unread = useStore((s) => s.unread);
+  const helloReceived = useStore((s) => s.helloReceived);
+  const device = useStore((s) => s.device);
+  const [showPaused, setShowPaused] = useState(false);
+  const folds = useProjectFolds();
+  const projectsLabel = useId();
+  const roomsLabel = useId();
+  const podiumIds = useMemo(() => new Set(podiumBots.map((b) => b.id)), [podiumBots]);
+  const tree = buildProjectTree({ projects, rooms, bots, statusOf, activeRoomId, podiumIds, showPaused });
+
+  if (!helloReceived) return <SkeletonRows count={4} />;
+
+  const isOpenDm = (b: Bot) => dmFor(b.id)?.id === activeRoomId;
+  /** A folded section still shows the chat you are in. */
+  const shown = (open: boolean, list: Bot[]) => (open ? list : list.filter(isOpenDm));
+  const unreadOf = (list: Bot[]) => list.reduce((n, b) => { const dm = dmFor(b.id); return n + (dm ? unread[dm.id] ?? 0 : 0); }, 0);
+  const waitingIn = (roomId: string | undefined) => (roomId ? inbox.filter((i) => i.roomId === roomId).length : 0);
+  const soloOpen = !collapsed.has(SOLO_SECTION);
+  const soloShown = shown(soloOpen, tree.solo);
+  // Only what pressing the button would bring into view: paused bots inside a folded section don't count.
+  const hiddenCount = tree.hidden
+    + (soloOpen ? tree.hiddenSolo : 0)
+    + tree.projects.reduce((n, p) => n + (folds.isOpen(p.project.slug, p.active) ? p.hiddenBots : 0), 0)
+    + tree.rooms.reduce((n, r) => n + (collapsed.has(r.room.id) ? 0 : r.hiddenBots), 0);
+
+  return (
+    <>
+      {tree.projects.length > 0 && (
+        <section aria-labelledby={projectsLabel} className="mb-3">
+          <SectionLabel as="h2" id={projectsLabel} className={cn(TREE_LABEL, 'pt-2')}>Projects</SectionLabel>
+          <ul className="space-y-0.5">
+            {tree.projects.map((node) => {
+              const open = folds.isOpen(node.project.slug, node.active);
+              const room = node.room;
+              return (
+                <ProjectItem
+                  key={node.project.slug}
+                  node={node}
+                  open={open}
+                  waiting={waitingIn(room?.id)}
+                  unread={room ? unread[room.id] ?? 0 : 0}
+                  roomActive={!!room && room.id === activeRoomId}
+                  onToggle={() => folds.toggle(node.project.slug, node.active)}
+                  onOpen={() => (room ? openRoom(room.id) : folds.toggle(node.project.slug, node.active))}
+                  onRoomSettings={room && onRoomSettings ? () => onRoomSettings(room) : undefined}
+                >
+                  {shown(open, node.bots).map(row)}
+                </ProjectItem>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {tree.rooms.length > 0 && (
+        <section aria-labelledby={roomsLabel} className="mb-3">
+          <SectionLabel as="h2" id={roomsLabel} className={cn(TREE_LABEL, 'pt-2')}>Rooms</SectionLabel>
+          {tree.rooms.map(({ room, bots: members }) => {
+            const visible = shown(!collapsed.has(room.id), members);
+            return (
+              <section key={room.id} aria-label={room.name} className={collapsed.has(room.id) ? 'mb-1' : 'mb-2'}>
+                <GroupHeader
+                  room={room}
+                  statusOf={statusOf}
+                  active={room.id === activeRoomId}
+                  unread={(unread[room.id] ?? 0) + unreadOf(members.filter((b) => !visible.includes(b)))}
+                  collapsed={collapsed.has(room.id)}
+                  count={members.length}
+                  onToggle={() => toggle(room.id)}
+                  onClick={() => openRoom(room.id)}
+                  onSettings={onRoomSettings ? () => onRoomSettings(room) : undefined}
+                  asRow
+                />
+                {visible.length > 0 && <ul className="ml-[15px] space-y-0.5 border-l border-line pl-1.5">{visible.map(row)}</ul>}
+              </section>
+            );
+          })}
+        </section>
+      )}
+
+      {bots.length > 0 && (
+        <SoloHeader collapsed={!soloOpen} count={tree.solo.length} unread={unreadOf(tree.solo.filter((b) => !soloShown.includes(b)))} onToggle={() => toggle(SOLO_SECTION)} />
+      )}
+      {bots.length > 0 && (
+        <Podium
+          bots={podiumBots}
+          statusOf={statusOf}
+          activeBotId={rooms.find((r) => r.id === activeRoomId && r.kind === 'dm')?.memberIds[0] ?? null}
+          unreadOf={(id) => { const dm = dmFor(id); return dm ? unread[dm.id] ?? 0 : 0; }}
+          onOpen={openDm}
+          canEdit={!device}
+        />
+      )}
+      <ul className="mb-2 space-y-0.5">{soloShown.map(row)}</ul>
+      {!bots.length && <div className={cn(TREE_LABEL, 'py-2 text-ui text-muted')}>No bots yet.</div>}
+
+      {(hiddenCount > 0 || showPaused) && (
+        <Button variant="ghost" size="sm" className="ml-6 text-hint" aria-pressed={showPaused} onClick={() => setShowPaused(!showPaused)}>
+          {showPaused ? 'Hide paused' : <>Show paused (<span className="font-mono">{hiddenCount}</span>)</>}
+        </Button>
+      )}
+    </>
+  );
+}
+
+/** One project: its name opens its group chat; the chevron folds its chat and bots away. */
+function ProjectItem({ node, open, waiting, unread, roomActive, onToggle, onOpen, onRoomSettings, children }: {
+  node: ProjectNode;
+  open: boolean;
+  /** Things in its group chat that wait on you. */
+  waiting: number;
+  unread: number;
+  roomActive: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+  onRoomSettings?: () => void;
+  /** Its bot rows (already folded down to the open chat when the project is folded). */
+  children: ReactNode[];
+}) {
+  const { project, room, active } = node;
+  return (
+    <li>
+      <div className={cn('group flex items-center rounded-sm hover:bg-hover', active && 'bg-active')}>
+        <CollapseToggle name={project.name} collapsed={!open} count={node.bots.length + (room ? 1 : 0)} onToggle={onToggle} />
+        <button
+          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-1.5 pr-2.5 text-left text-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+          title={room ? 'Open ' + project.name : (open ? 'Hide ' : 'Show ') + 'the bots in ' + project.name}
+          aria-current={active ? 'page' : undefined}
+          aria-expanded={room ? undefined : open}
+          onClick={onOpen}
+        >
+          <span aria-hidden className={cn('h-[7px] w-[7px] shrink-0 rounded-full', active ? 'bg-accent' : 'ring-[1.5px] ring-inset ring-faint')} />
+          <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
+          {waiting > 0 && <Badge tone="needs">{waiting}<span className="sr-only"> waiting on you</span></Badge>}
+          {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-accent"><span className="sr-only">{unread} unread</span></span>}
+        </button>
+      </div>
+      {(open || children.length > 0) && (
+        <ul className="ml-[15px] mt-0.5 space-y-0.5 border-l border-line pl-1.5">
+          {open && room && (
+            <li className="group flex items-center rounded-sm hover:bg-hover">
+              <button
+                className={cn('flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1 text-left text-ui focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent', roomActive ? 'text-fg' : 'text-muted hover:text-fg')}
+                title={'Open the ' + room.name + ' group chat'}
+                onClick={onOpen}
+              >
+                <span aria-hidden className="font-mono text-dim">#</span>
+                <span className="min-w-0 truncate">{room.name}</span>
+              </button>
+              {onRoomSettings && <button
+                className="mr-1.5 hidden shrink-0 rounded-sm p-1 text-muted hover:bg-hover hover:text-fg focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:block group-focus-within:block [@media(hover:none)]:block"
+                title="Group chat settings"
+                aria-label={room.name + ' settings'}
+                onClick={onRoomSettings}
+              >
+                <Settings2 size={13} />
+              </button>}
+            </li>
+          )}
+          {children}
+        </ul>
+      )}
+    </li>
   );
 }
 
@@ -407,8 +641,10 @@ function SoloHeader({ collapsed, count, unread, onToggle }: { collapsed: boolean
 }
 
 /** A group's name, which opens its chat. Its bots are listed below it, each opening a chat of its own. */
-function GroupHeader({ room, statusOf, active, unread, collapsed, count, onToggle, onClick, onSettings }: {
+function GroupHeader({ room, statusOf, active, unread, collapsed, count, onToggle, onClick, onSettings, asRow }: {
   room: Room;
+  /** New layout: drawn as a row under the "Rooms" label (like a project), not as a section heading of its own. */
+  asRow?: boolean;
   statusOf: (botId: string) => BotStatus;
   active: boolean;
   /** The group chat's unread messages, plus those of any one-on-one chats folded away under it. */
@@ -426,14 +662,20 @@ function GroupHeader({ room, statusOf, active, unread, collapsed, count, onToggl
     <div className={cn('group mb-0.5 flex items-center rounded-sm hover:bg-hover', active && 'bg-active')}>
       <CollapseToggle name={room.name} collapsed={collapsed} count={count} onToggle={onToggle} />
       <button
-        className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-label text-dim hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+        className={cn(
+          'flex min-w-0 flex-1 items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent',
+          asRow ? 'gap-2 py-1.5 pl-1.5 pr-2.5 text-ui text-fg' : 'gap-1.5 px-1 py-1 text-label text-dim hover:text-fg',
+        )}
         title={'Open the ' + room.name + ' group chat'}
         aria-current={active ? 'page' : undefined}
         onClick={onClick}
       >
-        <span className={cn('truncate', active && 'text-fg')}>{room.name}</span>
+        {asRow && <span aria-hidden className="w-[7px] shrink-0 text-center font-mono text-dim">#</span>}
+        <span className={cn('truncate', active && 'text-fg', asRow && 'min-w-0 flex-1')}>{room.name}</span>
         <FoldedCount collapsed={collapsed} count={count} />
-        {needs > 0 ? <span className="shrink-0 text-hint text-warn">{needs} {needs === 1 ? 'needs' : 'need'} you</span> : busy > 0 && <span className="shrink-0 text-hint text-ok">{busy} working</span>}
+        {needs > 0
+          ? (asRow ? <Badge tone="needs">{needs}<span className="sr-only"> {needs === 1 ? 'needs' : 'need'} you</span></Badge> : <span className="shrink-0 text-hint text-warn">{needs} {needs === 1 ? 'needs' : 'need'} you</span>)
+          : busy > 0 && <span className="shrink-0 text-hint text-ok">{busy} working</span>}
         {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-accent"><span className="sr-only">{unread} unread</span></span>}
       </button>
       {onSettings && <button
