@@ -343,6 +343,9 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/workflows(\/[^/]+(\/runs)?)?$/],
   ['GET', /^\/api\/workflow-(runs\/[^/]+|cards)$/],
   ['POST', /^\/api\/workflow-runs\/[^/]+\/decision$/],
+  // M8 failover cards: a phone answers them like approval cards (Continue on the backup, or Wait).
+  ['GET', /^\/api\/failover$/],
+  ['POST', /^\/api\/failover-cards\/[^/]+\/decision$/],
   // Screen tab
   ['GET', /^\/api\/screen$/],
   ['POST', /^\/api\/screen\/ticket$/],

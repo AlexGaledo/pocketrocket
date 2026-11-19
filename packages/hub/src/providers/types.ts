@@ -156,6 +156,11 @@ export interface TurnSink {
    * Bookkeeping only: it never decides the turn. A rejected report also ends the run with `TurnOutcome.limit`.
    */
   onLimit?(report: LimitReport): void;
+  /**
+   * M8 (P4-1): something the provider did to the session that the room should know about, as a quiet system note
+   * (an ACP agent compacted its context). Plain text written by the adapter, never the agent's own words.
+   */
+  onNote?(text: string): void;
 }
 
 /** One limit report from a provider, normalised. Times are ms since epoch. */
@@ -236,6 +241,11 @@ export interface AgentProvider {
   label: string;
   /** Static description for the picker card + settings UI. */
   info: ProviderStaticInfo;
+  /**
+   * M8 (P4-1): runs report `TurnOutcome.contextTokens`, so the runner may rotate a session that grew too large. Without
+   * it a session is never rotated on size (there is nothing to measure). Claude and the ACP adapter set it.
+   */
+  readonly reportsContextTokens?: boolean;
   models(): Promise<ModelInfo[]>;
   /** Synchronous snapshot of `models()` (registry cache); used where async is not possible. */
   modelsSync(): ModelInfo[];

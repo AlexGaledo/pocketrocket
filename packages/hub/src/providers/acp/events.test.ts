@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TurnSink } from '../types.js';
-import { AcpEventMapper, toolOutputText } from './events.js';
+import { AcpEventMapper, COMPACTION_NOTE, toolOutputText } from './events.js';
 
 function rec() {
   const out: Array<[string, ...unknown[]]> = [];
@@ -11,11 +11,24 @@ function rec() {
     onToolUse: (id, name, input) => out.push(['use', id, name, input]),
     onToolResult: (id, o, e) => out.push(['result', id, o, e]),
     onState: () => undefined,
+    onNote: (t) => out.push(['note', t]),
   };
   return { out, sink };
 }
 
 describe('AcpEventMapper', () => {
+  it('M8 (P4-1): a completed compaction becomes one quiet note; progress, failures and repeats do not', () => {
+    const r = rec();
+    const m = new AcpEventMapper(r.sink);
+    m.push({ sessionUpdate: 'compaction_update', compactionId: 'c1', status: 'in_progress' });
+    m.push({ sessionUpdate: 'compaction_update', compactionId: 'c1', status: 'completed', summary: [{ type: 'text', text: 'the agent wrote this' }] });
+    m.push({ sessionUpdate: 'compaction_update', compactionId: 'c1', status: 'completed' });
+    m.push({ sessionUpdate: 'compaction_update', compactionId: 'c2', status: 'failed', error: 'no room' });
+    m.push({ sessionUpdate: 'usage_update', used: 4000, size: 200_000 });
+    expect(r.out).toEqual([['note', COMPACTION_NOTE]]);
+    expect(m.contextTokens).toBe(4000);
+  });
+
   it('splits text blocks at tool calls, and settles a tool once', () => {
     const r = rec();
     const m = new AcpEventMapper(r.sink);

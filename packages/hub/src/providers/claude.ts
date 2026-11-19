@@ -333,6 +333,8 @@ interface LiveTurn {
 
 export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const;
+  /** M8 (P4-1): every run reports the last call's input size, so sessions rotate on size. */
+  readonly reportsContextTokens = true;
   readonly label = 'Claude';
   readonly info = CLAUDE_INFO;
   private live = new Map<string, LiveTurn>();

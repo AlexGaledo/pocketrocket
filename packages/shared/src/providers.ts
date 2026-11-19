@@ -118,6 +118,49 @@ export interface ProviderLimitState {
   at: number;
 }
 
+// ---------- Failover card (M8, spec 01 §4.7 / P3-1) ----------
+/**
+ * A bot hit its provider's usage limit and has a backup: the owner may continue the request on the backup, once, or
+ * wait for the reset. Person-only (no bot, cta button or chat text answers it); expires at `expiresAt`, after which a
+ * quiet note says it was not continued. Persisted, so it survives a restart.
+ */
+export interface FailoverCard {
+  id: string;
+  botId: string;
+  /** The chat the limited turn ran in; the card belongs there and in Needs you. */
+  roomId: string;
+  /** The provider (and model) that hit its limit. */
+  provider: ProviderId;
+  model?: string;
+  /** The provider's own window id (`five_hour`, `seven_day`, ...), when it said. */
+  window?: string;
+  /** What "Continue" runs on: the bot's backup when the card was raised. */
+  backup: { provider: ProviderId; model: string };
+  /** When the limit resets, if the provider said. */
+  resetsAt?: number;
+  /** When the card stops being answerable: `resetsAt`, or a short default when the provider gave none. */
+  expiresAt: number;
+  createdAt: number;
+  /** `pending` until answered; `continued` (pressed Continue), `waited` (pressed Wait) or `expired` (nobody answered). */
+  status: 'pending' | 'continued' | 'waited' | 'expired';
+}
+/** A bot whose attended turns run on its backup until `until`, because the owner pressed Continue (the "On Gemini until 14:00" badge). */
+export interface FailoverActive {
+  botId: string;
+  /** The provider that is limited. */
+  from: ProviderId;
+  backup: { provider: ProviderId; model: string };
+  until: number;
+}
+/** GET /api/failover and the WS `failover.changed` event: open cards (pending only) and bots running on their backup. */
+export interface FailoverState {
+  cards: FailoverCard[];
+  active: FailoverActive[];
+}
+/** POST /api/failover-cards/:id/decision */
+export const FailoverDecisionSchema = z.object({ decision: z.enum(['continue', 'wait']) });
+export type FailoverDecision = z.infer<typeof FailoverDecisionSchema>;
+
 /** GET /api/providers */
 export interface ProvidersResponse {
   /** The default provider (settings.provider): what a bot with `provider: null` runs on. */

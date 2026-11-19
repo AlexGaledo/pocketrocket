@@ -42,7 +42,7 @@ function setup(run: (sink: TurnSink) => Partial<TurnOutcome>) {
   );
   const turn = () => runner.runTurn({ bot, room, members: [bot], injected: 'hi', hop: 0, causeId: 'c1' } as never);
   const notes = () => repos.listMessages(room.id, { limit: 50 }).filter((m) => m.kind === 'system');
-  return { repos, bot, room, health, turn, notes };
+  return { repos, bot, room, health, turn, notes, runner };
 }
 
 describe('a turn that ends on a provider limit', () => {
@@ -56,10 +56,28 @@ describe('a turn that ends on a provider limit', () => {
     expect(r.ok).toBe(false);
     expect(r.finalText).toBe('');
     const [note] = s.notes();
-    expect(note.text).toBe('Ada turn ended: Claude 5-hour limit reached, resets ' + resetTime(resetsAt) + '.');
-    expect((note.payload as { turnFailure?: string }).turnFailure).toBe('external');
+    // M8: no backup set, so no card: the note points at the bot's settings instead.
+    expect(note.text).toBe('Ada turn ended: Claude 5-hour limit reached, resets ' + resetTime(resetsAt) + ". Set a backup in Ada's settings to continue on another provider next time.");
+    expect(note.payload).toEqual({ turnFailure: 'external', setBackup: true });
+    // The router reads these to decide on a failover card.
+    expect(r.limit).toEqual({ kind: 'usage', window: 'five_hour', resetsAt });
+    expect(r.provider).toBe('claude');
     expect(s.repos.listMessages(s.room.id, { limit: 50 }).filter((m) => m.authorType === 'bot')).toEqual([]);
     expect(s.health.heldFor('claude')).toMatchObject({ status: 'held', window: 'five_hour', resetsAt });
+  });
+
+  it('M8: with a backup set the note has no pointer (the router offers the card); a sign-in failure never has one', async () => {
+    const resetsAt = Date.now() + 2 * 3600_000;
+    const s = setup(() => ({ ok: false, error: 'usage limit reached', limit: { kind: 'usage', window: 'five_hour', resetsAt } }));
+    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3-pro' } } as never);
+    const r = await s.runner.runTurn({ bot: s.repos.getBot(s.bot.id)!, room: s.room, members: [s.bot], injected: 'hi', hop: 0, causeId: 'c1' } as never);
+    expect(r.limit?.kind).toBe('usage');
+    expect(s.notes()[0].text).toBe('Ada turn ended: Claude 5-hour limit reached, resets ' + resetTime(resetsAt) + '.');
+    expect(s.notes()[0].payload).toEqual({ turnFailure: 'external' });
+
+    const a = setup(() => ({ ok: false, error: 'authentication_failed', limit: { kind: 'auth' } }));
+    await a.turn();
+    expect(a.notes()[0].text).not.toMatch(/backup/);
   });
 
   it('a warning reaches ProviderHealth without failing the turn', async () => {

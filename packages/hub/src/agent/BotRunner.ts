@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { nanoid } from 'nanoid';
-import { AUTO_MODEL, type Bot, type BotState, type CauseKind, type ProviderId, type Room, type ToolPayload } from '@pocketrocket/shared';
+import { AUTO_MODEL, type Bot, type BotBackup, type BotState, type CauseKind, type ProviderId, type Room, type ToolPayload } from '@pocketrocket/shared';
 import path from 'node:path';
 import { ATTACHMENTS_DIR, CLAUDE_EXE, DESKTOP_AVAILABLE, MAX_TURNS_PER_QUERY, MAX_TURN_CONTINUATIONS, ROTATE_IDLE_MS, TURN_CACHE_READ_CAP, WORKSPACE_DIR, botHome, spendCapsOff } from '../config.js';
 import { SUPPORT_HANDLE, supportSourceDirs } from '../services/SeedBots.js';
@@ -80,6 +80,11 @@ export interface TurnRequest {
   ownerRef?: string;
   /** The last turn here was cut off (token brake, step limit): start a fresh, small session instead of resuming the big one. */
   freshSession?: boolean;
+  /**
+   * M8 (P3-1): run this turn on this provider and model instead of the bot's own: its backup, after the owner pressed
+   * Continue on a failover card (or while that press is in force). RoomRouter always sets `strictApprovals` with it.
+   */
+  providerOverride?: BotBackup;
 }
 export interface TurnResult {
   ok: boolean;
@@ -106,6 +111,10 @@ export interface TurnResult {
    */
   consumedSteers?: string[];
   unansweredSteers?: string[];
+  /** M8: the run ended on this provider limit (P0-1), so the router may offer the failover card. */
+  limit?: TurnLimit;
+  /** M8: the provider the turn ran on (the bot's own, or `providerOverride`). */
+  provider?: ProviderId;
 }
 /** Bridge P6: one turn of a moved PC session, run at the VPS (BotRunner.runOffloadTurn). */
 export interface OffloadTurnRequest {
@@ -314,7 +323,10 @@ export class BotRunner {
     const { bot, room } = req;
     const turnId = nanoid(10);
     const budgetUsd = spendCapsOff() ? Infinity : Math.min(bot.maxBudgetUsd, req.causeBudgetUsd ?? Infinity);
-    const provider = this.providerFor(bot);
+    // M8 (P3-1): a failover turn runs on the backup the owner pressed Continue for. The failover service only offers an
+    // enabled provider; should it be gone by now the bot's own runs instead (still strict), never some other one.
+    const override = req.providerOverride && this.providers.get(req.providerOverride.provider).id === req.providerOverride.provider ? req.providerOverride : undefined;
+    const provider = override ? this.providers.get(override.provider) : this.providerFor(bot);
     // M6 (P1-4): the provider that wrote this (bot, room)'s session, read before `getSession` drops a token another one wrote.
     const sessionProvider = this.repos.getSession(bot.id, room.id).provider;
     const session = this.repos.getSession(bot.id, room.id, provider.id);
@@ -326,7 +338,8 @@ export class BotRunner {
     let seed = '';
     // The room's own file folder (current.md lives there); also used below for the turn's working roots.
     const folder = this.roomFiles?.forBot(room, bot.id) ?? null;
-    const rotateWhy = resumeToken && provider.id === 'claude' ? (req.freshSession ? 'cutoff' : rotationReason(state, Date.now())) : null;
+    // M8 (P4-1): any provider that reports the context size rotates on it (Claude, ACP agents); one that reports nothing is never measured.
+    const rotateWhy = resumeToken && (provider.id === 'claude' || provider.reportsContextTokens) ? (req.freshSession ? 'cutoff' : rotationReason(state, Date.now())) : null;
     // M6 (P1-4): the bot moved to another provider since its last turn here (the owner changed its provider, or the
     // default it follows). The old session cannot be resumed on the new one, so it starts over seeded with the summary,
     // the room notes and the recent messages, as a rotation does. Switching back seeds again: there is no token per
@@ -410,8 +423,10 @@ export class BotRunner {
     const providerModels = provider.modelsSync();
     const causeKind: CauseKind = req.causeKind ?? (req.hop > 0 ? 'bot' : 'user');
     // The picker offers Claude's models. A pick left over from before a provider switch is ignored, not translated.
-    const chatModel = provider.id === 'claude' && req.chatModel && (req.chatModel === AUTO_MODEL || providerModels.some((m) => m.id === req.chatModel)) ? req.chatModel : null;
-    const routeBot = chatModel ? { ...bot, model: chatModel } : bot;
+    const chatModel = !override && provider.id === 'claude' && req.chatModel && (req.chatModel === AUTO_MODEL || providerModels.some((m) => m.id === req.chatModel)) ? req.chatModel : null;
+    // A failover turn runs the backup's model; the composer's pick and the bot's own model are for its own provider.
+    const baseBot = override ? { ...bot, model: override.model } : bot;
+    const routeBot = chatModel ? { ...baseBot, model: chatModel } : baseBot;
     const routeReq: RouteRequest = {
       bot: routeBot, causeKind, input: req.injected, latestUserText: req.latestUserText, routinePrompt: req.routinePrompt, chosen: !!chatModel, models: providerModels,
       opusSkills: routeBot.model === AUTO_MODEL ? this.skills.opusSkillNames(bot.id) : [],
@@ -714,6 +729,14 @@ export class BotRunner {
       onInit: (info) => { this.lastInit[provider.id] = info; },
       // M5: plan-limit reports feed ProviderHealth (warnings and holds). Test doubles of the registry leave it out.
       onLimit: (r) => this.providers.health?.report(provider.id, r, route.model),
+      // M8 (P4-1): a quiet note the provider asked for (an ACP agent compacted its context).
+      onNote: (text) => {
+        const msg = this.repos.insertMessage({
+          roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', text: bot.name + "'s " + provider.label + ' session ' + text,
+          payload: null, causeId: req.causeId, hop: req.hop, turnId,
+        });
+        events.emitEvent({ type: 'message.new', message: msg });
+      },
       onSession: (token) => {
         if (token && token !== session.sdkSessionId) this.repos.saveSession(bot.id, room.id, { sdkSessionId: token, provider: provider.id });
       },
@@ -979,9 +1002,15 @@ export class BotRunner {
       };
     }
     if (error) {
+      const note = turnFailureNote(bot.name, error, ac.signal.aborted, limit ? { ...limit, provider: provider.label } : undefined);
+      // M8 (P3-1): a usage limit with no backup set gets no card, only this note and the pointer to set one.
+      if (limit?.kind === 'usage' && !override && !bot.backup) {
+        note.text += ' Set a backup in ' + bot.name + "'s settings to continue on another provider next time.";
+        note.payload = { ...note.payload, setBackup: true };
+      }
       const msg = this.repos.insertMessage({
         roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
-        ...turnFailureNote(bot.name, error, ac.signal.aborted, limit ? { ...limit, provider: provider.label } : undefined),
+        ...note,
         causeId: req.causeId, hop: req.hop, turnId,
       });
       events.emitEvent({ type: 'message.new', message: msg });
@@ -991,6 +1020,7 @@ export class BotRunner {
     return {
       ok, turnId, finalText: texts.join('\n\n'), costUsd, error, model: route.model, modelReason: route.detail,
       ...(ac.signal.aborted ? { stopped: true } : {}), ...steerResult(),
+      ...(limit ? { limit } : {}), provider: provider.id,
     };
   }
 

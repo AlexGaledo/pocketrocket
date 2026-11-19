@@ -100,8 +100,8 @@ export interface Bot {
    */
   provider?: ProviderId | null;
   /**
-   * M6: the one backup the owner picked for when this bot's provider hits its limit, or null. Stored and returned
-   * now; the failover card that uses it comes later (M8). Owner-only, like `provider`. Absent from older hubs.
+   * M6: the one backup the owner picked for when this bot's provider hits its limit, or null. The failover card (M8)
+   * offers it. Owner-only, like `provider`. Absent from older hubs.
    */
   backup?: BotBackup | null;
 }
@@ -543,6 +543,8 @@ export interface ControlStatus {
 export const TURN_FAILURE_BEHAVIOUR = 'behaviour';
 export interface TurnFailurePayload {
   turnFailure: typeof TURN_FAILURE_BEHAVIOUR | 'external';
+  /** M8: the turn hit a usage limit and the bot has no backup, so the note offers "Set a backup" (opens the bot's settings). */
+  setBackup?: boolean;
 }
 
 export interface TakeoverPayload {
