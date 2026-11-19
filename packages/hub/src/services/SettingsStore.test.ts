@@ -10,6 +10,7 @@ const MODELS: Record<ProviderId, ModelInfo[]> = {
   codex: [{ id: 'test-model-x', label: 'Codex', default: true }],
   opencode: [],
   grok: [{ id: 'grok-code-fast-1', label: 'Grok', default: true }],
+  gemini: [],
 };
 
 // The switching tests exercise the repoint path across every adapter, so they enable them all.
@@ -58,6 +59,20 @@ describe('SettingsStore', () => {
     const sys = repos.listMessages(room.id, { limit: 10 }).filter((m) => m.kind === 'system');
     expect(sys.length).toBe(1);
     expect(sys[0].text).toContain('test-model-x');
+  });
+
+  it('M6 (P1-5): a default switch moves only the bots that follow the default, not one with its own provider', () => {
+    const { repos, settings } = store();
+    const follows = repos.createBot({ name: 'Follows', handle: 'follows', title: '', description: '', avatar: '', model: 'claude-opus-5', allowedTools: [], maxBudgetUsd: 1 });
+    const own = repos.createBot({ name: 'Own', handle: 'own', title: '', description: '', avatar: '', model: 'claude-opus-5', allowedTools: [], maxBudgetUsd: 1, provider: 'claude' });
+    const room = repos.createRoom({ kind: 'group', name: 'G', memberIds: [follows.id, own.id], coordinatorBotId: null });
+
+    settings.patch({ provider: 'codex' });
+
+    expect(repos.getBot(follows.id)).toMatchObject({ provider: null, model: 'test-model-x' });
+    expect(repos.getBot(own.id)).toMatchObject({ provider: 'claude', model: 'claude-opus-5' });
+    const sys = repos.listMessages(room.id, { limit: 10 }).filter((m) => m.kind === 'system').map((m) => m.text);
+    expect(sys).toEqual(['Follows switched to test-model-x (claude-opus-5 is not available on codex).']);
   });
 
   it('leaves models alone when the new provider publishes no list', () => {

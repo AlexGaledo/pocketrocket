@@ -6,6 +6,7 @@ import {
   HOST, PORT, WEB_DIST, WORKSPACE_DIR, SCREEN_URL, VERSION, DATA_DIR, BOTS_DIR, ENABLED_PROVIDERS, MEDIA_DIR,
   ensureDirs, ensureHubToken, migrateLegacyDb, KNOWLEDGE_SYNC_MINUTES, HUB_TOKEN, HUB_TOKEN_PATH, PROJECTS_DIR, ROOMS_DIR, botFilesDir, setRoomRootsResolver,
 } from './config.js';
+import type { BusyInfo } from '@pocketrocket/shared';
 import { Db } from './db/db.js';
 import { reportOrphanBotDirs } from './services/orphanBotDirs.js';
 import { Repos } from './db/repos.js';
@@ -17,6 +18,7 @@ import { SettingsStore, installSettings } from './services/SettingsStore.js';
 import { SecretsStore } from './services/SecretsStore.js';
 import { AccountService } from './services/AccountService.js';
 import { PermissionBroker } from './permissions/PermissionBroker.js';
+import { denyMessage } from './permissions/messages.js';
 import { RoomRouter } from './rooms/RoomRouter.js';
 import { BotRunner } from './agent/BotRunner.js';
 import { RoutingRules } from './services/RoutingRules.js';
@@ -25,13 +27,17 @@ import { FollowUp } from './services/FollowUp.js';
 import { KnowledgeRepo } from './services/KnowledgeRepo.js';
 import { VoiceProposals } from './services/VoiceProposals.js';
 import { createProviders } from './providers/registry.js';
+import { unattendedRefusal } from './providers/unattended.js';
 import { TurnRegistry, createMcpHandler, serveTools } from './mcp/httpServer.js';
 import { CONTEXT_CONNECTOR_PREFIX, contextConnectorTools, createContextApi } from './api/context.js';
 import { ContextRepo } from './db/contextRepo.js';
 import { ProjectService } from './services/ProjectService.js';
 import { createProjectsApi } from './api/projects.js';
 import { createRest } from './api/rest.js';
+import { createScreenOpener } from './services/screenOpen.js';
+import { startHistoryBackfill } from './db/historyIndex.js';
 import { attachWs } from './api/ws.js';
+import { FormBroker } from './services/FormBroker.js';
 import { AUTH_CALLBACK_PATH, AuthRateLimiter, bearerToken, checkContentType, checkRequestOrigin, checkToken, clientIp, cookieValue, dropCookie, presentsHubToken, tokenMatches } from './api/guard.js';
 import { ScreenSessions, screenCookieName, screenViewerPath } from './api/screenSession.js';
 import { readBody } from './api/body.js';
@@ -42,13 +48,27 @@ import { ComputerManager } from './services/ComputerManager.js';
 import { events } from './events.js';
 import { IntegrationService } from './services/IntegrationService.js';
 import { createIntegrationsApi } from './api/integrations.js';
+import { TelegramService } from './services/TelegramService.js';
+import { createTelegramApi } from './api/telegram.js';
+import { createMcpServersApi } from './api/mcpServers.js';
+import { createCredentialsApi } from './api/credentials.js';
+import { CredentialStore } from './services/CredentialStore.js';
+import { McpServerStore } from './services/outsideMcpStore.js';
+import { cspModeFrom, webSecurityHeaders } from './api/csp.js';
 import { OAUTH_START_PREFIX, handleOAuthCallback, handleOAuthStart } from './api/oauth.js';
 import { OAUTH_CALLBACK_PREFIX } from './api/guard.js';
 import { TriggerService } from './services/TriggerService.js';
+import { WorkflowRepo } from './db/workflowRepo.js';
+import { WorkflowRunner } from './services/WorkflowRunner.js';
+import { createWorkflowsApi } from './api/workflows.js';
+import { createFailoverApi } from './api/failover.js';
+import { FailoverRepo } from './db/failoverRepo.js';
+import { FailoverService } from './services/Failover.js';
 import { createTriggersApi } from './api/triggers.js';
 import type { SocketFactory } from './services/SlackSocketMode.js';
 // P9: devices, pairing, push
-import { ALLOWED_HOSTS, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { ALLOWED_HOSTS, ATTACHMENTS_DIR, PUSH_SUBJECT, VAPID_PATH } from './config.js';
+import { sweepAttachments } from './agent/attachments.js';
 import { seedDefaultBots } from './services/SeedBots.js';
 import { DEVICE_PAIR_PATH, deviceMayAccess, setPrincipal } from './api/guard.js';
 import { DevicesRepo } from './db/devices.js';
@@ -73,8 +93,13 @@ import { MEDIA_SWEEP_MS, MediaStore, referencedMedia } from './services/MediaSto
 import { createMediaApi } from './api/media.js';
 import { createFilesApi } from './api/files.js';
 import { RoomFiles } from './rooms/roomFiles.js';
+import { FileRevisions } from './services/FileRevisions.js';
 import { PcRunner, type PcRunnerOptions } from './services/PcRunner.js';
 import { createPcRunnerApi } from './api/pcRunner.js';
+import { createCcApi } from './api/cc.js';
+import { PcSessions, type PcSessionsOptions } from './services/PcSessions.js';
+import { SessionMoves, type SessionMovesDeps } from './services/SessionMoves.js';
+import { createPcSessionsApi } from './api/pcSessions.js';
 import { runnerMayAccess } from './api/guard.js';
 
 export interface HubOptions {
@@ -99,6 +124,8 @@ export interface HubOptions {
   computers?: (db: Db) => ComputerManager;
   /** P4 integrations, built on the hub's db; tests hand in a factory with a temp vault and a fake fetch. */
   integrations?: (db: Db) => IntegrationService;
+  /** Telegram notifications; tests hand in one with a fake fetch and clock. It shares the integrations vault. */
+  telegram?: (db: Db, vault: IntegrationService['vault']) => TelegramService;
   /** P5: Slack Socket Mode transport; tests hand in a fake socket. */
   slackSocket?: SocketFactory;
   // ---- P9 ----
@@ -114,11 +141,23 @@ export interface HubOptions {
   /** Recorder overrides (tests: availability, a fake CDP, fake scrot/xdotool, a temp folder). */
   recorder?: Partial<Omit<RecorderDeps, 'computers' | 'control'>>;
   /** Bot training overrides (tests: a fake one-shot runner, a fixed clock or zone). */
-  training?: Partial<Pick<TrainingDeps, 'run' | 'exeExists' | 'now' | 'timezone'>>;
+  training?: Partial<Pick<TrainingDeps, 'run' | 'exeExists' | 'claudeReady' | 'now' | 'timezone'>>;
   /** Uploaded pictures; tests hand in a temp folder. Defaults to data/media. */
   mediaDir?: string;
+  /** Outside MCP servers file (data/mcp-servers.json); tests hand in a temp file, and a fake fetch for the check route. */
+  mcpServers?: { file?: string; fetch?: typeof fetch };
+  /** Tests: where the credential vault and its key live. */
+  credentials?: { file?: string; keyFile?: string };
   /** PC runner overrides (tests: a temp pc-runner.json, short timeouts, a fixed clock). */
   pcRunner?: Partial<Omit<PcRunnerOptions, 'db'>>;
+  /** Tests lower the 200 MB cap on an uploaded sync bundle. */
+  pcBundleMaxBytes?: number;
+  /** Bridge P3: the PC session mirror's clock and caps (tests). */
+  pcSessions?: PcSessionsOptions;
+  /** Bridge P6: where the Claude CLI keeps sessions, the VPS turn model and the feed interval (tests), and the session upload cap. */
+  sessionMoves?: Partial<Pick<SessionMovesDeps, 'configDir' | 'model' | 'feedEveryMs' | 'runTurn'>> & { dir?: string; uploadMaxBytes?: number };
+  /** What `stop()` ends with once the hub is shut down. Defaults to process.exit; tests pass a fake. */
+  exit?: (code: number) => void;
 }
 
 export interface Hub {
@@ -133,6 +172,7 @@ export interface Hub {
   runner: BotRunner;
   computers: ComputerManager;
   integrations: IntegrationService;
+  telegram: TelegramService;
   /** P5: event triggers (pollers, Slack Socket Mode, matcher). */
   triggers: TriggerService;
   // P9
@@ -143,6 +183,11 @@ export interface Hub {
   control: ComputerControlService;
   broker: PermissionBroker;
   approvals: ApprovalStore;
+  /** Workflows v1: the run engine and the rows behind it. */
+  workflows: WorkflowRunner;
+  workflowRepo: WorkflowRepo;
+  /** M8: failover cards (spec 01 P3-1). */
+  failover: FailoverService;
   // ---- P6 ----
   skills: SkillService;
   recorder: Recorder;
@@ -150,8 +195,20 @@ export interface Hub {
   media: MediaStore;
   /** The owner's PC as a Claude Code job runner. */
   pcRunner: PcRunner;
+  /** Project folders and their repos.json (bridge P5). */
+  projects: ProjectService;
+  pcSessions: PcSessions;
+  /** A PC session moved to the VPS (bridge P6). */
+  sessionMoves: SessionMoves;
   listen(): Promise<number>;
   shutdown(): Promise<void>;
+  /**
+   * Graceful stop: `shutdown()` (turns interrupted, lane journal kept so they resume on the next start), then
+   * exit. SIGINT/SIGTERM and POST /api/maintenance/stop all come here; a second call joins the first.
+   */
+  stop(reason: string): Promise<void>;
+  /** GET /api/busy. */
+  busy(): BusyInfo;
 }
 
 export function createHub(opts: HubOptions = {}): Hub {
@@ -164,6 +221,8 @@ export function createHub(opts: HubOptions = {}): Hub {
   }
 
   const db = opts.dbFile ? new Db(opts.dbFile) : new Db();
+  // Finishes indexing old messages for search_history when the history was too long for the migration alone.
+  const stopHistoryBackfill = startHistoryBackfill(db);
   const repos = new Repos(db);
   const memory = new MemoryService();
   if (!opts.skipBootstrap) {
@@ -171,7 +230,6 @@ export function createHub(opts: HubOptions = {}): Hub {
     reportOrphanBotDirs(BOTS_DIR, repos.listBots().map((b) => b.id));
   }
   const skills = new SkillService(repos);
-  const usage = new UsageTracker(repos);
   const secrets = new SecretsStore();
   const account = opts.account ?? new AccountService();
   const settings = new SettingsStore({
@@ -180,6 +238,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     models: (p) => providers.modelsSync(p),
     modelsAsync: (p) => providers.modelsAwaited(p),
   });
+  const usage = new UsageTracker(repos, { alertThresholdUsd: () => settings.get().spendAlertThresholdUsd });
   installSettings(settings);
   // A name set before migration 112, or the OS account default, reaches the owner's row here.
   repos.renameOwner(settings.get().userName);
@@ -229,18 +288,28 @@ export function createHub(opts: HubOptions = {}): Hub {
     routinesChanged: () => scheduler.reload(),
   }, providers, turns, computers, { knowledgeDir: () => knowledge.activeDir(), routing }, media);
   router.runner = runner;
-  router.autoMemory = new AutoMemory({ repos, memory, usage, activeProvider: () => providers.active().id, voice });
+  // M7 (P2-3): Gemini on a Google login runs only attended turns; the router drops the rest with a note.
+  router.unattendedRefusal = (bot, provider) => unattendedRefusal(providers, bot, provider);
+  const forms = new FormBroker(repos);
+  runner.forms = forms;
+  // M6 (P1-6): the Claude-only passes ask whether Claude itself is ready, not which provider is the default.
+  const claudeReady = () => providers.claudeReady();
+  runner.claudeReady = claudeReady;
+  router.autoMemory = new AutoMemory({ repos, memory, usage, claudeReady, voice });
   const scheduler = new RoutineScheduler(repos, router);
   // P3: resumes turns a restart cut off, and nudges stalled handoffs.
-  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedRunIds(), ...control.parkedRunIds()] });
+  const followUp = new FollowUp({ repos, router, heldRuns: () => [...approvalStore.parkedOwnerRefs(), ...control.parkedOwnerRefs()] });
 
   // P2: take over / hand back / pause, and resuming turns that parked on the user.
   const control = new ComputerControlService({ computers, repos, vnc: opts.vnc });
+  const usesComputer = (botId: string) => {
+    const tools = repos.getBot(botId)?.allowedTools ?? [];
+    return tools.includes('Browser') || tools.includes('Desktop');
+  };
+  // Opens a chat link or room file in a bot's server browser, for the person to watch in Screen.
+  const screenOpener = createScreenOpener({ repos, computers, usesComputer });
   computers.wire({
-    usesComputer: (botId) => {
-      const tools = repos.getBot(botId)?.allowedTools ?? [];
-      return tools.includes('Browser') || tools.includes('Desktop');
-    },
+    usesComputer,
     personHolds: (botId) => control.get(botId).control !== 'agent',
   });
   const restoredTakeovers = control.restoreParked();
@@ -248,11 +317,11 @@ export function createHub(opts: HubOptions = {}): Hub {
   runner.control = control;
   router.control = control;
   broker.onParkedDecision = (p, decision) => {
-    router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, runId: p.runId, note: parkedDecisionNote(p, decision) });
+    router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, ownerRef: p.ownerRef, note: parkedDecisionNote(p, decision) });
   };
   control.onParkedHandBack = (botId, t, note) => {
     router.resumeParked(botId, t.roomId, {
-      causeId: t.causeId, hop: t.hop, runId: t.runId,
+      causeId: t.causeId, hop: t.hop, ownerRef: t.ownerRef,
       note: note === null
         ? '(Nobody took over your computer within ' + Math.round(control.maxParkMs / 3_600_000) + ' hours of your request "' + t.reason +
           '", so you have control again. Do not ask again right away; tell the user what is still blocked.)'
@@ -272,11 +341,12 @@ export function createHub(opts: HubOptions = {}): Hub {
   // P6: teach by demonstration (forces control=user while recording), distill/corrections, opt-in reflection.
   const recorder = new Recorder({ computers, control, ...opts.recorder });
   recorder.listen();
-  const activeModels = () => providers.modelsSync(providers.active().id);
-  const distiller = new SkillDistiller({ repos, skills, recorder, usage, activeProvider: () => providers.active().id, models: activeModels });
-  router.skillReflection = new SkillReflection({ repos, skills, usage, activeProvider: () => providers.active().id, models: activeModels });
+  // These passes run on Claude whatever provider the bots run on, so they pick among Claude's models.
+  const claudeModels = () => providers.modelsSync('claude');
+  const distiller = new SkillDistiller({ repos, skills, recorder, usage, claudeReady, models: claudeModels });
+  router.skillReflection = new SkillReflection({ repos, skills, usage, claudeReady, models: claudeModels });
   // Bot training: opt-in per bot, weekly, and only the owner's Approve changes a bot.
-  const training = new Training({ repos, memory, usage, activeProvider: () => providers.active().id, models: activeModels, ...opts.training });
+  const training = new Training({ repos, memory, usage, claudeReady, models: claudeModels, ...opts.training });
   skills.versionsRepo.prune(repos.listBots().map((b) => b.id));
   training.prune(repos.listBots().map((b) => b.id));
   const offP6 = events.onEvent((ev) => {
@@ -292,10 +362,15 @@ export function createHub(opts: HubOptions = {}): Hub {
   integrations.pruneGrants(repos.listBots().map((b) => b.id));
   const offBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') integrations.pruneGrants(ev.bots.map((b) => b.id)); });
   const integrationsApi = createIntegrationsApi({ integrations, repos });
+  // Where a phone opens the hub from: the first allowed Tailscale name, if the owner set one up. Never a loopback address.
+  const hubUrlForPhone = () => { const h = (opts.allowedHosts ?? ALLOWED_HOSTS)[0]; return h ? 'https://' + h + '/' : null; };
+  const telegram = opts.telegram ? opts.telegram(db, integrations.vault) : new TelegramService({ db, vault: integrations.vault, hubUrl: hubUrlForPhone });
+  const telegramApi = createTelegramApi({ telegram });
 
   // P5: event triggers. Outbound polling and Slack Socket Mode only (Q5); started in listen(), stopped first on shutdown.
   const triggers = new TriggerService({ db, repos, integrations, router, socket: opts.slackSocket });
-  const triggersApi = createTriggersApi({ triggers });
+  const workflowRepo = new WorkflowRepo(db);
+  const triggersApi = createTriggersApi({ triggers, inUse: (id) => workflowRepo.forTrigger(id).length > 0 });
   router.triggerBudget = (id) => triggers.remainingBudget(id);
 
   const screenSessions = new ScreenSessions();
@@ -307,6 +382,7 @@ export function createHub(opts: HubOptions = {}): Hub {
   const push = opts.push
     ? opts.push(devicesRepo, repos)
     : PushService.withFile({ devices: devicesRepo, repos, subject: PUSH_SUBJECT, vapidPath: VAPID_PATH });
+  push.setTelegram(telegram);
   const devicesApi = createDevicesApi({ devices, push, allowedHosts });
   // Every socket a device holds open (/ws and its Screen), so revoking it hangs them up at once.
   const deviceSockets = new Map<string, Set<{ close(): void }>>();
@@ -330,11 +406,27 @@ export function createHub(opts: HubOptions = {}): Hub {
   const sweepMedia = () => {
     if (opts.skipBootstrap && !opts.mediaDir) return;
     try { media.sweep(referencedMedia(repos, settings.get())); } catch (e) { logError('[media]', e); }
+    try { sweepAttachments(ATTACHMENTS_DIR, new Set(repos.listBots().map((b) => b.id))); } catch (e) { logError('[attachments]', e); }
   };
   let mediaTimer: NodeJS.Timeout | null = null;
+  /** 04-A3: only running turns and live cards block; queued, parked and open-run work survives a restart. */
+  const busy = (): BusyInfo => {
+    const running = runner.activeTurnCount();
+    const liveCards = broker.liveCardCount();
+    return {
+      blocking: running + liveCards, running, liveCards,
+      pendingLanes: router.pendingLaneCount(), parkedCards: broker.parked().length, waitingRuns: repos.runningRuns().length,
+      heldUntil: router.heldUntil(),
+    };
+  };
+  const exit = opts.exit ?? ((code: number) => process.exit(code));
+  let stopping: Promise<void> | null = null;
   const rest = createRest({
-    media,
-    repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers, routing,
+    busy,
+    // After this tick, so the 202 is written before shutdown closes every connection.
+    stop: () => { setImmediate(() => void hub.stop('maintenance stop')); },
+    media, routineInUse: (id) => workflowRepo.forRoutine(id).length > 0,
+    repos, memory, skills, scheduler, router, runner, settings, secrets, providers, screenSessions, account, knowledge, voice, computers, screenOpener, routing,
     viewOnly: (scope) => control.viewOnly(scope),
   });
   const handleMcp = createMcpHandler(turns);
@@ -343,22 +435,88 @@ export function createHub(opts: HubOptions = {}): Hub {
   runner.projects = projects;
   const roomFiles = new RoomFiles({ projects, roomsDir: opts.roomsDir ?? ROOMS_DIR, dmDir: opts.dmFilesDir ?? botFilesDir });
   runner.roomFiles = roomFiles;
+  // Bridge P1: who changed each shared file (bot Write/Edit hooks, owner uploads and text saves).
+  const revisions = new FileRevisions(repos.db);
+  runner.revisions = revisions;
+  // Workflows v1. The runner registers the owner handler and the run-budget hook on the router; FollowUp resumes the step turns, then recover() restarts runs cut between steps.
+  const workflows = new WorkflowRunner({
+    repos, workflows: workflowRepo, router, usage, roomFiles, revisions,
+    triggerExists: (id) => !!triggers.repo.get(id),
+    heldOwners: () => [...approvalStore.parkedOwnerRefs(), ...control.parkedOwnerRefs()],
+  });
+  scheduler.workflows = (id, manual) => workflows.fireRoutine(id, { manual });
+  triggers.workflows = (id, event, manual) => workflows.fireTrigger(id, event, { manual });
+  runner.workflows = workflows;
+  const workflowsApi = createWorkflowsApi({ repos, workflows: workflowRepo, runner: workflows });
+  // M8 (P3-1): the failover card. A limited turn's bot with a backup gets a person-only card; Continue queues one strict turn there.
+  const failover = new FailoverService({
+    repo: new FailoverRepo(db), repos,
+    label: (id) => providers.get(id).label,
+    enabled: (id) => providers.enabled.includes(id),
+    isHeld: (id, model) => providers.health.isHeld(id, model),
+    note: (roomId, text, causeId, hop) => {
+      const room = repos.getRoom(roomId);
+      if (room) router.systemNote(room, text, causeId, hop);
+    },
+    continueTurn: (c) => router.continueOnBackup(c),
+    onChange: (s) => events.emitEvent({ type: 'failover.changed', ...s }),
+  });
+  router.failover = failover;
+  const failoverApi = createFailoverApi({ failover });
   // A bot works without a card only in the folder of the room it is replying in.
   setRoomRootsResolver((botId, roomId) => {
     const room = repos.getRoom(roomId);
     const folder = room ? roomFiles.forBot(room, botId) : null;
     return folder ? [folder.dir] : [];
   });
-  const filesApi = createFilesApi({ repos, roomFiles });
+  const filesApi = createFilesApi({ repos, roomFiles, screenOpener, revisions });
   // The owner's PC: run_on_pc jobs, owner-approved on a card, picked up by the helper on the PC.
   const pcRunner = new PcRunner({ db, file: path.join(DATA_DIR, 'pc-runner.json'), ...opts.pcRunner });
   runner.pcRunner = pcRunner;
-  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db });
+  // Bridge P3: the PC session mirror (owner-only reads, runner writes), pruned at start and daily.
+  const pcSessions = new PcSessions(db, opts.pcSessions);
+  runner.pcSessions = pcSessions;
+  pcSessions.linker = (repo) => projects.linksFor(repo);
+  // Bridge P6: a PC session moved to the VPS; its turns run through the Claude provider (BotRunner.runOffloadTurn).
+  const sessionMoves = new SessionMoves({
+    db, repos, pcRunner, pcSessions, projects,
+    dir: opts.sessionMoves?.dir ?? path.join(DATA_DIR, 'pc-moves'),
+    runTurn: opts.sessionMoves?.runTurn ?? ((r) => runner.runOffloadTurn(r)),
+    configDir: opts.sessionMoves?.configDir, model: opts.sessionMoves?.model, feedEveryMs: opts.sessionMoves?.feedEveryMs,
+  });
+  pcSessions.mover = (id) => {
+    const m = sessionMoves.summary(id);
+    return m;
+  };
+  pcSessions.locked = (id) => sessionMoves.locked(id);
+  pcRunner.onFinished = (job) => sessionMoves.onJobFinished(job);
+  sessionMoves.reconcile();
+  runner.sessionMoves = sessionMoves;
+  const pcRunnerApi = createPcRunnerApi({ pcRunner, repos, db, pcSessions, projects, sessionMoves, bundleMaxBytes: opts.pcBundleMaxBytes, sessionMaxBytes: opts.sessionMoves?.uploadMaxBytes });
+  const pcSessionsApi = createPcSessionsApi({ pcSessions, db, sessionMoves });
+  let pcPruneTimer: NodeJS.Timeout | null = null;
+  const prunePcSessions = () => {
+    try {
+      const { removed } = pcSessions.prune();
+      if (removed) console.log('[pc-sessions] pruned ' + removed + ' mirrored session(s)');
+    } catch (e) {
+      logError('[pc-sessions]', e);
+    }
+  };
+  const ccApi = createCcApi({ repos, roomFiles, revisions, router, projects, sessionMoves });
   projects.pruneMembers(repos.listBots().map((b) => b.id));
   const offProjectBots = events.onEvent((ev) => { if (ev.type === 'bots.changed') projects.pruneMembers(ev.bots.map((b) => b.id)); });
-  const projectsApi = createProjectsApi({ projects, repos });
+  const projectsApi = createProjectsApi({ projects, repos, db });
+  const mcpServersApi = createMcpServersApi({ store: new McpServerStore(opts.mcpServers?.file), db, fetch: opts.mcpServers?.fetch });
+  // G4: saved logins for fill_credential; secrets encrypted in data/credentials.json.
+  const credentials = new CredentialStore(db, opts.credentials);
+  runner.credentials = credentials;
+  const credentialsApi = createCredentialsApi({ store: credentials, db });
   const contextApi = createContextApi({ context: contextRepo, projects });
   const connectorTools = contextConnectorTools(contextRepo);
+
+  // CSP, nosniff and Referrer-Policy on the app shell and its assets (POCKETROCKET_CSP: enforce|report-only|off).
+  const webHeaders = webSecurityHeaders(cspModeFrom(process.env.POCKETROCKET_CSP));
 
   const MIME: Record<string, string> = {
     '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -594,11 +752,18 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (await mediaApi(req, res)) return;
       if (await devicesApi(req, res)) return;
       if (await integrationsApi(req, res)) return;
+      if (await telegramApi(req, res)) return;
       if (await triggersApi(req, res)) return;
+      if (await workflowsApi(req, res)) return;
+      if (await failoverApi(req, res)) return;
       if (await contextApi(req, res)) return;
       if (await projectsApi(req, res)) return;
       if (await filesApi(req, res)) return;
+      if (await mcpServersApi(req, res)) return;
+      if (await credentialsApi(req, res)) return;
       if (await pcRunnerApi(req, res)) return;
+      if (await ccApi(req, res)) return;
+      if (await pcSessionsApi(req, res)) return;
       if (await takeoverApi(req, res)) return;
       if (await teachApi(req, res)) return;
       if (await rest(req, res)) return;
@@ -615,14 +780,15 @@ export function createHub(opts: HubOptions = {}): Hub {
       if (!file.startsWith(WEB_DIST)) { res.writeHead(403); res.end(); return; }
       if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(WEB_DIST, 'index.html');
       if (!fs.existsSync(file)) {
-        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.writeHead(200, { 'content-type': 'text/plain', ...webHeaders });
         res.end('PocketRocket hub running. Web UI not built; run `pnpm dev` for Vite dev server or `pnpm build`.');
         return;
       }
       // P9: the service worker and the manifest have fixed names, so they must be revalidated like the shell;
       // an immutable sw.js would pin every installed phone to the build it first saw.
-      const isShell = ['index.html', 'sw.js', 'manifest.json', 'manifest.webmanifest'].includes(path.basename(file));
+      const isShell = ['index.html', 'theme-init.js', 'sw.js', 'manifest.json', 'manifest.webmanifest'].includes(path.basename(file));
       res.writeHead(200, {
+        ...webHeaders,
         'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
         // hashed assets are immutable; the shell must always be re-fetched so a reload picks up new builds
         'cache-control': isShell ? 'no-cache, no-store, must-revalidate' : 'public, max-age=31536000, immutable',
@@ -635,7 +801,7 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
-  const wss = attachWs(server, { repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
+  const wss = attachWs(server, { media, forms, repos, router, broker, settings, signedIn: (req) => !!sessionOf(req) });
   server.on('upgrade', (req, socket, head) => {
     const p = req.url ?? '';
     const url = new URL(p, 'http://localhost');
@@ -685,9 +851,26 @@ export function createHub(opts: HubOptions = {}): Hub {
     }
   });
 
-  return {
-    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, triggers, devices, push, pcRunner,
-    control, broker, approvals: approvalStore,
+  const hub: Hub = {
+    busy,
+    stop(reason: string) {
+      stopping ??= (async () => {
+        console.log('[pocketrocket] ' + reason + ': shutting down');
+        // A stuck shutdown must not keep the process alive (an updater is waiting on it).
+        const force = setTimeout(() => exit(0), 8000);
+        force.unref();
+        try {
+          await hub.shutdown();
+        } catch (e) {
+          logError('[shutdown]', e);
+        }
+        clearTimeout(force);
+        exit(0);
+      })();
+      return stopping;
+    },
+    server, get port() { return port; }, repos, settings, secrets, account, providers, turns, runner, computers, integrations, telegram, triggers, devices, push, pcRunner, pcSessions, sessionMoves, projects,
+    control, broker, approvals: approvalStore, workflows, workflowRepo, failover,
     skills, recorder, distiller, media,
     listen: () =>
       new Promise<number>((resolve, reject) => {
@@ -696,12 +879,17 @@ export function createHub(opts: HubOptions = {}): Hub {
           port = (server.address() as { port: number }).port;
           const resumed = followUp.resumeInterrupted();
           if (resumed) console.log('resuming ' + resumed + ' turn(s) cut off by the previous run');
+          workflows.recover();
           followUp.start();
           // P2: re-apply view-only as computers come up; give up on parked cards and takeovers after 24 h.
           control.start();
           broker.sweepParked();
-          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); }, 60_000);
+          failover.sweep();
+          p2Timer ??= setInterval(() => { broker.sweepParked(); control.sweep(); auth.expireDue(); workflows.sweep(); failover.sweep(); }, 60_000);
           p2Timer.unref();
+          prunePcSessions();
+          pcPruneTimer ??= setInterval(prunePcSessions, 24 * 60 * 60_000);
+          pcPruneTimer.unref();
           sweepMedia();
           mediaTimer ??= setInterval(sweepMedia, MEDIA_SWEEP_MS);
           mediaTimer.unref();
@@ -735,6 +923,7 @@ export function createHub(opts: HubOptions = {}): Hub {
         });
       }),
     async shutdown() {
+      stopHistoryBackfill();
       scheduler.stop();
       // Aborts a running pass and waits for it, so nothing writes to the database after it closes below.
       await training.stop();
@@ -747,6 +936,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       await recorder.shutdown();
       if (p2Timer) clearInterval(p2Timer);
       if (mediaTimer) clearInterval(mediaTimer);
+      if (pcPruneTimer) clearInterval(pcPruneTimer);
+      pcSessions.stop();
       knowledge.stop();
       offComputers();
       // Timers only: the computers are systemd units and keep running across a hub restart.
@@ -757,6 +948,8 @@ export function createHub(opts: HubOptions = {}): Hub {
       for (const p of integrations.pending()) integrations.cancel(p.provider);
       account.stop();
       push.stop();
+      // Aborts a link poll in flight; does not wait for it.
+      telegram.stop();
       offRevoke();
       offSessionRevoke();
       // Keep the lane journal: the turns interrupted here resume on the next start (P3).
@@ -771,6 +964,7 @@ export function createHub(opts: HubOptions = {}): Hub {
       try { db.raw.close(); } catch { /* already closed */ }
     },
   };
+  return hub;
 }
 
 /** P2: the line a resumed bot gets when the user answers the approval card its turn parked on. */
@@ -779,6 +973,6 @@ function parkedDecisionNote(p: ParkedApproval, decision: 'allow' | 'always' | 'd
   if (decision === 'allow' || decision === 'always') {
     return '(Approval granted: the user allowed ' + what + '. Retry exactly the same call now; it goes through without another card. Then finish the task.)';
   }
-  if (decision === 'deny') return '(Approval denied: the user declined ' + what + '. Do not retry it; choose another approach or say so in the room.)';
-  return '(Approval expired: nobody answered ' + what + ' in time, so it was denied. Do not retry it; say so in the room.)';
+  if (decision === 'deny') return '(Approval denied: ' + denyMessage('declined', { subject: what, alt: 'choose another approach or say so in the room' }) + ')';
+  return '(Approval expired: ' + denyMessage('timeout', { note: 'nobody answered ' + what + ' in time, so it was denied', alt: 'say so in the room' }) + ')';
 }

@@ -10,22 +10,19 @@
  * The screen follows the chat. The one exception is a screen this browser holds, which stays up whatever chat is
  * open, because leaving it would strand a bot that cannot act until it gets its screen back. RightPanel warns then.
  */
+import { getItem, setItem } from './persist';
 import type { Bot, BotState, ControlStatus, Message, Room, ToolPayload } from '@pocketrocket/shared';
 
 export type ScreenSize = 'glance' | 'watch' | 'focus';
 
 /** This browser's id, sent as the control `holder` so the hub can say who took over. Not a secret. */
 export function deviceId(): string {
-  try {
-    let id = localStorage.getItem('pocketrocket.deviceId');
-    if (!id) {
-      id = 'web-' + Math.random().toString(36).slice(2, 10);
-      localStorage.setItem('pocketrocket.deviceId', id);
-    }
-    return id;
-  } catch {
-    return 'web';
+  let id = getItem('pocketrocket.deviceId');
+  if (!id) {
+    id = 'web-' + Math.random().toString(36).slice(2, 10);
+    setItem('pocketrocket.deviceId', id);
   }
+  return id;
 }
 
 /**

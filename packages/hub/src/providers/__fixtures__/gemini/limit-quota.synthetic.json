@@ -1,0 +1,13 @@
+{
+  "_source": "SYNTHETIC. Written from Google's public API error vocabulary (google.rpc.Code RESOURCE_EXHAUSTED / UNAVAILABLE / UNAUTHENTICATED, RetryInfo.retryDelay) and the ACP v1 schema (JSON-RPC error on session/prompt, notice update). Not captured from a real agy.",
+  "_todo": "Owner (P2-4): hit a Gemini limit on the Google AI account with POCKETROCKET_DEBUG=1, save the JSON-RPC error and any notice update agy sends next to this file as limit-quota.agy.json, and add it to gemini.test.ts. Then tighten geminiLimit() to that wording.",
+  "promptError": {
+    "code": -32603,
+    "message": "RESOURCE_EXHAUSTED: You have exhausted your Gemini quota for this period.",
+    "data": { "error": { "code": 429, "status": "RESOURCE_EXHAUSTED", "details": [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "3600s" }] } }
+  },
+  "notice": { "sessionUpdate": "notice", "severity": "error", "title": "Usage limit reached", "description": "Try again later." },
+  "overloaded": { "code": -32603, "message": "UNAVAILABLE: The model is overloaded. Please try again later." },
+  "signedOut": { "code": -32603, "message": "UNAUTHENTICATED: Request had invalid authentication credentials. Please sign in again." },
+  "notALimit": { "code": -32603, "message": "Tool read_file failed: ENOENT: no such file or directory" }
+}

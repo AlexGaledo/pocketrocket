@@ -172,7 +172,7 @@ describe('SkillDistiller', () => {
     const n = name('monthly-export');
     const llm = fakeLlm('Here you go:\n```markdown\n---\nname: ' + n + '\ndescription: Download the monthly report as CSV\n---\n# Monthly export\n## Parameters\n- `{month}`\n## Steps\n1. Log in (password: use request_takeover)\n2. Click the button named "Export"\n## Checks\n- report-{month}.csv is in Downloads\n```');
     const rec = fakeRecorder(TRACE);
-    const d = new SkillDistiller({ repos, skills, recorder: rec, usage, activeProvider: () => 'claude', exeExists: () => true, run: llm.run, models: () => MODELS });
+    const d = new SkillDistiller({ repos, skills, recorder: rec, usage, claudeReady: () => true, exeExists: () => true, run: llm.run, models: () => MODELS });
     const out = await d.distill(bot.id, REC_ID);
     expect(out.version).toBeNull();
     expect(out.skill).toMatchObject({ name: n, source: 'bot', reviewStatus: 'pending', createdByBot: bot.id, description: 'Download the monthly report as CSV' });
@@ -197,7 +197,7 @@ describe('SkillDistiller', () => {
     const n = name('reteach');
     const live = skills.save(n, 'Export', SKILL_V1(n), { source: 'authored' });
     const llm = fakeLlm('---\nname: ' + n + '\ndescription: Export v2\n---\n# Export\n1. Use the Export button\n');
-    const d = new SkillDistiller({ repos, skills, recorder: fakeRecorder(TRACE), usage, activeProvider: () => 'claude', exeExists: () => true, run: llm.run });
+    const d = new SkillDistiller({ repos, skills, recorder: fakeRecorder(TRACE), usage, claudeReady: () => true, exeExists: () => true, run: llm.run });
     const out = await d.distill(bot.id, REC_ID, { name: n });
     expect(out.skill.id).toBe(live.id);
     expect(out.version).toMatchObject({ status: 'pending', origin: 'demo', version: 2 });
@@ -212,7 +212,7 @@ describe('SkillDistiller', () => {
       const cur = p.match(/<current_skill>\n([\s\S]*?)\n<\/current_skill>/)![1];
       return cur.replace('Click the "Download" link', 'Click the "Export" button');
     });
-    const d = new SkillDistiller({ repos, skills, recorder: fakeRecorder([]), usage, activeProvider: () => 'claude', exeExists: () => true, run: llm.run });
+    const d = new SkillDistiller({ repos, skills, recorder: fakeRecorder([]), usage, claudeReady: () => true, exeExists: () => true, run: llm.run });
     const v = await d.correct(live.id, 'no, use the Export button', null);
     expect(v).toMatchObject({ status: 'pending', origin: 'correction', note: 'no, use the Export button', version: 2 });
     expect(llm.calls[0].prompt).toContain('<correction>\nno, use the Export button\n</correction>');
@@ -228,10 +228,10 @@ describe('SkillDistiller', () => {
     const { repos, skills, usage, bot } = setup();
     const llm = fakeLlm('x');
     const mk = (rec: ReturnType<typeof fakeRecorder>, over: Record<string, unknown> = {}) =>
-      new SkillDistiller({ repos, skills, recorder: rec, usage, activeProvider: () => 'claude', exeExists: () => true, run: llm.run, ...over });
+      new SkillDistiller({ repos, skills, recorder: rec, usage, claudeReady: () => true, exeExists: () => true, run: llm.run, ...over });
     await expect(mk(fakeRecorder(TRACE, 'recording')).distill(bot.id, REC_ID)).rejects.toThrow(/Press Done/);
     await expect(mk(fakeRecorder([{ ts: 0, t: 'start' }])).distill(bot.id, REC_ID)).rejects.toThrow(/no steps/);
-    await expect(mk(fakeRecorder(TRACE), { activeProvider: () => 'codex' }).distill(bot.id, REC_ID)).rejects.toThrow(/Claude provider/);
+    await expect(mk(fakeRecorder(TRACE), { claudeReady: () => false }).distill(bot.id, REC_ID)).rejects.toThrow(/Claude provider/);
     await expect(mk(fakeRecorder(TRACE), { exeExists: () => false }).distill(bot.id, REC_ID)).rejects.toThrow(/CLI/);
     await expect(mk(fakeRecorder(TRACE)).distill(bot.id, 'nope')).rejects.toThrow(/not found/);
     expect(llm.calls).toHaveLength(0);
@@ -266,7 +266,7 @@ describe('SkillReflection', () => {
     w.repos.setBotSkills(w.bot.id, [live.id]);
     if (opts.enabled !== false) w.skills.versionsRepo.setReflection(w.bot.id, { enabled: true, every: opts.every ?? 2, ...(opts.cap ? { dailyCapUsd: opts.cap } : {}) });
     const llm = fakeLlm(opts.reply ?? JSON.stringify({ change: true, reason: 'The Download link is gone; Export works', markdown: SKILL_V1(n).replace('Click the "Download" link', 'Click the "Export" button') }), 0.01);
-    const refl = new SkillReflection({ repos: w.repos, skills: w.skills, usage: w.usage, activeProvider: () => 'claude', models: () => MODELS, exeExists: () => true, run: llm.run });
+    const refl = new SkillReflection({ repos: w.repos, skills: w.skills, usage: w.usage, claudeReady: () => true, models: () => MODELS, exeExists: () => true, run: llm.run });
     let turn = 0;
     const runSkill = async () => {
       const turnId = 'turn-' + ++turn;

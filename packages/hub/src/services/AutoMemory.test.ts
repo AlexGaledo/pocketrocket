@@ -89,7 +89,7 @@ function setup(opts: { provider?: ProviderId; every?: number; run?: (prompt: str
   const run = opts.run ?? (async () => reply('{"notes":["Alex prefers short answers","Launch is on Friday"]}'));
   const auto = new AutoMemory({
     repos, memory, usage: new UsageTracker(repos),
-    activeProvider: () => opts.provider ?? 'claude', exeExists: () => true,
+    claudeReady: () => (opts.provider ?? 'claude') === 'claude', exeExists: () => true,
     run: async (p) => { prompts.push(p); return run(p); },
   });
   const say = (text: string, authorType: 'user' | 'bot' = 'user') =>
@@ -99,6 +99,28 @@ function setup(opts: { provider?: ProviderId; every?: number; run?: (prompt: str
 }
 
 describe('AutoMemory trigger', () => {
+  it('M6 (P1-6): runs for a bot on another provider while Claude is ready, and skips while Claude is not', async () => {
+    let ready = true;
+    const repos = new Repos(new Db(':memory:'));
+    const bot = repos.createBot({ name: 'Cy', handle: 'cy', title: '', description: 'x', avatar: '', model: 'gpt-5-codex', allowedTools: [], maxBudgetUsd: 2, autoMemoryEvery: 3, provider: 'codex' });
+    made.push(bot.id);
+    const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
+    let calls = 0;
+    const auto = new AutoMemory({
+      repos, memory: new MemoryService(), usage: new UsageTracker(repos), claudeReady: () => ready, exeExists: () => true,
+      run: async () => { calls++; return reply('{"notes":["Launch is on Friday"]}'); },
+    });
+    const say = (text: string) => repos.insertMessage({ roomId: room.id, authorType: 'user', authorId: null, kind: 'text', text, payload: null, causeId: null, hop: 0, turnId: null });
+    const turn = () => { say('hello'); return auto.afterTurn(bot.id, room.id, { ok: true }); };
+    turn(); turn(); await turn();
+    expect(calls).toBe(1);
+    // The pass ran on Claude, and its usage row says so.
+    expect(repos.usageBy('provider').map((g) => g.key)).toEqual(['claude']);
+    ready = false; // e.g. ProviderHealth holds Claude at its 5-hour limit
+    expect([turn(), turn(), turn()].every((p) => p === undefined)).toBe(true);
+    expect(calls).toBe(1);
+  });
+
   it('runs a pass on every Nth successful turn, appends the notes, posts a note and records usage', async () => {
     const s = setup({ every: 3 });
     expect(s.turn()).toBeUndefined();
@@ -148,7 +170,7 @@ describe('AutoMemory trigger', () => {
     const s = setup({ every: 3 });
     s.turn(); s.turn({ ok: false } as never); s.turn();
     expect(s.repos.getAutoMemory(s.bot.id, s.room.id).turnsSince).toBe(2);
-    const again = new AutoMemory({ repos: s.repos, memory: s.memory, usage: new UsageTracker(s.repos), activeProvider: () => 'claude', exeExists: () => true, run: async () => reply('{"notes":["x y z"]}') });
+    const again = new AutoMemory({ repos: s.repos, memory: s.memory, usage: new UsageTracker(s.repos), claudeReady: () => true, exeExists: () => true, run: async () => reply('{"notes":["x y z"]}') });
     s.say('more');
     await again.afterTurn(s.bot.id, s.room.id, { ok: true });
     expect(s.memory.read(s.bot.id)).toContain('- x y z');
@@ -286,7 +308,7 @@ describe('AutoMemory merge', () => {
     const calls: { prompt: string; system?: string }[] = [];
     const s = setup({ every: 3 });
     const auto = new AutoMemory({
-      repos: s.repos, memory: s.memory, usage: new UsageTracker(s.repos), activeProvider: () => 'claude', exeExists: () => true,
+      repos: s.repos, memory: s.memory, usage: new UsageTracker(s.repos), claudeReady: () => true, exeExists: () => true,
       run: async (prompt, system) => {
         calls.push({ prompt, system });
         return prompt.includes('<memory_to_merge>') ? merge(prompt) : reply('{"notes":["Alex prefers short answers"]}');

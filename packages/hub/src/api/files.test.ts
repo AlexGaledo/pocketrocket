@@ -225,6 +225,31 @@ describe('/api/rooms/:id/files', () => {
     expect(fs.existsSync(path.join(outside, 'secret.txt'))).toBe(true);
   });
 
+  it('places an absolute server path from a bot\'s link inside the folder, and nothing outside it', async () => {
+    const { room } = groupRoom();
+    await upload(room.id, 'report.html', '<p>hi</p>');
+    const where = (p: string) => request('GET', base(room.id) + '/where?path=' + encodeURIComponent(p));
+    const inside = await where(path.join(roomsDir, room.id, 'report.html'));
+    expect(inside.status).toBe(200);
+    expect(inside.json).toEqual({ path: 'report.html', kind: 'file' });
+    expect((await where(path.join(roomsDir, room.id))).json).toEqual({ path: '', kind: 'dir' });
+    expect((await where(path.join(roomsDir, room.id, 'gone.html'))).status).toBe(404);
+    expect((await where(path.join(outside, 'secret.txt'))).status).toBe(404);
+    expect((await where(path.join(roomsDir, room.id, '..', 'x'))).status).toBe(404);
+    expect((await where('report.html')).status).toBe(400);
+  });
+
+  it('opens a file in the server browser only when it is a file in the folder and a bot here has a browser', async () => {
+    const { room } = groupRoom();
+    await upload(room.id, 'page.html', '<p>hi</p>');
+    const browse = (p: string) => request('POST', base(room.id) + '/browse', { body: { path: p } });
+    expect((await browse('../x.html')).status).toBe(400);
+    expect((await browse('missing.html')).status).toBe(404);
+    expect((await browse('')).status).toBe(400);
+    // The room's only bot has no Browser: refused, or (without per-bot computers) no screen running here.
+    expect([409, 503]).toContain((await browse('page.html')).status);
+  });
+
   it('refuses a link inside the folder that leads out of it, for reading and writing', async () => {
     const { room } = groupRoom();
     const dir = path.join(roomsDir, room.id);
@@ -336,5 +361,45 @@ describe('/api/rooms/:id/files', () => {
     const r = await request('POST', base(room.id) + '/upload', { body: { name: 'big.bin', dataBase64: big } });
     expect(r.status).toBe(413);
     expect(fs.existsSync(path.join(roomsDir, room.id, 'big.bin'))).toBe(false);
+  });
+});
+
+describe('versioned text, history and decisions (bridge P1)', () => {
+  it('writes with a matching base, refuses a stale one with the current text, and keeps history', async () => {
+    const { room } = groupRoom();
+    const created = await request('POST', base(room.id) + '/text', { body: { path: 'notes/current.md', text: 'v1', base: null } });
+    expect(created.status).toBe(200);
+    const read = await request('GET', base(room.id) + '/text?path=notes/current.md');
+    expect(read.json).toMatchObject({ path: 'notes/current.md', text: 'v1', rev: { rev: 1, author: { kind: 'owner' } } });
+
+    expect((await request('POST', base(room.id) + '/text', { body: { path: 'notes/current.md', text: 'v2', base: read.json.hash } })).status).toBe(200);
+    const stale = await request('POST', base(room.id) + '/text', { body: { path: 'notes/current.md', text: 'v2b', base: read.json.hash } });
+    expect(stale.status).toBe(409);
+    expect(stale.json.current.text).toBe('v2');
+
+    const hist = await request('GET', base(room.id) + '/history?path=notes/current.md');
+    expect(hist.json.revisions.map((r: { rev: number }) => r.rev)).toEqual([2, 1]);
+    expect((await request('POST', base(room.id) + '/text', { body: { path: 'x.md', text: 'x', base: 'nope' } })).status).toBe(400);
+  });
+
+  it('appends decisions and refuses decisions.md as plain text', async () => {
+    const { room } = groupRoom();
+    const d1 = await request('POST', base(room.id) + '/decision', { body: { title: 'Ship v0.3.0', text: 'Release is green.' } });
+    expect(d1.json).toMatchObject({ ok: true, id: 'D-0001' });
+    const d2 = await request('POST', base(room.id) + '/decision', { body: { title: 'Then v0.4.0', text: 'Workflows next.', supersedes: ['D-0001'] } });
+    expect(d2.json.id).toBe('D-0002');
+    const asText = await request('POST', base(room.id) + '/text', { body: { path: 'decisions.md', text: 'wiped', base: null } });
+    expect(asText.status).toBe(409);
+    const file = fs.readFileSync(path.join(roomsDir, room.id, 'decisions.md'), 'utf8');
+    expect(file).toContain('## D-0001 · Ship v0.3.0');
+    expect(file).toContain('## D-0002 · Then v0.4.0');
+  });
+
+  it('records an owner upload in the file history', async () => {
+    const { room } = groupRoom();
+    await request('POST', base(room.id) + '/upload', { body: { path: '', name: 'brief.md', dataBase64: Buffer.from('hello').toString('base64') } });
+    const hist = await request('GET', base(room.id) + '/history?path=brief.md');
+    expect(hist.json.revisions).toHaveLength(1);
+    expect(hist.json.revisions[0]).toMatchObject({ tool: 'upload', author: { kind: 'owner' } });
   });
 });

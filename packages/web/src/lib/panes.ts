@@ -3,6 +3,7 @@
  * depends on the window it was chosen in. The stored value is the wish; `paneLayout` works out what fits, so a
  * small window never overwrites it and the pane grows back when the window does.
  */
+import { getItem, setItem } from './persist';
 export type PaneId = 'sidebar' | 'panel';
 export type PaneWidths = Record<PaneId, number>;
 
@@ -81,21 +82,13 @@ export function panelDefault(vw: number) {
 /** A stored number, or the default when storage is empty, blocked or holds junk. */
 export function readPaneWidths(vw: number): PaneWidths {
   const read = (pane: PaneId) => {
-    try {
-      const v = Number(localStorage.getItem(PANES[pane].key));
-      if (v > 0) return clampPane(v, PANES[pane].min, PANES[pane].max, Infinity);
-    } catch {
-      /* storage blocked: the default below */
-    }
+    const v = Number(getItem(PANES[pane].key));
+    if (v > 0) return clampPane(v, PANES[pane].min, PANES[pane].max, Infinity);
     return pane === 'panel' ? panelDefault(vw) : PANES[pane].def;
   };
   return { sidebar: read('sidebar'), panel: read('panel') };
 }
 
 export function writePaneWidth(pane: PaneId, width: number) {
-  try {
-    localStorage.setItem(PANES[pane].key, String(Math.round(width)));
-  } catch {
-    /* storage unavailable; the width still holds for this session */
-  }
+  setItem(PANES[pane].key, String(Math.round(width))); // a blocked store keeps it in memory for this session
 }

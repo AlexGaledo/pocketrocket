@@ -2,14 +2,14 @@
   "name": "pocketrocket",
   "private": true,
   "license": "MIT",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "homepage": "https://pocketrocket-chi.vercel.app",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "pnpm -r build",
     "start": "pnpm --filter @pocketrocket/hub start",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && node --test \"scripts/*.test.mjs\"",
     "hub:bundle": "node scripts/build-hub.mjs",
     "desktop:fetch-node": "node scripts/fetch-node.mjs",
     "desktop:icon": "node scripts/make-icon.mjs",
@@ -22,7 +22,7 @@
     "@resvg/resvg-js": "^2.6.2",
     "esbuild": "^0.25.0",
     "typescript": "^7.0.2",
-    "ws": "^8.18.0"
+    "ws": "^8.22.0"
   },
   "packageManager": "pnpm@10.0.0",
   "pnpm": {

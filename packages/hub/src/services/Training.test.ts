@@ -52,7 +52,7 @@ function setup(replies: Reply[] = [], opts: Partial<TrainingDeps> & { descriptio
   const llm = fakeRunner(replies, opts.cost);
   let clock = Date.now() + 1000;
   const training = new Training({
-    repos, usage, memory: { writeIdentity: (id, t) => void identity.set(id, t) }, activeProvider: () => 'claude', models: () => [],
+    repos, usage, memory: { writeIdentity: (id, t) => void identity.set(id, t) }, claudeReady: () => true, models: () => [],
     exeExists: () => true, run: llm.run, now: () => clock, timezone: () => 'UTC', ...opts,
   });
   const say = (authorType: 'user' | 'bot', text: string, roomId = room.id, authorId: string | null = authorType === 'bot' ? bot.id : null) =>
@@ -89,7 +89,7 @@ describe('opt-in', () => {
   });
 
   it('refuses to run on another provider or without the CLI, without a model call', async () => {
-    const t = setup([], { activeProvider: () => 'codex' });
+    const t = setup([], { claudeReady: () => false });
     t.correction();
     t.on();
     await expect(t.training.runNow(t.bot.id)).rejects.toThrow(/Claude/);
@@ -328,7 +328,7 @@ describe('proposer and verifier', () => {
       t.training.setEnabled(t.bot.id, false);
       return { ok: true, text: PROPOSAL, usage: { ...ZERO, costUsd: 0.01 } };
     };
-    const t2 = new Training({ repos: t.repos, usage: t.usage, memory: { writeIdentity: () => undefined }, activeProvider: () => 'claude', models: () => [], exeExists: () => true, run, now: () => Date.now() + 1000 });
+    const t2 = new Training({ repos: t.repos, usage: t.usage, memory: { writeIdentity: () => undefined }, claudeReady: () => true, models: () => [], exeExists: () => true, run, now: () => Date.now() + 1000 });
     t.on();
     t.correction();
     await expect(t2.runNow(t.bot.id)).rejects.toThrow(/off/);
@@ -565,7 +565,7 @@ describe('schedule', () => {
       return { ok: true, text: '{"change":false}', usage: ZERO };
     };
     let clock = Date.now() - 1000;
-    const training = new Training({ repos, usage, memory: { writeIdentity: () => undefined }, activeProvider: () => 'claude', models: () => [], exeExists: () => true, run, now: () => clock });
+    const training = new Training({ repos, usage, memory: { writeIdentity: () => undefined }, claudeReady: () => true, models: () => [], exeExists: () => true, run, now: () => clock });
     for (const x of [a, b, c]) training.setEnabled(x.id, true);
     clock = Date.now() + 1000;
     const manual = training.runNow(a.id);
@@ -587,7 +587,7 @@ describe('schedule', () => {
     let n = 0;
     let clock = Date.now() - 1000;
     const training = new Training({
-      repos: t.repos, usage: t.usage, memory: { writeIdentity: () => undefined }, activeProvider: () => 'claude', models: () => [], exeExists: () => true, now: () => clock,
+      repos: t.repos, usage: t.usage, memory: { writeIdentity: () => undefined }, claudeReady: () => true, models: () => [], exeExists: () => true, now: () => clock,
       run: async () => { if (n++ === 0) throw new Error('boom'); return { ok: true, text: '{"change":false}', usage: ZERO }; },
     });
     const err = console.error;
@@ -669,7 +669,7 @@ describe('REST', () => {
   let hub: Hub;
   let port: number;
   beforeAll(async () => {
-    hub = createHub({ port: 0, dbFile: ':memory:', skipBootstrap: true, token: TOKEN, recorder: { dir: (b) => path.join(dir, b) }, training: { run: llm.run, exeExists: () => true, timezone: () => 'UTC' } });
+    hub = createHub({ port: 0, dbFile: ':memory:', skipBootstrap: true, token: TOKEN, recorder: { dir: (b) => path.join(dir, b) }, training: { run: llm.run, exeExists: () => true, claudeReady: () => true, timezone: () => 'UTC' } });
     port = await hub.listen();
   });
   afterAll(async () => {
@@ -917,7 +917,7 @@ describe('review fixes', () => {
       signal = o.signal;
       o.signal!.addEventListener('abort', () => resolve({ ok: false, text: '', error: 'aborted', usage: { ...ZERO, costUsd: 0.01 } }));
     });
-    const training = new Training({ repos: t.repos, usage: t.usage, memory: { writeIdentity: () => undefined }, activeProvider: () => 'claude', models: () => [], exeExists: () => true, run, now: () => Date.now() + 1000 });
+    const training = new Training({ repos: t.repos, usage: t.usage, memory: { writeIdentity: () => undefined }, claudeReady: () => true, models: () => [], exeExists: () => true, run, now: () => Date.now() + 1000 });
     t.on();
     const running = training.runNow(t.bot.id);
     const queued = training.runNow(t.bot.id);

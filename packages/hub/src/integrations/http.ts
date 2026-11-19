@@ -39,6 +39,8 @@ export interface RequestOpts {
   /** Status codes the caller handles itself instead of an exception (e.g. 404/410 = cursor expired). */
   allow?: number[];
   timeoutMs?: number;
+  /** Aborts the call early (hub shutdown). Combined with the timeout: whichever fires first. */
+  signal?: AbortSignal;
 }
 
 export function withQuery(url: string, query?: RequestOpts['query']): string {
@@ -67,7 +69,7 @@ export async function apiRequest<T = unknown>(fetchFn: Fetch, url: string, opts:
       method: opts.method ?? (body ? 'POST' : 'GET'),
       headers,
       body,
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
+      signal: opts.signal ? AbortSignal.any([AbortSignal.timeout(opts.timeoutMs ?? 20_000), opts.signal]) : AbortSignal.timeout(opts.timeoutMs ?? 20_000),
     });
   } catch (e) {
     throw new IntegrationError('Could not reach ' + new URL(url).host + ': ' + String((e as Error).message ?? e), 0);
@@ -88,7 +90,7 @@ function describeError(host: string, status: number, data: unknown): string {
     const d = data as Record<string, unknown>;
     const e = d.error;
     detail = String(
-      d.error_description ?? d.message ?? (e && typeof e === 'object' ? (e as Record<string, unknown>).message : e) ?? d.err ?? '',
+      d.error_description ?? d.description ?? d.message ?? (e && typeof e === 'object' ? (e as Record<string, unknown>).message : e) ?? d.err ?? '',
     );
   } else if (typeof data === 'string') {
     detail = data.slice(0, 200);

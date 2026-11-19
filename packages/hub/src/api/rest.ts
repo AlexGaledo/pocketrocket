@@ -3,16 +3,19 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
-  BotInputSchema, RoomInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  isMediaRef, mediaHash,
-  type HealthInfo, type ProviderId, type Room,
+  BotInputSchema, MaintenanceHoldInputSchema, QueueCancelInputSchema, QueueEditInputSchema, QueuePauseInputSchema, QueueSendNowInputSchema, RoomInputSchema, RoomMessageInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
+  AUTO_MODEL, TASK_STATUSES, isMediaRef, mediaHash,
+  type BotInput, type BusyInfo, type ContextUsage, type HealthInfo, type ProviderId, type Room, type TaskStatus, type UsageResponse,
 } from '@pocketrocket/shared';
+import { modelFor, repointBotModel } from '../services/SettingsStore.js';
 import net from 'node:net';
 import { readBody } from './body.js';
-import { WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
+import { removeBotAttachments } from '../agent/attachments.js';
+import { ATTACHMENTS_DIR, WORKSPACE_DIR, SCREEN_URL, CDP_URL, DESKTOP_AVAILABLE, VERSION } from '../config.js';
 import { openWorkspace, workspaceTarget } from './openWorkspace.js';
 import { SCREEN_VIEWER_PATH, screenViewerPath, type ScreenSessions } from './screenSession.js';
 import { AlwaysOnRefused, type ComputerManager } from '../services/ComputerManager.js';
+import { ScreenOpenError, type ScreenOpener } from '../services/screenOpen.js';
 
 /** TCP-probe a http://host:port URL; resolves true when something accepts the connection within 600ms. */
 function probe(url: string): Promise<boolean> {
@@ -27,10 +30,13 @@ function probe(url: string): Promise<boolean> {
 }
 import type { Repos } from '../db/repos.js';
 import { events } from '../events.js';
+import { TaskError, TaskService } from '../services/TaskService.js';
+import { BotReports } from '../services/BotReports.js';
+import { TransferError, exportBot, importBot } from '../services/botTransfer.js';
 import { MAX_MEMORY_BYTES, type MemoryService } from '../services/MemoryService.js';
 import type { SkillService } from '../services/SkillService.js';
 import { RoutineScheduler } from '../services/RoutineScheduler.js';
-import type { RoomRouter } from '../rooms/RoomRouter.js';
+import { QueueError, type RoomRouter } from '../rooms/RoomRouter.js';
 import type { BotRunner } from '../agent/BotRunner.js';
 import { SettingsRejected, type SettingsStore } from '../services/SettingsStore.js';
 import type { SecretsStore } from '../services/SecretsStore.js';
@@ -41,7 +47,9 @@ import type { KnowledgeRepo } from '../services/KnowledgeRepo.js';
 import type { RoutingRules } from '../services/RoutingRules.js';
 import type { VoiceProposals } from '../services/VoiceProposals.js';
 import { logError } from '../providers/redact.js';
+import { sandboxStatus } from '../providers/sandbox.js';
 import type { MediaStore } from '../services/MediaStore.js';
+import { contextUsage } from '../services/SessionRotation.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
@@ -54,6 +62,8 @@ const NO_CONTENT = Symbol('no content');
 
 export interface RestDeps {
   repos: Repos; memory: MemoryService; skills: SkillService; scheduler: RoutineScheduler; router: RoomRouter; runner: BotRunner;
+  /** True when a workflow starts from this routine (deleting it is then a 409). */
+  routineInUse?: (routineId: string) => boolean;
   settings: SettingsStore; secrets: SecretsStore; providers: ProviderRegistry;
   /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
   screenSessions: ScreenSessions;
@@ -63,12 +73,19 @@ export interface RestDeps {
   voice?: VoiceProposals;
   /** Per-bot computers (P1): Screen tab status, Wake, Keep awake. */
   computers: ComputerManager;
+  /** Opens a web link in a bot's server browser (a chat link's "Open in server browser"). */
+  screenOpener?: ScreenOpener;
   /** The owner's routing rules. */
   routing?: RoutingRules;
   /** P2: true while the viewer of this screen (bot id, or null for the shared one) may only watch. */
   viewOnly?: (scope: string | null) => boolean;
   /** Uploaded pictures: a reference is only stored once its file is here. */
   media?: MediaStore;
+  // ---- 04-A3: update safety ----
+  /** GET /api/busy. */
+  busy?: () => BusyInfo;
+  /** POST /api/maintenance/stop: schedules the graceful stop (shutdown, then exit) after this response. */
+  stop?: () => void;
 }
 
 export function createRest(deps: RestDeps) {
@@ -124,12 +141,31 @@ export function createRest(deps: RestDeps) {
     const chk = exe.checkExe();
     return {
       ok: chk.ok, error: chk.error,
-      apiKeySource: runner.lastInit.apiKeySource,
+      apiKeySource: runner.lastInit.claude?.apiKeySource,
       provider: settings.get().provider, version: VERSION,
       approvals: settings.approvals(), approvalsLocked: settings.approvalsLocked,
     };
   });
+  // M6: by provider ({ claude: {...}, codex: {...} }), so two bots on two providers do not overwrite each other's.
   add('GET', '/api/debug/last-init', () => runner.lastInit);
+  // 04-A3: the desktop updater holds, polls /api/busy until `blocking` is 0, then stops the hub cleanly.
+  // Hub token or the owner's browser session only: none of these is in guard.ts DEVICE_ALLOW, so a paired
+  // device is refused (403), and the PC runner token reaches only its own routes.
+  const busyNow = () => need(deps.busy, 'Busy status')();
+  add('GET', '/api/busy', busyNow);
+  add('POST', '/api/maintenance/hold', ({ body }) => {
+    const { minutes } = parse(MaintenanceHoldInputSchema, body ?? {});
+    router.hold(minutes * 60_000);
+    return busyNow();
+  });
+  add('POST', '/api/maintenance/release', () => {
+    router.releaseHold();
+    return busyNow();
+  });
+  add('POST', '/api/maintenance/stop', () => {
+    need(deps.stop, 'Maintenance stop')();
+    return { ok: true, stopping: true };
+  });
   add('GET', '/api/screen', async ({ query }) => {
     // P1: `?botId=` asks about that bot's own computer. Without per-bot computers (or without a bot) it is the
     // one shared screen, exactly as before; `computer` then says perBot: false.
@@ -158,6 +194,19 @@ export function createRest(deps: RestDeps) {
       return { url: screenSessions.mintTicket(botId, owner).url };
     }
     return { url: screenSessions.mintTicket(null, owner).url };
+  });
+
+  // A web link from chat, opened in a bot's server browser. Answers the bot whose computer it used (null: the
+  // shared screen) so the client can open Screen on it. Human-only like the rest of /api/screen.
+  add('POST', '/api/screen/open', async ({ body }) => {
+    const { url, roomId, botId } = parse(z.object({ url: z.string().min(1).max(4096), roomId: z.string().max(64).optional(), botId: z.string().max(64).optional() }), body ?? {});
+    if (!deps.screenOpener) throw new HttpError(404, 'Not available on this hub');
+    try {
+      return await deps.screenOpener.open({ url }, { roomId, botId });
+    } catch (e) {
+      if (e instanceof ScreenOpenError) throw new HttpError(e.status, e.message);
+      throw e;
+    }
   });
 
   // ---- per-bot computers (P1). Human-only: no bot tool reaches these.
@@ -204,10 +253,17 @@ export function createRest(deps: RestDeps) {
   // ---- settings / secrets / providers
   add('GET', '/api/me', () => repos.owner());
   add('GET', '/api/settings', () => settings.get());
+  // Bridge P7: can bot tools be sandboxed here, is it on, and why not. Read-only; the switch is `sandbox` in PUT /api/settings.
+  add('GET', '/api/sandbox/status', () => sandboxStatus());
   // The only writer of `approvals`: no bot tool, MCP route or WS event reaches the SettingsStore.
   add('PUT', '/api/settings', ({ body, req }) => {
     const patch = parsePatch(SettingsPatchSchema, body);
     needPicture(patch.userAvatar);
+    // Bridge P7: turning the sandbox on while bubblewrap cannot run would only make every turn fail; say why instead.
+    if (patch.sandbox === 'on' && settings.get().sandbox !== 'on') {
+      const st = sandboxStatus();
+      if (!st.available) throw new HttpError(409, 'sandbox: ' + st.reason);
+    }
     const before = settings.approvals();
     try {
       const next = settings.patch(patch);
@@ -260,11 +316,35 @@ export function createRest(deps: RestDeps) {
   add('POST', '/api/account/sign-out', () => account.signOut());
 
   // ---- bots
+  /**
+   * M6 (P1-3): the owner's provider and backup for a bot. Only this API sets them; the bot tools refuse both. A provider
+   * must be enabled here, and a model the request names must be one its provider lists (or `auto`).
+   */
+  const modelIdsOf = (id: ProviderId) => providers.modelsSync(id).map((m) => m.id);
+  const checkModelOn = (field: string, id: ProviderId, model: string) => {
+    const ids = modelIdsOf(id);
+    if (ids.length && model !== AUTO_MODEL && !ids.includes(model)) {
+      throw new HttpError(400, field + ': ' + model + ' is not a ' + providers.get(id).label + ' model. Available: ' + ids.join(', '));
+    }
+  };
+  const checkProviderFields = (input: Partial<BotInput>, modelSent: boolean) => {
+    if (input.provider && !providers.enabled.includes(input.provider)) throw new HttpError(400, 'provider: ' + input.provider + ' is not enabled on this server');
+    if (input.backup) {
+      if (!providers.enabled.includes(input.backup.provider)) throw new HttpError(400, 'backup: ' + input.backup.provider + ' is not enabled on this server');
+      checkModelOn('backup', input.backup.provider, input.backup.model);
+    }
+    if (input.provider !== undefined && modelSent && input.model !== undefined) checkModelOn('model', input.provider ?? settings.get().provider, input.model);
+  };
+  const sent = (body: unknown, key: string) => !!body && typeof body === 'object' && (body as Record<string, unknown>)[key] !== undefined;
+
   add('GET', '/api/bots', () => repos.listBots());
   add('POST', '/api/bots', ({ body }) => {
     const input = parse(BotInputSchema, body);
     needPicture(input.avatar);
     if (repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
+    checkProviderFields(input, sent(body, 'model'));
+    // A new bot on its own provider with no model named gets that provider's default, not the schema's Claude one.
+    if (input.provider && !sent(body, 'model')) input.model = modelFor(providers.modelsSync(input.provider), input.model) ?? input.model;
     const bot = repos.createBot(input);
     memory.ensureHome(bot.id);
     memory.writeIdentity(bot.id, bot.description);
@@ -276,8 +356,15 @@ export function createRest(deps: RestDeps) {
     const input = parsePatch(BotInputSchema.partial(), body);
     needPicture(input.avatar);
     if (input.handle && input.handle !== cur.handle && repos.getBotByHandle(input.handle)) throw new HttpError(409, 'Handle already taken');
-    const bot = repos.updateBot(params.id, input)!;
+    checkProviderFields(input, sent(body, 'model'));
+    let bot = repos.updateBot(params.id, input)!;
     if (input.description !== undefined) memory.writeIdentity(bot.id, input.description);
+    // M6: moved to another provider without a model that fits it: its default, with the same note a default switch posts.
+    // The bot's next turn in each room starts a fresh session seeded with a summary (BotRunner, P1-4).
+    const now = bot.provider ?? settings.get().provider;
+    if (input.provider !== undefined && now !== (cur.provider ?? settings.get().provider) && input.model === undefined) {
+      if (repointBotModel(repos, bot, now, providers.modelsSync(now))) bot = repos.getBot(bot.id)!;
+    }
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     return bot;
   });
@@ -285,10 +372,25 @@ export function createRest(deps: RestDeps) {
     need(repos.getBot(params.id), 'Bot');
     repos.deleteBot(params.id);
     memory.removeHome(params.id);
+    removeBotAttachments(ATTACHMENTS_DIR, params.id);
     deps.voice?.removeForBot(params.id);
     events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
     events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
     return { ok: true };
+  });
+  // U10: bot files. Export reads one bot and never secrets; import always makes a NEW bot (see services/botTransfer.ts).
+  const transfer = <T>(fn: () => T): T => {
+    try { return fn(); } catch (e) { if (e instanceof TransferError) throw new HttpError(e.status, e.message); throw e; }
+  };
+  add('GET', '/api/bots/:id/export', ({ params, query }) => {
+    const bot = need(repos.getBot(params.id), 'Bot');
+    return transfer(() => exportBot({ repos, memory, skills }, bot, { includeMemory: query.get('memory') === '1' }));
+  });
+  add('POST', '/api/bots/import', ({ body, query }) => {
+    const out = transfer(() => importBot({ repos, memory, skills }, body, { includeMemory: query.get('memory') === '1' }));
+    events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
+    if (out.skills.length) events.emitEvent({ type: 'skills.changed' });
+    return out;
   });
   // The Memory tab shows how full memory.md is and when auto-memory last wrote to it.
   add('GET', '/api/bots/:id/memory', ({ params }) => {
@@ -377,8 +479,46 @@ export function createRest(deps: RestDeps) {
     return q.length < 2 ? [] : repos.searchMessages(q.slice(0, 200), 50);
   });
   add('POST', '/api/rooms/:id/messages', ({ params, body }) => {
-    const { text } = parse(z.object({ text: z.string().min(1) }), body);
-    return router.onUserMessage(params.id, text);
+    // `mode` as on WS message.send: join a busy bot's running turn, or queue. The answer's payload says which.
+    const { text, mode } = parse(RoomMessageInputSchema, body);
+    return router.onUserMessage(params.id, text, undefined, undefined, mode);
+  });
+  // ---- queue controls (02 Phase 2): the same actions as the WS queue.* events
+  const queueFail = <T>(fn: () => T): T => {
+    try { return fn(); } catch (e) { if (e instanceof QueueError) throw new HttpError(e.status, e.message); throw e; }
+  };
+  // P4-2: the context meter. Per member bot, its session's context size in this room, only when the provider that wrote
+  // the session reports context size (a row with no provider is the bot's own). Bots with nothing to show are left out.
+  add('GET', '/api/rooms/:id/context', ({ params }) => {
+    const room = need(repos.getRoom(params.id), 'Room');
+    const out: Record<string, ContextUsage> = {};
+    for (const botId of room.memberIds) {
+      const bot = repos.getBot(botId);
+      if (!bot) continue;
+      const wrote = repos.getSession(bot.id, room.id).provider;
+      const p = wrote ? providers.get(wrote as ProviderId) : providers.forBot(bot);
+      if ((wrote && p.id !== wrote) || !p.reportsContextTokens) continue;
+      const u = contextUsage(repos.getSessionState(bot.id, room.id));
+      if (u) out[bot.id] = u;
+    }
+    return out;
+  });
+  add('GET', '/api/rooms/:id/queue', ({ params }) => queueFail(() => router.queueSnapshot(params.id)));
+  add('POST', '/api/rooms/:id/queue/cancel', ({ params, body }) => {
+    const { journalId } = parse(QueueCancelInputSchema, body);
+    return queueFail(() => router.cancelQueued(journalId, params.id));
+  });
+  add('POST', '/api/rooms/:id/queue/edit', ({ params, body }) => {
+    const { journalId, text } = parse(QueueEditInputSchema, body);
+    return queueFail(() => router.editQueued(journalId, text, params.id));
+  });
+  add('POST', '/api/rooms/:id/queue/send-now', ({ params, body }) => {
+    const { botId } = parse(QueueSendNowInputSchema, body);
+    return queueFail(() => router.sendNow(params.id, botId));
+  });
+  add('POST', '/api/rooms/:id/queue/pause', ({ params, body }) => {
+    const { botId, paused } = parse(QueuePauseInputSchema, body);
+    return queueFail(() => router.setQueuePaused(params.id, botId, paused));
   });
 
   // ---- skills
@@ -405,6 +545,55 @@ export function createRest(deps: RestDeps) {
   });
   add('DELETE', '/api/skills/:id', ({ params }) => { skills.remove(params.id); return { ok: true }; });
 
+  // ---- tasks (G1), bot reports and feedback (G5)
+  const taskSvc = new TaskService(repos.db);
+  const botReports = new BotReports(repos.db);
+  const taskFail = <T>(fn: () => T): T => {
+    try { return fn(); } catch (e) { if (e instanceof TaskError) throw new HttpError(e.status, e.message); throw e; }
+  };
+  const TaskBodySchema = z.object({
+    title: z.string().trim().min(1).max(200),
+    notes: z.string().max(4096).optional(),
+    status: z.enum(TASK_STATUSES).optional(),
+    assigneeBotId: z.string().nullable().optional(),
+    dueAt: z.number().int().nonnegative().nullable().optional(),
+    parentId: z.string().nullable().optional(),
+  });
+  const needAssignee = (roomId: string, id: string | null | undefined) => {
+    if (id && !need(repos.getRoom(roomId), 'Room').memberIds.includes(id)) throw new HttpError(400, 'The assignee is not in this room');
+  };
+  add('GET', '/api/rooms/:id/tasks', ({ params, query }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const status = query.get('status');
+    if (status && !(TASK_STATUSES as readonly string[]).includes(status)) throw new HttpError(400, 'bad status');
+    return taskSvc.list(params.id, { status: (status as TaskStatus | null) ?? undefined, includeDone: query.get('all') === '1', limit: Number(query.get('limit')) || undefined });
+  });
+  add('POST', '/api/rooms/:id/tasks', ({ params, body }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const i = parse(TaskBodySchema, body);
+    needAssignee(params.id, i.assigneeBotId);
+    return taskFail(() => taskSvc.create(params.id, null, i));
+  });
+  add('PATCH', '/api/rooms/:id/tasks/:taskId', ({ params, body }) => {
+    need(repos.getRoom(params.id), 'Room');
+    const cur = need(taskSvc.get(params.taskId), 'Task');
+    if (cur.roomId !== params.id) throw new HttpError(404, 'Task not found');
+    const i = parsePatch(TaskBodySchema.partial(), body);
+    needAssignee(params.id, i.assigneeBotId);
+    return taskFail(() => taskSvc.update(cur.id, i));
+  });
+  add('GET', '/api/bot-reports', ({ query }) => {
+    const st = query.get('status');
+    return botReports.listReports(st === 'pending' || st === 'resolved' || st === 'dismissed' ? st : undefined);
+  });
+  add('PATCH', '/api/bot-reports/:id', ({ params, body }) => {
+    need(botReports.getReport(params.id), 'Report');
+    const { status } = parse(z.object({ status: z.enum(['pending', 'resolved', 'dismissed']) }), body);
+    return botReports.setStatus(params.id, status);
+  });
+  // Read-only export of what bots sent with send_feedback. Nothing here leaves the machine.
+  add('GET', '/api/feedback', ({ query }) => botReports.readFeedback(Number(query.get('limit')) || 200));
+
   // ---- routines
   add('GET', '/api/routines', () => repos.listRoutines());
   add('POST', '/api/routines', ({ body }) => {
@@ -430,7 +619,12 @@ export function createRest(deps: RestDeps) {
     scheduler.reload();
     return repos.getRoutine(r.id);
   });
-  add('DELETE', '/api/routines/:id', ({ params }) => { repos.deleteRoutine(params.id); scheduler.reload(); return { ok: true }; });
+  add('DELETE', '/api/routines/:id', ({ params }) => {
+    if (deps.routineInUse?.(params.id)) throw new HttpError(409, 'A workflow starts from this routine. Remove or change the workflow first.');
+    repos.deleteRoutine(params.id);
+    scheduler.reload();
+    return { ok: true };
+  });
   add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id, { manual: true }) }));
   add('GET', '/api/routines/:id/runs', ({ params }) => repos.listRuns(params.id));
 
@@ -486,7 +680,11 @@ export function createRest(deps: RestDeps) {
     const botId = query.get('botId') ?? undefined;
     const roomId = query.get('roomId') ?? undefined;
     // byModel / byCause (P8): where the money went, so automation spend is visible next to chat spend.
-    return { totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown(), byModel: repos.usageBy('model'), byCause: repos.usageBy('causeKind') };
+    const res: UsageResponse = {
+      totals: repos.usageTotals({ botId, roomId }), rows: repos.usageBreakdown(),
+      byModel: repos.usageBy('model'), byCause: repos.usageBy('causeKind'), byProvider: repos.usageBy('provider'),
+    };
+    return res;
   });
 
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {

@@ -13,6 +13,9 @@ export class RoutineScheduler {
   private offSettings: (() => void) | null = null;
   private zone = '';
   /** `timezone` defaults to the live `settings.timezone`; tests pass a fixed one. */
+  /** Workflows v1: starts the workflows whose trigger step is this routine; true means they replace the routine's own prompt. */
+  workflows?: (routineId: string, manual: boolean) => boolean;
+
   constructor(private repos: Repos, private router: RoomRouter, private opts: { timezone?: () => string } = {}) {}
 
   /** The zone cron patterns and local one-shot times are read in. */
@@ -115,15 +118,26 @@ export class RoutineScheduler {
   fire(routineId: string, opts: { manual?: boolean } = {}): boolean {
     const r = this.repos.getRoutine(routineId);
     if (!r) return false;
+    if (this.workflows?.(r.id, !!opts.manual)) {
+      this.afterFire(r, opts);
+      return true;
+    }
     const bot = this.repos.getBot(r.botId);
     const room = this.repos.getRoom(r.roomId);
     if (!bot || !room) return false;
     const run = this.repos.createRun(r.id, null);
-    const payload: RoutinePayload = { routineId: r.id, runId: run.id, name: r.name };
+    const payload: RoutinePayload = { routineId: r.id, runId: run.id, name: r.name, ...(opts.manual ? { manual: true } : {}) };
     const msg = this.router.fireRoutine(room, bot, '[Routine "' + r.name + '"] ' + r.prompt, payload, (res) => {
       this.repos.finishRun(run.id, res.ok ? 'success' : 'error', res.costUsd);
     });
     this.repos.db.run('UPDATE routine_runs SET message_id=? WHERE id=?', msg.id, run.id);
+    this.afterFire(r, opts);
+    events.emitEvent({ type: 'routine.fired', routineId: r.id, runId: run.id, botId: bot.id, roomId: room.id });
+    return true;
+  }
+
+  /** Books the fire on the routine (last and next run) and spends a one-shot. */
+  private afterFire(r: Routine, opts: { manual?: boolean }) {
     if (r.onceAt !== null && !opts.manual) {
       // A one-shot is done once it fires: switch it off so neither a reload nor a restart fires it again.
       this.jobs.get(r.id)?.stop();
@@ -133,7 +147,5 @@ export class RoutineScheduler {
       const next = r.onceAt !== null ? (r.enabled && r.onceAt > Date.now() ? r.onceAt : null) : this.jobs.get(r.id)?.nextRun()?.getTime();
       this.repos.updateRoutine(r.id, { lastRunAt: Date.now(), nextRunAt: next ?? null });
     }
-    events.emitEvent({ type: 'routine.fired', routineId: r.id, runId: run.id, botId: bot.id, roomId: room.id });
-    return true;
   }
 }

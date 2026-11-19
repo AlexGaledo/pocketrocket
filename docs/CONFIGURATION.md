@@ -91,6 +91,9 @@ Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`. `GET` returns only `
 | `sshHost` | `""` | Host alias from `~/.ssh/config` for `remote`. |
 | `port` | `7788` | Hub port for all modes. |
 | `hubDir` | unset | Dev override: run the hub from a repo checkout with `tsx` instead of the bundled `hub/hub.mjs`. **Debug builds only** — a released app ignores the key (it would be arbitrary code execution for anything that can write this file) and logs that it did. Set `POCKETROCKET_HUB_DIR` in the environment to point a released build at a checkout. |
+| `skippedUpdate` | unset | Written when you answer **Later** to an update: the automatic daily check does not notify about that version again (the tray item still offers it). |
+
+Environment: `POCKETROCKET_UPDATE_ENDPOINT` replaces the update feed for testing a release candidate; it is honoured only for `https://github.com/AlexGaledo/pocketrocket/releases/...` URLs (see `docs/RELEASING.md`).
 
 Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the app's own directory), else the bundled Node 24 next to the exe. Logs: `%APPDATA%\com.pocketrocket.app\hub.log` (rotated at 2 MB × 5).
 
@@ -116,3 +119,16 @@ Connections to GitHub, Google (Gmail, Calendar, Drive), Slack, ClickUp and Micro
 - **Disconnect** deletes the stored token; it does not revoke it at the provider (the UI links to where you do that).
 - **Outbound hosts** the hub calls once something is connected: `api.github.com`, `github.com`; `oauth2.googleapis.com`, `accounts.google.com`, `openidconnect.googleapis.com`, `gmail.googleapis.com`, `www.googleapis.com`; `slack.com`; `api.clickup.com`, `app.clickup.com`; `login.microsoftonline.com`, `graph.microsoft.com`.
 - **Routes.** `GET /api/integrations`; `PUT|DELETE /api/integrations/apps/:provider`; `POST /api/integrations/token/:provider`; `POST /api/integrations/device/:provider`; `POST /api/integrations/cancel/:provider`; `POST /api/integrations/:id/test`; `PUT /api/integrations/:id/grants`; `DELETE /api/integrations/:id`; `POST /oauth/start/:provider` (hub token, JSON); `GET /oauth/callback/:provider` (token-exempt, accepted only for a pending sign-in).
+
+## 8. Update safety (`GET /api/busy`, `POST /api/maintenance/*`)
+
+For the desktop updater (and anyone stopping a hub on purpose): hold, wait until nothing would be lost, then stop.
+
+**Auth:** the hub token (`Authorization: Bearer`) or the owner's signed-in browser session, like every other privileged route. A paired device is refused (403: none of these is in `DEVICE_ALLOW` in `api/guard.ts`), the PC runner token reaches none of them, and without credentials they answer 401.
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /api/busy` | none | `{ blocking, running, liveCards, pendingLanes, parkedCards, waitingRuns, heldUntil }`. Gate on `blocking` (= `running` + `liveCards`): running bot turns and approval cards a running turn waits on. Queued lane items are journaled and resume after a restart, parked cards and open routine runs survive one too, so `pendingLanes`, `parkedCards` and `waitingRuns` are for display only. `heldUntil` is epoch ms or `null`. |
+| `POST /api/maintenance/hold` | `{ minutes? }` (1–30, default 10) | Starts no new bot turn until released or the time is up; running turns finish. Messages, routines and triggers are still accepted and queue (journaled) until then. A second call replaces the end time. Answers like `GET /api/busy`. |
+| `POST /api/maintenance/release` | `{}` | Ends the hold; queued work starts. Answers like `GET /api/busy`. |
+| `POST /api/maintenance/stop` | `{}` | Answers `{ ok: true, stopping: true }`, then stops the hub the way SIGTERM does (turns interrupted, lane journal kept so they resume on the next start; forced after 8 s) and exits with code 0. |

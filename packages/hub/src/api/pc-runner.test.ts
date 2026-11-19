@@ -231,7 +231,7 @@ describe('jobs', () => {
     const pending = tl.run({ folder: 'notes', prompt: 'Summarise README.md' });
     const job = await claim(t);
     expect(tl.cards).toEqual([expect.objectContaining({ tool: 'run_on_pc', evenUnderBypass: true, input: { folder: 'notes', prompt: 'Summarise README.md' } })]);
-    expect(job).toEqual({ id: expect.any(String), bot: { handle: tl.bot.handle }, room: { id: tl.room.id, name: 'PC chat' }, folder: 'notes', prompt: 'Summarise README.md', createdAt: expect.any(Number) });
+    expect(job).toEqual({ id: expect.any(String), bot: { handle: tl.bot.handle }, room: { id: tl.room.id, name: 'PC chat' }, folder: 'notes', mode: 'new', sessionId: null, origin: 'bot', prompt: 'Summarise README.md', createdAt: expect.any(Number) });
     expect((await request('POST', '/api/pc-runner/jobs/' + job.id + '/start', { token: t, body: {} })).status).toBe(200);
     const output = 'leaked ' + TOKEN + ' ' + 'y'.repeat(30_000);
     const r = await request('POST', '/api/pc-runner/jobs/' + job.id + '/result', { token: t, body: { ok: true, output, costUsd: 0.12, durationMs: 4000 } });
@@ -350,7 +350,7 @@ describe('the owner\'s job log', () => {
     expect(cancelled).toMatchObject({ id: older.id, status: 'cancelled', output: null, error: 'The turn was stopped', startedAt: null, refusedLocally: false });
     expect(cancelled.finishedAt).toEqual(expect.any(Number));
     expect(done).toEqual({
-      id: job.id, bot: { id: tl.bot.id, handle: tl.bot.handle }, room: { id: tl.room.id, name: 'PC chat' }, folder: 'site', prompt: 'Build the site',
+      id: job.id, bot: { id: tl.bot.id, handle: tl.bot.handle }, room: { id: tl.room.id, name: 'PC chat' }, folder: 'site', mode: 'new', sessionId: null, origin: 'bot', resolvedFolder: null, newSessionId: null, sync: null, syncResult: null, hubImport: null, move: null, moveResult: null, pull: null, pullResult: null, prompt: 'Build the site',
       status: 'done', output: expect.stringContaining('built '), costUsd: 0.05, durationMs: 4000,
       createdAt: expect.any(Number), startedAt: expect.any(Number), finishedAt: expect.any(Number), refusedLocally: false, error: null,
     });

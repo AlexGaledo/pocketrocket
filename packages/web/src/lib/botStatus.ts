@@ -6,7 +6,7 @@
  * Cards come from loaded rooms and from `hello`, which lists every open card, so this is right after a reload too.
  */
 import { useMemo } from 'react';
-import type { ApprovalPayload, BotState, ControlStatus, Message, OpenApproval } from '@pocketrocket/shared';
+import type { ApprovalPayload, BotState, ControlStatus, FailoverCard, Message, OpenApproval } from '@pocketrocket/shared';
 import { useStore } from '../store';
 
 export type BotStatus = 'needs_you' | 'paused' | 'waiting_on_bot' | 'idle' | 'thinking' | 'working' | 'done' | 'error';
@@ -45,13 +45,16 @@ export function botStatus(state: BotState | undefined, control: ControlStatus | 
   return state ?? 'idle';
 }
 
-/** Bot id to a room holding one of its open approval cards. */
-function openApprovals(messages: Record<string, Message[]>, known: OpenApproval[]): Map<string, string> {
+/** Bot id to a room holding one of its open approval cards (or limit cards, M8: they wait on the owner the same way). */
+function openApprovals(messages: Record<string, Message[]>, known: OpenApproval[], failover: readonly FailoverCard[] = []): Map<string, string> {
   const out = new Map<string, string>();
+  for (const c of failover) out.set(c.botId, c.roomId);
   for (const a of known) out.set(a.botId, a.roomId);
   for (const [roomId, list] of Object.entries(messages)) {
     for (const m of list) {
       if (m.kind === 'approval' && m.authorId && (m.payload as ApprovalPayload | null)?.status === 'pending') out.set(m.authorId, roomId);
+      // An open request_form card also waits on the owner.
+      else if (m.kind === 'form' && m.authorId && (m.payload as { status?: string } | null)?.status === 'pending') out.set(m.authorId, roomId);
     }
   }
   return out;
@@ -62,7 +65,8 @@ export function useBotStatus() {
   const control = useStore((s) => s.control);
   const messages = useStore((s) => s.messages);
   const known = useStore((s) => s.openApprovals);
-  const approvals = useMemo(() => openApprovals(messages, known), [messages, known]);
+  const failover = useStore((s) => s.failover.cards);
+  const approvals = useMemo(() => openApprovals(messages, known, failover), [messages, known, failover]);
   return {
     statusOf: (botId: string) => botStatus(botStates[botId], control[botId], approvals.has(botId)),
     /** The room where the user can act: not always the bot's DM, since a card can sit in a group chat. */

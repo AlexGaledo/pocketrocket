@@ -1,0 +1,17 @@
+# AppArmor profile that lets /usr/bin/bwrap (bubblewrap) create the user namespace it needs, so PocketRocket can sandbox
+# each bot turn (docs/SERVER.md, "Bot sandbox"). Ubuntu 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1: an
+# unprivileged process that creates a user namespace is moved into a profile with every capability denied, and bwrap
+# then dies with "setting up uid map: Permission denied".
+#
+# The profile is the least that fixes it: it attaches to the bwrap binary only, runs unconfined apart from that, and grants
+# `userns`. It does not touch the system-wide setting (Chrome, Snap and every other program stay restricted), and it adds
+# no file, network or capability access. Installed by deploy/setup-vps.sh to /etc/apparmor.d/pocketrocket-bwrap.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile pocketrocket-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/pocketrocket-bwrap>
+}

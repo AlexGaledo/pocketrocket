@@ -31,7 +31,8 @@ export function resolveSkillDir(name: string): string {
 }
 
 export function parseFrontmatter(md: string): { name?: string; description?: string } {
-  const m = md.match(/^---\s*\n([\s\S]*?)\n---/);
+  // A SKILL.md cloned by Git for Windows (core.autocrlf=true by default) has CRLF line ends; `.` stops at \r.
+  const m = md.replace(/\r\n/g, '\n').match(/^---\s*\n([\s\S]*?)\n---/);
   if (!m) return {};
   const out: Record<string, string> = {};
   for (const line of m[1].split('\n')) {
@@ -101,6 +102,28 @@ export class SkillService {
       name, description, path: dir, source: opts.source,
       reviewStatus: opts.source === 'bot' ? 'pending' : 'approved', createdByBot: opts.createdByBot ?? null,
     });
+  }
+
+  /**
+   * U10: a skill that arrived inside a bot file. It lands as `imported` + **pending**, so nothing in it reaches a bot
+   * until the owner approves it. A name already in the pool is never overwritten: the newcomer gets `-2`, `-3`...
+   * Only `name` and `description` survive from the file's own frontmatter; any other key (tool allowances, a model,
+   * hooks) is dropped, because a shared file must not widen what a skill may do.
+   */
+  importPending(name: string, description: string, markdown: string): { skill: Skill; renamed: boolean } {
+    let final = name;
+    for (let n = 2; this.repos.getSkillByName(final) || fs.existsSync(path.join(SKILLS_DIR, final)); n++) {
+      if (n > 999) throw new Error('Could not find a free skill name for ' + name);
+      const suffix = '-' + n;
+      final = name.slice(0, 49 - suffix.length) + suffix;
+    }
+    const dir = resolveSkillDir(final);
+    const body = markdown.replace(/^﻿/, '').replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trimStart();
+    const desc = description.replace(/[\r\n]+/g, ' ').slice(0, 300);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: ' + final + '\ndescription: ' + desc + '\n---\n\n' + body);
+    const skill = this.repos.upsertSkill({ name: final, description: desc, path: dir, source: 'imported', reviewStatus: 'pending', createdByBot: null });
+    return { skill, renamed: final !== name };
   }
 
   /**
@@ -217,6 +240,29 @@ export class SkillService {
       }
     }
     return plugin;
+  }
+
+  /**
+   * M6 (P1-7): this bot's approved skills as an index, sorted by name so the same set always reads the same. Providers
+   * other than Claude get it in the prompt (Claude loads the plugin dir instead) and open a skill with `read_skill`.
+   */
+  skillIndex(botId: string): { name: string; description: string }[] {
+    return this.assignedApproved(botId)
+      .map((s) => ({ name: s.name, description: s.description.replace(/\s+/g, ' ').trim().slice(0, 200) }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  /** M6 (P1-7): `read_skill`. The SKILL.md of a skill assigned to this bot and approved, or null for any other name. */
+  readAssigned(botId: string, name: string): { skill: Skill; markdown: string } | null {
+    const skill = this.assignedApproved(botId).find((s) => s.name === name);
+    return skill ? { skill, markdown: this.readMarkdown(skill) } : null;
+  }
+
+  private assignedApproved(botId: string): Skill[] {
+    return this.repos
+      .botSkillIds(botId)
+      .map((id) => this.repos.getSkill(id))
+      .filter((s): s is Skill => !!s && s.reviewStatus === 'approved' && !s.parentId);
   }
 
   /** P8: names of this bot's approved skills that declare `model: opus` (see skillWantsOpus). */

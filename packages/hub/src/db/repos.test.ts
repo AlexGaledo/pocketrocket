@@ -32,6 +32,7 @@ describe('Repos', () => {
     r.recordUsage({ botId: bot.id, roomId: room.id, turnId: 't2', causeId: 'c1', costUsd: 0.25, inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, modelUsage: null, durationMs: 10 });
     expect(r.usageTotals({ causeId: 'c1' }).costUsd).toBeCloseTo(0.75);
     expect(r.usageTotals({ botId: bot.id }).turns).toBe(2);
+    expect(r.usageTotals({ botId: bot.id, sinceMs: Date.now() + 1000 }).turns).toBe(0);
     expect(r.getBot(bot.id)?.allowedTools).toEqual(['Read']);
   });
 
@@ -64,5 +65,84 @@ describe('Repos', () => {
     expect((r.getMessage(done.id)!.payload as { status: string }).status).toBe('allow');
     expect(r.db.all('SELECT id, status FROM approvals ORDER BY id')).toEqual([{ id: 'ap1', status: 'expired' }, { id: 'ap2', status: 'allow' }]);
     expect(r.expirePendingApprovals()).toEqual([]);
+  });
+});
+
+describe('session state (migration 170)', () => {
+  it('reads a legacy row as all-unknown and writes only the fields given', () => {
+    const r = new Repos(new Db(':memory:'));
+    const bot = r.createBot({ name: 'L', handle: 'legacy', title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1 });
+    const room = r.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
+    // A row written the old way: no cost_total, no context size.
+    r.saveSession(bot.id, room.id, { sdkSessionId: 'old', lastSeenSeq: 3, provider: 'claude' });
+    expect(r.getSessionState(bot.id, room.id)).toEqual({ costTotal: null, contextTokens: null, contextAt: null, contextWindow: null, memorySnapshot: null, identitySnapshot: null, summary: null });
+    r.saveSessionState(bot.id, room.id, { contextTokens: 5000, costTotal: 1.5 });
+    r.saveSessionState(bot.id, room.id, { summary: '- s' });
+    expect(r.getSessionState(bot.id, room.id)).toMatchObject({ contextTokens: 5000, costTotal: 1.5, summary: '- s' });
+    // saveSession keeps them, and the old shape of getSession is unchanged.
+    r.saveSession(bot.id, room.id, { lastSeenSeq: 9 });
+    expect(r.getSessionState(bot.id, room.id).costTotal).toBe(1.5);
+    expect(r.getSession(bot.id, room.id)).toEqual({ sdkSessionId: 'old', lastSeenSeq: 9, provider: 'claude' });
+    // A row that does not exist yet is created.
+    const other = r.createRoom({ kind: 'dm', name: 'DM2', memberIds: [bot.id], coordinatorBotId: null });
+    r.saveSessionState(bot.id, other.id, { memorySnapshot: 'm' });
+    expect(r.getSessionState(bot.id, other.id).memorySnapshot).toBe('m');
+    expect(r.getSession(bot.id, other.id).lastSeenSeq).toBe(0);
+  });
+});
+
+describe('M6: provider per bot', () => {
+  const base = { name: 'A', handle: 'a', title: '', description: '', avatar: '', model: 'm', allowedTools: [], maxBudgetUsd: 1 };
+
+  it('round-trips provider and backup, and defaults both to null', () => {
+    const r = fresh();
+    const plain = r.createBot(base);
+    expect(plain).toMatchObject({ provider: null, backup: null });
+    expect(r.getBot(plain.id)).toMatchObject({ provider: null, backup: null });
+
+    const own = r.createBot({ ...base, handle: 'b', provider: 'codex', backup: { provider: 'claude', model: 'claude-sonnet-5' } });
+    expect(r.getBot(own.id)).toMatchObject({ provider: 'codex', backup: { provider: 'claude', model: 'claude-sonnet-5' } });
+
+    r.updateBot(own.id, { provider: null, backup: null });
+    expect(r.getBot(own.id)).toMatchObject({ provider: null, backup: null });
+    // A patch that leaves them out keeps them.
+    r.updateBot(plain.id, { provider: 'grok', backup: { provider: 'claude', model: 'auto' } });
+    r.updateBot(plain.id, { name: 'Renamed' });
+    expect(r.getBot(plain.id)).toMatchObject({ name: 'Renamed', provider: 'grok', backup: { provider: 'claude', model: 'auto' } });
+  });
+
+  it('reads an unknown stored provider or a broken backup as null', () => {
+    const r = fresh();
+    const b = r.createBot(base);
+    r.db.run("UPDATE bots SET provider='nope', backup='{not json' WHERE id=?", b.id);
+    expect(r.getBot(b.id)).toMatchObject({ provider: null, backup: null });
+  });
+
+  it('reads a Gemini model id from before the live list as its replacement, bot and backup alike (P2-4)', () => {
+    const r = fresh();
+    const a = r.createBot({ ...base, provider: 'gemini' });
+    const b = r.createBot({ ...base, handle: 'b' });
+    const c = r.createBot({ ...base, handle: 'c', provider: 'gemini' });
+    r.db.run("UPDATE bots SET model='gemini-default' WHERE id=?", a.id);
+    r.db.run(`UPDATE bots SET backup='{"provider":"gemini","model":"gemini-3-pro"}' WHERE id=?`, b.id);
+    r.db.run("UPDATE bots SET model='gemini-3-flash' WHERE id=?", c.id);
+    expect(r.getBot(a.id)!.model).toBe('gemini-3.1-pro');
+    expect(r.getBot(b.id)!.backup).toEqual({ provider: 'gemini', model: 'gemini-3.1-pro' });
+    expect(r.getBot(c.id)!.model).toBe('gemini-3.8-flash');
+    // Any other id reads unchanged, and the next save writes the new one.
+    expect(r.getBot(b.id)!.model).toBe('m');
+    r.updateBot(a.id, { name: 'Saved' });
+    expect(r.db.get('SELECT model FROM bots WHERE id=?', a.id)!.model).toBe('gemini-3.1-pro');
+  });
+
+  it('records the provider on usage rows and groups by it', () => {
+    const r = fresh();
+    const bot = r.createBot(base);
+    const room = r.createRoom({ kind: 'dm', name: 'A', memberIds: [bot.id], coordinatorBotId: null });
+    const u = { botId: bot.id, roomId: room.id, turnId: 't', causeId: null, costUsd: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, modelUsage: null, durationMs: 1 };
+    r.recordUsage({ ...u, provider: 'claude' });
+    r.recordUsage({ ...u, provider: 'codex', costUsd: 2 });
+    r.recordUsage({ ...u, costUsd: 0.5 });
+    expect(r.usageBy('provider').map((g) => [g.key, g.costUsd])).toEqual([['codex', 2], ['claude', 1], ['', 0.5]]);
   });
 });

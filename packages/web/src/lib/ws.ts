@@ -1,10 +1,23 @@
-import type { ClientEvent, ServerEvent } from '@pocketrocket/shared';
+import { WS_PING_MS, type ClientEvent, type ServerEvent } from '@pocketrocket/shared';
 import { useStore } from '../store';
+import { dispatchPcSessionEvent } from './pcSessions';
+import { dispatchWorkflowEvent } from './workflows';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 let socket: WebSocket | null = null;
 let retry = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * A link that has carried nothing for two ping periods (plus a little slack for a busy hub) is treated as dead:
+ * a pulled cable or a sleeping laptop leaves the browser's socket "open" for minutes and fires no `close`.
+ * Any frame, not only a ping, counts as proof of life.
+ */
+export const STALE_AFTER_MS = WS_PING_MS * 2 + 5000;
+let watchdog: ReturnType<typeof setTimeout> | null = null;
+function disarmWatchdog() {
+  if (watchdog) clearTimeout(watchdog);
+  watchdog = null;
+}
 /** Bumped for every new socket, so callbacks from a replaced one (and its probe) change nothing. */
 let generation = 0;
 
@@ -74,6 +87,7 @@ export function connectWs() {
   const gen = ++generation;
   // The old socket (usually one still trying to open) would otherwise report its own close later and
   // schedule a duplicate; the generation check ignores it, and closing it frees the connection.
+  disarmWatchdog();
   if (socket) {
     socket.onclose = null;
     socket.close();
@@ -82,8 +96,23 @@ export function connectWs() {
   const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' + (token ? '?token=' + encodeURIComponent(token) : '');
   socket = new WebSocket(url);
   let opened = false;
+  const armWatchdog = () => {
+    disarmWatchdog();
+    watchdog = setTimeout(() => {
+      if (gen !== generation) return;
+      // Same road as a close that was noticed: drop the dead socket quietly and come back with the usual backoff.
+      const dead = socket;
+      if (dead) {
+        dead.onclose = null;
+        dead.close();
+      }
+      useStore.getState().setConnected(false);
+      schedule(backoffMs());
+    }, STALE_AFTER_MS);
+  };
   socket.onopen = () => {
     if (gen !== generation) return;
+    armWatchdog();
     opened = true;
     retry = 0;
     clearAuthFailure();
@@ -91,14 +120,26 @@ export function connectWs() {
   };
   socket.onclose = () => {
     if (gen !== generation) return;
+    disarmWatchdog();
     useStore.getState().setConnected(false);
     // A socket that was open and dropped: the hub restarted or the network blinked. Just come back.
     if (opened) return schedule(backoffMs());
     void diagnose(gen, token);
   };
   socket.onmessage = (e) => {
+    if (gen !== generation) return;
+    armWatchdog();
     try {
-      const ev = JSON.parse(e.data) as ServerEvent;
+      const raw: unknown = JSON.parse(e.data);
+      // Not in the shared ServerEvent union yet (bridge P3): hand it to the PC sessions view and stop.
+      if (dispatchPcSessionEvent(raw)) return;
+      // Workflow events (OpenBot gaps M4) feed lib/workflows.ts, which the Automations section, the page and Needs you read.
+      if (dispatchWorkflowEvent(raw)) return;
+      const ev = raw as ServerEvent;
+      if (ev.type === 'ping') {
+        wsSend({ type: 'pong' });
+        return;
+      }
       useStore.getState().applyEvent(ev);
     } catch (err) {
       console.error('bad ws event', err);

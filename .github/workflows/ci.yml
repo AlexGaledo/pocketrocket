@@ -20,9 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -35,6 +35,11 @@ jobs:
 
       - name: Build (typecheck + vite)
         run: pnpm -r build
+
+      - name: Web bundle budget (no canvas code in the entry chunk)
+        run: |
+          node --test scripts/bundle-budget.test.mjs
+          node scripts/bundle-budget.mjs
 
       - name: Test
         run: pnpm test
@@ -55,21 +60,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-03 (moving branch, resolved via `commits/stable`)
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/desktop/src-tauri -> target
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The same `pnpm test` the release job runs on Windows, so a Windows-only failure (CRLF checkout, slow
+      # fsync, path separators) shows up on the PR instead of at tag time. Rides this job's install: ~1-2 min.
+      - name: Test (Windows)
+        run: pnpm test
 
       # tauri-build validates that every externalBin sidecar and resources dir exists, even for `cargo check`,
       # so run the same prepare step the release uses (hub bundle + web + Node sidecar).
@@ -78,6 +88,9 @@ jobs:
 
       - name: cargo check
         run: cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml
+
+      - name: cargo test
+        run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
 
   # P9: the desktop app also ships for Linux (AppImage + deb) and macOS (dmg). Same check, native runners.
   desktop-check-unix:
@@ -91,16 +104,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-03 (moving branch, resolved via `commits/stable`)
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/desktop/src-tauri -> target
 

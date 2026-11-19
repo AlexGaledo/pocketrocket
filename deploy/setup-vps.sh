@@ -35,7 +35,7 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir "
 need_pkgs=()
 for p in xvfb x11vnc novnc websockify xauth fonts-liberation fonts-noto-color-emoji dbus-x11 \
          xfwm4 xfce4-panel xfdesktop4 xfce4-settings thunar xfce4-terminal mousepad ristretto \
-         adwaita-icon-theme xdotool scrot; do
+         adwaita-icon-theme xdotool scrot zstd bubblewrap; do
   dpkg -s "$p" >/dev/null 2>&1 || need_pkgs+=("$p")
 done
 if [ ${#need_pkgs[@]} -gt 0 ]; then
@@ -51,6 +51,27 @@ if [ -e /proc/sys/kernel/unprivileged_userns_clone ] && [ "$(cat /proc/sys/kerne
 fi
 # Newer Ubuntu (23.10+) gates unprivileged userns behind AppArmor instead; we don't weaken that
 # system-wide policy automatically. screen.sh detects it at runtime and falls back to --no-sandbox.
+
+# Bot sandbox (Bridge P7, off until Settings > Security turns it on): bubblewrap needs the same unprivileged user namespaces.
+# Ubuntu 24.04 blocks them with AppArmor, so ship a profile that allows ONLY /usr/bin/bwrap to make one. Skipped when the
+# restriction is off, when AppArmor is absent, or when another profile already attaches to bwrap (two would conflict).
+echo "==> bot sandbox: bubblewrap + AppArmor profile (if this kernel restricts user namespaces)"
+if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ] && command -v apparmor_parser >/dev/null 2>&1; then
+  if grep -qs '/usr/bin/bwrap' /etc/apparmor.d/* 2>/dev/null && [ ! -f /etc/apparmor.d/pocketrocket-bwrap ]; then
+    echo "   another AppArmor profile already covers /usr/bin/bwrap; leaving it"
+  elif ! cmp -s deploy/apparmor/pocketrocket-bwrap /etc/apparmor.d/pocketrocket-bwrap; then
+    install -m 644 -o root -g root deploy/apparmor/pocketrocket-bwrap /etc/apparmor.d/pocketrocket-bwrap
+    apparmor_parser -r /etc/apparmor.d/pocketrocket-bwrap
+    echo "   installed /etc/apparmor.d/pocketrocket-bwrap"
+  else
+    echo "   AppArmor profile already installed"
+  fi
+fi
+if runuser -u "$APP_USER" -- bwrap --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin --proc /proc --dev /dev --unshare-pid -- /usr/bin/true >/dev/null 2>&1; then
+  echo "   bwrap works for $APP_USER (verify the mounts: bash deploy/sandbox-check.sh)"
+else
+  echo "   bwrap does NOT work for $APP_USER here; the sandbox switch will stay unavailable (see docs/SERVER.md)"
+fi
 
 # Bots browse in real Google Chrome (deploy/screen.sh). Its package also adds Google's apt repo, so apt updates it.
 if [ "$(dpkg --print-architecture)" = "amd64" ] && ! command -v google-chrome-stable >/dev/null 2>&1; then
@@ -76,7 +97,7 @@ chown "$APP_USER:$APP_USER" "$DATA_DIR" 2>/dev/null || true
 # Clear the files an earlier setup generated so nobody goes looking for a password that is never asked for.
 rm -f "$DATA_DIR/vnc-passwd" "$DATA_DIR/vnc-passwd.txt"
 
-echo "==> daily backup of data/ (keeps 7; copied, not symlinked, so a bot can't rewrite root's cron job)"
+echo "==> daily backup of data/ (keeps 3; copied, not symlinked, so a bot can't rewrite root's cron job)"
 install -m 755 -o root -g root deploy/backup.sh /etc/cron.daily/pocketrocket-backup
 
 echo "==> hourly Claude Code CLI update (new models need a minimum CLI version)"

@@ -1,7 +1,7 @@
 /** How many bots one room can hold. Rooms bigger than this get noisy and slow, and every mention fans out to all of them. */
 export const MAX_ROOM_BOTS = 20;
 
-import type { Approvals } from './providers.js';
+import type { Approvals, ProviderId } from './providers.js';
 import type { TriggerPayload } from './triggers.js';
 
 export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done' | 'error';
@@ -9,7 +9,7 @@ export type BotState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' |
 // 'Browser' and 'Desktop' are not Claude Code built-ins: Browser = Playwright MCP attached to the shared screen
 // Chromium; Desktop = screenshot/click/type on the virtual desktop (computer use).
 export const BUILTIN_TOOLS = [
-  'Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'Browser', 'Desktop', 'NotebookEdit', 'Skill',
+  'Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'Browser', 'Desktop', 'NotebookEdit', 'Skill', 'Task',
 ] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
 
@@ -94,6 +94,21 @@ export interface Bot {
   autoMemory: boolean;
   autoMemoryEvery: number; // completed turns per (bot, room) between passes
   createdAt: number;
+  /**
+   * M6: the provider this bot runs on, or null to follow the default (settings.provider). Only the owner sets it
+   * (REST); no bot tool can. Absent from hubs older than v0.5: treat as null.
+   */
+  provider?: ProviderId | null;
+  /**
+   * M6: the one backup the owner picked for when this bot's provider hits its limit, or null. The failover card (M8)
+   * offers it. Owner-only, like `provider`. Absent from older hubs.
+   */
+  backup?: BotBackup | null;
+}
+/** A bot's backup: a provider and one of its models. */
+export interface BotBackup {
+  provider: ProviderId;
+  model: string;
 }
 /** Bounds and default for `Bot.autoMemoryEvery`. */
 export const AUTO_MEMORY_EVERY = { default: 10, min: 3, max: 100 } as const;
@@ -116,7 +131,7 @@ export interface Room {
 }
 
 export type AuthorType = 'user' | 'bot' | 'system';
-export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system' | 'trigger' | 'takeover';
+export type MessageKind = 'text' | 'tool' | 'approval' | 'handoff' | 'routine' | 'system' | 'trigger' | 'takeover' | 'form';
 
 export interface ToolPayload {
   toolUseId: string;
@@ -157,6 +172,69 @@ export interface RoutinePayload {
   routineId: string;
   runId: string;
   name: string;
+  /** "Run now": a person started it, not the schedule (the attended check reads this). */
+  manual?: boolean;
+}
+/**
+ * On the system note that starts a workflow run (its cause message): every step and hand-off of the run shares this
+ * thread. `runId` is the `workflow_runs` row.
+ */
+export interface WorkflowPayload {
+  workflowId: string;
+  runId: string;
+  name: string;
+  /** On a step's prompt message: the step. Absent on the system note that starts the run. */
+  nodeId?: string;
+  /** "Run now": a person started it, not the schedule or an event. */
+  manual?: boolean;
+}
+
+/** One field of a `request_form` card. Only these three kinds exist: there is no password or secret field. */
+export type FormField =
+  | { id: string; kind: 'text'; label: string; help?: string; required: boolean; maxLength: number }
+  | { id: string; kind: 'choice'; label: string; help?: string; required: boolean; choices: string[] }
+  | { id: string; kind: 'yesno'; label: string; help?: string; required: boolean };
+export type FormAnswer = string | boolean;
+/** `kind: 'form'` message: a bot asked the owner for a few values. `status` leaves `pending` once, for good. */
+export interface FormPayload {
+  botId: string;
+  title: string;
+  description?: string;
+  fields: FormField[];
+  /** `expired`: the hub stopped, or the bot's turn ended, while it waited. */
+  status: 'pending' | 'submitted' | 'cancelled' | 'timeout' | 'expired';
+  /** What the owner sent, once submitted: field id to value. */
+  answers?: Record<string, FormAnswer>;
+}
+/** A button a bot attached to a message. Exactly one of `say` (sends that text as the owner's own message) or `href`. */
+export interface CtaButton { label: string; say?: string; href?: string }
+/** On a `text` message: up to {@link MAX_CTA_BUTTONS} buttons under it. */
+export interface CtaPayload { cta: CtaButton[] }
+
+/**
+ * Steering (02 Phase 1). What a person's message does when it reaches a bot that is busy in that room:
+ * `join` pushes it into the running turn (steer), `queue` waits for the turn to end (today's behaviour).
+ */
+export const SEND_MODES = ['join', 'queue'] as const;
+export type SendMode = (typeof SEND_MODES)[number];
+/**
+ * Why a message to a busy bot waits instead of joining its turn:
+ * - `shortcut`: the sender chose queue (Ctrl+Enter or the send menu);
+ * - `setting`: Settings > busyMessages is `queue`;
+ * - `provider`: this bot's provider (or its installed CLI) cannot take messages mid-turn;
+ * - `between-runs`: the bot was between steps (starting, retrying, continuing) and could not take it right then;
+ * - `requeued`: it joined the turn, but the turn ended (Stop, an error) before the bot answered it, so it runs next;
+ * - `paused`: the owner paused this bot's queue in this room (queue controls, 02 task 2.2).
+ */
+export type QueueReason = 'shortcut' | 'setting' | 'provider' | 'between-runs' | 'requeued' | 'paused';
+/**
+ * On a person's message that reached at least one busy bot: per bot id, whether it joined that bot's running turn
+ * (`steered`: the turn id) or waits for the next one (`queued`). Per bot, because one message can steer one lane
+ * and queue in another. A bot that was idle has no entry. Sent with `message.update`.
+ */
+export interface DeliveryPayload {
+  steered?: Record<string, string>;
+  queued?: Record<string, { reason: QueueReason }>;
 }
 
 export interface Message {
@@ -167,7 +245,7 @@ export interface Message {
   authorId: string | null; // bot id for bots, user id for people, null for system
   kind: MessageKind;
   text: string;
-  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | null;
+  payload: ToolPayload | ApprovalPayload | HandoffPayload | HandoffResultPayload | RoutinePayload | WorkflowPayload | TriggerPayload | TakeoverPayload | TurnFailurePayload | FormPayload | CtaPayload | DeliveryPayload | null;
   causeId: string | null;
   hop: number;
   turnId: string | null;
@@ -177,7 +255,53 @@ export interface Message {
   modelReason?: string;
   /** Pictures attached to this message, each an uploaded reference (see {@link isMediaRef}). */
   attachments?: string[];
+  /** User messages only (B5): the id the sending client gave it, so the client can match its outbox entry. */
+  clientMsgId?: string;
+  /** Queue controls (02 task 2.1b): the owner cancelled it before any bot read it. No bot is shown it. */
+  cancelledAt?: number;
+  /** Queue controls: the owner edited its text while it was still queued. */
+  editedAt?: number;
 }
+
+// ---------- queue controls (02 Phase 2) ----------
+/**
+ * What started a queued lane item: a person's `message`, a bot's `handoff`, a `routine` or `trigger` fire, or
+ * hub `followup` work (a cut-off retry, a nudge, a resume after an approval or a restart).
+ */
+export type QueueItemKind = 'message' | 'handoff' | 'routine' | 'trigger' | 'followup';
+/** One item waiting in a bot's lane in a room, in the order it was queued. */
+export interface QueueItem {
+  /** The lane item's journal row; what `queue.cancel` and `queue.edit` name. Changes after a hub restart. */
+  journalId: string;
+  /** The message behind it (a person's message, a routine or trigger prompt); null for a hand-off or follow-up. */
+  messageId: string | null;
+  kind: QueueItemKind;
+  authorType: AuthorType | null;
+  authorId: string | null;
+  /** The message's text cut to {@link QUEUE_PREVIEW_CHARS}, or the hub's note for a follow-up; '' when it has neither. */
+  preview: string;
+  /** Why the message waits for this bot (its `DeliveryPayload.queued` reason), or null when the bot was idle then. */
+  reason: QueueReason | null;
+  /** 1-based place in this lane. The lane's next turn takes every item at once, so this is order only, not turns. */
+  position: number;
+  /** Only a person's own message, before any bot read it or any turn took it in. */
+  editable: boolean;
+  /** Why `editable` is false, in words; absent when editable. */
+  editRefusal?: string;
+  /** Only a person's own message. Hand-offs, routines, triggers and follow-ups are not cancelled from here. */
+  cancellable: boolean;
+}
+/** A bot's queue in one room (`GET /api/rooms/:id/queue`, `queue.changed`). */
+export interface LaneQueue {
+  botId: string;
+  roomId: string;
+  /** The owner paused this queue: nothing new starts until resumed. A running turn finishes. Survives restarts. */
+  paused: boolean;
+  /** A turn is in progress in this lane (or about to start); `queue.sendNow` interrupts it. */
+  running: boolean;
+  items: QueueItem[];
+}
+export const QUEUE_PREVIEW_CHARS = 280;
 
 export interface Routine {
   id: string;
@@ -248,6 +372,29 @@ export interface HealthInfo {
   approvalsLocked: boolean;
 }
 
+/**
+ * GET /api/busy (and the answer to the maintenance hold routes). The updater waits for `blocking` to reach 0
+ * before it stops the hub. Only work a restart would lose blocks: running turns and live (unparked) approval
+ * cards. Queued lane items are journaled and resume after a restart, parked cards and open routine runs survive
+ * one too, so those are reported for the dialog text only.
+ */
+export interface BusyInfo {
+  /** running + liveCards. The one number a client gates on. */
+  blocking: number;
+  /** Bot turns running right now. */
+  running: number;
+  /** Approval cards a running turn is waiting on (not parked). */
+  liveCards: number;
+  /** Bot/room lanes with queued items that have not started (display only). */
+  pendingLanes: number;
+  /** Parked approval cards; they survive a restart (display only). */
+  parkedCards: number;
+  /** Routine runs still open: running, queued or waiting on a parked card (display only). */
+  waitingRuns: number;
+  /** Epoch ms when the maintenance hold ends, or null when there is none. */
+  heldUntil: number | null;
+}
+
 // ---------- P8: model router and usage ----------
 /**
  * A bot whose model is `auto` lets the hub pick one per turn (`agent/ModelRouter.ts`): Haiku for background and
@@ -255,13 +402,24 @@ export interface HealthInfo {
  * It always picks from the active provider's own list and never changes the bot's budget.
  */
 export const AUTO_MODEL = 'auto';
-export const AUTO_MODEL_INFO = { id: AUTO_MODEL, label: 'Auto', note: 'moves up when needed' } as const;
+export const AUTO_MODEL_INFO = { id: AUTO_MODEL, label: 'Auto', note: 'Sonnet, moves up when needed' } as const;
+
+/** What a model picker says next to Opus-class models. No multiplier: the real ratio depends on the plan. */
+export const HEAVY_MODEL_HINT = 'uses your plan limit much faster';
+/** True for the models that eat a subscription's usage limit fastest (Opus and above), on any provider. */
+export const isHeavyModel = (id: string): boolean => /opus|fable/i.test(id);
+/** A picker option's text: label, note, and the cost hint on a heavy model unless the note already says it. */
+export function modelOptionLabel(m: { id: string; label: string; note?: string }): string {
+  const hint = isHeavyModel(m.id) && !/plan limit/i.test(m.note ?? '') ? HEAVY_MODEL_HINT : '';
+  const extra = [m.note, hint].filter(Boolean).join(', ');
+  return m.label + (extra ? ' — ' + extra : '');
+}
 
 /** What the composer's picker offers (Claude only; other providers keep each bot's own model). */
 export const CHAT_MODELS = [
   { id: AUTO_MODEL, label: 'Auto', note: 'Sonnet 5, moves up when needed' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'Everyday work' },
-  { id: 'claude-opus-5', label: 'Opus 5', note: 'Hard problems, uses more of your plan' },
+  { id: 'claude-opus-5', label: 'Opus 5', note: 'Hard problems, ' + HEAVY_MODEL_HINT },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku', note: 'Quick checks' },
 ] as const;
 export const isChatModel = (v: unknown): boolean => CHAT_MODELS.some((m) => m.id === v);
@@ -271,15 +429,26 @@ export const MAX_ROUTING_BYTES = 2048;
 
 /**
  * What started a turn. `user` a person's message, `bot` a hand-off from another bot, `routine` a scheduled
- * routine, `trigger` an outside event (P5), `memory` the auto-memory pass, `reflection` a skill reflection pass,
+ * routine, `trigger` an outside event (P5), `workflow` a step of a workflow run, `memory` the auto-memory pass, `reflection` a skill reflection pass,
  * `training` a bot training pass.
  */
-export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'memory', 'reflection', 'training'] as const;
+export const CAUSE_KINDS = ['user', 'bot', 'routine', 'trigger', 'workflow', 'memory', 'reflection', 'training'] as const;
 export type CauseKind = (typeof CAUSE_KINDS)[number];
 
-/** One row of a usage breakdown: `key` is a model id or a cause kind; '' for rows recorded before P8. */
+/**
+ * One row of a usage breakdown: `key` is a model id, a cause kind or a provider id; '' for rows recorded before the
+ * field existed (P8 for model and cause, v0.5 for provider).
+ */
 export interface UsageGroup extends UsageTotals {
   key: string;
+}
+/** GET /api/usage. `byModel`/`byCause` arrive from P8 hubs and `byProvider` from v0.5 hubs; older ones leave them out. */
+export interface UsageResponse {
+  totals: UsageTotals;
+  rows: UsageRow[];
+  byModel?: UsageGroup[];
+  byCause?: UsageGroup[];
+  byProvider?: UsageGroup[];
 }
 
 // ---------- P7: knowledge repo, voice ----------
@@ -374,6 +543,8 @@ export interface ControlStatus {
 export const TURN_FAILURE_BEHAVIOUR = 'behaviour';
 export interface TurnFailurePayload {
   turnFailure: typeof TURN_FAILURE_BEHAVIOUR | 'external';
+  /** M8: the turn hit a usage limit and the bot has no backup, so the note offers "Set a backup" (opens the bot's settings). */
+  setBackup?: boolean;
 }
 
 export interface TakeoverPayload {
@@ -383,7 +554,9 @@ export interface TakeoverPayload {
   status: 'waiting' | 'parked' | 'done' | 'expired';
   /** The user's hand-back note, once handed back. */
   note?: string;
-  /** Routine run the parked turn belongs to, so a restart can still close it. */
+  /** What the parked turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`), so a restart can still close it. */
+  ownerRef?: string | null;
+  /** Written before owner refs existed: a routine run id. Read as `routine:<runId>`; never written now. */
   runId?: string | null;
 }
 
@@ -399,4 +572,18 @@ export interface ApprovalPolicy {
   pattern: string;
   decision: 'allow' | 'deny';
   createdAt: number;
+  /** Machine the rule covers (`pc`, `vps`); null or absent = any. */
+  machine?: string | null;
+  /** Epoch ms the rule stops applying; null or absent = never. */
+  expiresAt?: number | null;
+}
+
+/** GET /api/sandbox/status (Bridge P7): can this server sandbox bot tools, is the setting on, and why not. */
+export interface SandboxStatus {
+  /** bubblewrap is installed and can make a sandbox on this machine. */
+  available: boolean;
+  /** The setting is on and bubblewrap works: turns run sandboxed and client repos may sync. */
+  active: boolean;
+  /** Why it is not available (or, when on but unusable, why turns fail); empty when it works. */
+  reason: string;
 }

@@ -17,7 +17,8 @@ export interface ParkedApproval {
   reason: string;
   causeId: string;
   hop: number;
-  runId: string | null;
+  /** What the parked turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`); see rooms/ownerRef.ts. */
+  ownerRef: string | null;
   messageId: string | null;
   parkedAt: number;
 }
@@ -29,31 +30,35 @@ export interface StoredPolicy extends ApprovalPolicy {
 
 interface ParkedRaw {
   id: string; bot_id: string; room_id: string; tool_name: string; tool_input: string | null; reason: string | null;
-  cause_id: string | null; hop: number | null; run_id: string | null; message_id: string | null; parked_at: number;
+  cause_id: string | null; hop: number | null; run_id: string | null; owner_ref: string | null; message_id: string | null; parked_at: number;
 }
-interface PolicyRaw { id: string; bot_id: string; tool: string; pattern: string; decision: string; scope: string; created_at: number }
+interface PolicyRaw {
+  id: string; bot_id: string; tool: string; pattern: string; decision: string; scope: string; created_at: number;
+  machine: string | null; expires_at: number | null;
+}
 
 const toParked = (r: ParkedRaw): ParkedApproval => {
   let input: unknown = null;
   try { input = r.tool_input ? JSON.parse(r.tool_input) : null; } catch { /* keep null */ }
   return {
     id: r.id, botId: r.bot_id, roomId: r.room_id, toolName: r.tool_name, toolInput: input, reason: r.reason ?? '',
-    causeId: r.cause_id ?? r.id, hop: r.hop ?? 0, runId: r.run_id, messageId: r.message_id, parkedAt: r.parked_at,
+    causeId: r.cause_id ?? r.id, hop: r.hop ?? 0, ownerRef: r.owner_ref ?? (r.run_id ? 'routine:' + r.run_id : null), messageId: r.message_id, parkedAt: r.parked_at,
   };
 };
 const toPolicy = (r: PolicyRaw): StoredPolicy => ({
   id: r.id, botId: r.bot_id, tool: r.tool, pattern: r.pattern, decision: r.decision === 'deny' ? 'deny' : 'allow',
   scope: r.scope === 'session' ? 'session' : 'always', createdAt: r.created_at,
+  machine: r.machine ?? null, expiresAt: r.expires_at ?? null,
 });
 
 export class ApprovalStore {
   constructor(readonly db: Db, private now: () => number = Date.now) {}
 
   // ---------- parked approvals ----------
-  park(id: string, p: { causeId: string; hop: number; runId: string | null; messageId: string }) {
+  park(id: string, p: { causeId: string; hop: number; ownerRef: string | null; messageId: string }) {
     this.db.run(
-      "UPDATE approvals SET parked_at=?, cause_id=?, hop=?, run_id=?, message_id=? WHERE id=? AND status='pending'",
-      this.now(), p.causeId, p.hop, p.runId, p.messageId, id,
+      "UPDATE approvals SET parked_at=?, cause_id=?, hop=?, run_id=?, owner_ref=?, message_id=? WHERE id=? AND status='pending'",
+      this.now(), p.causeId, p.hop, p.ownerRef?.startsWith('routine:') ? p.ownerRef.slice(8) : null, p.ownerRef, p.messageId, id,
     );
   }
   getParked(id: string): ParkedApproval | undefined {
@@ -63,15 +68,16 @@ export class ApprovalStore {
   listParked(): ParkedApproval[] {
     return this.db.all<ParkedRaw>("SELECT * FROM approvals WHERE status='pending' AND parked_at IS NOT NULL ORDER BY parked_at").map(toParked);
   }
-  /** Routine runs a parked card still holds open (FollowUp must not close them at startup). */
-  parkedRunIds(): string[] {
-    return this.listParked().map((p) => p.runId).filter((r): r is string => !!r);
+  /** Owner refs a parked card still holds open (FollowUp must not close a routine run at startup). */
+  parkedOwnerRefs(): string[] {
+    return this.listParked().map((p) => p.ownerRef).filter((r): r is string => !!r);
   }
 
   // ---------- approval rules ----------
+  /** Expired rules are never listed (and so never matched); `prunePolicies` deletes them. */
   listPolicies(botId?: string, scope: PolicyScope | 'all' = 'always'): StoredPolicy[] {
-    const where: string[] = [];
-    const args: string[] = [];
+    const where: string[] = ['(expires_at IS NULL OR expires_at > ?)'];
+    const args: (string | number)[] = [this.now()];
     if (botId) { where.push('bot_id=?'); args.push(botId); }
     if (scope !== 'all') { where.push('scope=?'); args.push(scope); }
     return this.db
@@ -82,17 +88,22 @@ export class ApprovalStore {
     const r = this.db.get<PolicyRaw>('SELECT * FROM approval_policies WHERE id=?', id);
     return r ? toPolicy(r) : undefined;
   }
-  /** Adds a rule; an identical one (same bot, tool, pattern, decision, scope) is returned instead of duplicated. */
-  addPolicy(p: { botId: string; tool: string; pattern: string; decision: 'allow' | 'deny'; scope: PolicyScope }): StoredPolicy {
+  /**
+   * Adds a rule; an identical one (same bot, tool, pattern, decision, scope, machine, expiry) is returned instead
+   * of duplicated. `machine` null/absent = any machine; `expiresAt` null/absent = never.
+   */
+  addPolicy(p: { botId: string; tool: string; pattern: string; decision: 'allow' | 'deny'; scope: PolicyScope; machine?: string | null; expiresAt?: number | null }): StoredPolicy {
+    const machine = p.machine ?? null;
+    const expiresAt = p.expiresAt ?? null;
     const same = this.db.get<PolicyRaw>(
-      'SELECT * FROM approval_policies WHERE bot_id=? AND tool=? AND pattern=? AND decision=? AND scope=?',
-      p.botId, p.tool, p.pattern, p.decision, p.scope,
+      'SELECT * FROM approval_policies WHERE bot_id=? AND tool=? AND pattern=? AND decision=? AND scope=? AND machine IS ? AND expires_at IS ?',
+      p.botId, p.tool, p.pattern, p.decision, p.scope, machine, expiresAt,
     );
     if (same) return toPolicy(same);
     const id = nanoid(10);
     this.db.run(
-      'INSERT INTO approval_policies (id, bot_id, tool, pattern, decision, scope, created_at) VALUES (?,?,?,?,?,?,?)',
-      id, p.botId, p.tool, p.pattern, p.decision, p.scope, this.now(),
+      'INSERT INTO approval_policies (id, bot_id, tool, pattern, decision, scope, created_at, machine, expires_at) VALUES (?,?,?,?,?,?,?,?,?)',
+      id, p.botId, p.tool, p.pattern, p.decision, p.scope, this.now(), machine, expiresAt,
     );
     return this.getPolicy(id)!;
   }
@@ -105,8 +116,9 @@ export class ApprovalStore {
   clearSessionPolicies() {
     this.db.run("DELETE FROM approval_policies WHERE scope='session'");
   }
-  /** Rules of bots that no longer exist. */
+  /** Rules of bots that no longer exist, and rules that have expired. */
   prunePolicies(liveBotIds: string[]) {
+    this.db.run('DELETE FROM approval_policies WHERE expires_at IS NOT NULL AND expires_at <= ?', this.now());
     const keep = new Set(liveBotIds);
     for (const p of this.listPolicies(undefined, 'all')) if (!keep.has(p.botId)) this.removePolicy(p.id);
   }

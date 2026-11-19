@@ -43,7 +43,11 @@ function setup(script: Array<Partial<TurnOutcome>>, savedSession: string | null)
   const repos = new Repos(new Db(':memory:'));
   const bot = repos.createBot({ name: 'Smoke', handle: 'smoke', title: '', description: '', avatar: '🤖', model: 'm1', allowedTools: ['Read'], maxBudgetUsd: 10 });
   const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
-  if (savedSession) repos.saveSession(bot.id, room.id, { sdkSessionId: savedSession, provider: 'claude' });
+  if (savedSession) {
+    repos.saveSession(bot.id, room.id, { sdkSessionId: savedSession, provider: 'claude' });
+    // A measured, small, recently used session: resumed rather than rotated.
+    repos.saveSessionState(bot.id, room.id, { contextTokens: 1000, contextAt: Date.now(), costTotal: 0 });
+  }
   const provider = new ScriptedProvider(script);
   const providers = { active: () => provider, get: () => provider } as unknown as ProviderRegistry;
   const runner = new BotRunner(

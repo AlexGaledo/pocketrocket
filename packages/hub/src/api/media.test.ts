@@ -296,3 +296,34 @@ describe('cleanup', () => {
     fs.rmSync(d, { recursive: true, force: true });
   });
 });
+
+describe('POST /api/media?for=attachment (U2a)', () => {
+  const post = (bytes: Buffer, q = '?for=attachment', token = TOKEN) =>
+    req('POST', '/api/media' + q, { token, body: { data: bytes.toString('base64') } });
+  const big = (head: Buffer, n: number) => Buffer.concat([head, Buffer.alloc(n - head.length, 9)]);
+
+  it('takes a picture over the avatar cap, up to 10 MB', async () => {
+    const r = await post(big(PNG, 2 * 1024 * 1024));
+    expect(r.status).toBe(200);
+    expect(isMediaRef(r.json.ref)).toBe(true);
+  });
+
+  it('keeps the avatar cap on the plain route', async () => {
+    expect((await post(big(PNG, 2 * 1024 * 1024), '')).status).toBe(413);
+  });
+
+  it('refuses over 10 MB', async () => {
+    expect((await post(big(PNG, 10 * 1024 * 1024 + 1))).status).toBe(413);
+  });
+
+  it('refuses a GIF or PDF whatever it claims to be', async () => {
+    expect((await post(Buffer.from('GIF89a' + 'x'.repeat(40)))).status).toBe(415);
+    expect((await post(Buffer.from('%PDF-1.7' + 'x'.repeat(40)))).status).toBe(415);
+  });
+
+  it('accepts JPEG and WebP, and needs the hub token', async () => {
+    expect((await post(JPEG)).status).toBe(200);
+    expect((await post(WEBP)).status).toBe(200);
+    expect((await post(PNG, '?for=attachment', 'wrong')).status).toBe(401);
+  });
+});

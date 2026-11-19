@@ -94,6 +94,13 @@ describe.skipIf(!CHROME)('Recorder against a real Chromium', () => {
       exec: async (cmd, args) => { if (cmd === 'scrot') fs.writeFileSync(args[args.length - 1], 'PNG:' + screen); return ''; },
     });
     await rec.start('b', { title: 'Pay for the order' });
+    // start() attaches to the open page in the background; once it has, it writes the page's initial nav. Navigating
+    // before that races the attach and can lose the checkout nav, so wait for it.
+    for (let i = 0; i < 100; i++) {
+      const traces = fs.readdirSync(root).map((d) => path.join(root, d, 'trace.jsonl')).filter((f) => fs.existsSync(f));
+      if (traces.some((f) => fs.readFileSync(f, 'utf8').includes('"t":"nav"'))) break;
+      await sleep(100);
+    }
 
     // The "user": another CDP client driving the same page with real input events.
     const ver = (await (await fetch(cdpUrl + '/json/version')).json()) as { webSocketDebuggerUrl: string };

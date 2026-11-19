@@ -65,6 +65,63 @@ notes to memory" when it saved anything, and its cost shows up in usage. Claude 
 Models: **Sonnet 5** (default), **Opus 5**, **Fable 5.1**, **Haiku 4.5** — picked per bot in the
 bot dialog.
 
+### Messaging a busy bot (steering)
+
+You don't have to wait for a bot to finish before you correct it.
+
+- **Enter** sends. If the bot is busy in that chat and can take messages mid-task, your message
+  **joins its running turn**: the bot reads it at its next step and can change course. The
+  placeholder says "*Ada* is working. Your message joins in." when that will happen.
+- **Ctrl+Enter** (Cmd+Enter on a Mac) **queues** the message instead, so the bot reads it once its
+  current reply ends. On a phone, or with a mouse, use the small arrow beside Send: **Join the
+  running turn** or **Queue for after**. The arrow only shows while a bot that can join is busy.
+  (Alt+Enter is not a send shortcut: in the desktop app it toggles full screen.)
+- **The default** is in Settings → Bots → *When a bot is busy*. Set it to *Queue for after* and Enter
+  queues too; the arrow beside Send can still join.
+- **Under your message** a short line says what happened, for each busy bot: "Joined Ada's reply",
+  "Queued for after Ada's reply", "Queued: Gemini can't take messages mid-task", or "Queued: Ada was
+  between steps" (the bot was starting or retrying a step right then). Nothing is shown when the bot
+  was idle. The bot's work after your message is labelled **continued**: it is the same turn, not a
+  new one.
+- **Stop** stops every running bot in the chat, not only the one you steered. A message that had
+  joined a turn but was not answered yet is **not lost**: it is queued and the bot answers it right
+  after Stop. The chat says so ("Stopped. Ada will answer your new message next."), and the line
+  under your message changes to "Queued: Ada answers this next".
+- **Which bots can join:** Claude bots, once the installed Claude CLI is recent enough to report which
+  messages it still has queued (the hub checks on the bot's first turn; until then messages queue).
+  Codex, OpenCode, Grok and Gemini bots always queue, with the reason shown under your message.
+  Messages between bots (hand-offs) always queue. A routine or trigger turn you join keeps its own
+  approvals and budget.
+
+### Telegram notifications
+
+PocketRocket can ping your phone through your own Telegram bot when something needs you. It is
+**content-free**: Telegram only ever sees a fixed sentence and a link back to your hub, never a
+bot, room or tool name and never any message text. Telegram is a cloud service, so assume it can
+see that "something happened".
+
+1. **Make a bot.** In Telegram, message **@BotFather**, send `/newbot`, pick a name, and copy the
+   token it gives you.
+2. **Connect it.** Settings → Notifications → Telegram: paste the token. PocketRocket checks it and
+   shows `@yourbot`. The token goes into the encrypted token store and is not shown again.
+3. **Link your chat.** Press **Link**, open the bot from the button or the QR code, and send it the
+   code shown (valid 10 minutes). Five wrong codes lock linking for a while. It then shows
+   "Linked to <your name>".
+4. **Turn it on** with **Notify me here** and press **Send a test**. Read the cloud note above the
+   switch first.
+
+What the messages say: one fixed line per kind, for example "A bot needs your approval" or "A
+workflow needs you", plus a link to your hub. Nothing else.
+
+Good to know: one hub per bot token (two hubs polling one bot fight over its updates). Only the
+owner can set this up; bots and paired phones cannot. Phones get their own pings under Devices →
+Notifications on this device.
+
+**Revoke.** **Unlink** stops messages to that chat. **Remove token** forgets the bot on this hub.
+To kill the token itself, message **@BotFather**, send `/revoke` and pick the bot; the old token
+stops working at once. `deploy/keys.sh inventory` lists Telegram among the keys it can disable,
+with the same revoke step.
+
 ## Permissions & safety
 
 See [SECURITY.md](../SECURITY.md) for the token model and the full threat model — treat every bot
@@ -108,6 +165,6 @@ Short and honest:
 - **More providers.** OpenAI Codex, OpenCode and Grok adapters exist in the codebase behind a
   dev-only flag but aren't offered as a user-facing option in v1 — Claude only, for now.
 - **Paid plans**, behind the optional PocketRocket account. Signing in does nothing else yet.
-- **Code signing and an auto-updater** are deliberately out of scope for v1; Check for updates in the tray menu
-  just opens the Releases page.
+- **Code signing** is still deferred. The desktop app now updates itself (checked at launch and daily, installed
+  only when you say so and, on this PC, only once the bots are idle); see Updating in the README.
 - **macOS / Linux installers.** Both run from source today; no packaged installer yet.

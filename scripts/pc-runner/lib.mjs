@@ -141,6 +141,20 @@ export function validateConfig(raw) {
     errors.push('claudePath must be an absolute local path to claude.exe');
   }
 
+  // Session mirror (mirror.mjs). On by default; `mirror: false` or a mirror.paused file next to config.json stops it.
+  const mirror = raw.mirror ?? true;
+  if (typeof mirror !== 'boolean') errors.push('mirror must be true or false');
+  const mirrorBackfillDays = raw.mirrorBackfillDays ?? 14;
+  if (!Number.isInteger(mirrorBackfillDays) || mirrorBackfillDays < 0 || mirrorBackfillDays > 3650) errors.push('mirrorBackfillDays must be an integer 0-3650');
+  const mirrorExclude = raw.mirrorExclude ?? [];
+  if (!Array.isArray(mirrorExclude) || mirrorExclude.length > 200 || mirrorExclude.some((p) => typeof p !== 'string' || !p.trim() || p.length > 300)) {
+    errors.push('mirrorExclude must be a list of up to 200 non-empty path prefixes or * globs');
+  }
+  const claudeProjectsDir = raw.claudeProjectsDir ?? null;
+  if (claudeProjectsDir !== null && (typeof claudeProjectsDir !== 'string' || !path.win32.isAbsolute(claudeProjectsDir) || /^\\/.test(claudeProjectsDir))) {
+    errors.push('claudeProjectsDir must be an absolute local folder path');
+  }
+
   const mcpServers = {};
   if (raw.mcpServers !== undefined) {
     if (!raw.mcpServers || typeof raw.mcpServers !== 'object' || Array.isArray(raw.mcpServers)) errors.push('mcpServers must be an object of { name: definition }');
@@ -188,7 +202,7 @@ export function validateConfig(raw) {
   }
   if (claudePath && Object.values(folders).some((f) => isInside(claudePath, f.path))) errors.push('claudePath must not be inside an allowlisted folder');
   if (errors.length) return { ok: false, errors };
-  return { ok: true, config: { sshAlias, localPort, claudePath, mcpServers, folders, defaultAllowedTools } };
+  return { ok: true, config: { sshAlias, localPort, claudePath, mcpServers, folders, defaultAllowedTools, mirror, mirrorBackfillDays, mirrorExclude: [...mirrorExclude], claudeProjectsDir } };
 }
 
 /**
@@ -236,16 +250,125 @@ export function folderFor(config, name) {
 }
 
 /** Shape-checks a job from GET /jobs/next. Returns the job or null. */
+/** A Claude Code session uuid as the mirror knows it. A subagent id ("<parent>:<agent>") never matches. */
+export const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+/** A project or repo name as the hub's repos.json allows it. */
+const SYNC_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,40}$/;
+
+/** The `sync` object of a sync job: { project, repo, remote, mode: 'wip-branch'|'bundle', protected: string[] } or null. */
+export function parseSyncSpec(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  if (typeof s.project !== 'string' || !SYNC_NAME_RE.test(s.project)) return null;
+  if (typeof s.repo !== 'string' || !SYNC_NAME_RE.test(s.repo)) return null;
+  if (typeof s.remote !== 'string' || !s.remote.trim() || s.remote.length > 500) return null;
+  if (s.mode !== 'wip-branch' && s.mode !== 'bundle') return null;
+  const prot = s.protected === undefined ? [] : s.protected;
+  if (!Array.isArray(prot) || prot.length > 100 || prot.some((b) => typeof b !== 'string' || b.length > 200)) return null;
+  return { project: s.project, repo: s.repo, remote: s.remote, mode: s.mode, protected: [...prot] };
+}
+
+const COMMIT_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+const WIP_BRANCH_RE = /^wip\/[a-z0-9-]+\/[A-Za-z0-9_-]{8}$/;
+const MAX_MOVE_REPOS = 20;
+
+/** The repo part of a move or pull job: a sync spec whose `mode` may be missing (pull jobs carry none). */
+function parseRepoSpec(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  const r = parseSyncSpec({ ...s, mode: s.mode === undefined ? 'bundle' : s.mode });
+  return r ? { ...r, mode: s.mode === undefined ? null : r.mode } : null;
+}
+
+/** The `move` object of a move job: { room: string|null, repos: [{ project, repo, remote, mode, protected }] } or null. */
+export function parseMoveSpec(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  if (!Array.isArray(m.repos) || m.repos.length > MAX_MOVE_REPOS) return null;
+  const repos = [];
+  for (const r of m.repos) { const p = parseRepoSpec(r); if (!p) return null; repos.push(p); }
+  return { room: typeof m.room === 'string' ? m.room.slice(0, 80) : null, repos };
+}
+
+/** The `pull` object of a pull job: { repos: [{ project, repo, remote, mode, protected, branch, baseCommit }] } or null. */
+export function parsePullSpec(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  if (!Array.isArray(m.repos) || m.repos.length > MAX_MOVE_REPOS) return null;
+  const repos = [];
+  for (const r of m.repos) {
+    const p = parseRepoSpec(r);
+    if (!p || typeof r.branch !== 'string' || !WIP_BRANCH_RE.test(r.branch) || typeof r.baseCommit !== 'string' || !COMMIT_RE.test(r.baseCommit)) return null;
+    repos.push({ ...p, branch: r.branch, baseCommit: r.baseCommit });
+  }
+  return { repos };
+}
+
+/**
+ * The canonical form of a git remote URL, so the hub, the web app and this runner agree on "the same repo":
+ * https://<lower-case host>[:port]/<path without .git or trailing slash>. `git@host:o/r`, `ssh://git@host(:22)/o/r`,
+ * `git://host/o/r` and `https://host/o/r(.git)` are all the same repo; credentials and ssh ports are dropped; the
+ * path keeps its case. Returns null for anything else (local paths, file:, ftp:, no repo path, whitespace).
+ * packages/shared/src/projectRepos.ts has the same function; both are tested against the same table.
+ */
+export function normaliseRemote(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!s || s.length > 500 || /[\s\0\\]/.test(s)) return null;
+  if (/(^|[/:])\.\.($|\/)/.test(s)) return null; // no dot-dot segments, in any spelling
+  let host, port = '', p;
+  if (s.includes('://')) {
+    let u;
+    try { u = new URL(s); } catch { return null; }
+    if (!['https:', 'http:', 'ssh:', 'git:'].includes(u.protocol)) return null;
+    host = u.hostname.toLowerCase();
+    if (u.protocol === 'https:' || u.protocol === 'http:') port = u.port && u.port !== (u.protocol === 'https:' ? '443' : '80') ? `:${u.port}` : '';
+    p = u.pathname;
+  } else {
+    const m = /^(?:[^@/:]+@)?([^/:@]{2,}):(.+)$/.exec(s); // scp-like: [user@]host:path
+    if (!m) return null;
+    host = m[1].toLowerCase();
+    p = m[2];
+  }
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(host)) return null;
+  p = p.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+  if (!p || p.split('/').some((seg) => !seg || seg === '.' || seg === '..')) return null;
+  return `https://${host}${port}/${p}`;
+}
+
+/**
+ * Shape-checks a job from GET /jobs/next. Returns the job or null.
+ * Old hubs send no `mode`: that is a "new" job, exactly as before. A "resume" job names a sessionId and no folder
+ * (the runner finds the folder from the session itself); `origin` 'owner' jobs may have no bot or room.
+ */
 export function parseJob(j) {
   if (!j || typeof j !== 'object') return null;
   if (typeof j.id !== 'string' && typeof j.id !== 'number') return null;
   const id = String(j.id);
   if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return null;
-  if (typeof j.prompt !== 'string' || !j.prompt.trim()) return null;
-  if (typeof j.folder !== 'string') return null;
-  const handle = typeof j.bot?.handle === 'string' ? j.bot.handle : '?';
-  const room = { id: String(j.room?.id ?? ''), name: typeof j.room?.name === 'string' ? j.room.name : '?' };
-  return { id, bot: { handle }, room, folder: j.folder, prompt: j.prompt, createdAt: j.createdAt ?? null };
+  const mode = j.mode === undefined || j.mode === null ? 'new' : j.mode;
+  if (mode !== 'new' && mode !== 'resume' && mode !== 'sync' && mode !== 'move' && mode !== 'pull') return null;
+  // Sync, move and pull jobs run no Claude, so they have no prompt; every other mode needs one.
+  const noClaude = mode === 'sync' || mode === 'move' || mode === 'pull';
+  if (!noClaude && (typeof j.prompt !== 'string' || !j.prompt.trim())) return null;
+  let folder = null, sessionId = null, sync = null, move = null, pull = null;
+  if (mode === 'new') {
+    if (typeof j.folder !== 'string') return null;
+    folder = j.folder;
+  } else {
+    if (typeof j.sessionId !== 'string') return null;
+    sessionId = j.sessionId; // validated (and refused with a reason) in resolveResume, so the hub hears why
+    if (mode === 'sync') {
+      sync = parseSyncSpec(j.sync);
+      if (!sync) return null;
+    } else if (mode === 'move') {
+      move = parseMoveSpec(j.move);
+      if (!move) return null;
+    } else if (mode === 'pull') {
+      pull = parsePullSpec(j.pull);
+      if (!pull) return null;
+    }
+  }
+  const handle = typeof j.bot?.handle === 'string' ? j.bot.handle : j.origin === 'owner' ? 'owner' : '?';
+  const room = { id: String(j.room?.id ?? ''), name: typeof j.room?.name === 'string' ? j.room.name : j.origin === 'owner' ? '(from the app)' : '?' };
+  return { id, mode, sessionId, sync, move, pull, onVps: j.onVps === true, bot: { handle }, room, folder, prompt: typeof j.prompt === 'string' ? j.prompt : '', origin: j.origin === 'owner' ? 'owner' : 'bot', createdAt: j.createdAt ?? null };
 }
 
 /**
@@ -261,9 +384,12 @@ export function parseJob(j) {
  *                             ~/.claude.json servers are ignored
  *   --tools                   only these built-in tools exist
  *   --allowedTools / --disallowedTools       the per-folder allow list, and the git escapes that are always denied
- *   --no-session-persistence  no transcript left on disk
+ *   --no-session-persistence  no transcript left on disk (new jobs only)
+ *   --resume <id>             resume jobs: continue that session in place. Persistence stays on, because the point
+ *                             is that the new turns land in the same transcript the mirror shows.
  */
-export function buildClaudeArgs({ allowedTools, settingsPath, mcpConfigPath } = {}) {
+export function buildClaudeArgs({ allowedTools, settingsPath, mcpConfigPath, resumeSessionId } = {}) {
+  if (resumeSessionId !== undefined && (typeof resumeSessionId !== 'string' || !SESSION_ID_RE.test(resumeSessionId))) throw new Error('resumeSessionId must be a session id');
   if (!Array.isArray(allowedTools) || allowedTools.length === 0) throw new Error('allowedTools must be a non-empty array');
   for (const t of allowedTools) { const e = toolError(t); if (e) throw new Error(`bad tool ${JSON.stringify(t)}: ${e}`); }
   if (typeof settingsPath !== 'string' || !settingsPath) throw new Error('settingsPath is required');
@@ -279,7 +405,7 @@ export function buildClaudeArgs({ allowedTools, settingsPath, mcpConfigPath } = 
     '--tools', builtinToolsOf(allowedTools).join(','),
     '--allowedTools', allowedTools.join(','),
     '--disallowedTools', DISALLOWED_TOOLS.join(','),
-    '--no-session-persistence',
+    ...(resumeSessionId === undefined ? ['--no-session-persistence'] : ['--resume', resumeSessionId]),
   ];
   // Belt and braces: whatever changes above, these never leave this function.
   if (args.some((a) => /dangerously|bypassPermissions/i.test(a))) throw new Error('refusing to build a permission-bypass command');
@@ -297,7 +423,7 @@ export function capOutput(text, max = OUTPUT_CAP_BYTES) {
   return buf.subarray(0, end).toString('utf8') + note;
 }
 
-/** Reads `claude -p --output-format json` stdout. Returns { ok, output, costUsd?, durationMs? }. */
+/** Reads `claude -p --output-format json` stdout. Returns { ok, output, costUsd?, durationMs?, sessionId? }. */
 export function parseClaudeResult(stdout, exitCode) {
   let j = null;
   const text = String(stdout ?? '').trim();
@@ -311,6 +437,7 @@ export function parseClaudeResult(stdout, exitCode) {
   const out = { ok: exitCode === 0 && j.is_error !== true, output: capOutput(typeof j.result === 'string' ? j.result : JSON.stringify(j.result ?? '')) };
   if (typeof j.total_cost_usd === 'number' && Number.isFinite(j.total_cost_usd)) out.costUsd = j.total_cost_usd;
   if (typeof j.duration_ms === 'number' && Number.isFinite(j.duration_ms)) out.durationMs = Math.round(j.duration_ms);
+  if (typeof j.session_id === 'string' && SESSION_ID_RE.test(j.session_id)) out.sessionId = j.session_id;
   return out;
 }
 
@@ -344,4 +471,21 @@ export function backoffMs(attempt) {
 export function logFileName(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   return `runner-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.log`;
+}
+
+/**
+ * Port-squatting check for a process that is NOT the runner (the MCP server). The port is the runner's tunnel only
+ * when the runner itself is alive (`procs[runnerPid]` is a runner.mjs process) and every socket on the port belongs
+ * to an ssh process whose parent is that runner. `procs` is { [pid]: { ppid, name, cmd } }.
+ * Returns { ok: true } or { ok: false, reason: 'runner-off' | 'tunnel-down' | 'squatted' }.
+ */
+export function tunnelOwnerCheck({ listeners, procs, runnerPid }) {
+  const runner = Number.isInteger(runnerPid) ? procs?.[runnerPid] : null;
+  if (!runner || !/runner\.mjs/i.test(runner.cmd || '')) return { ok: false, reason: 'runner-off' };
+  if (!Array.isArray(listeners) || listeners.length === 0) return { ok: false, reason: 'tunnel-down' };
+  const ours = listeners.every((l) => {
+    const p = procs?.[Number(l.pid)];
+    return p && /^ssh(\.exe)?$/i.test(p.name) && p.ppid === runnerPid;
+  });
+  return ours ? { ok: true } : { ok: false, reason: 'squatted' };
 }

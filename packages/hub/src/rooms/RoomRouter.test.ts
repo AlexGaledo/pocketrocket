@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
 import { UsageTracker } from '../services/UsageTracker.js';
-import { CAUSE_COST_CAP_USD } from '../config.js';
+import { CAUSE_COST_CAP_USD, MAX_HOPS } from '../config.js';
 import type { BotRunner, TurnRequest, TurnResult } from '../agent/BotRunner.js';
 import { BACKLOG_MAX_BYTES, BACKLOG_MAX_MESSAGES, RoomRouter, capBacklog } from './RoomRouter.js';
 
@@ -136,5 +136,179 @@ describe('RoomRouter backlog cap', () => {
     router.onUserMessage(room.id, 'hi');
     await until(() => reqs.length === 1);
     expect(reqs[0].injected).not.toContain('left out');
+  });
+});
+
+describe('RoomRouter per-turn context (kept out of the cached system prompt)', () => {
+  /** A runner that records each request and, like BotRunner, saves the session it ran on. */
+  function recorder(s: ReturnType<typeof setup>, opts: { sessionId?: (n: number) => string; reply?: (req: TurnRequest) => string } = {}) {
+    const reqs: TurnRequest[] = [];
+    s.router.runner = {
+      runTurn: async (req: TurnRequest): Promise<TurnResult> => {
+        reqs.push(req);
+        s.repos.saveSession(req.bot.id, req.room.id, { sdkSessionId: opts.sessionId?.(reqs.length) ?? 'sess-1' });
+        return { ok: true, turnId: 't' + reqs.length, finalText: opts.reply?.(req) ?? '', costUsd: 0 };
+      },
+    } as unknown as BotRunner;
+    return reqs;
+  }
+
+  it('ends every input with the hop budget', async () => {
+    const s = setup();
+    const a = s.bot('ann');
+    const room = s.repos.createRoom({ kind: 'dm', name: 'a', memberIds: [a.id], coordinatorBotId: null });
+    const reqs = recorder(s);
+    s.router.onUserMessage(room.id, 'hi');
+    await until(() => reqs.length === 1);
+    s.router.onUserMessage(room.id, 'again');
+    await until(() => reqs.length === 2);
+    for (const r of reqs) expect(r.injected).toContain('(Hop budget: ' + MAX_HOPS + ' bot-to-bot hops left on this thread.)');
+  });
+
+  it('shows the roster on the first turn, omits it while unchanged, and shows it again when it changes', async () => {
+    const s = setup();
+    const a = s.bot('ann');
+    const b = s.bot('bob');
+    const room = s.repos.createRoom({ kind: 'group', name: 'g', memberIds: [a.id, b.id], coordinatorBotId: a.id });
+    const reqs = recorder(s);
+    s.router.onUserMessage(room.id, 'first');
+    await until(() => reqs.length === 1);
+    expect(reqs[0].injected).toContain('Room members:');
+    expect(reqs[0].injected).toContain('- @bob');
+    s.router.onUserMessage(room.id, 'second');
+    await until(() => reqs.length === 2);
+    expect(reqs[1].injected).not.toContain('Room members:');
+    const c = s.bot('cat');
+    s.repos.updateRoom(room.id, { memberIds: [a.id, b.id, c.id] });
+    s.router.onUserMessage(room.id, 'third');
+    await until(() => reqs.length === 3);
+    expect(reqs[2].injected).toContain('Room members:');
+    expect(reqs[2].injected).toContain('- @cat');
+  });
+
+  it('shows the roster again when the turn ended on a different session (fresh or rotated)', async () => {
+    const s = setup();
+    const a = s.bot('ann');
+    const room = s.repos.createRoom({ kind: 'dm', name: 'a', memberIds: [a.id], coordinatorBotId: null });
+    // Turn 2 rotates to a new session without the roster in it; turn 3 must show it again.
+    const reqs = recorder(s, { sessionId: (n) => (n >= 2 ? 'sess-2' : 'sess-1') });
+    s.router.onUserMessage(room.id, 'one');
+    await until(() => reqs.length === 1);
+    s.router.onUserMessage(room.id, 'two');
+    await until(() => reqs.length === 2);
+    expect(reqs[1].injected).not.toContain('Room members:');
+    s.router.onUserMessage(room.id, 'three');
+    await until(() => reqs.length === 3);
+    expect(reqs[2].injected).toContain('Room members:');
+  });
+
+  it('does not wake a bot twice when the turn handed off with a tool and then names it in its final message', async () => {
+    const s = setup();
+    const a = s.bot('ann');
+    const b = s.bot('bob');
+    const room = s.repos.createRoom({ kind: 'group', name: 'g', memberIds: [a.id, b.id], coordinatorBotId: a.id });
+    const reqs: TurnRequest[] = [];
+    s.router.runner = {
+      runTurn: async (req: TurnRequest): Promise<TurnResult> => {
+        reqs.push(req);
+        if (req.bot.id === a.id && req.hop === 0) {
+          s.router.dispatchFromBot(req, [b]); // the handoff tool
+          return { ok: true, turnId: 'ta', finalText: 'Handed this to @bob.', costUsd: 0 };
+        }
+        return { ok: true, turnId: 'tb', finalText: '', costUsd: 0 };
+      },
+    } as unknown as BotRunner;
+    s.router.onUserMessage(room.id, 'please do it');
+    await until(() => reqs.some((r) => r.bot.id === b.id));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reqs.filter((r) => r.bot.id === b.id)).toHaveLength(1);
+  });
+
+  it('still wakes a bot named in the final message when no tool woke it', async () => {
+    const s = setup();
+    const a = s.bot('ann');
+    const b = s.bot('bob');
+    const room = s.repos.createRoom({ kind: 'group', name: 'g', memberIds: [a.id, b.id], coordinatorBotId: a.id });
+    const reqs = recorder(s, { reply: (req) => (req.bot.id === a.id ? '@bob your turn' : '') });
+    s.router.onUserMessage(room.id, 'go');
+    await until(() => reqs.some((r) => r.bot.id === b.id));
+    expect(reqs.find((r) => r.bot.id === b.id)!.hop).toBe(1);
+    expect(reqs.find((r) => r.bot.id === b.id)!.injected).toContain('(Hop budget: ' + (MAX_HOPS - 1));
+  });
+});
+
+describe('RoomRouter cut-off turns', () => {
+  it('continues a cut-off bot in a fresh session, then hands the job to the coordinator', async () => {
+    const { repos, router, bot } = setup();
+    const lead = bot('lead');
+    const dev = bot('dev');
+    const room = repos.createRoom({ kind: 'group', name: 'g', memberIds: [lead.id, dev.id], coordinatorBotId: lead.id });
+    const reqs: TurnRequest[] = [];
+    router.runner = {
+      runTurn: async (req: TurnRequest): Promise<TurnResult> => {
+        reqs.push(req);
+        if (req.bot.id === dev.id) return { ok: false, turnId: 't', finalText: '', costUsd: 0, error: 'token_budget: stopped after reading 3,000,001 cached tokens' };
+        return { ok: true, turnId: 't', finalText: '', costUsd: 0 };
+      },
+    } as unknown as BotRunner;
+    router.onUserMessage(room.id, '@dev build it');
+    // first turn + CUTOFF_RETRIES fresh ones, then the coordinator is woken once
+    await until(() => reqs.some((r) => r.bot.id === lead.id));
+    const devTurns = reqs.filter((r) => r.bot.id === dev.id);
+    expect(devTurns).toHaveLength(3);
+    expect(devTurns[0].freshSession).toBeUndefined();
+    expect(devTurns[1].freshSession).toBe(true);
+    expect(devTurns[1].injected).toContain('cut off');
+    const leadTurn = reqs.find((r) => r.bot.id === lead.id)!;
+    expect(leadTurn.injected).toContain('@dev was cut off 3 times');
+    expect(leadTurn.causeId).toBe(devTurns[0].causeId);
+  });
+
+  it('leaves other failures alone', async () => {
+    const { repos, router, bot } = setup();
+    const dev = bot('dev');
+    const room = repos.createRoom({ kind: 'dm', name: 'd', memberIds: [dev.id], coordinatorBotId: null });
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: false, turnId: 't', finalText: '', costUsd: 0, error: 'Interrupted' }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'hi');
+    await until(() => reqs.length === 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reqs).toHaveLength(1);
+  });
+});
+
+describe('RoomRouter reports', () => {
+  it('sends a handed-off bot report that names nobody back to the coordinator', async () => {
+    const { repos, router, bot } = setup();
+    const lead = bot('lead');
+    const rev = bot('rev');
+    const room = repos.createRoom({ kind: 'group', name: 'g', memberIds: [lead.id, rev.id], coordinatorBotId: lead.id });
+    const reqs: TurnRequest[] = [];
+    router.runner = {
+      runTurn: async (req: TurnRequest): Promise<TurnResult> => {
+        reqs.push(req);
+        if (req.bot.id === rev.id) return { ok: true, turnId: 't', finalText: 'Verdict: go after one long render.', costUsd: 0 };
+        const first = reqs.filter((r) => r.bot.id === lead.id).length === 1;
+        return { ok: true, turnId: 't', finalText: first ? '@rev please review' : 'Thanks, rendering now.', costUsd: 0 };
+      },
+    } as unknown as BotRunner;
+    router.onUserMessage(room.id, 'ship it');
+    await until(() => reqs.filter((r) => r.bot.id === lead.id).length === 2);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reqs.map((r) => r.bot.handle)).toEqual(['lead', 'rev', 'lead']);
+    expect(reqs[2].hop).toBe(2);
+  });
+
+  it('does not bounce a direct answer to the person back to the coordinator', async () => {
+    const { repos, router, bot } = setup();
+    const lead = bot('lead');
+    const rev = bot('rev');
+    const room = repos.createRoom({ kind: 'group', name: 'g', memberIds: [lead.id, rev.id], coordinatorBotId: lead.id });
+    const reqs: TurnRequest[] = [];
+    router.runner = { runTurn: async (req: TurnRequest): Promise<TurnResult> => { reqs.push(req); return { ok: true, turnId: 't', finalText: 'Here you go.', costUsd: 0 }; } } as unknown as BotRunner;
+    router.onUserMessage(room.id, '@rev quick question');
+    await until(() => reqs.length === 1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reqs).toHaveLength(1);
   });
 });

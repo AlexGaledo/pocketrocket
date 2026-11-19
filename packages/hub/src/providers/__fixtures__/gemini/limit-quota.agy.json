@@ -1,0 +1,251 @@
+{
+    "source":  "agy 1.5.12, Windows, Google sign-in (Antigravity Starter Quota, g1-plus-tier), default model gemini-3.8-flash-high. Captured 2026-11-19 by driving ~1200 prompts through ACP until the quota ran out.",
+    "note":  "agy reports the limit only as agent_message_chunk text; the session/prompt response is a normal stopReason end_turn and no JSON-RPC error is sent.",
+    "updates":  [
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m12s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ API error (attempt 2): RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model. Resets in 0s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ API error (attempt 1): RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model. Resets in 0s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m11s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ API error (attempt 1): RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ API error (attempt 2): RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m10s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m8s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m7s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m6s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m5s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ API error (attempt 3): RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model. Resets in 0s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m4s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m3s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m2s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m1s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    },
+                    {
+                        "jsonrpc":  "2.0",
+                        "method":  "session/update",
+                        "params":  {
+                                       "sessionId":  "sess-fixture",
+                                       "update":  {
+                                                      "sessionUpdate":  "agent_message_chunk",
+                                                      "content":  {
+                                                                      "type":  "text",
+                                                                      "text":  "\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m0s.\n"
+                                                                  }
+                                                  }
+                                   }
+                    }
+                ],
+    "promptResponse":  {
+                           "jsonrpc":  "2.0",
+                           "id":  7,
+                           "result":  {
+                                          "stopReason":  "end_turn"
+                                      }
+                       }
+}

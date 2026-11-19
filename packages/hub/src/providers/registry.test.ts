@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, PROVIDER_IDS, type ProviderId, type Settings } from '@pocketrocket/shared';
 import { ENABLED_PROVIDERS } from '../config.js';
 import { createProviders } from './registry.js';
+import { ProviderHealth } from '../services/ProviderHealth.js';
+import { events } from '../events.js';
 import { StubProvider } from './stub.js';
 import { EMPTY_USAGE, type TurnContext, type TurnSink } from './types.js';
 
@@ -49,7 +51,7 @@ describe('provider registry', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toContain('not implemented yet');
     expect(outcome.usage).toEqual(EMPTY_USAGE);
-    expect(stub.interrupt()).toBe(false);
+    expect(stub.interrupt('t1')).toBe(false);
   });
 
   it('caches checks for 60s and re-runs them on force', async () => {
@@ -70,7 +72,7 @@ describe('provider registry', () => {
     expect(res.providers.map((p) => p.id)).toEqual([...PROVIDER_IDS]);
     const claude = res.providers.find((p) => p.id === 'claude')!;
     expect(claude.permissions).toBe('full');
-    expect(res.providers.filter((p) => p.permissions === 'best-effort').map((p) => p.id)).toEqual(['codex', 'opencode', 'grok']);
+    expect(res.providers.filter((p) => p.permissions === 'best-effort').map((p) => p.id)).toEqual(['codex', 'opencode', 'grok', 'gemini']);
     expect(claude.models.length).toBeGreaterThan(0);
     // response() probes every provider by spawning its real CLI, so this is genuinely slow; the default
     // 5s is enough alone but not when the suite runs it alongside everything else.
@@ -110,5 +112,65 @@ describe('provider registry with only Claude enabled (the v1 default)', () => {
     expect(c.error).toContain('not enabled');
     await reg.shutdown();
     expect(touched).toEqual([]);
+  });
+});
+
+describe('provider limits (M5, spec 01 P0-2)', () => {
+  it('GET /api/providers carries the limits in force, for enabled providers only', async () => {
+    const health = new ProviderHealth();
+    const reg = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'], health });
+    expect(reg.health).toBe(health);
+    const resetsAt = Date.now() + 60_000;
+    health.hold('claude', { kind: 'usage', resetsAt, window: 'five_hour' });
+    health.hold('codex', { kind: 'usage', resetsAt });
+    const res = await reg.response();
+    expect(res.limits).toMatchObject([{ provider: 'claude', status: 'held', window: 'five_hour', resetsAt }]);
+  }, 30_000);
+
+  it('the default ProviderHealth sends each change as the WS provider.limit event', () => {
+    const reg = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'] });
+    const seen: unknown[] = [];
+    const off = events.onEvent((ev) => { if (ev.type === 'provider.limit') seen.push(ev.limits); });
+    try {
+      reg.health.hold('claude', { kind: 'usage', resetsAt: Date.now() + 60_000, window: 'five_hour' });
+    } finally {
+      off();
+    }
+    expect(seen).toMatchObject([[{ provider: 'claude', status: 'held', window: 'five_hour' }]]);
+  });
+});
+
+describe('M6: provider per bot in the registry', () => {
+  it('forBot uses the bot\'s own provider, else the default; a disabled one resolves to Claude', () => {
+    const reg = createProviders({ settings: { get: () => ({ ...DEFAULT_SETTINGS, provider: 'codex' }) }, enabled: ['claude', 'codex'] });
+    expect(reg.forBot({ provider: null }).id).toBe('codex');
+    expect(reg.forBot({}).id).toBe('codex');
+    expect(reg.forBot({ provider: 'claude' }).id).toBe('claude');
+    expect(reg.forBot({ provider: 'grok' }).id).toBe('claude');
+  });
+
+  it('claudeReady needs the CLI, a sign-in the last check did not deny, and no whole-login hold', async () => {
+    let exe = true;
+    const health = new ProviderHealth();
+    const reg = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'], health, claudeExe: () => exe });
+    expect(reg.claudeReady()).toBe(true);
+    exe = false;
+    expect(reg.claudeReady()).toBe(false);
+    exe = true;
+
+    // A weekly Opus hold covers Opus only: the Haiku passes still run. A five-hour hold stops them until it clears.
+    health.hold('claude', { kind: 'usage', window: 'seven_day_opus', resetsAt: Date.now() + 60_000 }, 'claude-opus-5');
+    expect(reg.claudeReady()).toBe(true);
+    health.hold('claude', { kind: 'usage', window: 'five_hour', resetsAt: Date.now() + 60_000 });
+    expect(reg.claudeReady()).toBe(false);
+
+    const fresh = createProviders({ settings: { get: () => DEFAULT_SETTINGS }, enabled: ['claude'], claudeExe: () => true });
+    fresh.claude.check = async () => ({ ok: false, auth: 'none', error: 'Claude Code is installed but not signed in.' });
+    await fresh.check('claude', true);
+    expect(fresh.claudeReady()).toBe(false);
+    // A check that timed out says nothing about the login.
+    fresh.claude.check = async () => ({ ok: false, auth: 'unknown', unresponsive: true });
+    await fresh.check('claude', true);
+    expect(fresh.claudeReady()).toBe(true);
   });
 });

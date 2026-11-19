@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MAX_MEDIA_BYTES, isMediaRef, mediaHash } from '@pocketrocket/shared';
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_IMAGE_BYTES, MAX_MEDIA_BYTES, isMediaRef, mediaHash } from '@pocketrocket/shared';
 
 export type MediaType = 'image/png' | 'image/jpeg' | 'image/webp';
 
@@ -40,8 +40,8 @@ export class MediaStore {
   }
 
   /** Validates and stores. The same bytes again land on the same file, and count as fresh for the sweep. */
-  put(bytes: Buffer): string {
-    if (bytes.length > MAX_MEDIA_BYTES) throw new MediaRejected('Image too large', 413);
+  put(bytes: Buffer, maxBytes: number = MAX_MEDIA_BYTES): string {
+    if (bytes.length > maxBytes) throw new MediaRejected('Image too large', 413);
     if (!sniffImageType(bytes)) throw new MediaRejected('Use a PNG, JPEG or WebP image', 415);
     const hash = createHash('sha256').update(bytes).digest('hex');
     const file = this.file(hash)!;
@@ -55,6 +55,21 @@ export class MediaStore {
       fs.renameSync(tmp, file);
     }
     return 'img:' + hash;
+  }
+
+  /**
+   * Why a message may not carry these pictures, or null. Every ref must be well formed, stored by this hub and still
+   * an allowed image (the type is read from the bytes again). One bad ref refuses them all.
+   */
+  checkAttachments(refs: readonly string[]): string | null {
+    if (refs.length > MAX_ATTACHMENTS) return 'At most ' + MAX_ATTACHMENTS + ' pictures per message';
+    for (const ref of refs) {
+      if (!isMediaRef(ref)) return 'Not a picture this hub stored';
+      const found = this.read(mediaHash(ref));
+      if (!found) return 'A picture is missing or not allowed. Attach it again.';
+      if (found.bytes.length > MAX_ATTACHMENT_IMAGE_BYTES) return 'A picture is too large. Use one under ' + Math.floor(MAX_ATTACHMENT_IMAGE_BYTES / 1024 / 1024 * 10) / 10 + ' MB.';
+    }
+    return null;
   }
 
   has(hash: string): boolean {
@@ -98,8 +113,8 @@ export class MediaStore {
   }
 }
 
-/** Every picture still in use: bots, group chats and the owner. */
-export function referencedMedia(repos: { listBots(): { avatar: string }[]; listRooms(): { avatar?: string }[] }, settings: { userAvatar: string }): Set<string> {
-  const all = [...repos.listBots().map((b) => b.avatar), ...repos.listRooms().map((r) => r.avatar), settings.userAvatar];
+/** Every picture still in use: bots, group chats, the owner and chat messages. */
+export function referencedMedia(repos: { listBots(): { avatar: string }[]; listRooms(): { avatar?: string }[]; attachmentRefs?(): string[] }, settings: { userAvatar: string }): Set<string> {
+  const all = [...repos.listBots().map((b) => b.avatar), ...repos.listRooms().map((r) => r.avatar), settings.userAvatar, ...(repos.attachmentRefs?.() ?? [])];
   return new Set(all.filter(isMediaRef).map(mediaHash));
 }

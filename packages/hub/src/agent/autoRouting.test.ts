@@ -132,17 +132,21 @@ describe('use_stronger_model', () => {
     expect(failed.provider.seen).toHaveLength(1);
   });
 
-  it('survives the step limit: the continuation is on Opus, with no second switch', async () => {
+  it('survives the step limit: the move asked for applies to the continuation, with no second switch', async () => {
     const s = setup([{ call: MOVE_UP, ok: false, error: 'error_max_turns' }, { text: 'done' }]);
     await s.turn();
     expect(s.provider.seen.map((c) => c.model)).toEqual([SONNET, OPUS]);
   });
 
-  it('is offered only on Auto on Sonnet, on a thread a person started, on Claude', async () => {
+  it('is approved only on Auto on Sonnet, on a thread a person started, on Claude', async () => {
+    // Offered on every Claude turn (a tool list that changes between turns busts the prompt cache) and refused inside.
     const offered = async (o: Parameters<typeof setup>[1], p: Partial<TurnRequest> = {}) => {
       const s = setup([{ text: 'x' }], o);
       await s.turn(p);
-      return toolNames(s.provider.seen[0]).includes('use_stronger_model');
+      const tool = s.provider.seen[0].tools.find((t) => t.name === 'use_stronger_model');
+      if (!tool) return false;
+      const out = await tool.handler({ reason: 'multi-step design' });
+      return !out.isError && (out.content[0] as { text: string }).text.startsWith('Approved');
     };
     expect(await offered({})).toBe(true);
     expect(await offered({}, { hop: 1 })).toBe(true); // a hand-off on a person's thread
@@ -174,13 +178,14 @@ describe('the chat picker', () => {
     expect(s.repos.db.all<{ route_reason: string }>('SELECT route_reason FROM usage ORDER BY id')[0].route_reason).toBe('chosen');
   });
 
-  it('a manual pick never escalates, and Auto on a pinned bot does', async () => {
+  it('a manual pick never escalates, and neither does a step-limit continuation on Auto', async () => {
     const pick = setup([{ ok: false, error: 'error_max_turns' }, { text: 'done' }]);
     await pick.turn({ chatModel: SONNET });
     expect(pick.provider.seen.map((c) => c.model)).toEqual([SONNET, SONNET]);
     const auto = setup([{ ok: false, error: 'error_max_turns' }, { text: 'done' }], { model: HAIKU });
     await auto.turn({ chatModel: AUTO_MODEL });
-    expect(auto.provider.seen.map((c) => c.model)).toEqual([SONNET, OPUS]);
+    // Running out of steps stays on the tier: an Opus replay of the turn's largest context is what burns a plan.
+    expect(auto.provider.seen.map((c) => c.model)).toEqual([SONNET, SONNET]);
   });
 
   it('is ignored by other providers, and for an id the provider does not list', async () => {
@@ -332,10 +337,14 @@ describe('routing.md belongs to the owner', () => {
 
   it('is proposed only on a turn the owner started, never on automation or a hand-off', async () => {
     const routing = new RoutingRules(path.join(tmp(), 'routing.md'));
+    // Present on every turn, so the tool list stays stable; refused before any card on the others.
     const offered = async (p: Partial<TurnRequest>) => {
-      const s = setup([{ text: 'x' }], { routing });
+      const s = setup([{ call: { name: 'propose_routing_change', input: { line: 'Invoices go to @finance', reason: 'Asked for it' } }, text: 'x' }], { routing, bypass: true });
+      const off = events.onEvent((ev) => { if (ev.type === 'approval.request') setTimeout(() => s.broker.resolve(ev.approval.approvalId, 'deny'), 0); });
       await s.turn(p);
-      return toolNames(s.provider.seen[0]).includes('propose_routing_change');
+      off();
+      expect(toolNames(s.provider.seen[0])).toContain('propose_routing_change');
+      return !/only be proposed/.test(s.provider.answers[0]);
     };
     expect(await offered({})).toBe(true);
     expect(await offered({ causeKind: 'routine', strictApprovals: true })).toBe(false);

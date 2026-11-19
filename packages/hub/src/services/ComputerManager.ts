@@ -407,8 +407,14 @@ export class ComputerManager {
     const unit = unitName(row.slot, botId);
     if (row.state === 'live') {
       if (await this.sys.isActive(unit)) {
-        this.reasons.delete(botId);
-        return { ok: true, endpoint };
+        if (await this.probe(endpoint.cdpUrl)) {
+          this.reasons.delete(botId);
+          return { ok: true, endpoint };
+        }
+        // The unit can outlive its browser (Chromium gone while Xvfb and noVNC stay up, seen after a hub restart).
+        // Handing that out would fail every browser call, so the computer is restarted instead.
+        console.warn('[computers] ' + botId + "'s browser is not answering; restarting its computer");
+        await this.sys.stop(unit).catch(() => undefined);
       }
       this.repo.setState(botId, 'asleep');
     }

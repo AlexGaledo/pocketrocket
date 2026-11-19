@@ -129,6 +129,8 @@ export interface TriggerPayload {
   name: string;
   source: TriggerSource;
   eventId: string | null;
+  /** A person pressed "Test fire": not an outside event (the attended check reads this). */
+  manual?: boolean;
 }
 
 /** One poll stream's health, for the builder ("last checked 2 min ago", errors). */

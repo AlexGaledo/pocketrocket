@@ -158,12 +158,16 @@ describe('ModelRouter stays within the active provider', () => {
 describe('ModelRouter escalation on retry', () => {
   const router = new ModelRouter();
 
-  it('moves an auto bot to Opus after error_max_turns or an error', () => {
+  it('moves an auto bot to Opus after an error', () => {
     const first = route(req());
-    expect(router.escalate(req(), first, 'error_max_turns')).toMatchObject({ model: OPUS, reason: 'retry', detail: 'Auto: Opus after the step limit (retry)' });
     expect(router.escalate(req(), first, 'error')).toMatchObject({ model: OPUS, reason: 'retry' });
-    // A Haiku triage that runs out of steps goes straight to Opus as well.
-    expect(router.escalate(req({ causeKind: 'trigger' }), route(req({ causeKind: 'trigger' })), 'error_max_turns').model).toBe(OPUS);
+  });
+
+  it('keeps a step-limit continuation on the same tier (no Opus replay of the largest context)', () => {
+    const first = route(req());
+    expect(router.escalate(req(), first, 'error_max_turns')).toBe(first);
+    const triage = route(req({ causeKind: 'trigger' }));
+    expect(router.escalate(req({ causeKind: 'trigger' }), triage, 'error_max_turns')).toBe(triage);
   });
 
   it('leaves pinned bots, Opus turns and background passes alone', () => {

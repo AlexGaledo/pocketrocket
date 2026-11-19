@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { isBotIconKey } from '@pocketrocket/shared';
 import { nanoid } from 'nanoid';
+import { MIGRATION_BACKFILL_ROWS, backfillMessagesFts } from './historyIndex.js';
 
 /**
  * Versioned schema migrations. See the header of `db.ts` for how phases add theirs.
@@ -468,6 +469,467 @@ registerMigrations([160, 169], [
       addColumnIfMissing(db, 'pc_jobs', 'finished_at', 'INTEGER');
       addColumnIfMissing(db, 'pc_jobs', 'duration_ms', 'INTEGER');
       db.exec('CREATE INDEX IF NOT EXISTS idx_pc_jobs_created ON pc_jobs(created_at)');
+    },
+  },
+  {
+    // Bridge P4: the app can start a job itself (origin 'owner', no bot or room: stored as '', shown as null) and
+    // @persona can resume a mirrored Claude Code session (mode 'resume': folder '' and the runner resolves it).
+    // Additive: the NOT NULL bot_id / room_id / folder columns stay, so rows from before read as mode 'new', origin 'bot'.
+    version: 162,
+    name: 'pc_jobs.mode, session_id, origin, resolved_folder, new_session_id',
+    up: (db) => {
+      addColumnIfMissing(db, 'pc_jobs', 'mode', "TEXT NOT NULL DEFAULT 'new'");
+      addColumnIfMissing(db, 'pc_jobs', 'session_id', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'origin', "TEXT NOT NULL DEFAULT 'bot'");
+      addColumnIfMissing(db, 'pc_jobs', 'resolved_folder', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'new_session_id', 'TEXT');
+    },
+  },
+  {
+    // Bridge P5: a sync job (mode 'sync') carries which project repo to sync, what the PC reported (commit, branch,
+    // pre-push scan) and what the hub imported from an uploaded bundle. All JSON, all NULL for older rows and other modes.
+    version: 163,
+    name: 'pc_jobs.sync_json, sync_result_json, sync_import_json',
+    up: (db) => {
+      addColumnIfMissing(db, 'pc_jobs', 'sync_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'sync_result_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'sync_import_json', 'TEXT');
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------------------------------
+// Token efficiency (agent/BotRunner.ts, services/SessionRotation.ts). Per (bot, room) session:
+//   cost_total         the SDK's cumulative total_cost_usd last reported for this session (it is cumulative across
+//                      resumes), so a turn's own cost is the difference; NULL on rows from before this migration.
+//   context_tokens     input size of the last top-level model call of the last turn; NULL = unknown, which makes a
+//   context_at         resumed legacy session rotate once. context_at is when it was measured (idle check).
+//   memory_snapshot    memory.md and identity as they were when the session started, so the system prompt stays
+//   identity_snapshot  byte-identical (prompt-cache hits) across resumed turns.
+//   summary            the hub's running summary of the room, written when a session rotates and replayed into the next.
+registerMigrations([170, 179], [
+  {
+    version: 170,
+    name: 'sessions: cost_total, context_tokens, context_at, memory/identity snapshot, summary',
+    up: (db) => {
+      addColumnIfMissing(db, 'sessions', 'cost_total', 'REAL');
+      addColumnIfMissing(db, 'sessions', 'context_tokens', 'INTEGER');
+      addColumnIfMissing(db, 'sessions', 'context_at', 'INTEGER');
+      addColumnIfMissing(db, 'sessions', 'memory_snapshot', 'TEXT');
+      addColumnIfMissing(db, 'sessions', 'identity_snapshot', 'TEXT');
+      addColumnIfMissing(db, 'sessions', 'summary', 'TEXT');
+    },
+  },
+  // P4-2: the context window the provider last reported for the session's model, for the context meter. NULL = not reported.
+  { version: 171, name: 'sessions.context_window', up: (db) => addColumnIfMissing(db, 'sessions', 'context_window', 'INTEGER') },
+]);
+
+// ---------------------------------------------------------------------------------------------------
+// Send journal (B5). A client numbers each message it sends; the hub keeps one message per (room, id) so a replay
+// after a reconnect cannot post twice. NULL for every message that did not come with an id.
+registerMigrations([180, 189], [
+  {
+    version: 180,
+    name: 'messages.client_msg_id + unique (room_id, client_msg_id)',
+    up: (db) => {
+      addColumnIfMissing(db, 'messages', 'client_msg_id', 'TEXT');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_client_msg ON messages(room_id, client_msg_id) WHERE client_msg_id IS NOT NULL');
+    },
+  },
+]);
+
+// ---------------------------------------------------------------------------------------------------
+// Tasks, history search and bot reports (G1, G2, G5).
+//   200  tasks: a room's board. Local only.
+//   201  messages_fts: full-text index over messages.text, kept in sync by triggers. Rows that existed before are
+//        indexed in bounded batches: the first here, the rest by startHistoryBackfill after the hub is up.
+//   202  bot_reports: report_blocked items and the send_feedback rate-limit log (feedback text lives in a file).
+registerMigrations([200, 209], [
+  {
+    version: 200,
+    name: 'tasks',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS tasks (' +
+          "id TEXT PRIMARY KEY, room_id TEXT NOT NULL, bot_id TEXT, assignee_bot_id TEXT, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', " +
+          "status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','doing','done','blocked')), " +
+          'due_at INTEGER, parent_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);' +
+          'CREATE INDEX IF NOT EXISTS idx_tasks_room ON tasks(room_id, status, updated_at)',
+      ),
+  },
+  {
+    version: 201,
+    name: 'messages_fts + triggers + bounded backfill',
+    up: (db) => {
+      db.exec(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, tokenize='porter unicode61');" +
+          'CREATE TABLE IF NOT EXISTS fts_backfill (name TEXT PRIMARY KEY, next_rowid INTEGER NOT NULL, upto INTEGER NOT NULL);' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END;' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; END;' +
+          'CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF text ON messages BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END',
+      );
+      db.exec("INSERT OR IGNORE INTO fts_backfill (name, next_rowid, upto) SELECT 'messages', 0, COALESCE(MAX(rowid), 0) FROM messages");
+      backfillMessagesFts(db, MIGRATION_BACKFILL_ROWS, true);
+    },
+  },
+  {
+    version: 202,
+    name: 'bot_reports',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS bot_reports (' +
+          "id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, room_id TEXT, type TEXT NOT NULL CHECK(type IN ('blocked','feedback')), " +
+          "kind TEXT, site TEXT, reason TEXT, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved','dismissed')), created_at INTEGER NOT NULL);" +
+          'CREATE INDEX IF NOT EXISTS idx_bot_reports_bot ON bot_reports(bot_id, type, created_at)',
+      ),
+  },
+]);
+
+// 240  messages_fts only indexes the kinds searchHistory reads (text, handoff, routine, trigger), so tool/approval/form
+//      cards and system rows no longer cost index space and trigger work. The update trigger fires only when the
+//      text or kind changed. Rows of other kinds that 201 already indexed are removed. Migration 201 itself is
+//      shipped on this branch and stays as it is.
+const FTS_KINDS = "('text','handoff','routine','trigger')";
+registerMigrations([240, 249], [
+  {
+    version: 240,
+    name: 'messages_fts: index searchable kinds only',
+    up: (db) => {
+      db.exec(
+        'DROP TRIGGER IF EXISTS messages_fts_ai; DROP TRIGGER IF EXISTS messages_fts_au;' +
+          'CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages WHEN new.kind IN ' + FTS_KINDS + ' BEGIN INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text); END;' +
+          'CREATE TRIGGER messages_fts_au AFTER UPDATE ON messages WHEN old.text IS NOT new.text OR old.kind IS NOT new.kind ' +
+          'BEGIN DELETE FROM messages_fts WHERE rowid=old.rowid; INSERT INTO messages_fts (rowid, text) SELECT new.rowid, new.text WHERE new.kind IN ' + FTS_KINDS + '; END',
+      );
+      db.exec('DELETE FROM messages_fts WHERE rowid IN (SELECT rowid FROM messages WHERE kind NOT IN ' + FTS_KINDS + ')');
+    },
+  },
+]);
+
+// Machines (B4). One row per machine the owner set a policy for (never | ask | always); no row means 'ask'.
+// A table rather than a settings field: machines are keyed by id and there will be more than the two that
+// exist today. Approval rules also gain an optional machine scope and an expiry (NULL = any machine / never).
+registerMigrations([190, 199], [
+  {
+    version: 190,
+    name: 'machine_policies table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS machine_policies (
+        machine TEXT PRIMARY KEY,
+        policy TEXT NOT NULL CHECK(policy IN ('never','ask','always')),
+        updated_at INTEGER NOT NULL
+      );
+    `),
+  },
+  {
+    version: 191,
+    name: 'approval_policies.machine + expires_at',
+    up: (db) => {
+      addColumnIfMissing(db, 'approval_policies', 'machine', 'TEXT');
+      addColumnIfMissing(db, 'approval_policies', 'expires_at', 'INTEGER');
+    },
+  },
+]);
+
+// Credential vault (G4). Name, origin and username of each saved login; the secret is in the encrypted vault file
+// (data/credentials.json, key in vault.key), keyed by `credentials.id`, never in this table.
+registerMigrations([210, 219], [
+  {
+    version: 210,
+    name: 'credentials',
+    up: (db) =>
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS credentials (' +
+          "id TEXT PRIMARY KEY, name TEXT NOT NULL, origin TEXT NOT NULL, username TEXT NOT NULL DEFAULT '', " +
+          'created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_used_at INTEGER);' +
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_name ON credentials(name COLLATE NOCASE)',
+      ),
+  },
+]);
+
+// 250-259  Steering and queue controls (spec 02 Phase 1-2). A person's message pushed into a running turn gets a
+//          `lane_journal` row of its own (status 'steered'), so a hub that dies before the bot answers it re-queues it
+//          once after restart even when the turn's own item has used its one resume. Once a turn consumed it the row
+//          stays as 'consumed' (with the message id) until the lane's read cursor passes it: the cursor stays at the
+//          turn's start, so the next turn would otherwise be shown the steer again (RoomRouter `unreadForLane`).
+registerMigrations([250, 259], [
+  {
+    version: 250,
+    name: 'lane_journal.status + message_id (steering)',
+    up: (db) => {
+      addColumnIfMissing(db, 'lane_journal', 'status', "TEXT NOT NULL DEFAULT 'queued'");
+      addColumnIfMissing(db, 'lane_journal', 'message_id', 'TEXT');
+    },
+  },
+  // Queue controls (Phase 2). A cancelled or edited queued message keeps that state across restarts. A lane row the
+  // owner cancelled stays as status 'cancelled' (like a consumed steer) until the lane's cursor passes it, so that
+  // bot is never shown the message even while another bot still holds it. A paused queue is a row in `lane_pauses`.
+  {
+    version: 251,
+    name: 'messages.cancelled_at + edited_at, lane_pauses (queue controls)',
+    up: (db) => {
+      addColumnIfMissing(db, 'messages', 'cancelled_at', 'INTEGER');
+      addColumnIfMissing(db, 'messages', 'edited_at', 'INTEGER');
+      db.exec(
+        'CREATE TABLE IF NOT EXISTS lane_pauses (bot_id TEXT NOT NULL, room_id TEXT NOT NULL, paused_at INTEGER NOT NULL, PRIMARY KEY (bot_id, room_id))',
+      );
+    },
+  },
+]);
+
+// Claude Code bridge P1 (docs/specs/claude-code-bridge.md 6.1, 6.3): who changed each shared file, and from where.
+// One row per revision of a file in a room, project or direct-chat folder. `hash` null = deleted. Small text files
+// keep their content for diffs. `services/FileRevisions.ts` writes it.
+registerMigrations([260, 269], [
+  {
+    version: 260,
+    name: 'file_revisions (provenance of shared files)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS file_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        root_kind TEXT NOT NULL,
+        root_key TEXT NOT NULL,
+        path TEXT NOT NULL,
+        rev INTEGER NOT NULL,
+        hash TEXT,
+        size INTEGER NOT NULL DEFAULT 0,
+        content TEXT,
+        author_kind TEXT NOT NULL,
+        author_id TEXT,
+        author_label TEXT NOT NULL DEFAULT '',
+        machine TEXT NOT NULL,
+        session_id TEXT,
+        room_id TEXT,
+        sources TEXT,
+        tool TEXT,
+        created_at INTEGER NOT NULL
+      )`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS file_revisions_path_rev ON file_revisions (root_kind, root_key, path, rev)');
+    },
+  },
+]);
+
+// Claude Code bridge P3 (docs/specs/claude-code-bridge.md 3.1): the PC session mirror. `pc_sessions` is one row per
+// Claude Code transcript on the owner's PC (a subagent transcript is a child row, `parent_id`); `offset` is how many
+// bytes of the source file the hub has consumed, so the runner resumes where it stopped. `pc_session_entries` holds
+// the compact, redacted entries. Only the owner's app reads these tables (services/PcSessions.ts); no bot tool does.
+registerMigrations([270, 279], [
+  {
+    version: 270,
+    name: 'pc_sessions + pc_session_entries (PC session mirror)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_sessions (
+        id TEXT PRIMARY KEY,
+        parent_id TEXT,
+        machine TEXT NOT NULL,
+        project_dir TEXT NOT NULL DEFAULT '',
+        cwd TEXT,
+        repo_json TEXT,
+        title TEXT,
+        first_at INTEGER NOT NULL,
+        last_at INTEGER NOT NULL,
+        offset INTEGER NOT NULL DEFAULT 0,
+        entry_count INTEGER NOT NULL DEFAULT 0,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        truncated INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS pc_sessions_last ON pc_sessions (last_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS pc_sessions_parent ON pc_sessions (parent_id)');
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_session_entries (
+        session_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        uuid TEXT NOT NULL,
+        parent_uuid TEXT,
+        at INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        tool TEXT,
+        is_error INTEGER NOT NULL DEFAULT 0,
+        is_sidechain INTEGER NOT NULL DEFAULT 0,
+        model TEXT,
+        PRIMARY KEY (session_id, seq)
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS pc_session_entries_seq ON pc_session_entries (session_id, seq)');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pc_session_entries_uuid ON pc_session_entries (session_id, uuid)');
+    },
+  },
+  {
+    version: 271,
+    name: 'pc_session_tombstones (a deleted mirrored session is not mirrored again)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_session_tombstones (
+        id TEXT PRIMARY KEY,
+        deleted_at INTEGER NOT NULL,
+        by_owner INTEGER NOT NULL DEFAULT 0
+      )`);
+    },
+  },
+]);
+
+// Claude Code bridge P6 (docs/specs/claude-code-bridge.md 3.4): a PC session moved to the VPS and pulled back.
+// `pc_session_moves` is one row per session that ever moved: where it is now (`state`), the repos that travelled (JSON:
+// project, repo, vps folder, remote, branch, base commit, worktree), the PC toplevel the paths were rewritten from, the
+// worktree the VPS turns run in and how many bytes of its jsonl the mirror has already read. A job row carries the move or
+// pull it is (JSON, NULL for the other modes), and a mirrored entry the hub itself fed from the VPS says so in `machine`.
+registerMigrations([280, 289], [
+  {
+    version: 280,
+    name: 'pc_session_moves (a PC session moved to the VPS)',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS pc_session_moves (
+        session_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        project TEXT,
+        room_id TEXT,
+        repos_json TEXT NOT NULL DEFAULT '[]',
+        pc_root TEXT,
+        vps_cwd TEXT,
+        worktree TEXT,
+        feed_offset INTEGER NOT NULL DEFAULT 0,
+        moved_at INTEGER NOT NULL,
+        pulled_at INTEGER,
+        move_job_id TEXT,
+        pull_job_id TEXT,
+        turns INTEGER NOT NULL DEFAULT 0
+      )`);
+    },
+  },
+  {
+    version: 281,
+    name: 'pc_jobs.move_json, move_result_json, pull_json, pull_result_json',
+    up: (db) => {
+      addColumnIfMissing(db, 'pc_jobs', 'move_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'move_result_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'pull_json', 'TEXT');
+      addColumnIfMissing(db, 'pc_jobs', 'pull_result_json', 'TEXT');
+    },
+  },
+  { version: 282, name: 'pc_session_entries.machine', up: (db) => addColumnIfMissing(db, 'pc_session_entries', 'machine', 'TEXT') },
+]);
+
+// Workflows v1 (docs/specs/openbot-gaps/02-steering-workflows.md, Phase 3). 290 generalises the routine run id that a lane
+// journal row and a parked approval carry into an owner ref (`routine:<runId>`, `workflow:<runId>:<nodeId>`), so the
+// turn's `onDone` can be rebuilt after a restart or a parked approval whoever started it. `run_id` stays (older hubs read
+// it) and is still written for routine refs. 291-292: the workflow definitions and their runs. A run keeps a snapshot of
+// the graph and budget it started with, so editing the workflow never changes a run in flight.
+registerMigrations([290, 299], [
+  {
+    version: 290,
+    name: 'lane_journal.owner_ref + approvals.owner_ref (backfilled from run_id)',
+    up: (db) => {
+      addColumnIfMissing(db, 'lane_journal', 'owner_ref', 'TEXT');
+      addColumnIfMissing(db, 'approvals', 'owner_ref', 'TEXT');
+      db.exec("UPDATE lane_journal SET owner_ref='routine:'||run_id WHERE owner_ref IS NULL AND run_id IS NOT NULL");
+      db.exec("UPDATE approvals SET owner_ref='routine:'||run_id WHERE owner_ref IS NULL AND run_id IS NOT NULL");
+    },
+  },
+  {
+    version: 291,
+    name: 'workflows table',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS workflows (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        room_id TEXT NOT NULL,
+        trigger_kind TEXT NOT NULL CHECK(trigger_kind IN ('routine','trigger','manual')),
+        routine_id TEXT,
+        trigger_id TEXT,
+        graph_json TEXT NOT NULL,
+        budget_usd REAL NOT NULL DEFAULT 2,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflows_routine ON workflows(routine_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflows_trigger ON workflows(trigger_id)');
+    },
+  },
+  {
+    version: 292,
+    name: 'workflow_runs table',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS workflow_runs (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        cause_id TEXT,
+        node_id TEXT,
+        status TEXT NOT NULL CHECK(status IN ('running','waiting','success','error','cancelled')),
+        steps_json TEXT NOT NULL DEFAULT '[]',
+        graph_json TEXT NOT NULL,
+        budget_usd REAL NOT NULL DEFAULT 2,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        manual INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        expires_at INTEGER,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_wf ON workflow_runs(workflow_id, started_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)');
+    },
+  },
+  // The room the run's thread lives in, fixed when it starts (the workflow may be moved to another chat meanwhile).
+  { version: 293, name: 'workflow_runs.room_id', up: (db) => addColumnIfMissing(db, 'workflow_runs', 'room_id', 'TEXT') },
+]);
+
+// 300-309  Telegram notifications (spec 03 Phase A). One row (id 1): which bot is set up and which private chat is
+//          linked. The token itself is in the encrypted vault (`telegram` entry), never here. The link stores the
+//          numeric Telegram user id only; `linked_name` is a display label for Settings and is not an identity.
+registerMigrations([300, 309], [
+  {
+    version: 300,
+    name: 'telegram_link',
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS telegram_link (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        bot_id TEXT,
+        bot_username TEXT,
+        chat_id TEXT,
+        linked_name TEXT,
+        notify INTEGER NOT NULL DEFAULT 0,
+        linked_at INTEGER
+      )`),
+  },
+]);
+
+// 310-319  Gap 1 Phase 1: provider per bot (docs/specs/openbot-gaps/01-providers-failover.md P1-1). The spec planned
+//          270-279, but the PC session mirror took 270-271 first, so this block moved here (docs/specs/decisions.md).
+//          `bots.provider` NULL = follow settings.provider; `bots.backup` is JSON {provider, model} or NULL;
+//          `usage.provider` is the provider that ran the turn (NULL on rows from before it existed).
+registerMigrations([310, 319], [
+  { version: 310, name: 'bots.provider', up: (db) => addColumnIfMissing(db, 'bots', 'provider', 'TEXT') },
+  { version: 311, name: 'bots.backup', up: (db) => addColumnIfMissing(db, 'bots', 'backup', 'TEXT') },
+  { version: 312, name: 'usage.provider', up: (db) => addColumnIfMissing(db, 'usage', 'provider', 'TEXT') },
+  // M8 (P3-1): failover cards. One row per card; `status` leaves 'pending' once. A 'continued' row whose `expires_at` is
+  // still ahead is what sends the bot's attended turns to its backup. `from_seq`/`to_seq` are the read window of the
+  // limited turn, so Continue can show the bot the messages it never answered; `budget_usd` is what that turn had left
+  // (NULL = no dollar cap), so Continue never raises it.
+  {
+    version: 313,
+    name: 'failover_cards',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS failover_cards (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        cause_id TEXT NOT NULL,
+        hop INTEGER NOT NULL DEFAULT 0,
+        provider TEXT NOT NULL,
+        model TEXT,
+        limit_window TEXT,
+        backup_provider TEXT NOT NULL,
+        backup_model TEXT NOT NULL,
+        resets_at INTEGER,
+        expires_at INTEGER NOT NULL,
+        from_seq INTEGER NOT NULL DEFAULT 0,
+        to_seq INTEGER NOT NULL DEFAULT 0,
+        budget_usd REAL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        answered_at INTEGER
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_failover_cards_status ON failover_cards(status, expires_at)');
     },
   },
 ]);

@@ -8,10 +8,16 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight, KeyRound, Power, RefreshCw, TriangleAlert } from 'lucide-react';
-import type { PcJobStatus, PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { MachineInfo, MachinePolicy, PcRunnerStatus } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
-import { Badge, Button, cn, confirmAction, fmtUsd } from '../ui';
+import { Badge, Button, Field, Label, Select, cn, confirmAction, fmtUsd } from '../ui';
+import { JOB_STATUS, modeLabel, newRunBody, originLabel, pcBlockedReason, type PcJobView } from '../../lib/pcRun';
+import type { PcJobWithSync } from '../../lib/projectRepos';
+import { SyncSummary } from '../PcSyncPanel';
+import { MoveSummary } from '../PcMovePanel';
+import type { PcJobWithMove } from '../../lib/pcMove';
+import { PcRunForm, usePcStart } from '../PcRunForm';
 import { Card, Group, InlineError, Private, SectionHeader } from './parts';
 
 function ago(ts: number | null): string {
@@ -32,23 +38,12 @@ function fmtDuration(ms: number): string {
   return m < 60 ? m + ' min ' + (s % 60) + ' s' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
 }
 
-const STATUS: Record<PcJobStatus, { label: string; tone: 'muted' | 'ok' | 'warn' | 'bad' | 'accent' }> = {
-  pending_approval: { label: 'Waiting for you', tone: 'warn' },
-  queued: { label: 'Queued', tone: 'muted' },
-  claimed: { label: 'Picked up', tone: 'accent' },
-  running: { label: 'Running', tone: 'accent' },
-  done: { label: 'Done', tone: 'ok' },
-  failed: { label: 'Failed', tone: 'bad' },
-  refused: { label: 'Refused on PC', tone: 'warn' },
-  expired: { label: 'Expired', tone: 'muted' },
-  cancelled: { label: 'Cancelled', tone: 'muted' },
-};
-
 export function PcRunnerSection({ onOpenSecurity }: { onOpenSecurity: () => void }) {
   const rev = useStore((s) => s.pcRunnerRev);
+  const signedIn = useStore((s) => s.signedIn);
   const [status, setStatus] = useState<PcRunnerStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<PcRunnerJob[] | null>(null);
+  const [jobs, setJobs] = useState<PcJobView[] | null>(null);
   const [jobsError, setJobsError] = useState<string | null>(null);
   // Jobs can only be allowed from a password-signed-in browser, so with no password nothing can ever run.
   const [passwordSet, setPasswordSet] = useState<boolean | null>(null);
@@ -79,6 +74,8 @@ export function PcRunnerSection({ onOpenSecurity }: { onOpenSecurity: () => void
         </div>
       )}
       <StatusGroup status={status} error={statusError} onChanged={load} />
+      {status?.paired && <RunGroup status={status} signedIn={signedIn} />}
+      {status?.paired && <MachinesGroup rev={rev} />}
       <JobsGroup jobs={jobs} error={jobsError} onRefresh={load} />
     </>
   );
@@ -195,9 +192,57 @@ function StatusGroup({ status, error, onChanged }: { status: PcRunnerStatus | nu
   );
 }
 
+// ---------- per-machine policy ----------
+
+const POLICY_HELP: Record<MachinePolicy, string> = {
+  never: 'Bots cannot send anything to this machine.',
+  ask: 'Bots can ask. Every job needs your OK here and again on the PC.',
+  always: 'Same as Ask: every job still needs your signed-in OK and the PC still asks you. This never skips a prompt.',
+};
+
+function MachinesGroup({ rev }: { rev: number }) {
+  const toast = useStore((s) => s.toast);
+  const [machines, setMachines] = useState<MachineInfo[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api.pcRunner.machines().then((m) => alive && setMachines(m), () => alive && setMachines([]));
+    return () => { alive = false; };
+  }, [rev]);
+  // The bot's own computer has no policy to set here; approvals settings govern it.
+  const pc = machines?.find((m) => m.kind === 'pc');
+  if (!pc) return null;
+  const change = async (policy: MachinePolicy) => {
+    setBusy(true);
+    try {
+      const next = await api.pcRunner.setMachinePolicy(pc.id, policy);
+      setMachines((cur) => cur?.map((m) => (m.id === next.id ? next : m)) ?? cur);
+    } catch (e) {
+      toast("Couldn't change the policy: " + (e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Group title="Machine policy">
+      <Card>
+        <Field>
+          <Label>{pc.label}</Label>
+          <Select value={pc.policy} disabled={busy} onChange={(e) => void change(e.target.value as MachinePolicy)}>
+            <option value="never">Never</option>
+            <option value="ask">Ask</option>
+            <option value="always">Always</option>
+          </Select>
+        </Field>
+        <p className="mt-1.5 text-hint leading-snug text-muted">{POLICY_HELP[pc.policy]}</p>
+      </Card>
+    </Group>
+  );
+}
+
 // ---------- the job log ----------
 
-function JobsGroup({ jobs, error, onRefresh }: { jobs: PcRunnerJob[] | null; error: string | null; onRefresh: () => void }) {
+function JobsGroup({ jobs, error, onRefresh }: { jobs: PcJobView[] | null; error: string | null; onRefresh: () => void }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <Group title="Jobs" aside={<Button size="sm" variant="ghost" onClick={onRefresh}><RefreshCw size={13} aria-hidden /> Refresh</Button>}>
@@ -217,10 +262,10 @@ function JobsGroup({ jobs, error, onRefresh }: { jobs: PcRunnerJob[] | null; err
   );
 }
 
-function JobRow({ j, open, onToggle }: { j: PcRunnerJob; open: boolean; onToggle: () => void }) {
-  const s = STATUS[j.status];
+function JobRow({ j, open, onToggle }: { j: PcJobView; open: boolean; onToggle: () => void }) {
+  const s = JOB_STATUS[j.status];
   const meta = [
-    j.room.name ?? '(deleted chat)',
+    j.origin === 'owner' ? 'From the app' : (j.room.name ?? '(deleted chat)'),
     ago(j.createdAt),
     j.durationMs !== null ? fmtDuration(j.durationMs) : null,
     j.costUsd !== null ? fmtUsd(j.costUsd) : null,
@@ -239,8 +284,12 @@ function JobRow({ j, open, onToggle }: { j: PcRunnerJob; open: boolean; onToggle
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui">
             <Badge tone={s.tone}>{s.label}</Badge>
-            <span className="font-mono text-hint">@{j.bot.handle ?? 'deleted-bot'}</span>
-            <span className="font-mono text-hint text-muted">{j.folder}</span>
+            {j.mode === 'resume' && <Badge>Resume</Badge>}
+            {(j.mode as string) === 'sync' && <Badge>Sync</Badge>}
+            {(j.mode as string) === 'move' && <Badge tone="accent">Move to VPS</Badge>}
+            {(j.mode as string) === 'pull' && <Badge tone="accent">Pull back</Badge>}
+            <span className="font-mono text-hint">{j.origin === 'owner' ? 'You' : '@' + (j.bot.handle ?? 'deleted-bot')}</span>
+            {(j.resolvedFolder ?? j.folder) && <span className="font-mono text-hint text-muted">{j.resolvedFolder ?? j.folder}</span>}
           </div>
           <div className="mt-1 truncate text-ui">{j.prompt.split('\n')[0]}</div>
           <div className="mt-0.5 text-hint text-muted">{meta}</div>
@@ -251,7 +300,7 @@ function JobRow({ j, open, onToggle }: { j: PcRunnerJob; open: boolean; onToggle
   );
 }
 
-function JobDetail({ id, j }: { id: string; j: PcRunnerJob }) {
+function JobDetail({ id, j }: { id: string; j: PcJobView }) {
   const times = [
     'Asked ' + new Date(j.createdAt).toLocaleString(),
     j.startedAt ? 'started ' + new Date(j.startedAt).toLocaleTimeString() : null,
@@ -261,8 +310,18 @@ function JobDetail({ id, j }: { id: string; j: PcRunnerJob }) {
   return (
     <div id={id} className="pb-3 pl-6">
       <div className="text-hint text-muted">{times}</div>
-      <div className="mt-2 text-hint font-medium text-fg">Prompt</div>
-      <pre className={box} tabIndex={0} aria-label="Job prompt">{j.prompt}</pre>
+      <div className="mt-1 text-hint text-muted">
+        {modeLabel(j)} run, started by {originLabel(j) === 'You' ? 'you' : 'a bot'}
+        {['resume', 'sync', 'move', 'pull'].includes(j.mode as string) && j.sessionId && <> · <SessionLink id={j.sessionId} /></>}
+      </div>
+      {(j.mode as string) === 'sync' && <SyncSummary j={j as PcJobWithSync} />}
+      {['move', 'pull'].includes(j.mode as string) && <MoveSummary j={j as PcJobWithMove} />}
+      {j.prompt && (
+        <>
+          <div className="mt-2 text-hint font-medium text-fg">Prompt</div>
+          <pre className={box} tabIndex={0} aria-label="Job prompt">{j.prompt}</pre>
+        </>
+      )}
       {j.error && (
         <p className="mt-2 text-hint text-muted"><span className="font-medium text-fg">Why it stopped:</span> {j.error}</p>
       )}
@@ -275,5 +334,51 @@ function JobDetail({ id, j }: { id: string; j: PcRunnerJob }) {
         </>
       )}
     </div>
+  );
+}
+
+/** Resume jobs name the mirrored session they continued; the link opens its transcript. */
+function SessionLink({ id }: { id: string }) {
+  const openPcSession = useStore((s) => s.openPcSession);
+  const [title, setTitle] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.pcSessions.get(id).then((d) => alive && setTitle(d.title), () => undefined);
+    return () => { alive = false; };
+  }, [id]);
+  return (
+    <button type="button" onClick={() => openPcSession(id)} className="rounded-sm text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+      {title || 'Open session ' + id.slice(0, 8)}
+    </button>
+  );
+}
+
+// ---------- start a new run from the app ----------
+
+function RunGroup({ status, signedIn }: { status: PcRunnerStatus; signedIn: boolean }) {
+  const [folder, setFolder] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const run = usePcStart();
+  // Keep the choice valid when the runner's folders load or change.
+  const chosen = status.folders.includes(folder) ? folder : (status.folders[0] ?? '');
+  return (
+    <Group title="Run on PC">
+      <Card>
+        <PcRunForm
+          blocked={pcBlockedReason({ status, signedIn })}
+          folders={status.folders}
+          folder={chosen}
+          onFolder={setFolder}
+          prompt={prompt}
+          onPrompt={setPrompt}
+          submitLabel="Run on PC"
+          busy={run.busy}
+          placeholder="What should Claude Code do in this folder?"
+          error={run.error}
+          job={run.job}
+          onSubmit={() => { void run.start(newRunBody(chosen, prompt)).then((ok) => ok && setPrompt('')); }}
+        />
+      </Card>
+    </Group>
   );
 }

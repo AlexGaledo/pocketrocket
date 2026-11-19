@@ -20,6 +20,100 @@ Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no aut
    own config (see "Isolation"). It stops the job after 15 minutes and sends back the result, capped at 20 KB,
    with its cost and duration.
 
+### Resume jobs
+
+A job can also ask to **resume** a session the mirror showed in PocketRocket. The hub sends only the session id, never a
+folder. The runner then:
+
+1. looks for exactly `<claudeProjectsDir>/<project>/<id>.jsonl` (a subagent id, or anything that is not a plain session
+   id, is refused; a transcript that is really a link elsewhere does not count),
+2. reads the working folder the session recorded and requires that it exists and sits inside one of your `folders`,
+   checked twice: the written path with `..` resolved, and the real path (so a junction or symlink cannot lead out),
+3. uses that folder's tools and MCP servers, the same isolation flags as a new job, and runs
+   `claude -p --resume <id>` with the folder as the working directory,
+4. shows the dialog with mode, session title, working folder and the allowlist folder it matched, and reports the
+   allowlist folder name back as `resolvedFolder`.
+
+Checked on Claude Code 2.1.327 with the isolation flags on: `--resume` appends to the same `<id>.jsonl` (same session
+id, earlier turns remembered), so the mirror shows the new turns in the same transcript. If a version ever starts a new
+session instead, the runner reports it as `newSessionId`.
+
+### Sync a session's repo
+
+A **sync** job copies the repo around a mirrored session to the server so bots there can work on it. No Claude is
+started; the runner only runs git. It works like a resume job to find the repo: the session's recorded folder must sit
+inside your `folders` allowlist (checked twice, written path and real path), `git rev-parse --show-toplevel` finds the
+repo, and the repo must lie inside that same allowlist folder. The repo's `origin` (fetch and push URL, as git resolves
+them) must be the same repo as the project's remote in the job, compared in a normalised form (`git@host:o/r.git` and
+`https://host/o/r` are the same; credentials are ignored), or the job is refused.
+
+**What is sent.** A snapshot commit of the working tree: your uncommitted edits, deletions and untracked files that
+`.gitignore` does not hide, on top of your current `HEAD`, plus any commits you have not pushed to origin yet.
+It is built in a temporary index file with `write-tree` and `commit-tree`, so your working folder, index, `HEAD`,
+branches and stash are never touched (the snapshot's objects stay in `.git/objects` until git cleans them up). Then:
+
+- `wip-branch`: pushes only `refs/heads/wip/<machine>/<first 8 of the session id>`, where `<machine>` is this PC's host
+  name made lower case with only `a-z 0-9 -`. The refspec is built and checked in code right before the push, with a
+  lease on that one ref. `main`, any protected branch and every other ref cannot be named. The push goes to the URL
+  directly, so your repo gets no new remote-tracking branch. ssh runs in BatchMode (keys only). HTTPS remotes need a
+  credential helper set in the repo's own git config; the runner ignores your global and system git config.
+- `bundle`: makes a `git bundle` of the snapshot (its full history), cap 200 MB, and streams it to the hub through the
+  verified tunnel with its length and a sha256. Nothing is pushed to the remote. The bundle file is deleted afterwards.
+
+**The scan** runs before the dialog, over everything the push would add (the snapshot plus unpushed commits, so a key
+committed and removed again is still caught). It blocks on any added or changed file named `.env*` (except
+`.env.example`), `*.pem`, `*.p8`, `*.p12`, `*.key`, `*.keystore` or `id_rsa*`, and on added lines that look like an API
+key or token (`sk-...`, `ghp_`, `github_pat_`, AWS `AKIA`, Slack `xox`, JWTs, `-----BEGIN ... PRIVATE KEY-----` and the
+other shapes in `scrub.mjs`). A blocked scan is refused without asking, and the result lists the file and the kind of
+finding, never the secret. It does not look for passwords in plain code (too many false alarms), so the file list in the
+dialog is still worth a glance. A scan that cannot finish (more than 500 unpushed commits, too much text) also blocks.
+
+**The dialog** shows SYNC, the repo name, the remote, the mode, the target branch (or "bundle to the server"), how many
+files changed and how many lines, the scan result, and the list of changed files. Run / Refuse works as for any job.
+
+Never synced: repos the project marks as client repos (the hub refuses those jobs; they stay on this PC), files hidden
+by `.gitignore` (so a normal `.env` stays here), and any `.env*` file even when it is not ignored (the scan blocks it).
+Environment files are never copied. A repo whose `.gitattributes` names a filter driver runs that driver while the
+snapshot is built, the same as `git add` does for you.
+
+### Move a session to the VPS and pull it back
+
+Two more no-Claude jobs let the SAME conversation continue on the server and come back (bridge phase 6).
+
+**move.** The hub names the session and every linked repo (bundle repos only, never client repos). The runner finds the
+local repo for each one (the session's own repo, a repo that is an allowlisted folder, or a repo directly inside an
+allowlisted folder), requires its `origin` to match the project remote and the repo to lie inside the allowlist, then
+snapshots and scans EVERY repo before asking. One blocked scan refuses the whole move without a dialog. One dialog lists
+the session and each repo with its changed files. On Run it uploads a bundle per repo
+(`POST /jobs/<id>/bundle?repo=<name>`, x-bundle-sha256, cap 200 MB; nothing is pushed to any remote) and then the
+session transcript (`POST /jobs/<id>/session`, raw bytes, Content-Length, x-session-sha256, cap 100 MB; a copy of the
+file, so a transcript that grows mid-upload cannot disagree with its hash), all through the verified tunnel. The result
+is `move: { repos: [{ repo, commit, branch, bundleBytes }], sessionBytes }`. Your folders, branches, indexes and the
+transcript are not changed by a move.
+
+**pull.** The runner downloads the transcript (`GET /jobs/<id>/session`) and one bundle per repo
+(`GET /jobs/<id>/bundle?repo=<name>`). Every download needs the hub's `x-session-sha256` / `x-bundle-sha256` header and
+must match it; the transcript must be JSON lines whose `cwd` values sit inside your repos; each bundle is verified and
+unpacked in a throwaway bare repo that borrows your objects (with `transfer.fsckObjects`), and the branch it carries must
+be exactly `wip/<machine>/<session first 8>`. One dialog lists, per repo, the files changed on the server and whether your
+folder still equals what was moved. On Run:
+
+1. each bundle is fetched into your repo as that one branch (`refs/heads/wip/<machine>/<sid8>`, forced, it is the
+   session's own) and nothing else;
+2. if your working folder still equals the snapshot that was moved (checked in a temporary index), the server's final
+   files are written into it as uncommitted edits: removed files are deleted, new and changed files are written with
+   `checkout-index` from a temporary index. HEAD, your branch and the real index file are not touched. If the folder
+   changed since the move, it is left alone and the result says so: the server's work is on the wip branch for you to merge;
+3. the transcript is replaced; the old one is kept next to it as `<id>.jsonl.pocketrocket-bak` (Claude ignores it).
+
+The result is `pull: { repos: [{ repo, commit, applied, note }], sessionBytes }`.
+
+**The lock.** While a session is moving, on the VPS or coming back, this PC refuses to `resume` it (the hub marks the job
+`onVps`, and the runner remembers its own moves), the mirror stops shipping PC-side appends to it (the hub also flags it in
+`/api/pc-sessions/sync` and the PUT/POST answers with `onVps`), and the MCP server adds a warning line to every tool
+result in that terminal when the hub's `GET /api/cc/session-state` says `{ "state": "moving" | "on-vps" | "pulling" }`
+(or any answer carries `x-cc-session-state`).
+
 Before the runner sends its token anywhere, it checks that whatever listens on `127.0.0.1:<localPort>` is its
 own ssh process (`Get-NetTCPConnection`, owner pid = ssh pid). It does this when the tunnel starts and after every
 restart. If another program holds the port, the runner sends nothing, logs `port_squatted`, kills its ssh and
@@ -28,7 +122,7 @@ backs off.
 ## Setup
 
 1. Make sure `ssh crm-agency` works from PowerShell with your key and no password prompt.
-2. Install. This copies the runner to `%LOCALAPPDATA%\PocketRocketRunner` and puts two Desktop shortcuts there:
+2. Install. This copies the runner to `%LOCALAPPDATA%\PocketRocketRunner` and puts three Desktop shortcuts there (Runner ON, Runner OFF, Mirror pause-resume):
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\pc-runner\install.ps1
    ```
@@ -122,7 +216,7 @@ A job folder is a repo that bots can push to, so its own `.claude/settings.json`
 | `--strict-mcp-config --mcp-config <runner temp file>` | only the folder's `mcpServers`; `.mcp.json` and `~/.claude.json` servers are ignored |
 | `--tools <built-ins>` | only the built-in tools the list names exist |
 | `--allowedTools` / `--disallowedTools` | the folder's list, and the always-denied git commands and git-metadata edits |
-| `--no-session-persistence` | no transcript is left on disk |
+| `--no-session-persistence` | no transcript is left on disk (new jobs; a resume job drops it and uses `--resume <id>` instead) |
 | process environment | the hardened git environment above |
 
 Every flag was checked against `claude --help` (Claude Code 2.1.319). `--permission-mode default` is not one of
@@ -164,6 +258,97 @@ The owner's own user settings also had `defaultMode: bypassPermissions`. Results
   folder, the first 200 characters of the prompt, your decision, cost and duration. They never hold the
   output or the token.
 
+## Use PocketRocket from Claude Code
+
+A small MCP server (`mcp.mjs`, plain Node, no packages) lets a Claude Code session in your terminal work with
+PocketRocket rooms. It is added to Claude Code once, for your user:
+
+```
+claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"
+```
+
+Run that from cmd. In PowerShell use `"$env:LOCALAPPDATA\PocketRocketRunner\mcp.cmd"`. `install.ps1` copies the
+files and prints the line. Check with `claude mcp list`.
+
+**It only works while the runner is ON.** The server talks to the hub through the runner's SSH tunnel and never
+starts ssh itself. With the runner off, every tool answers with an error asking you to press "PocketRocket Runner
+ON". It needs no approval dialog: it is your own session, and writes are versioned and attributed on the hub.
+
+| Tool | Does |
+|---|---|
+| `list_rooms` | your rooms, with project and whether they have a shared folder |
+| `read_room {room, limit?, before?}` | recent messages, oldest first |
+| `post_to_room {room, text}` | posts as you, working through Claude Code |
+| `read_state {room}` | the room's `current.md` (with hash), project and recent decisions |
+| `read_file {room, path}` | a shared text file with its hash |
+| `write_file {room, path, text, base, sources?}` | replaces a shared text file; `base` is the hash you read |
+| `log_decision {room, title, text, supersedes?, sources?}` | appends to the decision log |
+| `handoff {room, to, task, context?}` | hands a task to a bot, with the context it needs |
+
+`room` is a room id or a room name (any capitalisation). If two rooms share a name, the tool lists their ids.
+
+**The safe-write flow.** Read first (`read_file` or `read_state`), change the text, then `write_file` with the hash
+you read as `base`. If someone else changed the file in the meantime, the hub refuses the write and the tool
+returns the current text and its new hash; Claude is told to merge its change into that text and retry with the new
+hash, never to overwrite. Decisions are append-only: to change one, log a new decision that supersedes it.
+
+**How it authenticates.** It reads the same `token` file as the runner (only your Windows user can read it) and
+sends it as `Authorization: Bearer ...` to `127.0.0.1:<localPort>`, with `x-cc-repo` (the name of the git repo
+Claude Code was started in) and, when `CLAUDE_SESSION_ID` is set, `x-cc-session`. Before sending the token, it
+proves the port is the runner's own tunnel: `runner.pid` must name a live `runner.mjs` process, and every socket on
+the port must belong to an `ssh` process whose parent is that runner (`Get-NetTCPConnection` plus
+`Win32_Process`). Anything else (a squatter, a stale pid, an ssh you started yourself) means nothing is sent. The
+result is remembered for 10 seconds. The server logs only to stderr and never prints the token.
+
+## Mirror your Claude Code sessions
+
+While the runner is ON and its tunnel is verified, it also copies your Claude Code sessions to the hub, so you can
+read them in PocketRocket (the owner view, newest first). It is on by default. It reads every folder under
+`%USERPROFILE%\.claude\projects` (main sessions and their subagent transcripts; `tool-results` folders are ignored).
+
+**What is sent.** Not the raw logs (they are huge, mostly tool output) but compact entries: what you wrote, what
+Claude answered, a one-line summary of each tool call (the Bash command, the file path, the search pattern), a short
+excerpt of each tool result, and compaction summaries. Thinking, system reminders, hooks, attachments, file
+snapshots and other bookkeeping lines are skipped. A session also sends its folder, the git repo name, origin
+remote, branch and commit (read with `git` in that folder, if it still exists) and a title: your first real
+prompt, cut to 120 characters.
+
+**Caps.** Text is cut with ` ...[cut N chars]`: your and Claude's messages at 8000 characters, tool calls at 400,
+tool results at 1000, summaries at 2000. The hub keeps at most 5 MB of text per session, 400 MB in all (oldest
+sessions go first) and drops sessions 90 days after their last activity.
+
+**Backfill.** On the first run it sends only sessions changed in the last `mirrorBackfillDays` days (default 14).
+After that, new lines go over live (file watch plus a 5 s check). It remembers nothing itself: the hub tells it
+where each file stopped, so a restart resumes and never sends a line twice. A line still being written waits for
+its newline. A file that got shorter than what was sent is logged and skipped.
+
+**Config** (`config.json`, all optional):
+
+```json
+{
+  "mirror": true,
+  "mirrorBackfillDays": 14,
+  "mirrorExclude": ["C:\\Users\\you\\Documents\\private", "C:\\clients\\acme*", "*-secret-*"],
+  "claudeProjectsDir": "D:\\somewhere\\.claude\\projects"
+}
+```
+
+`mirrorExclude` skips sessions whose working folder or projects-folder name matches. Matching ignores case. A
+pattern without `*` is a path prefix (`C:\Users\you\Documents\private` also covers its subfolders, not
+`private2`; against the projects-folder name it is a plain prefix such as `C--Users-you-Documents-private`). A
+pattern with `*` is a glob over the whole value. Excluded sessions are never read past their first lines, and
+nothing from them is sent. Changes apply within seconds; entries already on the hub stay until you delete them there.
+
+**Pause.** Double-click **PocketRocket Mirror pause-resume** on the Desktop: it creates (or removes) the file
+`%LOCALAPPDATA%\PocketRocketRunner\mirror.paused`. While it exists nothing is sent; the runner checks it every
+few seconds. `"mirror": false` in `config.json` turns the mirror off for good.
+
+**Privacy.** Every entry and title is scrubbed on this PC first (keys, tokens, passwords, emails, Philippine phone
+and ID numbers, with the same rules as `scripts/context-import.mjs`) and scrubbed again on the hub. Scrubbing
+recognises shapes; a bare password typed with no label is not caught, which is what the exclude list and the pause
+shortcut are for. Like everything else, it only leaves through the verified SSH tunnel. For now bots cannot read
+mirrored sessions: only you can, in the app. The runner log (`logs\`) holds counts and errors, never entry text.
+
 ## Turning it off
 
 - Double-click **PocketRocket Runner OFF**. This stops the runner, its ssh tunnel, any running job and any open
@@ -171,7 +356,7 @@ The owner's own user settings also had `defaultMode: bypassPermissions`. Results
 - To unpair, delete `%LOCALAPPDATA%\PocketRocketRunner\token`. You may first need
   `icacls "%LOCALAPPDATA%\PocketRocketRunner\token" /grant:r "%USERNAME%:F"`, because the file is read-only even
   to you. Also revoke the runner token in the hub.
-- To remove the runner completely, turn it off, delete the two Desktop shortcuts and the
+- To remove the runner completely, turn it off, delete the Desktop shortcuts and the
   `%LOCALAPPDATA%\PocketRocketRunner` folder.
 - On the server, `deploy/keys.sh disable` moves `data/pc-runner.json` away with the other keys (see
   docs/SERVER.md, "Kill switch").
@@ -181,9 +366,14 @@ The owner's own user settings also had `defaultMode: bypassPermissions`. Results
 | File | What it is |
 |---|---|
 | `runner.mjs` | the program: `pair`, `check`, `run` |
+| `mcp.mjs` / `mcp.cmd` | the Claude Code MCP server and its launcher (see "Use PocketRocket from Claude Code"), tested by `mcp.test.mjs` |
+| `local.mjs` | file locations, config and token loading, port-owner lookup; shared by `runner.mjs` and `mcp.mjs` |
 | `lib.mjs` | pure helpers (config check, folder check, claude args, output cap), tested by `lib.test.mjs` |
 | `confirm.ps1` | the Run / Refuse dialog; it reads the job from a temp JSON file and never puts it into script text |
 | `runner-on.ps1` / `runner-off.ps1` | start hidden and write `runner.pid` / stop the runner and everything it started |
+| `mirror.mjs` / `scrub.mjs` / `mirror-toggle.ps1` | the session mirror (mapper and tailer), the shared scrub rules, and the pause-resume toggle; tested by `mirror.test.mjs` |
+| `jobs.mjs` / `sync.mjs` | job handling (new, resume, sync) and the sync pieces: snapshot, scan, push, bundle, upload and download; tested by `jobs.test.mjs` and `sync.test.mjs` |
+| `move.mjs` | move and pull jobs (session to the VPS and back); tested by `move.test.mjs` |
 | `install.ps1` | copies the files and makes the Desktop shortcuts |
 
 Tests: `node --test scripts/pc-runner`. For development, `POCKETROCKET_RUNNER_DIR` points the runner at another

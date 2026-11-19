@@ -7,40 +7,44 @@
  * This runs once, as a side effect of importing this module. Import it before any fetch()
  * or WebSocket connection is made (lib/api.ts and lib/ws.ts both do).
  */
+import { getItem, removeItem, setItem } from './persist';
+
 const TOKEN_KEY = 'pocketrocket.token';
 const DESKTOP_KEY = 'pocketrocket.desktop';
+/** Comma-separated features the desktop app that opened this page handles (older apps send none). */
+const DESKTOP_CAPS_KEY = 'pocketrocket.desktopCaps';
 
 function boot() {
   try {
     const hash = location.hash;
     if (hash.startsWith('#token=')) {
       const token = decodeURIComponent(hash.slice('#token='.length));
-      if (token) sessionStorage.setItem(TOKEN_KEY, token);
+      if (token) setItem(TOKEN_KEY, token, 'session');
       history.replaceState(null, '', location.pathname + location.search);
     }
     const params = new URLSearchParams(location.search);
-    if (params.get('desktop') === '1') sessionStorage.setItem(DESKTOP_KEY, '1');
+    if (params.get('desktop') === '1') {
+      setItem(DESKTOP_KEY, '1', 'session');
+      setItem(DESKTOP_CAPS_KEY, params.get('caps') ?? '', 'session');
+    }
   } catch {
-    /* sessionStorage / history unavailable (e.g. sandboxed iframe) — fall back to no-auth */
+    /* history unavailable (e.g. sandboxed iframe) — fall back to no-auth */
   }
 }
 boot();
 
 export function getToken(): string | null {
-  try {
-    // The hub token (desktop app, a pasted token) wins; otherwise this browser's paired-device token (P9).
-    return sessionStorage.getItem(TOKEN_KEY) ?? getDeviceToken();
-  } catch {
-    return null;
-  }
+  // The hub token (desktop app, a pasted token) wins; otherwise this browser's paired-device token (P9).
+  return getItem(TOKEN_KEY, 'session') ?? getDeviceToken();
 }
 
 export function isDesktopMode(): boolean {
-  try {
-    return sessionStorage.getItem(DESKTOP_KEY) === '1';
-  } catch {
-    return false;
-  }
+  return getItem(DESKTOP_KEY, 'session') === '1';
+}
+
+/** True when the desktop app showing this page can do `cap` (e.g. 'localcopy': save a chat file on this PC and open it). */
+export function desktopCan(cap: string): boolean {
+  return isDesktopMode() && (getItem(DESKTOP_CAPS_KEY, 'session') ?? '').split(',').includes(cap);
 }
 
 /**
@@ -84,11 +88,7 @@ export function subscribeAuthFailure(cb: Listener): () => void {
 }
 
 export function setToken(token: string): void {
-  try {
-    sessionStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    /* sessionStorage unavailable */
-  }
+  setItem(TOKEN_KEY, token, 'session');
   clearAuthFailure();
 }
 
@@ -101,25 +101,13 @@ let unpaired = false;
 let pairError: string | null = null;
 
 export function getDeviceToken(): string | null {
-  try {
-    return localStorage.getItem(DEVICE_KEY);
-  } catch {
-    return null;
-  }
+  return getItem(DEVICE_KEY);
 }
 function clearDeviceToken(): void {
-  try {
-    localStorage.removeItem(DEVICE_KEY);
-  } catch {
-    /* storage unavailable */
-  }
+  removeItem(DEVICE_KEY);
 }
 function hasHubToken(): boolean {
-  try {
-    return !!sessionStorage.getItem(TOKEN_KEY);
-  } catch {
-    return false;
-  }
+  return !!getItem(TOKEN_KEY, 'session');
 }
 
 /** True when this page talks to the hub as a paired device (narrower rights than the hub token). */
@@ -167,7 +155,7 @@ export async function redeemPairingCode(code: string): Promise<boolean> {
         : j.error ?? "Code didn't work. Make a new one.";
       return false;
     }
-    localStorage.setItem(DEVICE_KEY, j.token);
+    setItem(DEVICE_KEY, j.token);
     unpaired = false;
     clearAuthFailure();
     return true;

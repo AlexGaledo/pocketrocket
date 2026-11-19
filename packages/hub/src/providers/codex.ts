@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { ModelInfo, ProviderAuth, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
+import type { ModelInfo, ProviderAuth, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
 import { SecretsStore } from '../services/SecretsStore.js';
 import { childEnv } from './env.js';
 import { addSecret, redact } from './redact.js';
@@ -33,7 +33,7 @@ import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, ty
  * https://developers.openai.com/codex/models.md, https://developers.openai.com/api/docs/pricing
  */
 
-export const CODEX_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
+export const CODEX_INFO: ProviderStaticInfo = {
   id: 'codex',
   label: 'OpenAI Codex',
   blurb: 'OpenAI Codex. Sign in with ChatGPT or an OpenAI API key.',
@@ -82,14 +82,14 @@ export function spawnTarget(exe: string, args: string[]): { command: string; arg
   return { command: exe, argv: args };
 }
 
-interface RunResult {
+export interface RunResult {
   code: number | null;
   stdout: string;
   stderr: string;
 }
 
-/** Run the CLI once and collect its output; never rejects. */
-function run(exe: string, args: string[], timeoutMs: number): Promise<RunResult> {
+/** Run the CLI once and collect its output; never rejects. Shared with the ACP adapter (providers/acp/client.ts). */
+export function run(exe: string, args: string[], timeoutMs: number): Promise<RunResult> {
   return new Promise((resolve) => {
     const { command, argv } = spawnTarget(exe, args);
     let child: ChildProcess;
@@ -120,7 +120,7 @@ function run(exe: string, args: string[], timeoutMs: number): Promise<RunResult>
 }
 
 /** Codex spawns sandbox helper processes, so a plain kill() can leave children behind on Windows. */
-function killTree(child: ChildProcess): void {
+export function killTree(child: ChildProcess): void {
   if (child.pid == null || child.exitCode !== null) return;
   if (process.platform === 'win32') {
     try {

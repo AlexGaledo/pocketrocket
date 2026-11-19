@@ -156,6 +156,8 @@ export function route(req: RouteRequest): RouteChoice {
   if (skill) return choose(req, 'opus', 'skill', 'because skill "' + skill + '" declares model: opus');
   if (req.causeKind === 'routine') return choose(req, 'sonnet', 'routine', 'for a routine');
   if (req.causeKind === 'trigger') return choose(req, 'haiku', 'triage', 'to triage a trigger');
+  // A workflow step is a scheduled, owner-written job like a routine: the router never second-guesses it.
+  if (req.causeKind === 'workflow') return choose(req, 'sonnet', 'routine', 'for a workflow step');
   return choose(req, 'sonnet', 'default', '(default)');
 }
 
@@ -200,12 +202,16 @@ export class ModelRouter {
   }
 
   /**
-   * The model for a retry inside the same turn: Opus for an auto bot that was not already on it, otherwise
-   * `prev` unchanged. Like `pick`, it never touches the budget; the retry spends what is left of the turn's.
+   * The model for a retry inside the same turn: Opus for an auto bot that hit an error and was not already on
+   * it, otherwise `prev` unchanged. Running out of steps is not a reasoning failure, so a step-limit
+   * continuation stays on the same tier: moving it up would replay the turn's whole (largest) context at
+   * Opus rates, the single most expensive thing a turn can do to a plan limit. Like `pick`, it never touches
+   * the budget; the retry spends what is left of the turn's.
    */
   escalate(req: RouteRequest, prev: RouteChoice, after: 'error_max_turns' | 'error'): RouteChoice {
+    if (after === 'error_max_turns') return prev;
     if (!isAuto(req.bot) || prev.tier === 'opus' || prev.reason === 'background') return prev;
-    const next = choose(req, 'opus', 'retry', after === 'error_max_turns' ? 'after the step limit (retry)' : 'after an error (retry)');
+    const next = choose(req, 'opus', 'retry', 'after an error (retry)');
     return next.model === prev.model ? prev : next;
   }
 }

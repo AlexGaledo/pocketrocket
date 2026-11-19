@@ -19,21 +19,26 @@ jobs:
     if: github.repository == 'AlexGaledo/pocketrocket'
     runs-on: windows-latest
     timeout-minutes: 60
+    # Tag builds run in the `release` environment (owner approval; holds the updater signing key). Dispatch dry
+    # runs get no environment: environment rules can't filter by event, so they stay keyless by construction.
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'release' || '' }}
     permissions:
       contents: write
+    outputs:
+      releaseId: ${{ steps.tauri.outputs.releaseId }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-03 (moving branch, resolved via `commits/stable`)
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/desktop/src-tauri -> target
 
@@ -55,6 +60,9 @@ jobs:
           fi
 
       - name: Test
+        # Tag builds gate on the full suite. Dispatch dry runs only produce an installer to try out; every PR
+        # already ran the tests in ci.yml, and the Windows runner is flaky on several timing-sensitive hub tests.
+        if: github.event_name != 'workflow_dispatch'
         run: pnpm test
 
       - name: Prepare desktop bundle (hub build + web build + Node sidecar)
@@ -90,7 +98,10 @@ jobs:
             fs.writeFileSync(process.env.GITHUB_OUTPUT, 'body<<CHANGELOG_EOF\n' + body + '\nCHANGELOG_EOF\n', { flag: 'a' });
           "
 
-      - name: Build + publish release
+      # Creates the release as a DRAFT and uploads the installer and its updater .sig. Nothing is public until
+      # the `finalize` job has built latest.json, checksums and attestations and published the draft.
+      - name: Build + upload to a draft release
+        id: tauri
         if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
@@ -99,6 +110,10 @@ jobs:
           # still build: the app then runs with accounts off. Build steps only, so `pnpm test` never sees them.
           POCKETROCKET_SUPABASE_URL: ${{ secrets.POCKETROCKET_SUPABASE_URL }}
           POCKETROCKET_SUPABASE_KEY: ${{ secrets.POCKETROCKET_SUPABASE_KEY }}
+          # Updater signing key (`release` environment only). Step-level, never job-level, so `pnpm install`,
+          # tests and postinstall scripts never see it.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
@@ -106,9 +121,13 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'PocketRocket v__VERSION__'
           releaseBody: ${{ steps.changelog.outputs.body }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
+          # Never true: tauri-action merges latest.json with read-modify-upload and no lock, so parallel jobs
+          # drop each other's entries (tauri-action #1270). `finalize` writes it once.
           uploadUpdaterJson: false
+          # Updater artifacts (.sig) on tag builds only; dispatch dry runs and local builds stay keyless.
+          args: --config '{"bundle":{"createUpdaterArtifacts":true}}'
 
       - name: Install tauri-cli (dispatch dry run only)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -126,15 +145,15 @@ jobs:
 
       - name: Upload installer as workflow artifact
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pocketrocket-windows-installer
           path: packages/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
 
-  # P9: Linux (AppImage + deb) and macOS (unsigned dmg). They run after the Windows job, which holds every
-  # gate (version sync, tag == package.json, tests, CHANGELOG section) and creates the GitHub release; these
-  # build natively and upload into that same release (tauri-action reuses the release for the tag).
+  # P9: Linux (AppImage + deb) and macOS (unsigned dmg + updater .app.tar.gz). They run after the Windows job,
+  # which holds every gate (version sync, tag == package.json, tests, CHANGELOG section) and creates the draft
+  # release; these build natively and upload into that same draft by its id.
   release-unix:
     name: Build + release (${{ matrix.name }})
     if: github.repository == 'AlexGaledo/pocketrocket'
@@ -152,27 +171,29 @@ jobs:
               packages/desktop/src-tauri/target/release/bundle/deb/*.deb
           - name: macOS
             os: macos-15
-            bundles: dmg
+            # `app` makes the updater bundle (.app.tar.gz + .sig) explicit next to the dmg.
+            bundles: app,dmg
             artifact: pocketrocket-macos
             paths: |
               packages/desktop/src-tauri/target/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'release' || '' }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable @ 2026-09-03 (moving branch, resolved via `commits/stable`)
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/desktop/src-tauri -> target
 
@@ -192,23 +213,22 @@ jobs:
 
       # Unsigned on purpose (decision Q11): no Apple identity is configured, so the dmg is ad-hoc signed and
       # Gatekeeper asks the user to allow it once (docs/RELEASING.md).
-      - name: Build + upload to the release
+      - name: Build + upload to the draft release
         if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           POCKETROCKET_SUPABASE_URL: ${{ secrets.POCKETROCKET_SUPABASE_URL }}
           POCKETROCKET_SUPABASE_KEY: ${{ secrets.POCKETROCKET_SUPABASE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
           repo: pocketrocket
-          tagName: v__VERSION__
-          releaseName: 'PocketRocket v__VERSION__'
-          releaseDraft: false
-          prerelease: false
+          releaseId: ${{ needs.release.outputs.releaseId }}
           uploadUpdaterJson: false
-          args: --bundles ${{ matrix.bundles }}
+          args: --bundles ${{ matrix.bundles }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
 
       - name: Install tauri-cli (dispatch dry run only)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -226,8 +246,114 @@ jobs:
 
       - name: Upload bundles as workflow artifact
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.paths }}
           if-no-files-found: error
+
+  # A2: the only job that writes latest.json. Runs once every build has uploaded into the draft, checks the
+  # updater manifest end to end, adds SHA256SUMS.txt and build-provenance attestations, then publishes the draft
+  # as a PRERELEASE (`releases/latest` ignores prereleases). The owner flips it to latest after the clean-VM
+  # update check (docs/RELEASING.md). If any build or this job fails, the release stays an unpublished draft.
+  finalize:
+    name: Finalize release (latest.json, checksums, attestations)
+    if: github.repository == 'AlexGaledo/pocketrocket' && startsWith(github.ref, 'refs/tags/')
+    needs: [release, release-unix]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    # The only job with id-token/attestations: the build jobs run pnpm install and third-party build scripts.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      RELEASE_ID: ${{ needs.release.outputs.releaseId }}
+      ASSETS: release-assets
+      OUT: release-out
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # Fails while tauri.conf.json still holds the A0 placeholder: a manifest no installed app can verify must
+      # never be published.
+      - name: Check the updater public key is set
+        run: node scripts/updater-json.mjs --check-pubkey packages/desktop/src-tauri/tauri.conf.json
+
+      - name: Download the draft's assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_ID" ]; then echo "::error::the Windows job did not output a release id"; exit 1; fi
+          gh api "repos/$REPO/releases/$RELEASE_ID" > release.json
+          if [ "$(jq -r .draft release.json)" != "true" ]; then echo "::error::release $RELEASE_ID is not a draft"; exit 1; fi
+          if [ "$(jq -r .tag_name release.json)" != "$GITHUB_REF_NAME" ]; then echo "::error::release $RELEASE_ID is not for $GITHUB_REF_NAME"; exit 1; fi
+          jq -r '.body // ""' release.json > notes.md
+          mkdir -p "$ASSETS" "$OUT"
+          gh api --paginate "repos/$REPO/releases/$RELEASE_ID/assets" --jq '.[] | [.id, .name] | @tsv' > assets.tsv
+          while IFS=$'\t' read -r id name; do
+            case "$name" in
+              latest.json|SHA256SUMS.txt) continue ;; # left over from an earlier finalize attempt
+              ''|.*|*/*|*\\*) echo "::error::unexpected asset name '$name'"; exit 1 ;;
+            esac
+            curl -fsSL --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+              -o "$ASSETS/$name" "https://api.github.com/repos/$REPO/releases/assets/$id"
+          done < assets.tsv
+          ls -l "$ASSETS"
+
+      # Explicit platform map (windows-x86_64 -> setup.exe, linux-x86_64 -> AppImage, darwin-aarch64 ->
+      # .app.tar.gz). Refuses to write if a platform is missing, unsigned, or signed by another key.
+      - name: Build latest.json
+        run: >-
+          node scripts/updater-json.mjs
+          --dir "$ASSETS" --repo "$REPO" --tag "$GITHUB_REF_NAME"
+          --notes-file notes.md
+          --tauri-conf packages/desktop/src-tauri/tauri.conf.json
+          --require windows-x86_64,linux-x86_64,darwin-aarch64
+          --out "$OUT/latest.json"
+
+      - name: Write SHA256SUMS.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          { (cd "$ASSETS" && sha256sum -- *); (cd "$OUT" && sha256sum -- latest.json); } | sort -k2 > "$OUT/SHA256SUMS.txt"
+          cat "$OUT/SHA256SUMS.txt"
+
+      # The trust anchor for users is `gh attestation verify <file> -R AlexGaledo/pocketrocket`; the sums file
+      # from the same release only catches corruption.
+      - name: Attest installers, latest.json and SHA256SUMS.txt
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release-assets/*-setup.exe
+            release-assets/*.AppImage
+            release-assets/*.deb
+            release-assets/*.dmg
+            release-assets/*.app.tar.gz
+            release-out/latest.json
+            release-out/SHA256SUMS.txt
+
+      - name: Upload latest.json and SHA256SUMS.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r id name; do
+            case "$name" in
+              latest.json|SHA256SUMS.txt) gh api -X DELETE "repos/$REPO/releases/assets/$id" ;;
+            esac
+          done < assets.tsv
+          for f in latest.json SHA256SUMS.txt; do
+            curl -fsS --retry 3 -o /dev/null -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+              --data-binary "@$OUT/$f" \
+              "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$f"
+          done
+
+      - name: Publish as a prerelease
+        run: gh api -X PATCH "repos/$REPO/releases/$RELEASE_ID" -F draft=false -F prerelease=true -f make_latest=false > /dev/null

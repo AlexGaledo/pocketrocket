@@ -90,3 +90,20 @@ describe('Db migrations', () => {
     expect(() => registerMigrations([1, 9], [{ version: 1, name: 'x', up: noop }])).toThrow(/twice/);
   });
 });
+
+describe('M6 provider per bot (migrations 310-312)', () => {
+  it('an older database gets bots.provider, bots.backup and usage.provider, and its bots read as following the default', async () => {
+    const file = tmpFile();
+    const old = new DatabaseSync(file);
+    old.exec(SCHEMA_SQL);
+    old.prepare("INSERT INTO bots (id, name, handle, model, created_at) VALUES ('b1', 'Ada', 'ada', 'claude-sonnet-5', 1)").run();
+    old.close();
+
+    const db = new Db(file);
+    for (const [t, c] of [['bots', 'provider'], ['bots', 'backup'], ['usage', 'provider']]) expect(hasColumn(db.raw, t, c)).toBe(true);
+    expect(db.schemaVersions()).toEqual(expect.arrayContaining([310, 311, 312]));
+    const { Repos } = await import('./repos.js');
+    expect(new Repos(db).getBot('b1')).toMatchObject({ provider: null, backup: null, model: 'claude-sonnet-5' });
+    db.raw.close();
+  });
+});

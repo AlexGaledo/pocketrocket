@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import {
   createSdkMcpServer, query, tool,
-  type Options, type PermissionResult, type Query, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput,
+  type Options, type PermissionResult, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput, type PostToolUseHookInput,
+  type SDKAPIRetryMessage, type SDKAssistantMessageError, type SDKRateLimitInfo,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
-import { CLAUDE_EXE, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import type { ModelInfo, ProviderCheck, ProviderLimitKind, ProviderStaticInfo } from '@pocketrocket/shared';
+import { BASH_MAX_OUTPUT_CHARS, CLAUDE_EXE, DATA_DIR, MAX_MCP_OUTPUT_TOKENS, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
+import { browserMcpRoots, sandboxCommand } from './sandbox.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
 import { childEnv } from './env.js';
 import { SESSION_RETENTION_DAYS } from './cliRetention.js';
@@ -14,24 +17,80 @@ import { deleteGate } from '../permissions/deleteGate.js';
 import { isInside, pathsFromInput } from '../permissions/pathRules.js';
 import { READ_ONLY_GUARD_TOOLS, readOnlyWriteDecision, routingFileWrite } from '../permissions/readOnlyRoots.js';
 import { secretFileAccess } from '../permissions/secretFiles.js';
+import { denyMessage } from '../permissions/messages.js';
+import { logError } from './redact.js';
 import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
-import type { AgentProvider, HubTool, ProviderInit, TurnContext, TurnOutcome, TurnSink } from './types.js';
+import type { AgentProvider, HubTool, LimitReport, ProviderInit, SteerInput, SteerResult, TurnContext, TurnImage, TurnLimit, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
 // EVERYWHERE and bypasses canUseTool, so file/shell tools must never appear there: reads inside
 // cwd/additionalDirectories are already free, edits inside are covered by acceptEdits, and anything
 // outside (plus every Bash call) then falls through to the PermissionBroker.
 const AUTO_OK = new Set(['WebSearch', 'WebFetch']);
-const ALL_BUILTINS = ['Read','Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit'];
+// 'Task' is the subagent tool (the CLI now calls it 'Agent' and keeps 'Task' as an alias; both are passed). Off
+// unless the bot has it: a subagent explores in its own context and hands back a short report, which keeps file
+// dumps out of the bot's resumed session.
+const ALL_BUILTINS = ['Read','Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'NotebookEdit', 'Task'];
+/** The CLI's own names for a bot-facing built-in. */
+const sdkNames = (t: string) => (t === 'Task' ? ['Task', 'Agent'] : [t]);
+/**
+ * Playwright MCP tools a bot never gets. Each can read what a page holds outside the snapshot, including a
+ * password fill_credential just typed: browser_evaluate runs page JavaScript, browser_run_code_unsafe runs
+ * Playwright code in the server process, and browser_network_request returns request bodies (a sign-in POST).
+ * disallowedTools wins over the `mcp__browser__*` entry in allowedTools, in bypass mode too.
+ */
+export const BLOCKED_BROWSER_TOOLS = ['browser_evaluate', 'browser_run_code_unsafe', 'browser_network_request'].map((t) => 'mcp__browser__' + t);
+/** Anchored, so browser_network_request does not also catch browser_network_requests (a URL list only). */
+export const BLOCKED_BROWSER_MATCHER = '^(?:' + BLOCKED_BROWSER_TOOLS.join('|') + ')$';
+export const BLOCKED_BROWSER_REASON = 'This browser tool is turned off for bots: it can read what a page holds, including saved passwords. Use browser_snapshot to read the page.';
+
+/**
+ * The SDK's `maxBudgetUsd` flag for one run. The SDK checks it against the session's cumulative cost, which on a
+ * resumed session includes every earlier turn, so the stored cumulative is added to make it a per-run cap. A resumed
+ * session whose cumulative is unknown (from before the hub tracked it) gets no flag rather than one that trips at once;
+ * the hub's own checks between runs still hold. undefined = no flag (no budget, or POCKETROCKET_NO_SPEND_CAPS).
+ */
+export function sdkBudgetUsd(maxBudgetUsd: number, resumed: boolean, sessionCostUsd: number | null | undefined): number | undefined {
+  if (!Number.isFinite(maxBudgetUsd)) return undefined;
+  if (!resumed) return maxBudgetUsd;
+  if (sessionCostUsd == null) return undefined;
+  return sessionCostUsd + maxBudgetUsd;
+}
+
+/**
+ * This run's own cost out of the SDK's cumulative `total_cost_usd`. A cumulative below the baseline means the CLI
+ * started a new session after all, so all of it is this run's. An unknown baseline on a resumed (legacy) session
+ * counts as 0 rather than billing the session's whole history to one turn.
+ */
+export function runCostUsd(cumulative: number, resumed: boolean, sessionCostUsd: number | null | undefined): number {
+  if (!resumed) return cumulative;
+  if (sessionCostUsd == null) return 0;
+  return cumulative >= sessionCostUsd ? cumulative - sessionCostUsd : cumulative;
+}
+
+/** Input tokens a model call was sent: uncached + cache read + cache write. */
+export function callInputTokens(u: { input_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined): number {
+  return (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
+}
+
+/** The env the Claude Code child runs with: the allowlist plus the hub's own output caps (the allowlist is not widened). */
+export function claudeChildEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return childEnv('claude', {
+    CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/' + VERSION,
+    // One huge command output or MCP result would otherwise sit in the resumed session and be re-read every step.
+    BASH_MAX_OUTPUT_LENGTH: String(BASH_MAX_OUTPUT_CHARS),
+    MAX_MCP_OUTPUT_TOKENS: String(MAX_MCP_OUTPUT_TOKENS),
+  }, source);
+}
 
 const MODELS: ModelInfo[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'balanced, default', default: true },
-  { id: 'claude-opus-5', label: 'Opus 5', note: 'strong, pricey' },
+  { id: 'claude-opus-5', label: 'Opus 5', note: 'hard problems' },
   { id: 'claude-fable-5-1', label: 'Fable 5.1', note: 'most capable, 2x Opus price' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', note: 'cheapest, fastest' },
 ];
 
-export const CLAUDE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
+export const CLAUDE_INFO: ProviderStaticInfo = {
   id: 'claude',
   label: 'Claude',
   blurb: 'Runs on your server with your Claude subscription.',
@@ -40,6 +99,102 @@ export const CLAUDE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
   permissions: 'full',
   maturity: 'verified',
 };
+
+/**
+ * P0-4: the SDK's `fallbackModel` for a bot's model, used by the CLI when that model is overloaded or unavailable (the
+ * primary is retried each turn). Always the next cheaper Claude model: Fable falls back to Opus, Opus to Sonnet.
+ * Sonnet, Haiku and anything unknown get none, so a fallback never moves a bot up or across.
+ */
+export function fallbackModelFor(model: string): string | undefined {
+  const id = (family: string) => MODELS.find((m) => m.id.includes(family))?.id;
+  if (/fable/i.test(model)) return id('opus');
+  if (/opus/i.test(model)) return id('sonnet');
+  return undefined;
+}
+
+/**
+ * The fallback model, when it is the one that answered (for the usage row). The SDK has no message for an overload
+ * fallback, so this reads the top-level assistant `message.model`, which the API gives as a full id
+ * ("claude-sonnet-5-20261001"). Anything else (the model asked for, its dated id, an id the hub does not recognise)
+ * is undefined, so the row keeps the hub's own id and usage-by-model stays grouped.
+ */
+export function ranModel(asked: string, fallback: string | undefined, seen: string | undefined): string | undefined {
+  if (!seen || !fallback || seen.startsWith(asked)) return undefined;
+  return seen.startsWith(fallback) ? fallback : undefined;
+}
+
+/**
+ * P4-2: the context window of the model that answered, from the SDK result's `modelUsage` (keyed by model id). The
+ * entry for `seen` when there is one, else the largest (side calls such as Haiku run on a smaller window).
+ */
+export function contextWindowOf(modelUsage: unknown, seen: string | undefined): number | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object') return undefined;
+  const windowOf = (v: unknown) => {
+    const w = (v as { contextWindow?: unknown } | null)?.contextWindow;
+    return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : undefined;
+  };
+  const entries = Object.entries(modelUsage as Record<string, unknown>);
+  const own = seen ? entries.find(([k]) => k === seen || seen.startsWith(k) || k.startsWith(seen)) : undefined;
+  if (own && windowOf(own[1])) return windowOf(own[1]);
+  const all = entries.map(([, v]) => windowOf(v)).filter((w): w is number => w !== undefined);
+  return all.length ? Math.max(...all) : undefined;
+}
+
+/** `resetsAt` from the SDK is unix seconds (the API's reset header); a value already in ms is kept. */
+export function resetMs(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return undefined;
+  return v < 1e12 ? Math.round(v * 1000) : v;
+}
+
+/**
+ * P0-1: a `rate_limit_event` as a LimitReport. A rejected window that extra usage still pays for does not stop the
+ * request, so it is reported as a warning rather than a limit.
+ */
+export function limitReport(info: SDKRateLimitInfo): LimitReport {
+  const overagePays = info.status === 'rejected' && info.rateLimitType !== 'overage' &&
+    (info.overageStatus === 'allowed' || info.overageStatus === 'allowed_warning');
+  return {
+    status: overagePays ? 'allowed_warning' : info.status,
+    kind: 'usage',
+    window: info.rateLimitType,
+    resetsAt: resetMs(info.resetsAt),
+    utilization: typeof info.utilization === 'number' ? info.utilization : undefined,
+  };
+}
+
+/**
+ * Assistant `error` values that mean the provider, not the bot, stopped the run. The CLI sends these as a synthetic
+ * assistant message whose text is its own error wording ("You've hit your limit · resets 2pm"): it is never posted as
+ * the bot's reply nor read for @mentions.
+ */
+const LIMIT_ERRORS: Partial<Record<SDKAssistantMessageError, ProviderLimitKind>> = {
+  rate_limit: 'usage',
+  overloaded: 'overloaded',
+  authentication_failed: 'auth',
+  oauth_org_not_allowed: 'auth',
+};
+
+/** What an `api_retry` the run ended after says about the provider, when the run failed. */
+export function retryLimitKind(r: { error_status: number | null; error: SDKAssistantMessageError }): ProviderLimitKind | undefined {
+  if (r.error === 'rate_limit' || r.error_status === 429) return 'usage';
+  if (r.error === 'overloaded' || r.error_status === 529) return 'overloaded';
+  if (r.error === 'server_error' || r.error_status === null || r.error_status >= 500) return 'down';
+  return undefined;
+}
+
+/** The turn error for a run that ended on a limit. Worded so turnFailure files it as external either way. */
+export function limitError(limit: TurnLimit): string {
+  if (limit.kind === 'usage') return 'usage limit reached' + (limit.window ? ' (' + limit.window + ')' : '');
+  if (limit.kind === 'overloaded') return 'overloaded';
+  if (limit.kind === 'auth') return 'not signed in (authentication failed)';
+  return 'network: Claude could not be reached';
+}
+
+/** The turn error for a run the token brake stopped. Says "budget", so turnFailure files it as external. */
+export function tokenBrakeError(read: number, cap: number): string {
+  return 'token_budget: stopped after reading ' + read.toLocaleString('en-US') + ' cached tokens this turn (cap ' +
+    cap.toLocaleString('en-US') + ") to save your plan's usage";
+}
 
 /** Wrap provider-agnostic hub tools as an in-process SDK MCP server named `pocketrocket`. */
 function toolServer(tools: HubTool[]) {
@@ -118,11 +273,88 @@ function authStatus(): Promise<ClaudeAuthStatus | undefined> {
   });
 }
 
+/**
+ * The user turn's content. With pictures it is the text followed by one base64 image block each (the input text already
+ * names their paths, see agent/attachments.ts); without, the plain string, byte-for-byte as before.
+ */
+export function userContent(input: string, images: readonly TurnImage[]) {
+  // A picture without `data` was too big to inline (see materializeImages); the input text still names its path.
+  const inline = images.filter((i) => i.data);
+  if (!inline.length) return input;
+  return [
+    { type: 'text' as const, text: input },
+    ...inline.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: i.data!.toString('base64') } })),
+  ];
+}
+
+/**
+ * The init capability steering relies on: `interrupt()` answers with a receipt naming the uuid-stamped messages that
+ * would still run, so Stop can stop them too. Without it a steer queues instead (spike 1.0: CLI 2.1.326 has it).
+ */
+export const STEER_CAPABILITY = 'interrupt_receipt_v1';
+/**
+ * After Stop with a steer still queued in the CLI: how long to wait for the interrupted turn's result (it carries the
+ * run's cost) before closing anyway. The CLI starts the queued steer about a second after that result (spike 1.0),
+ * and the query is closed as soon as that result is read, so the steer never gets to run.
+ */
+export const STOP_RESULT_WAIT_MS = 5_000;
+
+/** A run's input: the opening message, then whatever `push` adds, until `close`. */
+export function inputChannel() {
+  const queue: SDKUserMessage[] = [];
+  let wake: (() => void) | undefined;
+  let closed = false;
+  async function* messages(): AsyncGenerator<SDKUserMessage> {
+    for (;;) {
+      while (queue.length) yield queue.shift()!;
+      if (closed) return;
+      await new Promise<void>((r) => (wake = r));
+      wake = undefined;
+    }
+  }
+  return {
+    messages: messages(),
+    push(m: SDKUserMessage) {
+      if (closed) return false;
+      queue.push(m);
+      wake?.();
+      return true;
+    },
+    close() {
+      closed = true;
+      wake?.();
+    },
+  };
+}
+
+type SdkUuid = NonNullable<SDKUserMessage['uuid']>;
+const userMessage = (text: string, images: readonly TurnImage[], uuid: string): SDKUserMessage =>
+  ({ type: 'user', message: { role: 'user', content: userContent(text, images) }, parent_tool_use_id: null, uuid: uuid as SdkUuid });
+
+/** One turn as `steer` and `interrupt` see it, across the outdated-CLI replay. */
+interface LiveTurn {
+  /** Every steer this turn was given, by uuid (live pushes and `carriedSteers`). */
+  known: Map<string, SteerInput>;
+  /** Uuids a result or reply named: in the session's transcript. */
+  consumed: Set<string>;
+  /** Set while a run reads: pushes a live steer. */
+  push?: (s: SteerInput) => void;
+  /** Stops the current run (interrupt, receipt, close). */
+  stop?: () => void;
+  /** This run's init came in, and whether it advertised `STEER_CAPABILITY`. */
+  initSeen: boolean;
+  steerable: boolean;
+  /** The current run decided to end: no more pushes. */
+  ending: boolean;
+}
+
 export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const;
+  /** M8 (P4-1): every run reports the last call's input size, so sessions rotate on size. */
+  readonly reportsContextTokens = true;
   readonly label = 'Claude';
   readonly info = CLAUDE_INFO;
-  private active = new Map<string, Query>();
+  private live = new Map<string, LiveTurn>();
   /** Last `system/init` message seen; feeds check() and GET /api/health. */
   lastInit: ProviderInit = {};
 
@@ -176,40 +408,75 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   interrupt(turnId: string): boolean {
-    const q = this.active.get(turnId);
-    if (!q) return false;
-    void q.interrupt().catch(() => undefined);
+    const live = this.live.get(turnId);
+    if (!live?.stop) return false;
+    live.stop();
     return true;
   }
 
-  async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
-    const first = await this.runOnce(ctx, sink);
-    // A model newer than the installed CLI fails on the first request, before any tool runs. Update the CLI
-    // and replay the turn once instead of sending the user to a terminal. Only replayed when no tool was
-    // called, so nothing runs twice.
-    if (!first.outdatedCli || first.usedTools || ctx.signal.aborted) return first.outcome;
-    sink.onState('working');
-    const update = await updateClaudeCli();
-    if (!update.ok) {
-      const detail = update.output.split('\n').filter((l) => l.trim()).pop();
-      return {
-        ...first.outcome,
-        error: first.outcome.error + ' Automatic `claude update` failed' + (detail ? ' (' + detail + ')' : '') +
-          '. Run `claude update` in a terminal, then try again.',
-      };
-    }
-    if (ctx.signal.aborted) return first.outcome;
-    sink.onState('thinking');
-    return (await this.runOnce(ctx, sink)).outcome;
+  /** Steering needs the interrupt receipt. Known from the last init, so false until the first turn. */
+  canSteer(): boolean {
+    return !!this.lastInit.capabilities?.includes(STEER_CAPABILITY);
   }
 
-  private async runOnce(ctx: TurnContext, sink: TurnSink): Promise<{ outcome: TurnOutcome; outdatedCli: boolean; usedTools: boolean }> {
+  steer(turnId: string, input: SteerInput): SteerResult {
+    const live = this.live.get(turnId);
+    // No run reading yet (start-up, the replay's CLI update) or already ending: the caller queues it.
+    if (!live?.push || live.ending || !live.initSeen) return { status: 'queued', reason: 'between-runs' };
+    if (!live.steerable) return { status: 'queued', reason: 'provider' };
+    live.known.set(input.uuid, input);
+    live.push(input);
+    return { status: 'accepted' };
+  }
+
+  async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
+    const live: LiveTurn = { known: new Map(), consumed: new Set(), initSeen: false, steerable: false, ending: false };
+    for (const s of ctx.carriedSteers ?? []) live.known.set(s.uuid, s);
+    this.live.set(ctx.turnId, live);
+    const done = (outcome: TurnOutcome): TurnOutcome => {
+      if (!live.known.size) return outcome;
+      const uuids = [...live.known.keys()];
+      return { ...outcome, steers: { consumed: uuids.filter((u) => live.consumed.has(u)), pending: uuids.filter((u) => !live.consumed.has(u)) } };
+    };
+    try {
+      const first = await this.runOnce(ctx, sink, live, ctx.carriedSteers ?? []);
+      // A model newer than the installed CLI fails on the first request, before any tool runs. Update the CLI
+      // and replay the turn once instead of sending the user to a terminal. Only replayed when no tool was
+      // called, so nothing runs twice.
+      if (!first.outdatedCli || first.usedTools || ctx.signal.aborted) return done(first.outcome);
+      sink.onState('working');
+      const update = await updateClaudeCli();
+      if (!update.ok) {
+        const detail = update.output.split('\n').filter((l) => l.trim()).pop();
+        return done({
+          ...first.outcome,
+          error: first.outcome.error + ' Automatic `claude update` failed' + (detail ? ' (' + detail + ')' : '') +
+            '. Run `claude update` in a terminal, then try again.',
+        });
+      }
+      if (ctx.signal.aborted) return done(first.outcome);
+      sink.onState('thinking');
+      // The failed run never reached the model, so every steer this turn was given goes into the replay's opening
+      // message, whatever the failed run's result named.
+      const carry = [...live.known.values()];
+      for (const s of carry) live.consumed.delete(s.uuid);
+      return done((await this.runOnce(ctx, sink, live, carry)).outcome);
+    } finally {
+      live.ending = true;
+      this.live.delete(ctx.turnId);
+    }
+  }
+
+  private async runOnce(
+    ctx: TurnContext, sink: TurnSink, live: LiveTurn, carry: SteerInput[],
+  ): Promise<{ outcome: TurnOutcome; outdatedCli: boolean; usedTools: boolean }> {
     const started = Date.now();
     const bot = ctx.bot;
     const pluginDir = ctx.pluginDir ?? null;
+    const resumed = !!ctx.resumeToken;
 
     const allowed = ctx.allowedBuiltins.filter((t) => AUTO_OK.has(t));
-    const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t));
+    const disallowed = ALL_BUILTINS.filter((t) => !ctx.allowedBuiltins.includes(t)).flatMap(sdkNames);
     // "Browser" = Playwright MCP attached over CDP to the Chromium on the bot's own computer (its logged-in
     // profile). With no computer there is no endpoint, and it never falls back to a shared screen.
     const browserOn = ctx.allowedBuiltins.includes('Browser') && !!ctx.cdpUrl && fs.existsSync(PLAYWRIGHT_MCP_CLI);
@@ -235,13 +502,24 @@ export class ClaudeProvider implements AgentProvider {
         : { type: 'http', url: s.url, ...(s.token ? { headers: { Authorization: 'Bearer ' + s.token } } : {}) };
     }
 
-    let resolveDone: () => void = () => undefined;
-    const done = new Promise<void>((r) => (resolveDone = r));
-    const input = ctx.input;
-    async function* prompt(): AsyncGenerator<SDKUserMessage> {
-      yield { type: 'user', message: { role: 'user', content: input }, parent_tool_use_id: null };
-      await done;
-    }
+    // The opening message carries steers an earlier run never consumed, so they are consumed with it. Its uuid is how
+    // results say they answered it; live steers are pushed after it, each under its own uuid.
+    const channel = inputChannel();
+    const openerUuid = randomUUID();
+    const openerText = [ctx.input, ...carry.map((s) => s.text)].join('\n\n');
+    channel.push(userMessage(openerText, [...(ctx.images ?? []), ...carry.flatMap((s) => s.images ?? [])], openerUuid));
+    /** Live steers pushed into this run; the run reads on until a result names each of them. */
+    const runSteers = new Set<string>();
+    const consume = (uuids: readonly string[] | undefined) => {
+      for (const u of uuids ?? []) {
+        if (u === openerUuid) for (const s of carry) live.consumed.add(s.uuid);
+        else if (live.known.has(u)) live.consumed.add(u);
+      }
+    };
+    const outstanding = () => [...runSteers].filter((u) => !live.consumed.has(u));
+    live.initSeen = false;
+    live.steerable = false;
+    live.ending = false;
 
     const decide = async (
       name: string,
@@ -250,7 +528,7 @@ export class ClaudeProvider implements AgentProvider {
     ): Promise<PermissionResult> => {
       if (ctx.permissionDetailed) return (await ctx.permissionDetailed(name, toolInput, o)) as PermissionResult;
       const d = await ctx.permission(name, toolInput, { blockedPath: o.blockedPath });
-      return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: 'The user declined this action.' };
+      return d === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: denyMessage('declined', { alt: 'choose another approach or say so in the room' }) };
     };
 
     // P7: writes into the read-only knowledge repo ask (or, under bypass, are denied) before acceptEdits sees them.
@@ -329,6 +607,15 @@ export class ClaudeProvider implements AgentProvider {
           },
         ],
       },
+      // Second line behind disallowedTools for BLOCKED_BROWSER_TOOLS: a hook deny holds in bypass mode too.
+      ...(browserOn
+        ? [{
+            matcher: BLOCKED_BROWSER_MATCHER,
+            hooks: [
+              async () => ({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: BLOCKED_BROWSER_REASON } }),
+            ],
+          }]
+        : []),
       ...outsideGuard,
       ...controlGuard,
       ...knowledgeGuard,
@@ -339,6 +626,19 @@ export class ClaudeProvider implements AgentProvider {
               async (hookInput: unknown) => {
                 const i = hookInput as PreToolUseHookInput;
                 const why = ctx.shipGuard!(String((i.tool_input as { command?: unknown } | undefined)?.command ?? ''), i.cwd || ctx.workspaceDir);
+                if (!why) return {};
+                return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
+              },
+            ],
+          }]
+        : []),
+      ...(ctx.fileGuard
+        ? [{
+            matcher: 'Write|Edit|MultiEdit|NotebookEdit|Bash',
+            hooks: [
+              async (hookInput: unknown) => {
+                const i = hookInput as PreToolUseHookInput;
+                const why = ctx.fileGuard!(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, i.cwd || ctx.workspaceDir);
                 if (!why) return {};
                 return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: why } };
               },
@@ -360,9 +660,41 @@ export class ClaudeProvider implements AgentProvider {
         : []),
     ];
 
+    // Bridge P1: after a file tool wrote, the hub records who changed the file (FileRevisions). It never blocks.
+    const afterWrite = ctx.fileWritten
+      ? {
+          PostToolUse: [{
+            matcher: 'Write|Edit|MultiEdit|NotebookEdit',
+            hooks: [
+              async (hookInput: unknown) => {
+                const i = hookInput as PostToolUseHookInput;
+                try {
+                  ctx.fileWritten!(i.tool_name, (i.tool_input ?? {}) as Record<string, unknown>, i.cwd || ctx.workspaceDir);
+                } catch (e) {
+                  logError('[file revisions]', e);
+                }
+                return {};
+              },
+            ],
+          }],
+        }
+      : {};
+
+    const fallbackModel = fallbackModelFor(ctx.model);
     const options: Options = {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
-      spawnClaudeCodeProcess: (o) => spawn(o.command, o.args, { cwd: o.cwd, env: o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never,
+      // Bridge P7: with settings.sandbox on, the CLI (and the Bash, file tools and Browser MCP it runs) starts inside bubblewrap.
+      // Off: spawned as before. On but unusable: this throws and the turn fails closed.
+      spawnClaudeCodeProcess: (o) => {
+        const sb = sandboxCommand(o, {
+          cwd: o.cwd ?? ctx.workspaceDir,
+          botHome: ctx.botHome,
+          writable: [...(ctx.projectDirs ?? []), ...(ctx.computerFilesDir ? [ctx.computerFilesDir] : []), ...(ctx.sandboxWritableDirs ?? [])],
+          readOnly: [...readOnlyDirs, ...(browserOn ? browserMcpRoots(PLAYWRIGHT_MCP_CLI) : [])],
+          resumeToken: ctx.resumeToken,
+        }, { dataDir: DATA_DIR });
+        return spawn(sb?.command ?? o.command, sb?.args ?? o.args, { cwd: sb ? undefined : o.cwd, env: sb?.env ?? o.env, signal: o.signal, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as never;
+      },
       cwd: ctx.workspaceDir,
       // P1: the bot's own computer disk is a working root. P7: the knowledge repo is readable like the bot's
       // home; writes there are stopped by the hook below.
@@ -374,11 +706,14 @@ export class ClaudeProvider implements AgentProvider {
       ],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
+      // P0-4: an overloaded or unavailable Opus/Fable carries on one model down; never up, and none below Opus.
+      fallbackModel,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: ctx.systemPrompt },
       settingSources: [],
       // Flag settings load even with settingSources: [] (user settings do not), so this is what stops the CLI's
       // 30-day sweep from deleting the session files bots resume from.
-      settings: { cleanupPeriodDays: SESSION_RETENTION_DAYS },
+      // bashOutputMaxChars is what caps Bash output inline on current CLIs (BASH_MAX_OUTPUT_LENGTH in env covers older ones).
+      settings: { cleanupPeriodDays: SESSION_RETENTION_DAYS, bashOutputMaxChars: BASH_MAX_OUTPUT_CHARS },
       plugins: pluginDir ? [{ type: 'local', path: pluginDir }] : undefined,
       skills: pluginDir ? 'all' : [],
       // Approvals bypassed: the SDK skips canUseTool entirely (and the out-of-workspace hook below is left
@@ -388,15 +723,16 @@ export class ClaudeProvider implements AgentProvider {
         : { permissionMode: 'acceptEdits' as const }),
       // Availability: only the bot's built-ins (+ Skill when a plugin is attached) exist in context.
       // Keeps Task/cron/plan-mode etc. out of the prompt and trims the cached system prompt.
-      tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)), ...(pluginDir ? ['Skill'] : [])],
+      tools: [...ctx.allowedBuiltins.filter((t) => ALL_BUILTINS.includes(t)).flatMap(sdkNames), ...(pluginDir ? ['Skill'] : [])],
       allowedTools: [...allowed, 'mcp__pocketrocket__*', ...(browserOn ? ['mcp__browser__*'] : [])],
-      disallowedTools: disallowed,
+      disallowedTools: [...disallowed, ...(browserOn ? BLOCKED_BROWSER_TOOLS : [])],
       mcpServers,
       strictMcpConfig: true,
       canUseTool: (name, toolInput, o) => decide(name, toolInput, o),
       // Read/Glob/Grep never prompt in Claude Code, so canUseTool would never see them. This hook
       // escalates out-of-workspace paths to "ask", which routes them into canUseTool -> PermissionBroker.
-      hooks: ctx.bypassPermissions ? { PreToolUse: guards } : {
+      hooks: ctx.bypassPermissions ? { PreToolUse: guards, ...afterWrite } : {
+        ...afterWrite,
         PreToolUse: [
           ...guards,
           // acceptEdits approves rm and mv inside the roots before canUseTool, so this is what raises their card.
@@ -444,10 +780,11 @@ export class ClaudeProvider implements AgentProvider {
       includePartialMessages: true,
       maxTurns: ctx.maxTurns,
       // No budget (POCKETROCKET_NO_SPEND_CAPS) is Infinity here, which the CLI flag cannot carry: leave it out.
-      maxBudgetUsd: Number.isFinite(ctx.maxBudgetUsd) ? ctx.maxBudgetUsd : undefined,
+      // The SDK compares the flag with the session's cumulative cost, so it is offset by what is already spent.
+      maxBudgetUsd: sdkBudgetUsd(ctx.maxBudgetUsd, resumed, ctx.sessionCostUsd),
       // Allowlisted env only (audit 2026-09-09, B7): the child never sees POCKETROCKET_TOKEN or another
       // provider's API key, so `env`/`node -e "process.env"` inside a prompt injection yields nothing useful.
-      env: childEnv('claude', { CLAUDE_AGENT_SDK_CLIENT_APP: 'pocketrocket/' + VERSION }),
+      env: claudeChildEnv(),
       stderr: (d) => { if (process.env.POCKETROCKET_DEBUG) process.stderr.write('[claude ' + bot.handle + '] ' + d); },
     };
 
@@ -459,27 +796,115 @@ export class ClaudeProvider implements AgentProvider {
     let durationMs = 0;
     let outdatedCli: string | undefined;
     let usedTools = false;
+    let gotResult = false;
+    let sessionCostUsd: number | undefined;
+    // Per top-level model call (the SDK repeats one call's usage on each of its content blocks, so keyed by id):
+    // the running cache-read sum feeds the token brake, the last call's input size is the context size.
+    const calls = new Map<string, { input: number; cacheRead: number; cacheWrite: number; output: number }>();
+    let contextTokens: number | undefined;
+    let braked = false;
+    const runningCacheRead = () => [...calls.values()].reduce((n, c) => n + c.cacheRead, 0);
+    // P0-1: provider limits. A rejected window or an assistant limit error ends the run as a limit unless a real answer
+    // came after it (the CLI's own fallback or retry got through). The last retry explains a run that failed without one.
+    let rejected: LimitReport | undefined;
+    let apiError: TurnLimit | undefined;
+    let lastRetry: SDKAPIRetryMessage | undefined;
+    let seenModel: string | undefined;
 
-    const q = query({ prompt: prompt(), options });
-    this.active.set(ctx.turnId, q);
-    const onAbort = () => { void q.interrupt().catch(() => undefined); };
+    const q = query({ prompt: channel.messages, options });
+    let stopping = false;
+    let closed = false;
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
+    const closeQuery = () => {
+      if (closed) return;
+      closed = true;
+      live.ending = true;
+      channel.close();
+      q.close();
+    };
+    // Stop and the token brake: interrupt, read the receipt, then close. A uuid-stamped steer still queued in the CLI
+    // "WILL run" after a plain interrupt (sdk.d.ts, SDKControlInterruptResponse), so the query is closed before it
+    // can. The interrupted result is waited for (briefly) only because it carries the run's cost.
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      live.ending = true;
+      void (async () => {
+        let receipt: { still_queued?: string[] } | undefined;
+        try {
+          receipt = await q.interrupt();
+        } catch {
+          /* the query already ended */
+        }
+        const stillQueued = (receipt?.still_queued ?? []).filter((u) => live.known.has(u));
+        for (const u of stillQueued) live.consumed.delete(u);
+        if (!closed && (stillQueued.length || outstanding().length)) closeTimer = setTimeout(closeQuery, STOP_RESULT_WAIT_MS);
+      })();
+    };
+    live.stop = stop;
+    live.push = (s) => {
+      runSteers.add(s.uuid);
+      channel.push(userMessage(s.text, s.images ?? [], s.uuid));
+    };
+    const onAbort = () => stop();
     ctx.signal.addEventListener('abort', onAbort, { once: true });
     try {
       for await (const m of q as AsyncIterable<SDKMessage>) {
         if (m.type === 'system' && m.subtype === 'init') {
-          this.lastInit = { apiKeySource: m.apiKeySource, model: m.model, version: m.claude_code_version, tools: m.tools, skills: m.skills };
+          const capabilities = (m as { capabilities?: string[] }).capabilities;
+          this.lastInit = { apiKeySource: m.apiKeySource, model: m.model, version: m.claude_code_version, tools: m.tools, skills: m.skills, capabilities };
+          live.initSeen = true;
+          live.steerable = !!capabilities?.includes(STEER_CAPABILITY);
           sink.onInit?.(this.lastInit);
           if (m.session_id) sink.onSession(m.session_id);
           continue;
         }
+        if (m.type === 'rate_limit_event') {
+          const report = limitReport(m.rate_limit_info);
+          if (report.status === 'rejected') rejected = report;
+          sink.onLimit?.(report);
+          continue;
+        }
+        if (m.type === 'system' && m.subtype === 'api_retry') {
+          lastRetry = m;
+          if (process.env.POCKETROCKET_DEBUG) console.log('[claude ' + bot.handle + '] api_retry', m.attempt + '/' + m.max_retries, m.error_status, m.error);
+          continue;
+        }
         if (m.type === 'stream_event') {
           if (m.parent_tool_use_id) continue;
+          consume(m.user_message_uuids);
           const ev = m.event as { type: string; delta?: { type?: string; text?: string } };
           if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) sink.onDelta(ev.delta.text);
           continue;
         }
         if (m.type === 'assistant') {
           if (m.parent_tool_use_id) continue;
+          consume(m.user_message_uuids);
+          const limitKind = m.error ? LIMIT_ERRORS[m.error] : undefined;
+          if (limitKind) {
+            // The CLI's error wording, not the bot's reply: held back, and the turn ends on the structured limit.
+            apiError = { kind: limitKind, ...(limitKind === 'usage' && rejected ? { resetsAt: rejected.resetsAt, window: rejected.window } : {}) };
+            continue;
+          }
+          if (!m.error) {
+            // A real answer after a limit signal: the CLI recovered (fallback model, retry), so the run is not limited.
+            rejected = undefined;
+            apiError = undefined;
+            lastRetry = undefined;
+            if (m.message.model && m.message.model !== '<synthetic>') seenModel = m.message.model;
+          }
+          const mu = m.message.usage as (Parameters<typeof callInputTokens>[0] & { output_tokens?: number | null }) | undefined;
+          if (mu) {
+            calls.set(m.message.id ?? 'call-' + calls.size, {
+              input: mu.input_tokens ?? 0, cacheRead: mu.cache_read_input_tokens ?? 0,
+              cacheWrite: mu.cache_creation_input_tokens ?? 0, output: mu.output_tokens ?? 0,
+            });
+            contextTokens = callInputTokens(mu);
+            if (!braked && ctx.cacheReadBudget !== undefined && runningCacheRead() > ctx.cacheReadBudget) {
+              braked = true;
+              stop();
+            }
+          }
           for (const block of m.message.content) {
             if (block.type === 'text' && block.text.trim()) {
               // Held back rather than shown: runTurn updates the CLI and replays, or reports it as the turn error.
@@ -508,41 +933,100 @@ export class ClaudeProvider implements AgentProvider {
           continue;
         }
         if (m.type === 'result') {
-          costUsd = m.total_cost_usd ?? 0;
+          gotResult = true;
+          // The run's first result is always the opening message's turn, whatever the CLI lists.
+          consume([openerUuid]);
+          const listed = (m as { user_message_uuids?: string[] }).user_message_uuids;
+          consume(listed);
+          // total_cost_usd is the session's running total across resumes (and this run's results), not this run's.
+          sessionCostUsd = m.total_cost_usd ?? 0;
+          costUsd = runCostUsd(sessionCostUsd, resumed, ctx.sessionCostUsd);
+          // ok/error come from the last result. Tokens and time are per result, so a steer the CLI answered in a
+          // turn of its own adds to them.
           ok = m.subtype === 'success';
-          if (!ok) error = m.subtype + ((m as { errors?: string[] }).errors?.length ? ': ' + (m as { errors?: string[] }).errors!.join('; ') : '');
+          error = ok ? undefined : m.subtype + ((m as { errors?: string[] }).errors?.length ? ': ' + (m as { errors?: string[] }).errors!.join('; ') : '');
           const resultText = (m as { result?: string }).result;
           if (!outdatedCli && isOutdatedCliError(resultText)) outdatedCli = resultText!.trim();
           if (!outdatedCli && error && isOutdatedCliError(error)) outdatedCli = error;
           const u = m.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
           usage = {
-            inputTokens: u?.input_tokens ?? 0, outputTokens: u?.output_tokens ?? 0,
-            cacheReadTokens: u?.cache_read_input_tokens ?? 0, cacheWriteTokens: u?.cache_creation_input_tokens ?? 0,
+            inputTokens: usage.inputTokens + (u?.input_tokens ?? 0),
+            outputTokens: usage.outputTokens + (u?.output_tokens ?? 0),
+            cacheReadTokens: usage.cacheReadTokens + (u?.cache_read_input_tokens ?? 0),
+            cacheWriteTokens: usage.cacheWriteTokens + (u?.cache_creation_input_tokens ?? 0),
           };
           modelUsage = (m as { modelUsage?: unknown }).modelUsage;
-          durationMs = m.duration_ms;
-          resolveDone();
-          break;
+          durationMs += m.duration_ms ?? 0;
+          // Read on only while a pushed steer is still unanswered and the CLI says which messages it answered. Stop,
+          // an error result (max turns, budget) or a CLI that lists nothing ends the run here: the steers no result
+          // named return as pending, and the query is closed below so the CLI does not run them on its own.
+          if (stopping || !ok || !listed || outdatedCli || !outstanding().length) {
+            live.ending = true;
+            break;
+          }
+          continue;
         }
       }
     } catch (e) {
-      error = error ?? String((e as Error).message ?? e);
-      if (!outdatedCli && isOutdatedCliError(error)) outdatedCli = error;
+      // Closing the query (Stop) can end the read with an error; that is not the turn's.
+      if (!closed) {
+        error = error ?? String((e as Error).message ?? e);
+        if (!outdatedCli && isOutdatedCliError(error)) outdatedCli = error;
+      }
     } finally {
-      resolveDone();
+      live.ending = true;
+      live.push = undefined;
+      live.stop = undefined;
+      if (closeTimer) clearTimeout(closeTimer);
       ctx.signal.removeEventListener('abort', onAbort);
-      this.active.delete(ctx.turnId);
+      // A steer the CLI holds that no result named would otherwise run as a turn of its own.
+      if (stopping || outstanding().length) closeQuery();
+      else channel.close();
     }
     // The CLI reports this API error as a "successful" result, so the turn is marked failed here.
     if (outdatedCli) {
       ok = false;
       error = outdatedCli;
     }
+    // Interrupted before a result: what the model calls themselves reported is all there is to count.
+    if (!gotResult && calls.size) {
+      const sum = (k: 'input' | 'cacheRead' | 'cacheWrite' | 'output') => [...calls.values()].reduce((n, c) => n + c[k], 0);
+      usage = { inputTokens: sum('input'), outputTokens: sum('output'), cacheReadTokens: sum('cacheRead'), cacheWriteTokens: sum('cacheWrite') };
+    }
+    if (braked) {
+      ok = false;
+      error = tokenBrakeError(runningCacheRead(), ctx.cacheReadBudget!);
+    }
+    // P0-1: a limit ends the run as failed, even when the CLI called it a success (on a subscription it reports the
+    // limit as a successful result carrying its limit text). A user Stop is not a limit.
+    let limit: TurnLimit | undefined;
+    if (!stopping && !ctx.signal.aborted && !outdatedCli) {
+      if (apiError?.kind === 'usage' || (!apiError && rejected)) {
+        const resetsAt = apiError?.resetsAt ?? rejected?.resetsAt;
+        const window = apiError?.window ?? rejected?.window;
+        limit = { kind: 'usage', ...(resetsAt !== undefined ? { resetsAt } : {}), ...(window ? { window } : {}) };
+      } else if (apiError) {
+        limit = apiError;
+      } else if (!ok && lastRetry) {
+        const kind = retryLimitKind(lastRetry);
+        if (kind) limit = { kind };
+      }
+    }
+    if (limit) {
+      ok = false;
+      error = limitError(limit);
+    }
+    const model = ranModel(ctx.model, fallbackModel, seenModel);
+    const contextWindow = contextWindowOf(modelUsage, seenModel);
 
     const outcome: TurnOutcome = {
       ok, error, costUsd,
       usage: { costUsd, ...usage, modelUsage, durationMs: durationMs || Date.now() - started },
       durationMs: durationMs || Date.now() - started,
+      sessionCostUsd, contextTokens, braked: braked || undefined,
+      ...(contextWindow ? { contextWindow } : {}),
+      ...(limit ? { limit } : {}),
+      ...(model ? { model } : {}),
     };
     return { outcome, outdatedCli: !!outdatedCli, usedTools };
   }

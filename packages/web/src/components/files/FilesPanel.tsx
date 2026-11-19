@@ -14,6 +14,8 @@ import { RowIcon, TileIcon } from './FileIcon';
 import { FilePreview } from './FilePreview';
 import { canPickFolder, emptyDirs, gatherFromDrop, gatherFromInput, splitRel, tooBig, type Gathered } from './folderUpload';
 import { KIND_LABEL, baseName, fileKind, fmtBytes, fmtModified, fmtModifiedFull, joinPath, parentPath, resolveFileLink } from './fileKinds';
+import { getJson, setJson } from '../../lib/persist';
+import { saveBlob } from '../../lib/saveBlob';
 
 type View = 'grid' | 'list';
 type SortKey = 'name' | 'size' | 'mtime';
@@ -22,17 +24,8 @@ interface Sort { key: SortKey; dir: 1 | -1 }
 const VIEW_KEY = 'pocketrocket.files.view';
 const SORT_KEY = 'pocketrocket.files.sort';
 
-function readPref<T>(key: string, ok: (v: unknown) => v is T, fallback: T): T {
-  try {
-    const v = JSON.parse(localStorage.getItem(key) ?? 'null');
-    return ok(v) ? v : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function writePref(key: string, v: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage blocked: it holds for this session */ }
-}
+const readPref = getJson;
+const writePref = (key: string, v: unknown) => void setJson(key, v);
 const isView = (v: unknown): v is View => v === 'grid' || v === 'list';
 const isSort = (v: unknown): v is Sort => !!v && typeof v === 'object' && ['name', 'size', 'mtime'].includes((v as Sort).key) && ((v as Sort).dir === 1 || (v as Sort).dir === -1);
 
@@ -48,22 +41,6 @@ function sortEntries(entries: FileEntry[], sort: Sort): FileEntry[] {
     : sort.key === 'size' ? (a: FileEntry, b: FileEntry) => a.size - b.size || collator.compare(a.name, b.name)
     : (a: FileEntry, b: FileEntry) => a.mtime - b.mtime || collator.compare(a.name, b.name);
   return [...entries].sort((a, b) => (a.kind === b.kind ? by(a, b) * sort.dir : a.kind === 'dir' ? -1 : 1));
-}
-
-/**
- * Saves a fetched file the way a link with `download` would. Re-typed as octet-stream first, so the URL is only ever
- * something to save: were it opened as a page, a text/html or SVG type would run in the app's origin.
- */
-function saveBlob(blob: Blob, name: string) {
-  const url = URL.createObjectURL(new Blob([blob], { type: 'application/octet-stream' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  // The click has started the download by now; a moment's grace for a slow browser, then the URL goes.
-  setTimeout(() => URL.revokeObjectURL(url), 5_000);
 }
 
 const message = (e: unknown) => (e as Error)?.message || 'Unknown error';

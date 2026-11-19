@@ -1,10 +1,10 @@
 /**
- * Settings › Claude: is Claude working, which model new bots start with, and an optional API key.
- * v1 ships one provider (Claude), so there is no picker; the provider radio cards only appear when a
- * developer build enables more than one.
+ * Settings › Claude: is Claude working, which model new bots start with, and an optional API key. With more than one
+ * provider enabled the section is "Providers": a card per provider (status, Re-check) and the default, which bots set
+ * to "Default" run on. Each bot can pick its own in the bot dialog (spec 01 P1-8).
  */
 import { useEffect, useState } from 'react';
-import { AUTO_MODEL_INFO, MAX_ROUTING_BYTES, MODELS } from '@pocketrocket/shared';
+import { AUTO_MODEL_INFO, HEAVY_MODEL_HINT, MAX_ROUTING_BYTES, MODELS, isHeavyModel, modelOptionLabel } from '@pocketrocket/shared';
 import type { ModelInfo, ProviderCheck, ProviderId, ProviderInfo } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
@@ -29,6 +29,9 @@ export function ClaudeSection() {
   const active = list.find((p) => p.id === settings.provider) ?? list[0];
   const models: ModelInfo[] = [AUTO_MODEL_INFO, ...(active?.models?.length ? active.models : MODELS.map((m) => ({ id: m.id, label: m.label })))];
   const multiple = list.length > 1;
+  // Every enabled provider's keys, not only the default's: a bot can run on (or back up to) any of them. Gemini's key,
+  // for one, is what lets its routines run; without it a Gemini bot answers only messages a person sends.
+  const secretKeys = [...new Set((multiple ? list : active ? [active] : []).flatMap((p) => p.secretKeys))];
 
   // Refetch for the source of truth, but patch the check in place now so the card updates at once.
   const patchCheck = (id: ProviderId, check: ProviderCheck) => {
@@ -39,8 +42,8 @@ export function ClaudeSection() {
   return (
     <>
       <SectionHeader
-        title={multiple ? 'Connection' : 'Claude'}
-        description={multiple ? 'Which service your bots use.' : undefined}
+        title={multiple ? 'Providers' : 'Claude'}
+        description={multiple ? 'The default for new bots, and bots set to "Default". Each bot can pick its own in its settings.' : undefined}
       />
 
       <Group>
@@ -59,22 +62,24 @@ export function ClaudeSection() {
             <Label hint="New bots start with this">Default model</Label>
             <Select value={settings.defaultModel} onChange={(e) => void updateSettings({ defaultModel: e.target.value })}>
               {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.label}{m.note ? ' — ' + m.note : ''}</option>
+                <option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>
               ))}
               {/* Keep an unknown saved value visible instead of silently showing the first option. */}
               {!models.some((m) => m.id === settings.defaultModel) && <option value={settings.defaultModel}>{settings.defaultModel}</option>}
             </Select>
           </Field>
-          <p className="mt-2 text-hint text-muted">Each bot can override this.</p>
+          <p className="mt-2 text-hint text-muted">
+            Each bot can override this.{isHeavyModel(settings.defaultModel) && ' This model ' + HEAVY_MODEL_HINT + '; Sonnet or Auto suits most bots.'}
+          </p>
         </Card>
       </Group>
 
       <RoutingRulesGroup />
 
-      {active && active.secretKeys.length > 0 && (
+      {secretKeys.length > 0 && (
         <Group>
           <Card className="space-y-4">
-            {active.secretKeys.map((key) => (
+            {secretKeys.map((key) => (
               <ApiKeyField key={key} keyName={key} isSet={!!secrets[key]} onSaved={setSecrets} />
             ))}
           </Card>
@@ -84,14 +89,14 @@ export function ClaudeSection() {
   );
 }
 
-/** Developer builds only (more than one service enabled). Switching asks first, as it resets some bots' models. */
+/** Developer builds only (more than one provider enabled). Switching asks first, as it resets some bots' models. */
 function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; current: ProviderId; onChecked: (id: ProviderId, check: ProviderCheck) => void }) {
   const updateSettings = useStore((s) => s.updateSettings);
   const [pending, setPending] = useState<ProviderId | null>(null);
 
   return (
     <>
-      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Service">
+      <div className="flex flex-col gap-2" role="radiogroup" aria-label="Default provider">
         {list.map((p) => (
           <ProviderCard key={p.id} info={p} selected={p.id === current} onSelect={() => p.id !== current && setPending(p.id)} onChecked={(check) => onChecked(p.id, check)} />
         ))}
@@ -99,11 +104,11 @@ function ServicePicker({ list, current, onChecked }: { list: ProviderInfo[]; cur
       {pending && (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md bg-warn/10 px-3 py-2 text-ui">
           <span>
-            Switch to <strong>{list.find((p) => p.id === pending)?.label}</strong>? Unavailable models reset to default.
+            Make <strong>{list.find((p) => p.id === pending)?.label}</strong> the default? Bots set to "Default" move too, and models it lacks reset.
           </span>
           <div className="flex shrink-0 gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setPending(null)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={() => { void updateSettings({ provider: pending }); setPending(null); }}>Switch</Button>
+            <Button size="sm" variant="primary" onClick={() => { void updateSettings({ provider: pending }); setPending(null); }}>Make default</Button>
           </div>
         </div>
       )}

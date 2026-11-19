@@ -3,6 +3,7 @@ import type { Repos } from '../db/repos.js';
 import type { RoomRouter } from '../rooms/RoomRouter.js';
 import { events } from '../events.js';
 import { settings } from './SettingsStore.js';
+import { parseOwnerRef } from '../rooms/ownerRef.js';
 
 /** Minutes a handoff may go unanswered before the coordinator is nudged. `POCKETROCKET_HANDOFF_NUDGE_MIN`, default 10. */
 export const HANDOFF_NUDGE_MS = (Number(process.env.POCKETROCKET_HANDOFF_NUDGE_MIN) || 10) * 60_000;
@@ -32,7 +33,7 @@ export interface FollowUpDeps {
   sweepMs?: number;
   /** Clock, for tests. */
   now?: () => number;
-  /** P2: routine runs a parked approval still holds open; they are not closed at startup. */
+  /** P2: owner refs (`routine:<runId>`...) a parked approval or takeover still holds open; their runs are not closed at startup. */
   heldRuns?: () => string[];
 }
 
@@ -77,8 +78,10 @@ export class FollowUp {
   resumeInterrupted(): number {
     const { repos, router } = this.deps;
     const rows = repos.journalTakeAll();
-    // A routine run left `running` with no journaled turn will never finish: close it.
-    const journaledRuns = new Set([...rows.map((r) => r.runId).filter(Boolean), ...(this.deps.heldRuns?.() ?? [])]);
+    // A routine run left `running` with no journaled turn will never finish: close it. (A workflow run is
+    // WorkflowRunner's: it restarts the runs that have no journal row left after this.)
+    const routineRuns = (refs: (string | null)[]) => refs.map(parseOwnerRef).flatMap((p) => (p?.kind === 'routine' ? [p.runId] : []));
+    const journaledRuns = new Set([...routineRuns(rows.map((r) => r.ownerRef)), ...routineRuns(this.deps.heldRuns?.() ?? [])]);
     for (const run of repos.runningRuns()) if (!journaledRuns.has(run.id)) repos.finishRun(run.id, 'error', null);
 
     let resumed = 0;
@@ -88,7 +91,7 @@ export class FollowUp {
       const room = repos.getRoom(row.roomId);
       const giveUp = !bot || !room || !room.memberIds.includes(bot.id) || row.attempts >= MAX_RESUMES;
       if (giveUp) {
-        if (row.runId) repos.finishRun(row.runId, 'error', null);
+        router.ownerGone(row.ownerRef, 'cut off by a server restart');
         if (bot && room && !noted.has(bot.id + ':' + room.id)) {
           noted.add(bot.id + ':' + room.id);
           router.systemNote(room, '@' + bot.handle + ' was cut off by a server restart again, so it was not resumed. Send a message to continue.', row.causeId, row.hop);
@@ -99,11 +102,12 @@ export class FollowUp {
         noted.add(bot.id + ':' + room.id);
         router.systemNote(room, 'The server restarted while @' + bot.handle + ' was working; resuming.', row.causeId, row.hop);
       }
-      const runId = row.runId ?? undefined;
+      // The turn's `onDone` is rebuilt from the owner ref (RoomRouter.ownerDone): a routine run or a workflow step.
       router.resume(bot, room, {
-        causeId: row.causeId, hop: row.hop, triggerSeq: row.triggerSeq, attempts: row.attempts + 1, runId,
+        causeId: row.causeId, hop: row.hop, triggerSeq: row.triggerSeq, attempts: row.attempts + 1,
+        ...(row.ownerRef ? { ownerRef: row.ownerRef } : {}),
+        ...(row.messageId ? { messageId: row.messageId } : {}),
         note: row.note ? row.note + '\n' + RESUME_NOTE : RESUME_NOTE,
-        onDone: runId ? (res) => repos.finishRun(runId, res.ok ? 'success' : 'error', res.costUsd) : undefined,
       });
       resumed++;
     }

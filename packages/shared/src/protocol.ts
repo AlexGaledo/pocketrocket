@@ -1,12 +1,23 @@
 import { z } from 'zod';
-import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval } from './models.js';
+import { AUTO_MEMORY_EVERY, MAX_AVATAR_LENGTH, MAX_ROOM_BOTS, SEND_MODES, MAX_ROUTING_BYTES, isBotIconKey, isChatModel, isMediaRef, type Bot, type BotState, type Message, type Room, type UsageTotals, type ApprovalPayload, type OpenApproval, type LaneQueue } from './models.js';
 import type { KnowledgeStatus } from './models.js';
-import type { Settings, ProviderId } from './providers.js';
+import { PROVIDER_IDS, type Settings, type ProviderId, type ProviderLimitState, type FailoverState } from './providers.js';
 import type { AccountState } from './account.js';
 import type { ComputerStatus } from './models.js';
 import type { TriggerFireStatus } from './triggers.js';
 import { COMPUTER_CONTROLS, type ApprovalPolicy, type ControlStatus } from './models.js';
 import type { RecorderStatus } from './teach.js';
+import type { Task } from './tasks.js';
+import { FormAnswersSchema } from './cards.js';
+import type { PcSessionUpdatedEvent } from './pcSessions.js';
+import type { WorkflowApprovalCard, WorkflowRunSummary } from './workflows.js';
+
+/**
+ * P4-2: how full a (bot, room) session's context is. `contextTokens` = input size of the last model call; `window` = the
+ * model's context window; `rotateAt` = the size past which the next turn starts a fresh session (null: rotation off).
+ * Sent on `turn.end` and by GET /api/rooms/:id/context, only for providers that report context size.
+ */
+export interface ContextUsage { contextTokens: number; window: number; rotateAt: number | null }
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -14,13 +25,25 @@ export type ServerEvent =
   | { type: 'settings.changed'; settings: Settings }
   /** Provider switched (or its check changed); clients refetch GET /api/providers. */
   | { type: 'providers.changed'; active: ProviderId }
+  /**
+   * M5: a provider limit was hit, warned about or cleared. Carries every limit in force (the same list as GET
+   * /api/providers → `limits`), so the client replaces its copy. Entries past `until` no longer apply.
+   */
+  | { type: 'provider.limit'; limits: ProviderLimitState[] }
+  /** M8: a failover card was raised, answered or expired, or a bot started or stopped running on its backup. The whole state (same as GET /api/failover). */
+  | { type: 'failover.changed'; cards: FailoverState['cards']; active: FailoverState['active'] }
   | { type: 'bots.changed'; bots: Bot[] }
   | { type: 'rooms.changed'; rooms: Room[] }
   | { type: 'message.new'; message: Message }
   | { type: 'message.update'; id: string; roomId: string; patch: Partial<Message> }
   | { type: 'turn.start'; turnId: string; botId: string; roomId: string; causeId: string; hop: number }
   | { type: 'turn.delta'; turnId: string; roomId: string; botId: string; text: string }
-  | { type: 'turn.end'; turnId: string; roomId: string; botId: string; messageId?: string; costUsd?: number; error?: string }
+  /**
+   * `stoppedBy: 'owner'`: the owner stopped it (Stop, or a queue's Send now); it carries no `error` then, because a stop
+   * the owner asked for is not a failure, and the room gets a "stopped by you" note instead of a failure note.
+   * `context` (P4-2): the (bot, room) session's context size after the turn; only from providers that report it.
+   */
+  | { type: 'turn.end'; turnId: string; roomId: string; botId: string; messageId?: string; costUsd?: number; error?: string; stoppedBy?: 'owner'; context?: ContextUsage }
   | { type: 'bot.state'; botId: string; state: BotState; roomId?: string; note?: string }
   | { type: 'approval.request'; roomId: string; botId: string; messageId: string; approval: ApprovalPayload }
   | { type: 'approval.resolved'; approvalId: string; decision: ApprovalPayload['status'] }
@@ -29,9 +52,18 @@ export type ServerEvent =
   | { type: 'usage.updated'; botId: string; roomId: string; totals: UsageTotals }
   | { type: 'account.changed'; account: AccountState }
   | { type: 'error'; message: string; context?: string }
+  /** Liveness probe (B6), every {@link WS_PING_MS}. The client answers with a `pong` client event; old clients just ignore it. */
+  | { type: 'ping'; t: number }
   // ---- P3: routines v2 ----
   /** A routine was created, changed or deleted (REST or a bot tool); clients refetch GET /api/routines. */
   | { type: 'routines.changed' }
+  // ---- Workflows v1 ----
+  /** A workflow was created, changed or deleted (REST or a bot tool); clients refetch GET /api/workflows. */
+  | { type: 'workflows.changed' }
+  /** A run started, moved to another step, waited, ended or was retried. Carries no step output (paired phones get every event); fetch GET /api/workflow-runs/:id for it. */
+  | { type: 'workflow.run'; run: WorkflowRunSummary }
+  /** The approval cards waiting for the owner changed: this is the whole list now (the same as GET /api/workflow-cards). */
+  | { type: 'workflow.cards'; cards: WorkflowApprovalCard[] }
   // ---- P7: knowledge repo, voice ----
   | { type: 'knowledge.status'; status: KnowledgeStatus }
   /** voice.md or its pending proposals changed; clients refetch GET /api/bots/:id/voice. */
@@ -65,17 +97,64 @@ export type ServerEvent =
    * The PC runner's pairing, online state or a job changed. Carries no job content (paired phones get every
    * event); the desktop's Settings > PC runner refetches GET /api/pc-runner and /api/pc-runner/jobs.
    */
-  | { type: 'pc-runner.changed'; jobId?: string };
+  | { type: 'pc-runner.changed'; jobId?: string }
+  /** A task on a room's board was created or changed (REST or a bot tool). Carries the whole task. */
+  | { type: 'task.changed'; roomId: string; task: Task }
+  /**
+   * Queue controls (02 task 2.1a): a bot's queue in a room changed (an item queued, taken in by a turn, cancelled or
+   * edited, the queue paused or resumed). Carries the whole lane; an empty, unpaused lane means nothing is waiting.
+   */
+  | { type: 'queue.changed'; queue: LaneQueue }
+  /** Bridge P3: entries of a mirrored PC session arrived (no content; the owner's session list refetches). */
+  | PcSessionUpdatedEvent;
+
+/** How often the hub pings each WebSocket client (B6). The client calls the link stale after two missed pings. */
+export const WS_PING_MS = 20_000;
+
+/** Longest text `queue.edit` takes (a REST message has no cap; this keeps one edit inside a WS frame). */
+export const MAX_QUEUE_EDIT_CHARS = 32_000;
 
 // ---------- client -> server ----------
 export const ClientEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('message.send'), roomId: z.string(), text: z.string().min(1) }),
+  z.object({
+    type: z.literal('message.send'),
+    roomId: z.string(),
+    /** May be empty when `attachments` is not (a picture sent on its own). */
+    text: z.string(),
+    /**
+     * Pictures from `POST /api/media?for=attachment` (U2a), at most {@link MAX_ATTACHMENTS}. The hub checks every one
+     * and refuses the whole send when any is unknown or not an allowed image; the cap is enforced there too, so the
+     * refusal can name the client's id (`context`). Left out, the message has no pictures.
+     */
+    attachments: z.array(z.string().max(80)).max(32).optional(),
+    /**
+     * Optional id the client made up for this send (B5). The hub posts one message per (room, id) however many
+     * times it is repeated, so a client may replay its outbox after a reconnect. Clients that omit it still work.
+     */
+    clientMsgId: z.string().min(1).max(64).optional(),
+    /**
+     * Steering: what to do when a target bot is busy in this room. `join` (the default, or Settings > busyMessages)
+     * pushes it into the running turn where the provider can; `queue` (Ctrl+Enter) waits for the turn to end. The
+     * per-bot result arrives as `message.update` with a {@link DeliveryPayload}.
+     */
+    mode: z.enum(SEND_MODES).optional(),
+  }).refine((e) => e.text.trim().length > 0 || (e.attachments?.length ?? 0) > 0, { message: 'Message is empty', path: ['text'] }),
+  /** Answer to a server `ping` (B6). Carries nothing; it only proves the path is alive. */
+  z.object({ type: z.literal('pong') }),
   z.object({
     type: z.literal('approval.decide'),
     approvalId: z.string(),
     decision: z.enum(['allow', 'always', 'deny']),
   }),
+  /** U4: the owner's answers to a request_form card (formId is the card's message id). The hub checks them against the stored fields. */
+  z.object({ type: z.literal('form.submit'), formId: z.string().max(64), answers: FormAnswersSchema }),
+  z.object({ type: z.literal('form.cancel'), formId: z.string().max(64) }),
   z.object({ type: z.literal('turn.interrupt'), turnId: z.string() }),
+  // ---- queue controls (02 Phase 2); a refusal comes back as `error` with `context` set to the journalId or botId ----
+  z.object({ type: z.literal('queue.cancel'), journalId: z.string().max(64) }),
+  z.object({ type: z.literal('queue.edit'), journalId: z.string().max(64), text: z.string().trim().min(1).max(MAX_QUEUE_EDIT_CHARS) }),
+  z.object({ type: z.literal('queue.sendNow'), roomId: z.string().max(64), botId: z.string().max(64) }),
+  z.object({ type: z.literal('queue.pause'), roomId: z.string().max(64), botId: z.string().max(64).optional(), paused: z.boolean() }),
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;
 
@@ -90,6 +169,19 @@ const AvatarSchema = z.string().max(MAX_AVATAR_LENGTH).transform((v): string => 
 export const MAX_MEDIA_BYTES = 512 * 1024;
 export const MediaUploadSchema = z.object({
   data: z.string().max(Math.ceil(MAX_MEDIA_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
+});
+
+/** U2a: pictures a person attaches to a chat message. Larger than an avatar; the browser downscales before upload. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/**
+ * The most one picture may weigh. Pictures are base64-inlined into the Claude turn and the API refuses an image over
+ * about 5 MB (counted after encoding, which adds a third), so the raw cap sits below it with headroom.
+ */
+export const MAX_ATTACHMENT_IMAGE_BYTES = 3.5 * 1024 * 1024;
+/** Most pictures on one message. */
+export const MAX_ATTACHMENTS = 4;
+export const AttachmentUploadSchema = z.object({
+  data: z.string().max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
 });
 
 /** The longest a bot's description may be, however it is written. */
@@ -108,6 +200,12 @@ export const BotInputSchema = z.object({
   // templates need not send them.
   autoMemory: z.boolean().optional(),
   autoMemoryEvery: z.number().int().min(AUTO_MEMORY_EVERY.min).max(AUTO_MEMORY_EVERY.max).optional(),
+  /**
+   * M6, owner only (REST; the bot tools refuse both): the bot's provider, null to follow the default, and its one
+   * backup. The hub refuses a provider this server does not enable, and a model its provider does not list.
+   */
+  provider: z.enum(PROVIDER_IDS).nullable().optional(),
+  backup: z.object({ provider: z.enum(PROVIDER_IDS), model: z.string().min(1).max(80) }).nullable().optional(),
 });
 export type BotInput = z.infer<typeof BotInputSchema>;
 
@@ -164,5 +262,34 @@ export const ApprovalPolicyInputSchema = z.object({
   tool: z.string().min(1).max(120).optional(),
   pattern: z.string().min(1).max(500).optional(),
   decision: z.enum(['allow', 'deny']).default('allow'),
+  /** Limit the rule to one machine (`pc`, `vps`); omit for any. */
+  machine: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).nullable().optional(),
+  /** Epoch ms after which the rule no longer applies; omit for never. */
+  expiresAt: z.number().int().positive().nullable().optional(),
 });
 export type ApprovalPolicyInput = z.infer<typeof ApprovalPolicyInputSchema>;
+
+/** Longest maintenance hold one call may ask for, in minutes. */
+export const MAX_MAINTENANCE_HOLD_MINUTES = 30;
+/** POST /api/maintenance/hold: no new bot turn starts until released or `minutes` pass (default 10). */
+export const MaintenanceHoldInputSchema = z.object({
+  minutes: z.number().int().min(1).max(MAX_MAINTENANCE_HOLD_MINUTES).default(10),
+});
+export type MaintenanceHoldInput = z.infer<typeof MaintenanceHoldInputSchema>;
+
+/** POST /api/rooms/:id/messages: the composer's send, for scripts and devices. `mode` as on WS `message.send`. */
+export const RoomMessageInputSchema = z.object({
+  text: z.string().min(1),
+  mode: z.enum(SEND_MODES).optional(),
+});
+export type RoomMessageInput = z.infer<typeof RoomMessageInputSchema>;
+
+// ---- queue controls (02 Phase 2): REST twins of the WS queue.* events, for scripts and paired phones ----
+/** POST /api/rooms/:id/queue/cancel */
+export const QueueCancelInputSchema = z.object({ journalId: z.string().max(64) });
+/** POST /api/rooms/:id/queue/edit */
+export const QueueEditInputSchema = z.object({ journalId: z.string().max(64), text: z.string().trim().min(1).max(MAX_QUEUE_EDIT_CHARS) });
+/** POST /api/rooms/:id/queue/send-now */
+export const QueueSendNowInputSchema = z.object({ botId: z.string().max(64) });
+/** POST /api/rooms/:id/queue/pause. No `botId`: every bot in the room. */
+export const QueuePauseInputSchema = z.object({ botId: z.string().max(64).optional(), paused: z.boolean() });

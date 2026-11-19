@@ -92,6 +92,8 @@ export function checkContentType(req: IncomingMessage, url: URL): { ok: true } |
   if (!MUTATING.has(req.method ?? 'GET')) return { ok: true };
   const ct = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
   if (ct === 'application/json') return { ok: true };
+  // The one raw upload: the runner's git bundle. Anything else on that path still has to be JSON.
+  if (ct === 'application/octet-stream' && /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(bundle|session)$/.test(url.pathname)) return { ok: true };
   return { ok: false, status: 415, reason: 'Content-Type must be application/json (got ' + (ct || '(none)') + ')' };
 }
 
@@ -330,6 +332,8 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/bots\/[^/]+\/(memory|skills|voice|notes)$/],
   ['GET', /^\/api\/rooms$/],
   ['GET', /^\/api\/rooms\/[^/]+\/messages$/],
+  // P4-2: the context meter (read only).
+  ['GET', /^\/api\/rooms\/[^/]+\/context$/],
   // Pictures: a phone sees them. Uploading (POST /api/media) is not listed, so it stays with the hub token.
   ['GET', /^\/api\/media\/[0-9a-f]{64}$/],
   ['POST', /^\/api\/rooms\/[^/]+\/messages$/],
@@ -337,6 +341,13 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/skills\/[^/]+$/],
   ['GET', /^\/api\/usage$/],
   ['GET', /^\/api\/knowledge$/],
+  // Workflows: a phone sees runs and answers approval cards (a person's decision); building and running them stays on the desktop.
+  ['GET', /^\/api\/workflows(\/[^/]+(\/runs)?)?$/],
+  ['GET', /^\/api\/workflow-(runs\/[^/]+|cards)$/],
+  ['POST', /^\/api\/workflow-runs\/[^/]+\/decision$/],
+  // M8 failover cards: a phone answers them like approval cards (Continue on the backup, or Wait).
+  ['GET', /^\/api\/failover$/],
+  ['POST', /^\/api\/failover-cards\/[^/]+\/decision$/],
   // Screen tab
   ['GET', /^\/api\/screen$/],
   ['POST', /^\/api\/screen\/ticket$/],
@@ -383,6 +394,16 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/bots\/[^/]+\/skill-reflection$/],
   // Bot training: a phone may read it. The switch, Run now and Approve / Reject / Undo stay desktop actions.
   ['GET', /^\/api\/bots\/[^/]+\/training$/],
+  // Tasks board: a phone may read a room's tasks (the same room it can already read messages of). Creating or
+  // changing a task (POST/PATCH /api/rooms/:id/tasks...) assigns work to bots, so it stays a desktop action.
+  // Deliberately NOT listed, so refused by default: /api/credentials* (the login vault), /api/mcp-servers* (command
+  // and token editor), GET /api/bots/:id/export and POST /api/bots/import (an export is a copy of the bot's
+  // instructions and memory; an import creates a bot), /api/bot-reports* and /api/feedback.
+  ['GET', /^\/api\/rooms\/[^/]+\/tasks$/],
+  // Queue controls (02 Phase 2): a phone may see a room's queue and cancel, edit, send now or pause it, like sending a
+  // message (the owner's own devices). Only the owner's own messages can be cancelled or edited, from any principal.
+  ['GET', /^\/api\/rooms\/[^/]+\/queue$/],
+  ['POST', /^\/api\/rooms\/[^/]+\/queue\/(cancel|edit|send-now|pause)$/],
 ];
 
 /**
@@ -396,7 +417,7 @@ export function deviceMayAccess(method: string, pathname: string): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// PC runner. Its token is an allowlist of exactly the routes the helper on the PC polls, and those routes
+// PC runner. Its token is an allowlist of exactly the routes the helper on the PC polls and the Claude Code bridge calls, and those routes
 // answer nobody else (api/pcRunner.ts checks the principal). The hub token cannot pose as the runner and the
 // runner token cannot read or change anything else: no bots, rooms, settings, approvals, /ws or Screen.
 
@@ -404,6 +425,21 @@ const RUNNER_ALLOW: readonly [method: string, path: RegExp][] = [
   ['POST', /^\/api\/pc-runner\/heartbeat$/],
   ['GET', /^\/api\/pc-runner\/jobs\/next$/],
   ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(start|result)$/],
+  // A bundle-mode sync's git bundle (raw body, up to 200 MB; api/pcRunner.ts streams it to disk).
+  ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/bundle$/],
+  // Bridge P6: a move job's session file (raw body, up to 100 MB), and what a pull job brings home.
+  ['POST', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/session$/],
+  ['GET', /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(session|bundle)$/],
+  // Claude Code terminal sessions on the PC, through the runner's MCP server (api/cc.ts).
+  ['GET', /^\/api\/cc\/rooms$/],
+  // Whether the session in x-cc-session is on the VPS (bridge P6).
+  ['GET', /^\/api\/cc\/session(-state)?$/],
+  ['GET', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|state|files\/text)$/],
+  ['POST', /^\/api\/cc\/rooms\/[A-Za-z0-9_-]+\/(messages|files\/text|decision|handoff)$/],
+  // The PC session mirror (api/pcSessions.ts): sync, upsert a session, append entries. The owner's reads are not here.
+  ['GET', /^\/api\/pc-sessions\/sync$/],
+  ['PUT', /^\/api\/pc-sessions\/[A-Za-z0-9_.:%-]+$/],
+  ['POST', /^\/api\/pc-sessions\/[A-Za-z0-9_.:%-]+\/entries$/],
 ];
 
 /** True when the PC runner's token may make this request. */

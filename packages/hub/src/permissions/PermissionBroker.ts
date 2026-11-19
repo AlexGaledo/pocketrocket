@@ -1,17 +1,19 @@
 import { nanoid } from 'nanoid';
 import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
-import type { ApprovalPayload, Bot, Room } from '@pocketrocket/shared';
 import { APPROVAL_TIMEOUT_MS, WORKSPACE_DIR, botRoots } from '../config.js';
 import { events } from '../events.js';
 import type { Repos } from '../db/repos.js';
 import { isInside, pathsFromInput } from './pathRules.js';
 import { bashWritesReadOnly, classifyBash } from './bashRules.js';
-import { DESKTOP_TOOL_NAMES } from '../agent/desktopTools.js';
-import { INTEGRATION_READ_TOOLS, INTEGRATION_WRITE_TOOLS } from '../integrations/toolNames.js';
+import {
+  ASK_EVERY_TIME_TOOLS, GATED_TOOLS, INTEGRATION_WRITE_TOOLS, SIGN_IN_TOOLS, SILENT_TOOLS,
+  type ApprovalPayload, type Bot, type Room,
+} from '@pocketrocket/shared';
 import { patternMatches, type ApprovalStore, type ParkedApproval } from '../db/approvalStore.js';
 import { isComputerTool } from './controlInterlock.js';
 import { routingFileWrite } from './readOnlyRoots.js';
 import { redact } from '../providers/redact.js';
+import { denyMessage } from './messages.js';
 
 export interface PermCtx {
   bot: Bot;
@@ -23,8 +25,8 @@ export interface PermCtx {
   /** P3, decision Q6: a routine/trigger turn. Bypass does not apply to it; every gate still asks. */
   strictApprovals?: boolean;
   // ---- P2 ----
-  /** Routine run the turn belongs to, kept on a parked card so the resumed turn can close it. */
-  runId?: string;
+  /** What the turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`), kept on a parked card so the resumed turn settles it. */
+  ownerRef?: string;
   /**
    * Ends the turn because a card parked (a strict turn waited `parkAfterMs` with no answer). BotRunner wires
    * it; without it a strict card times out and denies as before.
@@ -65,6 +67,8 @@ export const PARKED_MESSAGE =
 const INTEGRATION_WRITES = new Set<string>(INTEGRATION_WRITE_TOOLS);
 /** A parked card's "allow" is good for one retry of the same call within this window. */
 const PARKED_GRANT_TTL_MS = 60 * 60 * 1000;
+/** Ask-every-time tools (fill_credential, ...): the owner said yes for right now, so the grant is short-lived. */
+const PARKED_GRANT_ASK_EVERY_TIME_TTL_MS = 10 * 60 * 1000;
 /** A parked card nobody answers is denied after this long (POCKETROCKET_MAX_PARK_HOURS, default 24). */
 export const MAX_PARK_MS = (Number(process.env.POCKETROCKET_MAX_PARK_HOURS) || 24) * 60 * 60 * 1000;
 interface Pending {
@@ -88,45 +92,24 @@ const READ_TOOLS = new Set(['Read', 'Glob', 'Grep']);
 
 const HUB_PREFIX = 'mcp__pocketrocket__';
 /** Hub tools that never need a card: read-only, or already visible to the user as a room message. */
-const SILENT_HUB_TOOLS = new Set([
-  'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
-  'list_rooms', 'request_approval', 'use_stronger_model', ...DESKTOP_TOOL_NAMES,
-  // P3
-  'list_routines',
-  // Key routing: reads key-registry.json, names only.
-  'where_to_run',
-  // P7: notes live in the bot's own home.
-  'search_notes', 'write_note',
-  // P4: integration reads (granted per bot; untrusted output is labelled as such).
-  ...INTEGRATION_READ_TOOLS,
-]);
+const SILENT_HUB_TOOLS = SILENT_TOOLS;
 /**
  * Fleet-changing hub tools. They are allowed through *this* gate because the tool handler itself raises the
  * approval card (see `agent/botTools.ts`) — that way CLI providers, which reach hub tools over MCP and never
  * touch `decide()`, are gated identically. Before the audit every `mcp__pocketrocket__*` call was allowed
  * unconditionally and a Read-only bot could grant itself Bash (audit 2026-09-09, B6).
  */
-const GATED_HUB_TOOLS = new Set([
-  'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
-  // P3: a routine a bot schedules is autonomous future spend (grok-bot-parity §4).
-  'create_routine', 'update_routine', 'delete_routine',
-  // Its handler calls askRoutingChange.
-  'propose_routing_change',
-  // P4: integration writes; their handlers call askIntegrationWrite.
-  ...INTEGRATION_WRITE_TOOLS,
-  // A Claude Code job on the owner's PC; its handler calls askFleetChange with evenUnderBypass.
-  'run_on_pc',
-]);
+const GATED_HUB_TOOLS = GATED_TOOLS;
 
 /** Answered once per card: no "for this session", and no rule can pre-approve it. */
-const ASK_EVERY_TIME = new Set(['propose_routing_change', 'run_on_pc']);
+const ASK_EVERY_TIME = ASK_EVERY_TIME_TOOLS;
 
 /**
  * Cards only a browser signed in with the owner's password may allow. The hub token is not enough: it sits in
  * DATA_DIR, where a bot under bypass can read it and answer its own card over the socket. Anyone may deny.
  * Keyed by tool name, so a parked card keeps the rule across a restart.
  */
-export const SIGN_IN_TOOLS: ReadonlySet<string> = new Set(['run_on_pc']);
+export { SIGN_IN_TOOLS };
 export const SIGN_IN_MESSAGE =
   'Only a browser signed in with your password can approve this. The server token is not enough. Sign in, then approve it.';
 
@@ -148,7 +131,7 @@ export class PermissionBroker {
    */
   private alwaysAllowed = new Set<string>();
   /** P2: one-shot grants from a parked card the user allowed: key -> expiry. */
-  private parkedGrants = new Map<string, number>();
+  private parkedGrants = new Map<string, { expiresAt: number; roomId: string }>();
   /** P2: an answer to a parked card (or its expiry). RoomRouter queues the resumed turn. Set by createHub. */
   onParkedDecision?: (p: ParkedApproval, decision: 'allow' | 'always' | 'deny' | 'timeout') => void;
   /**
@@ -211,7 +194,7 @@ export class PermissionBroker {
     if (this.bypassedFor(ctx)) {
       // Hardening pass: a shell write into a read-only root is refused even in bypass (P7 read-only rule).
       const hit = toolName === 'Bash' ? this.readOnlyShellWrite(String(input.command ?? '')) : null;
-      if (hit) return { behavior: 'deny', message: 'The knowledge repo is read-only; this shell command writes there: ' + hit };
+      if (hit) return { behavior: 'deny', message: denyMessage('not_allowed', { subject: 'this shell command', note: 'the knowledge repo is read-only and it writes there: ' + hit, alt: 'write inside your own workspace instead, or say so in the room' }) };
       return { behavior: 'allow' };
     }
     const roots = botRoots(ctx.bot.id, ctx.room.id);
@@ -247,7 +230,7 @@ export class PermissionBroker {
     }
     const rule = this.matchPolicy(ctx.bot.id, toolName, approvalSubject(toolName, input), danger);
     if (rule === 'allow') return { behavior: 'allow' };
-    if (rule === 'deny') return { behavior: 'deny', message: 'An approval rule the user set denies this. Choose another approach or ask in chat.' };
+    if (rule === 'deny') return { behavior: 'deny', message: denyMessage('declined', { note: 'an approval rule the user set denies this', alt: 'choose another approach or ask in chat' }) };
     return this.promptUser(ctx, toolName, input, reason, danger, opts);
   }
 
@@ -264,11 +247,11 @@ export class PermissionBroker {
    */
   private readOnlyRefusal(ctx: PermCtx, toolName: string, input: Record<string, unknown>): string | null {
     const bare = toolName.startsWith(HUB_PREFIX) ? toolName.slice(HUB_PREFIX.length) : toolName;
-    if (GATED_HUB_TOOLS.has(bare)) return 'Read-only mode: fleet, room and integration changes are turned off.';
-    if (PATH_TOOLS.has(toolName) && !READ_TOOLS.has(toolName)) return 'Read-only mode: ' + toolName + ' cannot write files.';
+    if (GATED_HUB_TOOLS.has(bare)) return denyMessage('readonly', { subject: 'fleet, room and integration changes', alt: 'do the work with your own tools, or say so in the room' });
+    if (PATH_TOOLS.has(toolName) && !READ_TOOLS.has(toolName)) return denyMessage('readonly', { subject: toolName + ' (it writes files)', alt: 'read instead, or say so in the room' });
     if (toolName === 'Bash') {
       const v = classifyBash(String(input.command ?? ''), botRoots(ctx.bot.id, ctx.room.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] });
-      if (v.verdict !== 'allow') return 'Read-only mode: not a known read-only command (' + v.reason + ').';
+      if (v.verdict !== 'allow') return denyMessage('readonly', { subject: 'this shell command', note: 'not a known read-only command: ' + v.reason, alt: 'use a read-only command, or say so in the room' });
     }
     return null;
   }
@@ -278,13 +261,17 @@ export class PermissionBroker {
    * The user's rule for this call, if one matches: deny rules first, then allow rules. Allow rules never cover
    * a command the classifier calls dangerous, and nothing covers an integration write (P4: always asks).
    */
-  matchPolicy(botId: string, tool: string, subject: string, danger = false): 'allow' | 'deny' | null {
+  matchPolicy(botId: string, tool: string, subject: string, danger = false, machine?: string): 'allow' | 'deny' | null {
     if (INTEGRATION_WRITES.has(tool)) return null;
     // Asked on every call: a deny rule still refuses, but no allow rule or "always" pre-approves it.
     if (ASK_EVERY_TIME.has(tool)) danger = true;
     const store = this.opts.store;
     if (!store) return !danger && this.alwaysAllowed.has(botId + ':' + tool) ? 'allow' : null;
-    const rules = store.listPolicies(botId, 'all').filter((p) => p.tool === tool && patternMatches(p.pattern, subject));
+    // An allow rule with a machine covers only calls on that machine. A deny rule with a machine also covers a call
+    // that names none, because a refusal must not be skipped just because the caller left the machine out.
+    // Expired rules are not listed.
+    const rules = store.listPolicies(botId, 'all').filter((p) => p.tool === tool && patternMatches(p.pattern, subject)
+      && (!p.machine || p.machine === machine || (p.decision === 'deny' && machine === undefined)));
     if (rules.some((p) => p.decision === 'deny')) return 'deny';
     if (!danger && rules.some((p) => p.decision === 'allow')) return 'allow';
     return null;
@@ -317,7 +304,8 @@ export class PermissionBroker {
     this.repos.decideApproval(approvalId, decision, decision === 'timeout' ? null : 'owner');
     const input = (p.toolInput ?? {}) as Record<string, unknown>;
     if (decision === 'allow' || decision === 'always') {
-      this.parkedGrants.set(this.grantKey(p.botId, p.toolName, input), this.now() + PARKED_GRANT_TTL_MS);
+      const ttl = ASK_EVERY_TIME.has(p.toolName) ? PARKED_GRANT_ASK_EVERY_TIME_TTL_MS : PARKED_GRANT_TTL_MS;
+      this.parkedGrants.set(this.grantKey(p.botId, p.toolName, input), { expiresAt: this.now() + ttl, roomId: p.roomId });
       if (decision === 'always') this.rememberSession(p.botId, p.toolName, input, false);
     }
     if (p.messageId) {
@@ -347,6 +335,11 @@ export class PermissionBroker {
     return out;
   }
 
+  /** Cards a running turn is waiting on right now; parked ones are not counted (GET /api/busy). */
+  liveCardCount(): number {
+    return this.pending.size;
+  }
+
   /** Parked cards still waiting (REST, tests). */
   parked(): ParkedApproval[] {
     return this.opts.store?.listParked() ?? [];
@@ -370,17 +363,17 @@ export class PermissionBroker {
     if (refused) return { allowed: false, message: refused };
     if (this.opts.globalReadOnly?.()) {
       const v = req.command ? classifyBash(req.command, botRoots(ctx.bot.id, ctx.room.id), { readOnlyRoots: this.opts.readOnlyRoots?.() ?? [] }) : null;
-      if (!v || v.verdict !== 'allow') return { allowed: false, message: 'Read-only mode: this hub refuses writes outright. Choose another approach or ask in chat.' };
+      if (!v || v.verdict !== 'allow') return { allowed: false, message: denyMessage('readonly', { subject: 'every write on this hub', alt: 'choose another approach or ask in chat' }) };
     }
     if (this.bypassedFor(ctx)) {
       const hit = req.command ? this.readOnlyShellWrite(req.command) : null;
-      if (hit) return { allowed: false, message: 'The knowledge repo is read-only; this command writes there: ' + hit };
+      if (hit) return { allowed: false, message: denyMessage('not_allowed', { subject: 'this command', note: 'the knowledge repo is read-only and it writes there: ' + hit, alt: 'write inside your own workspace instead, or say so in the room' }) };
       return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
     }
     const danger = req.command ? classifyBash(req.command, botRoots(ctx.bot.id, ctx.room.id)).danger : false;
     const askInput = { action: req.action, command: req.command, paths: req.paths, reason: req.reason };
     const rule = this.matchPolicy(ctx.bot.id, 'request_approval', approvalSubject('request_approval', askInput), danger);
-    if (rule === 'deny') return { allowed: false, message: 'An approval rule the user set denies this. Choose another approach or ask in chat.' };
+    if (rule === 'deny') return { allowed: false, message: denyMessage('declined', { note: 'an approval rule the user set denies this', alt: 'choose another approach or ask in chat' }) };
     if (rule === 'allow') {
       const approvalId = 'rule-' + nanoid(8);
       this.grants.set(approvalId, {
@@ -405,8 +398,8 @@ export class PermissionBroker {
     return {
       allowed: false,
       message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
-        ? 'No response from the user within 10 minutes. Choose another approach or ask in chat.'
-        : 'The user declined this action. Choose another approach or ask in chat.',
+        ? denyMessage('timeout', { alt: 'choose another approach or ask in chat' })
+        : denyMessage('declined', { alt: 'choose another approach or ask in chat' }),
       approvalId,
     };
   }
@@ -435,20 +428,20 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
     /** A hand-off that adds a bot to this chat: the owner's call on any hub, because that bot has other logins. */
-    opts: { evenUnderBypass?: boolean } = {},
+    opts: { evenUnderBypass?: boolean; machine?: string } = {},
   ): Promise<{ allowed: boolean; message: string }> {
-    if (this.opts.globalReadOnly?.()) return { allowed: false, message: 'Read-only mode: fleet and room changes are turned off.' };
+    if (this.opts.globalReadOnly?.()) return { allowed: false, message: denyMessage('readonly', { subject: 'fleet and room changes', alt: 'say so in the room' }) };
     if (this.bypassedFor(ctx) && !opts.evenUnderBypass) return { allowed: true, message: 'Allowed: this hub runs without approval cards.' };
-    const rule = this.matchPolicy(ctx.bot.id, toolName, approvalSubject(toolName, input));
+    const rule = this.matchPolicy(ctx.bot.id, toolName, approvalSubject(toolName, input), false, opts.machine);
     if (rule === 'allow') return { allowed: true, message: 'Allowed by an approval rule the user set.' };
-    if (rule === 'deny') return { allowed: false, message: 'An approval rule the user set denies this change. Do not retry it; say so in the room.' };
+    if (rule === 'deny') return { allowed: false, message: denyMessage('declined', { subject: 'this change', note: 'an approval rule the user set denies it', alt: 'say so in the room' }) };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });
     if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
     return {
       allowed: false,
       message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
-        ? 'No response from the user within 10 minutes; the change was not made.'
-        : 'The user declined this change. Do not retry it; say so in the room.',
+        ? denyMessage('timeout', { note: 'the change was not made', alt: 'say so in the room' })
+        : denyMessage('declined', { subject: 'this change', alt: 'say so in the room' }),
     };
   }
 
@@ -466,7 +459,7 @@ export class PermissionBroker {
   ): Promise<{ allowed: boolean; message: string }> {
     const strict = !!ctx.strictApprovals;
     const rule = this.matchPolicy(ctx.bot.id, 'handoff', input.to_bot);
-    if (rule === 'deny') return { allowed: false, message: 'An approval rule the user set denies this hand-off. Keep the work here.' };
+    if (rule === 'deny') return { allowed: false, message: denyMessage('declined', { subject: 'this hand-off', note: 'an approval rule the user set denies it', alt: 'keep the work here' }) };
     if (rule === 'allow' && !strict) return { allowed: true, message: 'Already approved for this pair of bots.' };
     const { decision, approvalId } = await this.prompt(ctx, 'handoff', input, reason, false, { signal });
     const byDevice = this.answeredByDevice.delete(approvalId);
@@ -480,8 +473,33 @@ export class PermissionBroker {
     return {
       allowed: false,
       message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
-        ? 'No response from the user within 10 minutes. Keep the work here.'
-        : 'The user wants this kept here. Do the work yourself, and do not retry the hand-off.',
+        ? denyMessage('timeout', { note: 'the hand-off was not made', alt: 'keep the work here and do it yourself' })
+        : denyMessage('declined', { subject: 'this hand-off', note: 'the user wants this kept here', alt: 'do the work yourself' }),
+    };
+  }
+
+  /**
+   * G4: the card for typing a saved login into a page. Asks on every call, under bypass too, for a strict turn too;
+   * no allow rule and no "always" covers it (a deny rule still refuses), and only a browser signed in with the
+   * owner's password may allow it (SIGN_IN_TOOLS). The input shown is the login's name, site and field: never the secret.
+   */
+  async askCredentialFill(
+    ctx: PermCtx,
+    input: { credential: string; site: string; field: string; page: string },
+    signal: AbortSignal,
+  ): Promise<{ allowed: boolean; message: string }> {
+    if (this.opts.globalReadOnly?.()) return { allowed: false, message: denyMessage('readonly', { subject: 'signing in to a site', alt: 'say so in the room' }) };
+    if (this.matchPolicy(ctx.bot.id, 'fill_credential', '*') === 'deny') {
+      return { allowed: false, message: denyMessage('declined', { subject: 'this sign-in', note: 'an approval rule the user set denies it', alt: 'say so in the room' }) };
+    }
+    const reason = 'Type the saved ' + input.field + ' for "' + input.credential + '" into ' + input.page + '. The bot never sees it. Only a browser signed in with your password can approve this.';
+    const { decision } = await this.prompt(ctx, 'fill_credential', input, reason, true, { signal, once: true });
+    if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
+    return {
+      allowed: false,
+      message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
+        ? denyMessage('timeout', { note: 'nothing was filled in', alt: 'say so in the room' })
+        : denyMessage('declined', { subject: 'this sign-in', note: 'nothing was filled in', alt: 'say so in the room, or ask the user to sign in on the screen themselves' }),
     };
   }
 
@@ -492,7 +510,7 @@ export class PermissionBroker {
   async askRoutingChange(ctx: PermCtx, input: { line: string; reason: string }, signal: AbortSignal): Promise<{ allowed: boolean; message: string }> {
     const { decision } = await this.prompt(ctx, 'propose_routing_change', input, 'Add this line to your routing rules', false, { signal });
     if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
-    return { allowed: false, message: 'The user did not add it. Do not propose it again.' };
+    return { allowed: false, message: denyMessage('declined', { subject: 'this routing line', note: 'it was not added', alt: 'do not propose it again; carry on with the routing rules as they are' }) };
   }
 
   /**
@@ -508,14 +526,14 @@ export class PermissionBroker {
     reason: string,
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
-    if (this.opts.globalReadOnly?.()) return { allowed: false, message: 'Read-only mode: nothing is sent to a third party. Do not retry it; say so in the room.' };
+    if (this.opts.globalReadOnly?.()) return { allowed: false, message: denyMessage('readonly', { subject: 'sending anything to a third party', alt: 'say so in the room' }) };
     const { decision } = await this.prompt(ctx, toolName, input, reason, false, { signal });
     if (decision === 'allow' || decision === 'always') return { allowed: true, message: 'Approved by the user.' };
     return {
       allowed: false,
       message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
-        ? 'No response from the user within 10 minutes; nothing was sent.'
-        : 'The user declined this. Nothing was sent; do not retry it, say so in the room.',
+        ? denyMessage('timeout', { note: 'nothing was sent', alt: 'say so in the room' })
+        : denyMessage('declined', { subject: 'this', note: 'nothing was sent', alt: 'say so in the room' }),
     };
   }
 
@@ -534,12 +552,12 @@ export class PermissionBroker {
     signal: AbortSignal,
   ): Promise<{ allowed: boolean; message: string }> {
     if (this.opts.globalReadOnly?.()) {
-      return { allowed: false, message: 'Read-only mode: outside tools are turned off. Do not retry it; say so in the room.' };
+      return { allowed: false, message: denyMessage('readonly', { subject: 'outside tools', alt: 'say so in the room' }) };
     }
     // Never ask about input the owner cannot see in full: a hidden tail could carry the real payload.
     const shown = redact(JSON.stringify(input ?? {}) ?? '{}');
     if (shown.length > OUTSIDE_INPUT_CAP) {
-      return { allowed: false, message: 'Input too large to show for approval (' + shown.length + ' chars); split the call.' };
+      return { allowed: false, message: denyMessage('unavailable', { subject: 'this call', note: 'its input is too large to show for approval (' + shown.length + ' chars)', alt: 'split it into smaller calls' }) };
     }
     const { decision } = await this.prompt(
       ctx, 'mcp__' + server + '__' + tool, { server, tool, input: shown },
@@ -549,8 +567,8 @@ export class PermissionBroker {
     return {
       allowed: false,
       message: decision === 'parked' ? PARKED_MESSAGE : decision === 'timeout'
-        ? 'No response from the user within 10 minutes; the outside tool was not called. Do not retry it; say so in the room.'
-        : 'The user declined this outside tool call. Do not retry it; say so in the room.',
+        ? denyMessage('timeout', { note: 'the outside tool was not called', alt: 'say so in the room' })
+        : denyMessage('declined', { subject: 'this outside tool call', alt: 'say so in the room' }),
     };
   }
 
@@ -571,8 +589,8 @@ export class PermissionBroker {
       behavior: 'deny',
       message:
         decision === 'timeout'
-          ? 'No response from the user within 10 minutes. Choose another approach or ask in chat.'
-          : 'The user declined this action. Choose another approach or ask in chat.',
+          ? denyMessage('timeout', { alt: 'choose another approach or ask in chat' })
+          : denyMessage('declined', { alt: 'choose another approach or ask in chat' }),
     };
   }
 
@@ -589,9 +607,11 @@ export class PermissionBroker {
     // P2: the retry of a call the user allowed on a parked card goes through once, without a second card.
     const gk = this.grantKey(ctx.bot.id, toolName, input);
     const grant = this.parkedGrants.get(gk);
-    if (grant !== undefined) {
+    // An ask-every-time grant belongs to the room whose card was answered: a retry from another room does not use
+    // it (and does not burn it), so the yes cannot be spent somewhere the owner never saw the card.
+    if (grant !== undefined && (!ASK_EVERY_TIME.has(toolName) || grant.roomId === ctx.room.id)) {
       this.parkedGrants.delete(gk);
-      if (grant > this.now()) return { decision: 'allow', approvalId: 'parked-' + nanoid(8) };
+      if (grant.expiresAt > this.now()) return { decision: 'allow', approvalId: 'parked-' + nanoid(8) };
     }
     const approvalId = nanoid(10);
     const payload: ApprovalPayload = {
@@ -630,7 +650,7 @@ export class PermissionBroker {
       const canPark = !!(ctx.strictApprovals && ctx.park && this.opts.store);
       const timer = canPark
         ? setTimeout(() => {
-            this.opts.store!.park(approvalId, { causeId: ctx.causeId, hop: ctx.hop, runId: ctx.runId ?? null, messageId: msg.id });
+            this.opts.store!.park(approvalId, { causeId: ctx.causeId, hop: ctx.hop, ownerRef: ctx.ownerRef ?? null, messageId: msg.id });
             finish('parked');
           }, this.opts.parkAfterMs ?? APPROVAL_TIMEOUT_MS)
         : setTimeout(() => finish('timeout'), APPROVAL_TIMEOUT_MS);

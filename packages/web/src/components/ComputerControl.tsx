@@ -6,7 +6,8 @@ import type { ApprovalPayload, Bot, ComputerControl, ControlStatus, Message, Tak
 import { useStore, botById } from '../store';
 import { api } from '../lib/api';
 import { deviceId, hasComputer, holdsScreen } from '../lib/screenView';
-import { Button, Input, cn } from './ui';
+import { ActionCard, ActionCardHeader, Button, Input, cn } from './ui';
+import { broadPattern, suggestPattern } from '../lib/rulePattern';
 
 const DEFAULT: Omit<ControlStatus, 'botId'> = { control: 'agent', holder: null, since: 0, takeover: null };
 
@@ -101,14 +102,13 @@ export function TakeoverCard({ m }: { m: Message }) {
   const open = p.status === 'waiting' || p.status === 'parked';
   const outcome = p.status === 'done' ? 'Handed back' : p.status === 'expired' ? 'No longer waiting' : null;
   return (
-    <div className={cn('max-w-[640px] overflow-hidden rounded-lg ring-1', open ? 'ring-warn/60' : 'ring-line')}>
-      <div className="flex flex-wrap items-start gap-x-2 gap-y-1 px-4 pt-3 text-body">
+    <ActionCard tone={open ? 'warn' : 'quiet'} className="max-w-[640px]">
+      <ActionCardHeader meta={outcome && <span className="pt-0.5 text-hint text-muted">{outcome}</span>}>
         <span className="min-w-0 flex-1 font-medium">{bot ? bot.name : 'A bot'} {open ? 'needs you' : 'needed you'}: {p.reason}</span>
-        {outcome && <span className="pt-0.5 text-hint text-muted">{outcome}</span>}
-      </div>
+      </ActionCardHeader>
       {p.note && <div className="px-4 pt-1 text-ui text-muted">Your note: {p.note}</div>}
       {open && bot ? <TakeoverActions bot={bot} /> : <div className="h-3" />}
-    </div>
+    </ActionCard>
   );
 }
 
@@ -146,6 +146,46 @@ function approvedCount(messages: Record<string, Message[]>, botId: string | null
     }
   }
   return n;
+}
+
+/**
+ * "Always allow" on a pending card: a permanent rule for this bot (Settings › Bots lists and revokes it), then this
+ * call is allowed. The pattern starts wide enough to match the bot's next, reworded call (broadPattern) and the owner
+ * can narrow it. Kept across hub restarts, and checked for scheduled and triggered runs too.
+ */
+export function AlwaysAllow({ p, botName, onCancel, onSaved }: { p: ApprovalPayload; botName: string; onCancel: () => void; onSaved: () => void }) {
+  const toast = useStore((s) => s.toast);
+  const decide = useStore((s) => s.decide);
+  const exact = suggestPattern(p);
+  const [pattern, setPattern] = useState(broadPattern(p) ?? '*');
+  const [saving, setSaving] = useState(false);
+  const id = useId();
+  const anyCall = pattern.trim() === '*';
+  const save = async () => {
+    setSaving(true);
+    try {
+      // The exact subject: let the hub derive it exactly as it matches calls. `*` with no narrow subject: same.
+      const trimmed = pattern.trim();
+      await api.policies.fromApproval(p.approvalId, trimmed === exact || (anyCall && !exact) ? undefined : trimmed);
+      decide(p.approvalId, 'allow');
+      onSaved();
+    } catch (e) {
+      setSaving(false);
+      toast("Couldn't save the rule: " + (e as Error).message, true);
+    }
+  };
+  return (
+    <div className="flex basis-full flex-col gap-1.5 text-ui">
+      <label htmlFor={id} className="text-muted">Always allow {botName}:</label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input id={id} className="h-7 min-w-[160px] flex-1 font-mono text-hint" value={pattern} onChange={(e) => setPattern(e.target.value)} maxLength={500}
+          aria-describedby={id + '-hint'} autoFocus />
+        <Button size="sm" variant={anyCall ? 'outline' : 'primary'} className="touch-target" disabled={saving || !pattern.trim()} onClick={() => void save()}>{anyCall ? 'Allow every ' + p.toolName + ' call' : 'Save and allow'}</Button>
+        <Button size="sm" variant="ghost" className="touch-target" onClick={onCancel}>Cancel</Button>
+      </div>
+      <span id={id + '-hint'} className="text-hint text-dim">Ends with *: anything starting with that. Kept after restarts; risky commands still ask. Revoke in Settings › Bots.</span>
+    </div>
+  );
 }
 
 /**
@@ -188,23 +228,3 @@ export function RuleOffer({ p, botId, botName }: { p: ApprovalPayload; botId: st
   );
 }
 
-/** Tools whose subject is one path. Glob and Grep are left out: the hub folds their search pattern into the subject. */
-const SINGLE_PATH_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
-
-/**
- * The narrow pattern for a card, or null when it has none. Follows the hub's approvalSubject, which answers `*`
- * for every other tool and for an empty subject. Sending no pattern lets the hub derive that same subject, so
- * this must return null wherever the hub would land on `*`. A subject ending in * is also null, because the
- * hub would read it as a prefix match rather than the exact call the user approved.
- */
-function suggestPattern(p: ApprovalPayload): string | null {
-  const i = (p.toolInput ?? {}) as Record<string, unknown>;
-  const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
-  const subject = p.toolName === 'Bash' ? s(i.command)
-    : p.toolName === 'request_approval' ? s(i.command) || s(i.action)
-    : p.toolName === 'WebFetch' ? s(i.url)
-    : p.toolName === 'WebSearch' ? s(i.query)
-    : SINGLE_PATH_TOOLS.has(p.toolName) ? s(i.file_path) || s(i.path) || s(i.notebook_path)
-    : '';
-  return subject && !subject.endsWith('*') ? subject : null;
-}

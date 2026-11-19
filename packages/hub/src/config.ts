@@ -56,6 +56,8 @@ export const BOTS_DIR = path.join(DATA_DIR, 'bots');
 export const SKILLS_DIR = path.join(DATA_DIR, 'skills');
 /** Uploaded pictures. Outside WORKSPACE_DIR and BOTS_DIR, so it is in no bot's roots. */
 export const MEDIA_DIR = path.join(DATA_DIR, 'media');
+/** Copies of the pictures a person attached, one folder per bot, written by the hub only and read by the bot as a read-only root (U2a). */
+export const ATTACHMENTS_DIR = path.join(DATA_DIR, 'attachments');
 export const DB_PATH = path.join(DATA_DIR, 'pocketrocket.db');
 /** The owner's routing rules. No bot may write it (`permissions/readOnlyRoots.ts`). */
 export const ROUTING_PATH = path.join(DATA_DIR, 'routing.md');
@@ -71,6 +73,9 @@ export const CLAUDE_EXE =
 
 export const HOST = '127.0.0.1';
 export const PORT = Number(process.env.PORT ?? 7788);
+/** Loopback-only, read-only view of WORKSPACE_DIR for the Browser tool (api/workspaceWeb.ts); file:// is blocked there. */
+export const WORKSPACE_WEB_PORT = Number(process.env.WORKSPACE_WEB_PORT ?? 7789);
+export const WORKSPACE_WEB_URL = 'http://127.0.0.1:' + WORKSPACE_WEB_PORT + '/';
 /** Explicit token from the environment (the desktop app sets one), or null when the hub must mint its own. */
 // `|| null`, not `?? null`: an empty POCKETROCKET_TOKEN means "unset", never "no token required".
 export const HUB_TOKEN = process.env.POCKETROCKET_TOKEN || null;
@@ -89,6 +94,25 @@ export const HUB_TOKEN_PATH = path.join(DATA_DIR, 'hub-token');
  * inherits DATA_DIR's ACL. So: chmod always, and on Windows additionally drop inheritance and grant the
  * current user alone. Both are best-effort; a failure is never fatal.
  */
+/**
+ * `fs.renameSync(from, to)` that rides out a brief Windows lock on `to`. `restrictFile` runs `icacls` in the
+ * background, so a second write soon after the first can find the target still open and get EPERM/EACCES/EBUSY.
+ * Retries for up to ~1 s, then throws the last error.
+ */
+export function renameOver(from: string, to: string): void {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let wait = 10; ; wait *= 2) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (process.platform !== 'win32' || wait > 640 || !(code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')) throw e;
+      Atomics.wait(pause, 0, 0, wait);
+    }
+  }
+}
+
 export function restrictFile(file: string): void {
   try {
     fs.chmodSync(file, 0o600);
@@ -152,7 +176,11 @@ export function osUserName(): string {
   }
 }
 
-export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 5);
+/**
+ * Bot-to-bot hops one thread may take. Every hop wakes a bot that loads its own full context, so a long
+ * chain multiplies cost; 3 keeps lead -> worker -> reviewer possible without open-ended ping-pong.
+ */
+export const MAX_HOPS = Number(process.env.MAX_HOPS ?? 3);
 /**
  * `POCKETROCKET_BYPASS_PERMISSIONS`, when set, pins the approvals setting and locks it in the UI:
  * `1`/`true`/`yes`/`on` → 'bypass' (no approval cards: the PermissionBroker allows everything, the Claude SDK
@@ -169,7 +197,8 @@ export function parseApprovalsEnv(raw: string | undefined): Approvals | null {
 export const APPROVALS_ENV = parseApprovalsEnv(process.env.POCKETROCKET_BYPASS_PERMISSIONS);
 /**
  * Providers this hub offers. v1 ships Claude only; the other adapters stay in the tree and come back for
- * development with `POCKETROCKET_PROVIDERS=claude,opencode`. Claude is always on (it is the default and the
+ * development with `POCKETROCKET_PROVIDERS=claude,opencode`. Gemini (M7) joins the same opt-in list
+ * (`POCKETROCKET_PROVIDERS=gemini`) until the owner's live test, then becomes on by default. Claude is always on (it is the default and the
  * fallback everything resolves to); unknown ids are ignored. Exported for tests.
  */
 export function parseEnabledProviders(raw: string | undefined): ProviderId[] {
@@ -197,7 +226,7 @@ export const CAUSE_COST_CAP_USD = causeCostCap();
  * use, where every navigate, snapshot, click and keystroke costs a step: reading a few pages and writing a
  * file can pass 50 on its own. Whatever is left over is picked up by MAX_TURN_CONTINUATIONS.
  */
-export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 80);
+export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 30);
 /**
  * How many times a turn that ran out of steps may be resumed to finish the job.
  *
@@ -205,7 +234,38 @@ export const MAX_TURNS_PER_QUERY = Number(process.env.MAX_TURNS_PER_QUERY ?? 80)
  * A continuation is cheaper and safer: the session is resumed, so the model keeps its context, and every
  * hop is re-checked against the bot's per-turn budget and its abort signal before it starts. 0 disables.
  */
-export const MAX_TURN_CONTINUATIONS = Number(process.env.MAX_TURN_CONTINUATIONS ?? 2);
+export const MAX_TURN_CONTINUATIONS = Number(process.env.MAX_TURN_CONTINUATIONS ?? 1);
+/**
+ * A turn cut off by the token brake, or by the step limit after its continuations, was not finished: nobody hears back
+ * and a hand-off chain stops there. RoomRouter queues the same bot again in a fresh, small session (seeded with the
+ * room summary) up to this many times per request, then hands the job to the room's coordinator.
+ */
+export const CUTOFF_RETRIES = Number(process.env.CUTOFF_RETRIES ?? 2);
+/**
+ * Context-size brake. Every step of a turn re-sends the whole session, so cost per step grows with history.
+ * When the last model call of a turn saw more than this many input tokens (input + cache read + cache write),
+ * the next turn starts a fresh session seeded with memory, the room summary and recent messages instead of
+ * resuming. 0 disables rotation.
+ */
+export const ROTATE_CONTEXT_TOKENS = Number(process.env.ROTATE_CONTEXT_TOKENS ?? 120_000);
+/** P4-2: the context window the meter assumes when a provider has not reported one (Claude's standard window). */
+export const DEFAULT_CONTEXT_WINDOW = 200_000;
+/**
+ * A session idle longer than this has a cold prompt cache (5 min TTL), so resuming it rewrites the whole
+ * history at cache-write price. Past this gap, a session above ROTATE_IDLE_MIN_TOKENS rotates instead.
+ */
+export const ROTATE_IDLE_MS = Number(process.env.ROTATE_IDLE_MS ?? 30 * 60 * 1000);
+export const ROTATE_IDLE_MIN_TOKENS = Number(process.env.ROTATE_IDLE_MIN_TOKENS ?? 40_000);
+/** Recent room messages replayed into a freshly rotated session. */
+export const ROTATE_SEED_MESSAGES = Number(process.env.ROTATE_SEED_MESSAGES ?? 20);
+/**
+ * Per-turn token brake, independent of dollars: subscription limits count tokens, and it stays on even with
+ * POCKETROCKET_NO_SPEND_CAPS. A turn whose cache-read tokens pass this is stopped and not continued. 0 disables.
+ */
+export const TURN_CACHE_READ_CAP = Number(process.env.TURN_CACHE_READ_CAP ?? 3_000_000);
+/** Caps passed to the Claude Code child so one tool result cannot flood the context. */
+export const BASH_MAX_OUTPUT_CHARS = Number(process.env.BASH_MAX_OUTPUT_CHARS ?? 15_000);
+export const MAX_MCP_OUTPUT_TOKENS = Number(process.env.MAX_MCP_OUTPUT_TOKENS ?? 12_000);
 
 export const VERSION: string = resolveVersion(here);
 
@@ -320,6 +380,8 @@ export function setRoomRootsResolver(fn: (botId: string, roomId: string) => stri
 // which deploy/backup.sh leaves out of every archive so a leaked backup holds no usable token.
 export const VAULT_KEY_PATH = path.join(DATA_DIR, 'vault.key');
 export const INTEGRATIONS_PATH = path.join(DATA_DIR, 'integrations.json');
+// G4: saved logins for fill_credential. Secrets live encrypted in credentials.json under the same vault.key.
+export const CREDENTIALS_PATH = path.join(DATA_DIR, 'credentials.json');
 
 // ---------------------------------------------------------------------------------------------------
 // P9: phone, devices, push.

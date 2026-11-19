@@ -64,9 +64,9 @@ describe('pause and hand-back in the lane', () => {
     const s = setup();
     const r = s.repos.createRoutine({ botId: s.bot.id, roomId: s.room.id, name: 'n', cron: '0 3 * * *', prompt: 'p', enabled: true });
     const run = s.repos.createRun(r.id, null);
-    expect(s.router.resumeParked(s.bot.id, s.room.id, { causeId: 'cause-x', hop: 1, runId: run.id, note: '(Approval granted)' })).toBe(true);
+    expect(s.router.resumeParked(s.bot.id, s.room.id, { causeId: 'cause-x', hop: 1, ownerRef: 'routine:' + run.id, note: '(Approval granted)' })).toBe(true);
     await until(() => s.repos.listRuns(r.id)[0].status === 'success');
-    expect(s.reqs[0]).toMatchObject({ causeId: 'cause-x', hop: 1, runId: run.id, strictApprovals: true });
+    expect(s.reqs[0]).toMatchObject({ causeId: 'cause-x', hop: 1, ownerRef: 'routine:' + run.id, strictApprovals: true });
     expect(s.reqs[0].injected).toContain('(Approval granted)');
   });
 });

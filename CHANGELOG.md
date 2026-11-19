@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
+### Dependency and CI refresh (all)
+
+- Clears every open `pnpm audit` finding (1 critical, 5 high, 17 moderate, 3 low): `@modelcontextprotocol/sdk` 1.32.2, `zod` ^4.6.7, `vite` ^6.4.5, `vitest` ^5.0.3, plus lockfile-only fixes for proxy-addr, body-parser, qs, follow-redirects, hono, @hono/node-server, fast-uri, ip-address and source-map-js.
+- Minor bumps: `lucide-react` ^1.73.0, `ws` ^8.22.0, React and React DOM ^19.3.0 (kept in step), Rust `open` 5.4.5 and `serde_json` 1.0.154.
+- CI: pnpm/action-setup 6.1.1, actions/setup-node 7.1.0, Swatinem/rust-cache 2.9.3, actions/upload-artifact 7.0.2. Release dispatch dry runs skip the test step (tag builds still run it).
+- Not taken: tauri-plugin-dialog 2.8.4, tauri-plugin-notification 2.8.x and webview2-com 0.39 (each needs Tauri 2.12, see the pin in Cargo.toml), and the major bumps vite 8, @vitejs/plugin-react 6 and react-markdown 10.
 
 ### UX fixes
 
@@ -15,6 +20,389 @@ Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md
 - A room whose coordinator bot was deleted no longer shows "coordinator @undefined" in its header; schedules and triggers for a deleted bot or room say so instead of "@undefined in".
 - The Podium's "Your assistant" star uses the theme's warning colour, so it reads right in light and dark.
 - Desktop: the app opens in a normal maximized window with its title bar and resize border instead of OS full screen. Alt+Enter and the tray menu still toggle full screen. Needs a new installer build to reach installed copies.
+
+### Sending mail or a calendar invite needs your signed-in browser (hub)
+
+- `gmail_send` and `calendar_create_event` now raise a sign-in-only card, like a job on your PC. Each send asks on its own (no "for this session" answer, no rule can pre-approve it), and only a browser signed in with your password can allow it. This holds under the bypass approvals setting too.
+- Why: bots read your mail, and a message can carry instructions. A bot that read the hub token from the server could already answer an ordinary card; it cannot answer this one.
+- GitHub, Slack, ClickUp and Teams writes are unchanged: still a card each time, answerable from any client.
+
+### Gemini: a usage limit shows as a limit, and a model your sign-in lacks no longer fails the turn (hub)
+
+- When Gemini (agy) runs out of quota, the bot no longer posts agy's raw "⚠ Individual quota reached…" or "RESOURCE_EXHAUSTED (code 429)" warning as its reply. The turn ends on a usage limit with the reset time agy gives, so the limit note and the failover card show instead. If the bot also wrote a real answer, the answer stays and the limit is still recorded.
+- A Gemini model your sign-in does not offer (for example Gemini 4 Neon on the Google sign-in) no longer fails the turn: the bot runs on agy's current model, the room gets one quiet note saying so, and Usage records the model that ran.
+
+### Gemini on an API key runs routines, and Gemini turns show in Usage (hub)
+
+- A Gemini API key saved in Settings now counts: when it is set and agy's settings select `"modelProvider": "gemini"`, the provider check reports API-key auth and routines, triggers and workflow steps run on the Gemini bot. With no key, or a key agy would ignore, the bot still answers only messages a person sends, and the check's hint says what is missing.
+- Gemini turns now write usage rows, so they show in Usage, the plan meter and usage by provider, with the model agy ran on and token counts when agy reports them (cost is $0 unless agy reports one).
+
+### Gemini: real model list, and unattended runs cannot write files (hub)
+
+- The Gemini model list is now what agy 1.5.12 offers: Gemini 3.1 Pro (default), Gemini 4 Neon, Carbon, Hydrogen and Argon, and Gemini 3.8, 3.7 and 3.6 Flash. Bots and backups saved on the old placeholder models (`gemini-default`, `gemini-3-pro`, `gemini-3-flash`) move to Gemini 3.1 Pro or Gemini 3.8 Flash on their own.
+- agy does not ask before it writes files, so routines, triggers, workflow steps and a failover backup on Gemini now run in agy's read-only `plan` mode. A run that tries to change files, or leaves that mode, is stopped; if agy has no read-only mode the run does not start.
+- A Gemini turn that only called a tool (for example a hand-off, with no reply) now shows in Usage.
+- Gemini records agy 1.5.12 as its tested version. It stays opt-in and marked untested until the Google sign-in and a real limit are checked.
+
+## [0.5.0] - 2026-11-19
+
+This release also contains the 0.4.0 work (0.4.0 was not tagged separately): workflows, Telegram notifications, moving and syncing PC sessions, the server bot sandbox and more. Gemini support (through the Antigravity CLI) is included but untested until the owner's live test.
+
+### A CLI installed while the app runs is found after "Restart hub" (app)
+
+- On Windows, each time the app starts its hub it reads the user and system `Path` again, so a command-line tool installed while PocketRocket was open (for example the Gemini CLI, `agy`) is found after "Restart hub" without quitting the app. Folders already on the PATH keep their order; new ones are added at the end.
+- The server scan also reports whether the Gemini CLI (`agy`) is installed on the server.
+
+### A context meter on the bot page and in one-on-one chats (hub, web)
+
+- The bot's page and its one-on-one chat header show how full the conversation's context is, for example "Context 42% · 84k of 200k tokens". A tick on the bar marks where the bot starts a fresh session to save tokens (120k by default); screen readers hear "a fresh session starts at 120k" after the value.
+- It updates after every turn and shows only for providers that report context size (Claude, and Gemini through ACP). Nothing shows before the first turn of a session.
+- The window is the one the provider reports for the model (for example 1M on a long-context Claude model); 200k is assumed until it does.
+- New read `GET /api/rooms/:id/context` (a paired phone may read it too), and `turn.end` now carries `context`.
+
+### The limit card, a backup per bot and an "On Gemini" badge (web)
+
+- When a bot hits its provider's usage limit and has a backup, its chat shows a card: "Ada hit Claude's 5-hour limit. It resets at 14:00." Press **Continue on Gemini** to run that request once on the backup, with approvals on, or **Wait until 14:00**. The same card is in Needs you, and the bot is listed there as needing you until you answer.
+- The card never offers a button the hub would refuse. If the bot left the chat, its backup changed, the backup is not enabled, or the backup is at its own limit, Continue is hidden and the card says why. If nobody answers by the reset, the card goes quiet ("Not continued. Claude resets at 14:00.") and then closes.
+- The bot dialog has one "If Claude hits its limit" choice (None, or Continue on another provider), with the backup's model beside it. The model list follows the provider. Only you can set it, and only on a hub with more than one provider.
+- While a bot runs on its backup, a quiet "On Gemini until 14:00" label shows in the chat header and on the bot's page, and the sidebar row says it too.
+- A limit note for a bot with no backup now has a link that opens that bot's settings.
+- Provider cards show which versions were tested and warn when the installed CLI is a different one. Settings lists the API key of every enabled provider, not only the default's, so the Gemini API key can be set there.
+
+### Continue on the backup when a provider hits its limit (hub)
+
+- When a bot's provider reaches its usage limit, the turn ends at once with the usual note. If the bot has a backup, you also get a card: continue on the backup, or wait for the reset. The card is listed with the other things waiting for you, and it closes at the reset time. Nothing else waits on it, so the bot's other work and the hub's turn slots stay free.
+- Continue runs that request once on the backup, in the same thread. The backup sees the message it never answered, plus a summary of the conversation. Approvals always apply on the backup, even with approvals bypassed, and it can spend only what the stopped turn had left. If the backup also hits its limit, no second card appears.
+- After you press Continue, what you send that bot runs on the backup until the original provider resets. Routines, triggers and workflow steps stay on the bot's own provider. They switch only if you press their own card.
+- A card nobody answers ends with a quiet note at the reset time ("Not continued on Gemini. Claude reset at 14:00; ..."). Nothing ever switches without a press. There is no card for a sign-in problem, an outage or a turn you stopped.
+- Without a backup there is no card. The note says "Set a backup in Ada's settings to continue on another provider next time."
+- Only you can answer the card, from the app or a paired phone. A bot, a chat message or a button a bot made cannot answer it. The card's buttons arrive in the app in a later update.
+- Sessions on any provider that reports its context size (Claude, and agents through ACP such as Gemini) now start fresh when they grow too large, as Claude's already did. When an ACP agent compacts its own context, the chat gets a quiet note.
+
+### Gemini through the Antigravity CLI, untested (hub)
+
+- A bot can now run on Gemini through Google's Antigravity CLI (`agy`). Gemini is **untested**: it was built and checked against a stand-in, never a real `agy` or Google account, so it stays off unless the hub starts with `POCKETROCKET_PROVIDERS=gemini`. It goes on by default only after the owner's live test.
+- PocketRocket never downloads `agy`. It finds your own copy (`AGY_EXE` first, then your PATH). If `agy` is missing, the check says how to install it and sign in.
+- On a Google sign-in, Gemini answers only what a person starts: your messages, the hand-offs in those threads, and Run now. Routines, triggers and workflow steps don't run on it. They post a note saying so. They do run when `agy` itself reports that it uses a Gemini API key, and approvals still apply then.
+- When Gemini asks to change a file or run a command, the hub decides with the same rules as for Claude. Files in the bot's own folders and safe commands go ahead. Anything else gets an approval card, also on routine turns with approvals bypassed.
+- Under the hood, the hub now speaks the Agent Client Protocol (ACP), so more agents can be added the same way later. The check also reports the CLI's version and warns when that version has not been tested.
+
+### Plan limits and a provider per bot (web)
+
+- The Usage page shows how full each Claude plan window is, as a bar with the percent and the reset time written out.
+  It turns amber from 80% and red at the limit. Nothing shows for a provider signed in with an API key.
+- When a bot in the chat can't reply because its provider hit a plan limit, a calm note above the message box says
+  which limit and when it resets. It goes away by itself at the reset time.
+- On a hub with more than one provider, the bot dialog has a Provider choice (Default, or a provider by name, with
+  "untested" kept). The model list follows it. If the bot has schedules or triggers, it warns that they will run on
+  the new provider with nobody watching.
+- The model picker in the message box shows only when every bot in the room runs on Claude.
+- With more than one provider, the Settings section is called Providers, and its "needs attention" dot covers every
+  provider a bot runs on. On each provider card, only the name row is the radio button, so Re-check and setup links
+  work properly with a keyboard and a screen reader.
+- Usage is split by provider when more than one has been used, and spend on a subscription login is marked as an
+  estimate.
+
+### Each bot can run on its own provider (hub)
+
+- A bot can now have its own provider instead of following the one set in Settings. Only you can choose it, through the bot's settings (the REST API). A bot that tries to set a provider or a backup for itself or another bot is refused. The provider picker in the app comes in a later update.
+- The provider in Settings is now the default. New bots run on it, and so does every bot that has no provider of its own. Changing the default moves only those bots. A bot with its own provider stays where it is.
+- After a bot moves to another provider, its next turn in each chat starts a fresh session. It carries over a summary, the chat's notes and the recent messages, and posts "Ada now runs on Codex; earlier context carried over as a summary." Its memory and identity are unchanged. Before, a switch dropped the earlier conversation without saying so. Switching back starts fresh again in the same way.
+- You can store one backup (provider and model) for each bot. The failover card offers it when the bot hits a usage limit.
+- Stop now goes to the provider that is running the turn, and two bots on two providers can run at the same time. The usage log records which provider ran each turn (`GET /api/usage` adds `byProvider`), and `GET /api/debug/last-init` is split by provider.
+- Auto-memory, rotation summaries, skill distilling, skill reflection and training run on Claude for every bot, whatever provider the bot uses. They pause while Claude is missing, signed out or at its usage limit.
+- Bots on providers other than Claude get their skills as a list in their instructions, plus a read-only `read_skill` tool to open one. The list stays the same for the whole session.
+
+### Claude limits are understood, not posted (hub)
+
+- When Claude's plan limit is reached, the bot's turn ends with a clear note such as "Ada turn ended: Claude 5-hour limit reached, resets 14:00." in the hub's local time. Claude's own limit message is no longer posted as the bot's reply, so it can no longer wake other bots with an @mention.
+- The hub remembers which provider (or, for Claude's weekly Opus and Sonnet limits, which model) is at its limit until it resets, and early warnings as you near a limit. `GET /api/providers` returns them as `limits`, and the WS `provider.limit` event sends each change. Nothing is saved: a restart forgets it.
+- A bot on Opus or Fable keeps going one model down (Fable to Opus, Opus to Sonnet) when its model is overloaded or unavailable. It never moves up, and Sonnet and Haiku have no fallback. Usage records the model that actually answered.
+- An overload or outage the CLI's own retries could not get past now ends the turn as such, without posting the raw API error as the reply.
+
+### Workflow canvas stays readable with many steps (web)
+
+- The canvas now opens on the first three steps at a readable size instead of shrinking every step to fit; the rest are a scroll away. An 8-step workflow used to open as tiny unreadable boxes.
+
+### Workflows: canvas, steps list and approval card (web)
+
+- Automations has a Workflows section; each workflow opens its own page with Enabled, Run now, a Canvas | Steps switch (remembered per browser), a step inspector, per-step status and cost, run history, Cancel and Retry step.
+- The canvas (React Flow, loaded only when opened) adds steps with a "+" on each line; the Steps list does the same with menus and works on phones. Errors from the shared chain rules show before you save.
+- A workflow's approval step shows as a card in its chat and in Needs you with Approve, Reject and Send back with a note. Only that card answers it.
+- Usage lists "Workflows" as a cause. Cards in the chat now share one `ActionCard` primitive (no visual change).
+
+### Workflows say where a saved file went (hub)
+
+- A workflow whose output step saves a file now posts a short note in the chat naming the file. Before, the chat's last word on the run was "waiting for your approval" even after it finished.
+
+### Fewer needless approval cards (hub)
+
+- A Bash command that sends output to `/dev/null` (`git log 2>/dev/null`) no longer counts as writing outside the workspace, so strict turns such as workflow steps stop asking for plain reads.
+
+### Telegram notifications card (app)
+
+- Settings › Notifications now shows on every client except a paired phone, with a pointer to "Phone: Devices › Notifications on this device"; the desktop-notification card still appears only in the desktop app.
+- New Telegram card: paste a bot token (checked, then shown as @yourbot), link your chat with a short code, QR code or "Open in Telegram", then turn on "Notify me here". The cloud warning (messages are content-free, Telegram still sees that something happened) is shown above the switch. Send a test, Unlink, a BotFather /revoke pointer and a "one hub per bot token" note are on the card. Needs the hub routes from the Telegram backend change.
+
+### Workflows: hub foundations
+
+- A turn now belongs to an owner ref (`routine:<runId>` or `workflow:<runId>:<step>`) instead of a bare routine run id, in the lane journal and on parked approvals, and what the turn does when it ends is rebuilt from it after a restart or a parked approval. Routines behave as before (a run still closes when its turn ends, and a turn cut off by two restarts closes its run as an error). Existing rows are filled in by migration 290.
+- A lane can run a step alone (never batched with chat messages), a workflow run's budget caps every hand-off on its thread the way a trigger's daily budget does, "Run now" and "Test fire" mark their thread as person-started, and Usage has a "Workflow" cause kind.
+- New tables `workflows` and `workflow_runs` (migrations 291-292). Nothing uses them yet: the runner, approval card, REST and bot tools follow in the next change.
+
+### Workflows: the run engine, approval card, REST and bot tools (hub)
+
+- A workflow is a fixed chain of steps (a trigger, then bot steps, approval steps and an output) that starts from a routine, an event trigger or "Run now". Each bot step is its own turn: alone in the bot's queue, with approvals on even under bypass, at hop 0 (so two hand-offs inside every step never trip the hand-off limit), and capped at what is left of the run's budget. The run stops with a note in the chat when it spends its budget. The previous step's text reaches the next step fenced as data, never as instructions.
+- Progress is saved after every step. After a restart a run resumes at the right step: a step that was cut off is resumed once by the usual follow-up, and a run that died between two steps carries on from the next one. A run you Stop ends as "stopped by you" and Retry runs that step again; steers you send into a running step are kept on that step's timeline.
+- An approval step posts a card only you can answer (approve, reject, or send back once with a note). It waits through the night, expires after 24 hours (the run ends in an error and Retry asks again) and shows in Needs you. A bot, a cta button, a chat message or a tool approval answer cannot decide it, and a paired phone can answer it but not build workflows.
+- An output step posts the last output to the chat, or saves it as a file in the chat's files folder (relative paths only; a path that climbs out of the folder is refused).
+- New routes: `/api/workflows`, `/api/workflow-runs`, `/api/workflow-cards`, and events `workflows.changed`, `workflow.run`, `workflow.cards`. Bots get `list_workflows`, and `create_workflow` and `update_workflow`, which show you an approval card first. A routine or trigger that a workflow uses cannot be deleted (409) until the workflow is changed. Migration 293 adds the chat to `workflow_runs`.
+
+### Telegram notifications (hub)
+
+- You can link your Telegram to get a short notice when a bot needs your approval or a routine finishes. Create a bot with @BotFather, save its token, then press Start in Telegram with the one-time code (10 minutes, one use, a `t.me` link). Only a private chat from a person (not a bot, not a group) whose id matches the chat is accepted, and five wrong codes lock linking for 15 minutes. The hub keeps your numeric Telegram id, not your username.
+- The message is one fixed line per kind plus your hub address when you set one up, never a bot, room, tool or message name. It is off until you switch it on, and a Telegram-only owner (no phone subscription) is notified. Phone push and Telegram each coalesce bursts on their own 30 second clock.
+- The hub only reads Telegram while a link code is waiting, aborts that poll on shutdown, and never removes a webhook: if another PocketRocket or a webhook uses the bot, linking says so (409). The bot token is kept encrypted, scrubbed from logs and errors, and never shown again. New routes under `/api/telegram`, for the desktop app only (not paired phones, not bots).
+
+### Bundle budget in CI, Telegram notes in the docs (infra)
+
+- CI now fails if the web entry chunk contains workflow-canvas (`@xyflow`) code or grows past a size budget (`scripts/bundle-budget.mjs`, about today's size plus 15%).
+- Docs: `api.telegram.org` is on the outbound list, the guide has a Telegram notifications section (BotFather, link, what the messages say, revoke), and `deploy/keys.sh` prints the BotFather `/revoke` step for a Telegram integration.
+
+### Move a PC Claude Code session to the VPS and back (hub)
+
+- A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.
+- While a session is on the VPS the PC's own appends are dropped and a resume or sync of it is refused (409). "Continue" runs one turn at a time through the Claude provider, resuming the same conversation in the worktree with the room's tools; `git push` is always refused there, and the turn's changes are committed to the wip branch only. New lines show in the mirror marked as the VPS, and the room gets a note when a turn starts and ends. Past 120k tokens of context it asks you to pull back instead.
+- Pulling back sends the conversation (paths swapped back, the exact inverse) and a bundle of the wip branch to the PC, then clears the worktree. `propose_move` lets @persona or a project bot propose a move or a pull as a sign-in-only card. `GET /api/cc/session-state` and the `x-cc-session-state` header tell the MCP server where a session is.
+
+### The PC helper can move a session to the server and pull it back
+
+- A new kind of PC job moves one of your Claude Code sessions to the server so the same conversation continues there. The PC snapshots and secret-scans every linked repo first (one blocked scan refuses the whole move without asking), shows one Run / Refuse dialog for the whole move, then sends a bundle per repo and the session file. Nothing is pushed to any remote and your folders are not changed.
+- Pulling it back downloads the session and each repo's work, checks them, and puts the server's work on the `wip/<your PC>/<session>` branch of each repo (only that branch). If your folder is still exactly as it was when you moved, the server's file changes are also written into it as uncommitted edits, without moving HEAD, your branch or your staged changes; if you changed it meanwhile, it is left alone and you are told to merge the branch yourself. The session file is replaced and the old one kept next to it as `.pocketrocket-bak`.
+- While a session is on the server, this PC refuses to resume it, the mirror stops sending PC-side changes to it, and the PocketRocket tools in that terminal add a warning line.
+- The installer now also copies `move.mjs`.
+
+### PC sessions: Active and History, with a running indicator
+
+- PC sessions opens on Active: only the sessions Claude Code is working in right now (written to in the last few minutes) or that are on the VPS, with a count. History has everything mirrored. The app remembers which one you picked.
+- Every session row says Running (green dot) or Idle with how long ago.
+- Sessions now group by their repo's remote, so Claude Code worktrees (agent-…, wt-…) sit with their repo, and a session outside any git repo groups under the folder it ran in, ignoring case (`Desktop\WIKA-SaaS` and `desktop\wika-saas` are one group) instead of Claude's internal C--Users-… folder name.
+
+### PC sessions: fold repo groups
+
+- The PC sessions list can fold each repo group open and closed (click its name), and has Collapse all / Expand all. The app remembers which groups you folded.
+
+### Move a PC session to the VPS and pull it back (app)
+
+- A mirrored session now has a Move to VPS button. It lists the repos that move with it, asks which chat should follow the server turns when the project has several, and says why it is disabled: PC offline, not signed in, no linked repo, a client repo, or a repo that is not set to bundle sync.
+- A moved session shows an On VPS badge in the list and in its header (Moving to VPS and Pulling back while your PC works). Under it, a Continue on VPS box sends one turn at a time with a live status line, and Pull back asks for confirmation first and waits for a running turn to finish.
+- Move and pull jobs appear in the PC runner job log with their repos, commits, session size and, for a pull, whether the changes were applied to your folder or left on a wip branch.
+
+### Bot sandbox on the server, which lets client repos sync (hub, app, deploy)
+
+- A new switch, Settings > Security > "Run bot tools in a sandbox (Linux server)", runs each Claude turn inside bubblewrap. A bot's Bash and file tools (and the Browser tool's Playwright process) then see only the read-only system, their own bot folder, the room and project folders they belong to, the shared workspace and the network. Other projects, other bots' folders, the vault key, the hub token, the database and your server login are not mounted, so they do not exist inside. It is off by default and only you can change it: no bot can switch it off.
+- On a server where it cannot work, the switch says why and refuses to turn on. If it is on and bubblewrap later breaks, bot turns stop with that reason instead of running unprotected.
+- With the sandbox on, a repo you mark as a client repo can sync to the server like any other; with it off, nothing changes and client repos still stay on your PC.
+- Each bot gets its own private Claude config inside the sandbox, so one bot's conversation transcripts are not readable by another. Conversations started before you turned it on carry over the first time a bot resumes them.
+- `deploy/setup-vps.sh` installs bubblewrap and, on Ubuntu 24.04, an AppArmor profile (`deploy/apparmor/pocketrocket-bwrap`) that lets only `/usr/bin/bwrap` create a user namespace. `deploy/sandbox-check.sh` proves it: as the service user it checks that a bot of one project cannot read another project, another bot, or the hub's secrets.
+- While the sandbox is on, a session moved to the VPS cannot run new turns there yet (the sandbox's private Claude folder would hide them); pull it back or turn the sandbox off. Moving a client repo's session stays refused.
+
+### Project repo lists and syncing PC work to the VPS (hub)
+
+- A project can list its git repos in Settings (stored as `repos.json` in the project folder, which only you can edit): a name, the remote URL, how it syncs (wip branch, bundle or none), extra protected branches, and whether it is a client repo. Repos are matched by remote URL, so no path on your PC is ever stored here. Bots cannot change the list.
+- Mirrored PC sessions now show which project repos they belong to. A bot on that project's chat can list and read only the sessions of its repos, see the repo list (`list_repos`), and propose to continue or sync one; each proposal is still a card only a browser signed in with your password can allow.
+- A sync copies a session's working tree to the VPS without touching your PC's own branches: either a `wip/<machine>/<session>` branch pushed to the remote, or a git bundle uploaded to the hub and imported into the project's copy of the repo on that one branch (git runs with hooks and credential helpers off). Client repos and repos set to none are never synced. A blocked pre-push scan on the PC shows up as a failed job with the findings.
+- Bots on a project with repos can no longer push to a repo's protected branches (main and master always count).
+
+### The PC helper can sync a session's repo to the server, after a secret scan
+
+- A new kind of PC job copies the repo around one of your mirrored Claude Code sessions to the server: either as a work-in-progress branch pushed to the repo's remote (only `wip/<your PC>/<session>`, never `main` or any other branch), or as a bundle uploaded to the server with nothing pushed. It sends a snapshot of your working tree, including uncommitted and untracked files, without touching your folder, index, branches or stash.
+- Before anything is sent, the PC scans the snapshot and any commits you have not pushed yet. Files named `.env*` (except `.env.example`), `*.pem`, `*.p8`, `*.p12`, `*.key`, `*.keystore` or `id_rsa*`, and lines that look like API keys, tokens or private keys, block the sync, and the PC refuses without asking you. Otherwise the Run / Refuse dialog shows the repo, remote, mode, target branch, how many files and lines change and the scan result.
+- The PC only syncs a repo whose `origin` is the project's remote, and only from a folder you allow. Environment files are never copied.
+- The installer now also copies `jobs.mjs`, which resume jobs from the previous release needed.
+
+### Project repo lists and Sync from a PC session (app)
+
+- Settings > Projects has a Repos editor for each project: a name, the remote URL, a sync mode (off, push a wip branch, or send a bundle to the VPS), protected branches, an optional VPS folder, and a Client repo switch that keeps the repo on your PC until bots are sandboxed. Mistakes such as a bad name, a missing remote, a password in the URL or a duplicate repo are shown under the field, and removing a repo asks first. No PC path is typed or stored.
+- PC sessions that belong to a project repo show a project / repo tag. A Sync button in the transcript starts a sync of that session for each linked repo, is disabled with the reason for client repos, repos with sync off and an offline PC, and follows the job live.
+- The job log shows sync jobs with the repo, mode, branch, short commit and bundle size, and lists what the pre-push scan blocked when nothing was pushed.
+
+### Smaller server backups
+
+- The daily server backup now leaves out folders that can be rebuilt, such as `node_modules`, `.next`, Python virtual environments and Rust `target` folders, wherever they sit inside a project. `dist` and `build` are still kept because they can hold real output.
+- Backups are compressed with zstd when the server has it (`data-<date>.tar.zst`), which is smaller and faster than gzip; older `.tgz` backups are still rotated and can still be restored. See `docs/SERVER.md` for the restore command.
+
+### Your persona bot can read across rooms and continue PC sessions, and the app can start PC jobs
+
+- The persona bot (the one you name in settings) gets four tools no other bot has: it can read any room, list and read the Claude Code sessions mirrored from your PC, and give a task to a bot in a room by posting there with an @mention (the bot must be in that room; a room the persona is not in asks you first). What it reads is quoted and scrubbed of keys, and the persona is told not to copy it into another room unless you ask.
+- The persona can also propose to continue one of those sessions on your PC. Like every job on the PC it needs your approval on a card, and only a browser signed in with your password can allow it (the desktop app's token alone cannot); your PC then asks you again before it runs anything.
+- The app can start jobs itself: continue a mirrored session or run a new job in a folder your PC allows. Clicking it in a signed-in browser is the approval; the desktop app, a paired phone and bots cannot do this. The job log now shows whether a job was a new run or a resume, who asked for it, and which of your allowed folders a resume ran in.
+
+### The PC helper can continue one of your Claude Code sessions
+
+- The PC helper can now resume a session it mirrored, so a follow-up runs on your PC inside the same Claude Code conversation and its new turns show up in the same transcript. It finds the session's folder on its own and only goes ahead when that folder is inside a folder you listed in `config.json` (links and `..` tricks that lead outside are refused); that folder's own tools apply.
+- The Run / Refuse dialog on the PC now says whether a job starts a new session or resumes one, and for a resume shows the session title, its working folder and the allowlist folder it matched. Jobs from an older hub behave exactly as before.
+
+### Continue on your PC from the app
+
+- Open a mirrored Claude Code session under PC sessions and press Continue on PC to send it your next prompt. Your PC resumes that same session and the answer shows up in the transcript. The button needs the PC online and a browser signed in with your password; otherwise it says why.
+- Settings > PC runner has a new Run on PC box: pick one of the folders your PC allows, write a prompt and send it. The job log now shows whether each job was a new run or a resume, who started it (you or a bot), and links a resumed job back to its session.
+- Your PC still asks you to run or refuse every job.
+
+
+### The hub can keep a read-only copy of your PC's Claude Code sessions
+
+- The PC helper can now mirror your Claude Code transcripts to the hub as compact entries (what you and Claude said, which tools ran and a short result), so you can read them in the app from anywhere. Subagent runs hang under their parent session.
+- Everything is scrubbed again on the hub before it is stored (keys, tokens and any secret you saved), and kept small: at most 5 MB of text per session, 400 MB for the whole mirror (oldest sessions go first) and 90 days. The hub tidies this at start and once a day.
+- Only you can read the mirror, with the hub token or a signed-in browser: no bot but your persona (see above), and no search or room, can see it, and a paired phone cannot either. You can delete a session (and its subagent runs) from the app, and a deleted session is not mirrored again.
+
+### The PC helper can mirror your Claude Code sessions
+
+- While the PC helper (runner) is ON, it now copies your Claude Code sessions to PocketRocket so you can read them there. It sends compact entries, not raw logs: what you and Claude wrote, a one-line summary of each tool call, a short excerpt of each result and compaction summaries, cut to fixed lengths (8000 characters for messages, 1000 for tool results). Sessions changed in the last 14 days are sent first, then new lines live; a restart resumes where it stopped.
+- Everything is scrubbed for keys, passwords, emails and phone or ID numbers on the PC before it leaves, and again on the hub. Bots cannot read mirrored sessions yet; only you can, in the app.
+- Control it in the helper's `config.json`: `mirror` (on or off), `mirrorBackfillDays`, and `mirrorExclude` (folders or `*` patterns to skip). A new "PocketRocket Mirror pause-resume" Desktop shortcut pauses and resumes it. Re-run `install.ps1` to get it. See the "Mirror your Claude Code sessions" section of `scripts/pc-runner/README.md`.
+
+### PC sessions in the app
+
+- A new "PC sessions" item in the sidebar lists the Claude Code sessions mirrored from your PC, grouped by repo with the newest first. Each row shows the title, repo and branch, folder, how long ago it was active, a green dot while it is live, and its size; a session's subagent runs open from its transcript. Search by title, folder or repo, filter by repo, and load older sessions as you go. The list refreshes by itself while a session is running.
+- Opening a session shows a read-only transcript: your messages and Claude's replies (as formatted text), with tool calls and results folded into one-line rows that open on demand and turn red on errors, and compaction summaries as their own card. A session that grew past the mirror's size limit says so. New messages appear at the bottom while you are watching. Delete removes the mirrored copy only, after a confirmation.
+
+### Shared files remember who changed them
+
+- Every change to a room's or project's files that the hub can see is now recorded: who made it (you, a bot, or your assistant), from which machine, in which turn, with which tool, and the sources it cited. Bot Write and Edit calls, your uploads, deletes and text saves are tracked; a bot's Bash edits are not. Bots get `file_history` to look it up before changing something another writer made.
+- Each room and project folder can keep a `decisions.md`: an append-only log of what was decided and why. Bots add to it with `log_decision` (naming the decision it supersedes when one changes); their own file and shell tools cannot edit, move or delete it.
+- `GET/POST /api/rooms/:id/files/text` reads and writes a text file with its hash. A write sends the hash it last read and is refused with `409` and the current text when someone changed the file in between, so a stale copy never overwrites newer work. Also `GET …/files/history?path=` and `POST …/files/decision`. These are the base for linking Claude Code sessions on your PC (`docs/specs/claude-code-bridge.md`, phase 1).
+
+### Claude Code sessions can talk to rooms
+
+- The hub now has a small `/api/cc/*` API for Claude Code terminal sessions on your PC, reachable only through the PC helper (not with the hub token, and not from a paired phone). A session can list your group and project rooms, read recent messages, post to a room, read the room's state, read and save text files, log a decision, and hand a task to a bot. Direct chats stay out of reach.
+- What a session posts arrives as you, so the coordinator or the bots you @mention answer as they do when you type in the app, but the line starts with `[via Claude Code · <repo>]` so you and the bots can tell it came from the terminal. Files and decisions it writes are recorded as "you via Claude Code (<repo>)" in their history, and a save from an out-of-date copy is refused with `409` like any other.
+- Bots now start a turn with a short state block: the version and "Now" part of the folder's `current.md` and the last five decisions. It goes in the turn's input, not the system prompt, and is repeated only when one of those files changed or the bot starts a fresh session.
+
+### Use PocketRocket from Claude Code
+
+- The PC runner now ships a small MCP server, so a Claude Code session in your terminal can list your rooms, read them, post to them, read and edit their shared files, log decisions and hand tasks to a bot. Add it once with `claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"` (the installer prints the line). It only works while the runner is ON, and when it is not, Claude is told to ask you to turn it on.
+- Edits are safe by design: Claude reads a file first and sends the hash it read, and if a bot or you changed the file in the meantime the write is refused and Claude gets the current text to merge instead of overwriting it. Decisions are append-only. The MCP server sends the runner token only after checking that the port belongs to the runner's own tunnel.
+
+## [0.3.0] - 2026-11-18
+
+Entries are grouped by feature area; per-phase notes live in `docs/changes/pN.md`.
+
+### The desktop app updates itself
+
+- The desktop app updates itself. It checks at launch and every 24 hours in every mode, and when an update is out it shows one notification and turns the tray's **Check for updates** into **Update to vX.Y.Z…** (plus **What's new in vX.Y.Z**); it never opens a dialog over your work. Picking it asks **Install and restart** / **Later**. In this-PC mode the install waits until no bot is mid-reply and no approval is open (cancel from the same menu item), stops the hub cleanly and restarts; server mode updates only the desktop app; attach mode and older hubs ask you to check first; a Linux .deb install opens the release page instead. **Check for updates** now really checks and says when you're up to date. `POCKETROCKET_UPDATE_ENDPOINT` can point a test build at a release candidate on this repo's releases.
+- Releases are built into a draft and published only when every platform is done. Each release now carries `latest.json` for the desktop updater, a `SHA256SUMS.txt`, and build-provenance attestations you can check with `gh attestation verify <file> -R AlexGaledo/pocketrocket`. A new release appears as a prerelease first and becomes the latest one after it passes an update test.
+- Safe updates groundwork: `GET /api/busy` says whether stopping the hub now would lose work (a running turn or an open approval card), `POST /api/maintenance/hold` keeps new bot turns from starting for up to 30 minutes (messages still queue and run afterwards) and `POST /api/maintenance/stop` shuts the hub down cleanly. Hub token or owner session only; see `docs/CONFIGURATION.md` section 8.
+
+### Steer or queue messages to a busy bot
+
+- Steering (hub): a message you send to a Claude bot that is busy in that chat now joins its running turn, so it can change course at its next step instead of after it finishes. Send with `mode: "queue"` (Ctrl+Enter, once the app has it) to wait for the turn to end instead, or set Settings `busyMessages` to `queue` to make that the default. Hand-offs between bots, and providers that cannot take messages mid-turn (Codex, OpenCode, Grok), still queue. If the turn stops (Stop included) before the bot answers your message, it is queued and answered next, and the chat says so. A routine or trigger turn you steer keeps its approvals and budget.
+- Steering (app): while a bot that can steer is busy, Enter joins its running turn and **Ctrl+Enter** queues for after; a small arrow beside Send offers **Join the running turn** / **Queue for after** for phones and mice. A line under your message says what happened per bot ("Joined Ada's reply", "Queued: Gemini can't take messages mid-task", "Queued: Ada answers this next" after Stop), and the bot's work after your message is marked *continued*. Settings → Bots → *When a bot is busy* sets the default. Send and Stop now have labels and tooltips; Stop says it stops every running bot in the chat. See `docs/GUIDE.md`.
+- Queue controls (hub): `GET /api/rooms/:id/queue` and the `queue.changed` event show what each bot has waiting in a chat, and you can **cancel** or **edit** your own queued message (edit only before any bot has read it), **send now** (stops the bot's running turn and runs its queue next; messages it had not answered yet are kept, as with Stop) and **pause** a bot's queue (nothing new starts until you resume; the pause survives a hub restart). A cancelled message is never shown to that bot. Paired phones can use them too. No reordering. The app's controls follow.
+- Queue controls (app): a chip above the composer shows each bot with messages waiting in the chat (`@ada · 2 queued`). It opens a list of what is waiting, where you can **Edit** or **Cancel** your own messages (when an edit is no longer possible, it says why), **Pause queue** / **Resume queue**, and **Send now…** (asks first, because it stops the bot's running reply). A paused queue reads **Queue paused** on the chip and in the header, apart from a screen's *paused*. Messages in the chat only say "Queued", "Edited" or "Cancelled". Works from the keyboard and on a phone.
+- When you stop a bot (Stop, or Send now), the chat says "Ada was stopped by you." instead of a red "turn ended" error.
+
+### Fixes
+
+- The desktop app's bundled hub now installs its dependencies at exactly the versions in `pnpm-lock.yaml`. Before, the release build resolved every package fresh from npm, so a release could ship untested versions or fail when a package was only half-published.
+- A bot whose turn is cut off (token brake, or the step limit after its continuation) no longer leaves its hand-off chain dead. It continues in a fresh, small session up to `CUTOFF_RETRIES` times (default 2), then the room's coordinator is woken to split, reassign or finish the work.
+- A bot that reports back on handed-off work without @mentioning anyone no longer ends the chain: its report goes to the room's coordinator.
+- Importing skills from a git repo on Windows no longer skips every skill as "no description": Git for Windows checks files out with CRLF line ends, and the SKILL.md frontmatter reader now accepts them.
+- On Windows, saving outside MCP servers or integration keys twice in quick succession no longer fails with a 500. The file permission fix-up from the first save could still hold the file when the second save replaced it; the replace now waits up to a second for it.
+
+### Choose where a link opens
+
+- Clicking a web link in chat now asks where to open it: **Open in my browser**, **Open in server browser** (the page opens in a bot's virtual browser on the server, with its logins, and the Screen panel shows it) or **Copy link**. Ctrl-click and middle-click still open it straight in your browser.
+- Clicking a file link asks too: **Preview in Files**, **Open in server browser** (an HTML report runs there as a real page) or, in the desktop app, **Open on this PC**, which saves a copy under `Documents\PocketRocket\<chat>\` and opens it in its default app. In a browser tab that item is **Download**.
+- The server browser is the browser of the bot that wrote the message, else the chat's first bot with Browser, else any bot with Browser (an awake one first).
+- **Open on this PC** only copies documents, data and pictures (HTML, Markdown, text, CSV, JSON, PDF, images, Word, Excel, PowerPoint), never programs, scripts or macro files. Copies are marked as downloaded from the internet, so Office opens them in Protected View. It needs this version of the desktop app; an older one shows Download instead.
+- Links that give a full server path (`/home/.../report.html`) now work when the file is inside the chat's folder.
+
+### Review fixes
+
+- Pictures attached to a message are now limited to 3.5 MB each (the browser shrinks them to fit); a bigger one is refused instead of failing the whole turn.
+- Bot export now also removes other file paths (any drive, network shares, `/srv/...`-style paths) and tells you which skills were left out for being over 64 KB or past the 20-skill limit.
+- `write_note` no longer says "Saved" while ignoring tags: it explains when tags cannot be added. Forms are not offered to routine and trigger runs. Old attached pictures and the pictures of deleted bots are cleaned up after 7 days.
+
+### Saved logins for bots
+
+- A new **Logins** section in Settings saves a login (a name, the exact site, a username and a password or secret). A bot can then sign in with `fill_credential` by name: the hub types it into the field in the bot's browser, and the bot only ever hears "filled". The secret is write-only (never shown again, never in a bot's chat, logs, cards or any API answer) and is stored encrypted in `data/credentials.json` under the same key as your integration tokens.
+- It asks you on a card every single time, also when approvals are bypassed, and only a browser signed in with your password can say yes; there is no "for this session" and no rule that pre-approves it. A login only works on the exact site it was saved for (same scheme, host and port): on any other page, after a redirect, or with two tabs in front, it refuses and types nothing. A password goes only into a password field.
+- Saving, changing or deleting a login also needs a signed-in browser, and is recorded in the audit log without the secret.
+- A login cannot be saved for `localhost`, `127.0.0.1` or other addresses on this computer, because a bot can run its own local server. `fill_credential` with the username field now types the saved username, never the password.
+
+### Forms and buttons in chat
+
+- A bot can now ask you for a few answers in one card with `request_form`: text boxes, a pick-one list and yes/no, up to 8 fields, with length limits. The card sits in the chat, survives a reload, and your answers go straight back to the bot, which carries on with them. Cancel, or no answer in 10 minutes, tells the bot plainly that you said no. Forms cannot ask for passwords, keys, tokens or codes: such a form is refused, and an answer that looks like a key is refused too.
+- A bot can put up to 3 buttons under a message. A button either sends its text as a normal reply from you (the text is shown under the button before you click) or opens a web link in a new tab with the site name written next to it. Only plain http and https links are allowed. A button never changes a setting or approves anything.
+- Everything a bot writes on these cards is shown as plain text, never as formatting or HTML.
+- An open form now counts in **Needs you** (the inbox, the tab count and the bot's status) like an approval. Its row only opens the chat: you fill the form on the card.
+- A paired phone can read a room's tasks; saved logins, tools, bot sharing and reports stay desktop only.
+
+### Share a bot, and screens for tasks, tools and reports
+
+- You can save a bot as a file (Bot settings > Export) and make a new bot from one (the + menu > Import a bot). The file holds the bot's name, role, picture and skills, and its memory notes only if you switch that on. It never holds logins, keys, tokens, approval rules, tool permissions, budgets or file paths, and anything in the text that looks like a key or a path on your computer is taken out before the file is made. Importing always creates a new bot, never changes one you have, gives a taken handle a number (`@ada-2`), and shows you what is inside first. Skills that arrive wait for your approval on the Skills tab. A bot made from a file starts without a shell (Bash) and without page fetching (WebFetch); you can turn them on later in its settings. The import preview now shows all of its instructions, because the bot will follow them. Files over 1 MB, or with fields the app does not know, are refused.
+- A Tasks page (in the sidebar) shows each chat's to-do list in four columns, updating live as bots add and move tasks.
+- Settings has a Tools page for outside tool servers: add, check, change approval and remove them. Tokens and secrets can be saved or replaced but are never shown again.
+- Settings has a Reports page listing when bots said a site stopped them, with Resolve and Dismiss.
+
+### Tasks, history search and bot reports
+
+- Each room has a local task board: bots get `create_task`, `update_task` and `list_tasks`, and there is a REST API under `/api/rooms/:id/tasks` (200 open tasks per room, 200-character titles, 4 KB notes). A task is only a note: it never grants an approval or changes a setting.
+- Bots can search the chat history of the rooms they are in with `search_history` (full-text, stemmed) and look across memory, notes and history with `recall_memory`. Notes can carry `tags:` in front-matter and `search_notes` can filter by tag. Older messages are indexed in the background after an upgrade.
+- Bots can tell you when a site stopped them with `report_blocked` (a room note plus a review list at `GET /api/bot-reports`) and leave feedback with `send_feedback` (a local file, readable at `GET /api/feedback`). Both refuse secrets and are limited to 10 an hour per bot. Nothing leaves your machine.
+
+### Web UI security headers and MCP server API
+
+- The hub now sends a Content-Security-Policy, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer` with the web app. `POCKETROCKET_CSP=report-only|enforce|off` picks the mode; the default is `report-only` (violations show in the browser console, nothing is blocked) until the policy has been run against the production build. The theme snippet moved from `index.html` to `/theme-init.js` so scripts need no `unsafe-inline`. Inline scripts in a previewed HTML file will not run once the policy is enforced.
+- New `GET/POST/PATCH/DELETE /api/mcp-servers` and `POST /api/mcp-servers/:name/check` manage `data/mcp-servers.json` without hand-editing. Tokens and env values are write-only (listings show whether a token is set and the variable names). Adding or changing a server that runs a command needs a browser signed in with your password, like a PC job approval; url servers and deletes take the hub token. A hand-edited file keeps working and is never overwritten when it does not parse. No UI yet.
+
+### Needs you inbox and desktop notifications
+
+- A **Needs you** entry at the top of the sidebar opens one list of everything waiting on you across all bots and rooms: approvals, requests to take over a bot's screen, and skills or skill changes waiting for review. Each row shows the bot, what is waiting and for how long; a plain approval can be allowed or denied right there, and Open jumps to the room. The count shows on the sidebar entry and in the window title.
+- In the desktop app, a notification appears when a bot needs your approval, needs you on its screen, or finishes, but only while the window is in the background. The text is generic ("A bot needs you") unless you turn on **Settings > Notifications > Include message text**. The section is only listed in the desktop app. Phones keep using Web Push.
+- Loading placeholders in the chat and sidebar, a few empty lists, and the icon buttons in the fleet pages, bot page, screen panel and triggers now use the shared Skeleton, EmptyState and Tooltip components (the same look, with hover and keyboard-focus labels on the buttons).
+
+### Machines
+
+- Bots can now ask which computers they may run on (`list_machines`) and name one in `run_on_pc`. Each machine gets its own on/off policy in Settings, and approval rules can be scoped to a machine and given an expiry. Existing rules keep applying to every machine.
+
+### Bot pop-out windows
+
+- Each bot row has a pop-out button that opens that bot's chat in its own small window, so you can keep a few bots in view while you work. In the desktop app the window is built by the app itself and gets no extra permissions; in a browser it is an ordinary small window.
+
+### Clearer refusals for bots
+
+- Every refusal a bot reads (declined card, timeout, read-only mode, a rule you set, an unavailable tool) now says what happened, tells it not to retry, and says what to do instead, so bots stop looping on a "no". The hub tool lists the permission gate uses now come from one shared registry, with a test that fails if a new tool is left out. Wording only; no approval behaviour changed.
+
+### Attach pictures to a message
+
+- The composer has a paperclip button, and you can paste a screenshot or drop pictures onto the chat. Up to 4 PNG, JPEG or WebP pictures per message, each shown as a thumbnail you can remove before sending, with an uploading or failed state and Retry. GIFs, PDFs and other files are refused with a plain message for now.
+- Before upload the browser redraws each picture, which removes EXIF data such as photo location, and scales anything past 2048 px on its longest side. The hub checks the real file type from the bytes, accepts up to 10 MB per picture, and refuses the whole message if any picture is unknown. Sending goes through the same outbox as text, so a retry resends the already uploaded pictures and never posts twice.
+- Bots get your pictures with the message. On Claude they arrive as images in the turn; on other providers the message gives a file path the bot can open. Anything shown or written in a picture is passed as untrusted data. The copies live in a hub-owned folder (`data/attachments/<bot>`) that the bot can read but its own file tools cannot change.
+- Pictures attached to messages are no longer swept away by the daily media cleanup.
+
+### Messages that don't get lost
+
+- Sending while the hub is unreachable no longer drops the text. The message shows in the chat at once, marked "Waiting to reconnect", and goes out in order when the connection is back. A message the hub never confirms shows "Not sent" with Retry and Discard. Unsent messages survive closing the tab.
+- Each chat remembers what you were typing: the draft comes back when you return to the room and clears when you send.
+- The hub tells a repeated send from a new one (an optional `clientMsgId` on `message.send`, stored on the message), so a retry after a reconnect never posts twice or starts a second turn. Older clients that send no id work as before. Existing databases get the new column and index on start.
+- The connection now notices a link that has gone quiet (cable pulled, laptop woken from sleep): the hub pings every 20 seconds, and after two missed pings the app shows "Reconnecting…" in the profile menu and the top banner and reconnects with the usual backoff.
+- All browser storage goes through one guarded helper, so blocked or full storage can no longer throw. Existing settings keep their keys and values.
+
+### UI primitives
+
+- New shared UI primitives in `ui.tsx`: Banner, Popover, Tooltip, Kbd, EmptyState and Skeleton (documented in `docs/DEVELOPMENT.md`). Adds `@radix-ui/react-popover` and `@radix-ui/react-tooltip`. Nothing uses them yet.
+
+### Desktop hardening
+
+- The desktop app now sets a Content Security Policy on its own pages (the connection screen and the Server terminal): no inline or eval script, and no network access beyond the app's own commands.
+- Groundwork for local desktop notifications: the app ships the notification plugin, and the hub page may raise a notification only while the window is not focused. Nothing triggers one yet.
+
+### Cheaper default models
+
+- A bot that creates another bot no longer hands it its own model: without an explicit pick the new bot gets Sonnet 5, so an Opus lead no longer fills a room with Opus workers. The create/update bot tools tell bots to use Sonnet for workers, Haiku for simple or routine bots, and Opus only when you ask or a lead truly needs it.
+- Model pickers mark Opus and Fable with "uses your plan limit much faster", and Auto now reads "Sonnet, moves up when needed".
 
 ### Folder uploads
 

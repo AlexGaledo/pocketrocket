@@ -3,12 +3,15 @@
 // the Automations tab of the Bot page, filtered to that bot.
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowLeft, History, Play, Plus, Trash2 } from 'lucide-react';
-import { MODELS, type CauseKind, type Routine, type RoutineRun, type UsageGroup, type UsageRow } from '@pocketrocket/shared';
+import { MODELS, type CauseKind, type ProviderId, type Routine, type RoutineRun, type UsageGroup, type UsageRow } from '@pocketrocket/shared';
 import { MONTHS, SCHEDULE_PRESETS, WEEKDAYS, cronToPreset, describeCron, presetToCron, zonedParts, type SchedulePreset, type ScheduleParts } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Button, Input, Label, Select, Textarea, cn, confirmAction, fmtUsd } from './ui';
+import { Avatar, Badge, Button, Input, Label, Meter, Select, Textarea, Tooltip, cn, confirmAction, fmtUsd } from './ui';
+import { botProvider, limitName, limitPercent, planMeters, resetPhrase } from '../lib/limits';
+import { useLimits } from '../lib/useLimits';
 import { TriggersSection } from './TriggersSection';
+import { WorkflowsSection } from './workflows/WorkflowsSection';
 
 /** The scrolling column under a page's header, as wide as the chat column. */
 export function PageBody({ children }: { children: ReactNode }) {
@@ -19,15 +22,16 @@ export function PageBody({ children }: { children: ReactNode }) {
   );
 }
 
-function FleetHeader({ title, sub }: { title: string; sub: string }) {
+export function FleetHeader({ title, sub, actions }: { title: string; sub: string; actions?: ReactNode }) {
   const closePage = useStore((s) => s.closePage);
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
-      <Button variant="ghost" size="icon" title="Back to chat" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button>
+      <Tooltip content="Back to chat"><Button variant="ghost" size="icon" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button></Tooltip>
       <div className="min-w-0 flex-1">
         <h1 className="truncate text-body font-semibold">{title}</h1>
         <div className="truncate text-hint text-muted">{sub}</div>
       </div>
+      {actions && <div className="flex shrink-0 items-center gap-3">{actions}</div>}
     </header>
   );
 }
@@ -36,7 +40,7 @@ export function AutomationsPage() {
   return (
     <>
       <FleetHeader title="Automations" sub="Schedules and triggers, all bots" />
-      <PageBody><RoutinesSection botId={null} /><TriggersSection botId={null} /></PageBody>
+      <PageBody><RoutinesSection botId={null} /><TriggersSection botId={null} /><WorkflowsSection /></PageBody>
     </>
   );
 }
@@ -220,9 +224,9 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
                   <div className="truncate text-muted">{scheduleLabel(r, tz)}</div>
                   <div className="truncate text-muted">{b ? '@' + b.handle : 'a deleted bot'} in {rm?.name ?? 'a deleted room'}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
                 </button>
-                <Button size="icon" variant="ghost" title="Run now. This does real work." aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Run history" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button>
-                <Button size="icon" variant="ghost" title="Delete" aria-label={'Delete ' + r.name} onClick={() => remove(r)}><Trash2 size={13} /></Button>
+                <Tooltip content="Run now. This does real work."><Button size="icon" variant="ghost" aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button></Tooltip>
+                <Tooltip content="Run history"><Button size="icon" variant="ghost" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button></Tooltip>
+                <Tooltip content="Delete"><Button size="icon" variant="ghost" aria-label={'Delete ' + r.name} onClick={() => remove(r)}><Trash2 size={13} /></Button></Tooltip>
               </div>
               {history && (
                 <ul className="mt-2 pt-1 text-hint text-muted">
@@ -250,17 +254,18 @@ function UsageSection() {
   const rooms = useStore((s) => s.rooms);
   const live = useStore((s) => s.usage);
   const [rows, setRows] = useState<UsageRow[]>([]);
-  const [split, setSplit] = useState<{ byModel: UsageGroup[]; byCause: UsageGroup[] }>({ byModel: [], byCause: [] });
+  const [split, setSplit] = useState<UsageSplitData>({ byModel: [], byCause: [], byProvider: [] });
   useEffect(() => {
-    api.usage().then((u) => { setRows(u.rows); setSplit({ byModel: u.byModel ?? [], byCause: u.byCause ?? [] }); });
+    api.usage().then((u) => { setRows(u.rows); setSplit({ byModel: u.byModel ?? [], byCause: u.byCause ?? [], byProvider: u.byProvider ?? [] }); });
   }, [live]);
   const total = rows.reduce((a, r) => a + r.costUsd, 0);
   const byBot = bots.map((b) => ({ b, cost: rows.filter((r) => r.botId === b.id).reduce((a, r) => a + r.costUsd, 0), turns: rows.filter((r) => r.botId === b.id).reduce((a, r) => a + r.turns, 0) }));
   return (
     <div className="flex flex-col gap-3 p-3 text-hint">
+      <PlanLimits />
       <div className="rounded-lg bg-card2/60 p-3">
         <div className="text-label text-muted">Estimated usage, all time</div>
-        <div className="text-title">≈{fmtUsd(total)}</div><div className="mt-1 text-hint text-dim">API-price estimate. Claude plans aren't charged this.</div>
+        <div className="text-title">≈{fmtUsd(total)}</div><div className="mt-1 text-hint text-dim">API-price estimate. Subscription plans aren't charged this.</div>
         <div className="text-muted">{rows.reduce((a, r) => a + r.turns, 0)} replies</div>
       </div>
       <Label>By bot</Label>
@@ -283,6 +288,40 @@ function UsageSection() {
   );
 }
 
+type UsageSplitData = { byModel: UsageGroup[]; byCause: UsageGroup[]; byProvider: UsageGroup[] };
+
+/**
+ * Spec 01 P0-5: how close each plan window is to its limit, from the hub's in-memory list (it only hears about a
+ * window when the provider reports one). Left out for a provider signed in with an API key, which has no plan.
+ */
+function PlanLimits() {
+  const limits = useLimits();
+  const providers = useStore((s) => s.providers);
+  const bots = useStore((s) => s.bots);
+  const defaultProvider = useStore((s) => s.settings.provider);
+  const inUse = new Set<ProviderId>([defaultProvider, ...bots.map((b) => botProvider(b, defaultProvider))]);
+  const onPlan = [...inUse].filter((id) => providers?.providers.find((p) => p.id === id)?.check.auth === 'subscription');
+  const shown = planMeters(limits, providers);
+  if (!shown.length && !onPlan.length) return null;
+  const label = (id: ProviderId) => providers?.providers.find((p) => p.id === id)?.label ?? id;
+  return (
+    <section aria-labelledby="plan-limits" className="rounded-lg bg-card2/60 p-3">
+      <h2 id="plan-limits" className="text-label text-muted">Plan limits</h2>
+      {shown.length ? (
+        <ul className="mt-2 flex flex-col gap-3">
+          {shown.map((l) => (
+            <li key={l.provider + ':' + (l.model ?? '') + ':' + (l.window ?? '')}>
+              <Meter label={limitName(l, label(l.provider))} value={limitPercent(l)} detail={resetPhrase(l)} atLimit={l.status === 'held'} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-hint text-dim">Nothing near a limit right now. A window shows here once {onPlan.map(label).join(' or ')} says it is filling up.</p>
+      )}
+    </section>
+  );
+}
+
 // ---------- P8: usage by model and by cause ----------
 const CAUSE_LABEL: Record<CauseKind, string> = {
   user: 'Your messages',
@@ -292,18 +331,22 @@ const CAUSE_LABEL: Record<CauseKind, string> = {
   training: 'Training',
   memory: 'Auto-memory',
   reflection: 'Skill fixes',
+  workflow: 'Workflows',
 };
 
 /**
  * Where the spend went: which models ran, and what started the turns. Routines, triggers and auto-memory get
  * their own rows so automation cost is visible next to chat cost. '' is spend recorded before the hub kept this.
  */
-function UsageSplit({ split }: { split: { byModel: UsageGroup[]; byCause: UsageGroup[] } }) {
+function UsageSplit({ split }: { split: UsageSplitData }) {
   const providers = useStore((s) => s.providers);
+  const providerLabel = (k: string) => (!k ? 'Not recorded' : (providers?.providers.find((p) => p.id === k)?.label ?? k));
+  // Spend on a subscription login is what the same work would cost on an API key, not a bill, so its row says so.
+  const isEstimate = (k: string) => providers?.providers.find((p) => p.id === k)?.check.auth === 'subscription';
   const modelLabel = (id: string) =>
     !id ? 'Not recorded' : (providers?.providers.flatMap((p) => p.models).find((m) => m.id === id)?.label ?? MODELS.find((m) => m.id === id)?.label ?? id);
   const causeLabel = (k: string) => (k ? CAUSE_LABEL[k as CauseKind] ?? k : 'Not recorded');
-  const section = (title: string, groups: UsageGroup[], label: (k: string) => string, mono: boolean) => {
+  const section = (title: string, groups: UsageGroup[], label: (k: string) => string, mono: boolean, estimate?: (k: string) => boolean) => {
     if (!groups.length) return null;
     const total = groups.reduce((a, g) => a + g.costUsd, 0);
     return (
@@ -315,7 +358,8 @@ function UsageSplit({ split }: { split: { byModel: UsageGroup[]; byCause: UsageG
               <span className={cn('min-w-0 flex-1 truncate', mono && g.key ? 'font-mono text-hint' : 'font-medium', !g.key && 'text-muted')}>{label(g.key)}</span>
               <span className="text-muted">{g.turns} replies</span>
               {total > 0 && <span className="w-9 text-right text-dim">{Math.round((g.costUsd / total) * 100)}%</span>}
-              <span className="font-mono">{fmtUsd(g.costUsd)}</span>
+              {estimate?.(g.key) && <Badge>estimate</Badge>}
+              <span className="font-mono">{estimate?.(g.key) ? '≈' : ''}{fmtUsd(g.costUsd)}</span>
             </li>
           ))}
         </ul>
@@ -324,6 +368,8 @@ function UsageSplit({ split }: { split: { byModel: UsageGroup[]; byCause: UsageG
   };
   return (
     <>
+      {/* Claude alone is the common case: one row (plus rows from before v0.5) would only repeat the total. */}
+      {(split.byProvider.filter((g) => g.key).length > 1 || split.byProvider.some((g) => g.key && g.key !== 'claude')) && section('By provider', split.byProvider, providerLabel, false, isEstimate)}
       {section('By model', split.byModel, modelLabel, true)}
       {section('By what started it', split.byCause, causeLabel, false)}
     </>

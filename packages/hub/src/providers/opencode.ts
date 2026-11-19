@@ -1,4 +1,4 @@
-import type { ModelInfo, ProviderCheck, ProviderInfo } from '@pocketrocket/shared';
+import type { ModelInfo, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
 import type { AgentProvider, TurnContext, TurnOutcome, TurnSink } from './types.js';
 import { parseAuthList, parseModels, parseVersion, readAuthFile, resolveOpencodeExe, runCli, splitModelId } from './opencode/cli.js';
 import { TurnTracker, type OcEvent } from './opencode/events.js';
@@ -33,7 +33,7 @@ import { OpenCodeServer } from './opencode/server.js';
  * `best-effort` because reads/globs inside the OpenCode project are still allowed by OpenCode itself.
  */
 
-export const OPENCODE_INFO: Omit<ProviderInfo, 'check' | 'models'> = {
+export const OPENCODE_INFO: ProviderStaticInfo = {
   id: 'opencode',
   label: 'OpenCode',
   blurb: 'OpenCode, with its own logins for ChatGPT, Claude, Copilot, xAI and others.',

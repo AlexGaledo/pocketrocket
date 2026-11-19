@@ -1,8 +1,8 @@
 import type { BotPreview, SearchHit } from '@pocketrocket/shared';
 import { nanoid } from 'nanoid';
 import {
-  AUTO_MEMORY_EVERY,
-  type Bot, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
+  AUTO_MEMORY_EVERY, PROVIDER_IDS, currentModelId,
+  type Bot, type BotBackup, type ProviderId, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
   type CauseKind, type UsageGroup, type OpenApproval,
   type User,
 } from '@pocketrocket/shared';
@@ -48,12 +48,14 @@ export class Repos {
       title: (r.title as string) ?? '',
       description: (r.description as string) ?? '',
       avatar: (r.avatar as string) || '',
-      model: r.model as string,
+      model: currentModelId(r.model as string),
       allowedTools: JSON.parse((r.allowed_tools as string) || '[]'),
       maxBudgetUsd: r.max_budget_usd as number,
       autoMemory: !!(r.auto_memory as number),
       autoMemoryEvery: (r.auto_memory_every as number) ?? AUTO_MEMORY_EVERY.default,
       createdAt: r.created_at as number,
+      provider: providerOf(r.provider),
+      backup: backupOf(r.backup),
     };
   }
   listBots(): Bot[] {
@@ -67,13 +69,19 @@ export class Repos {
     const r = this.db.get('SELECT * FROM bots WHERE handle=?', handle);
     return r && this.rowToBot(r);
   }
-  /** The auto-memory fields are optional here and default to on, every {@link AUTO_MEMORY_EVERY}.default turns. */
-  createBot(b: Omit<Bot, 'id' | 'createdAt' | 'autoMemory' | 'autoMemoryEvery'> & Partial<Pick<Bot, 'autoMemory' | 'autoMemoryEvery'>>): Bot {
-    const bot: Bot = { ...b, autoMemory: b.autoMemory ?? true, autoMemoryEvery: b.autoMemoryEvery ?? AUTO_MEMORY_EVERY.default, id: nanoid(10), createdAt: now() };
+  /** The auto-memory fields default to on, every {@link AUTO_MEMORY_EVERY}.default turns; `provider` and `backup` to null. */
+  createBot(
+    b: Omit<Bot, 'id' | 'createdAt' | 'autoMemory' | 'autoMemoryEvery' | 'provider' | 'backup'> & Partial<Pick<Bot, 'autoMemory' | 'autoMemoryEvery' | 'provider' | 'backup'>>,
+  ): Bot {
+    const bot: Bot = {
+      ...b, autoMemory: b.autoMemory ?? true, autoMemoryEvery: b.autoMemoryEvery ?? AUTO_MEMORY_EVERY.default,
+      provider: b.provider ?? null, backup: b.backup ?? null, id: nanoid(10), createdAt: now(),
+    };
     this.db.run(
-      'INSERT INTO bots (id,name,handle,title,description,avatar,model,allowed_tools,max_budget_usd,auto_memory,auto_memory_every,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO bots (id,name,handle,title,description,avatar,model,allowed_tools,max_budget_usd,auto_memory,auto_memory_every,created_at,provider,backup) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       bot.id, bot.name, bot.handle, bot.title, bot.description, bot.avatar, bot.model,
       JSON.stringify(bot.allowedTools), bot.maxBudgetUsd, bot.autoMemory ? 1 : 0, bot.autoMemoryEvery, bot.createdAt,
+      bot.provider, bot.backup ? JSON.stringify(bot.backup) : null,
     );
     return bot;
   }
@@ -82,9 +90,9 @@ export class Repos {
     if (!cur) return undefined;
     const b = { ...cur, ...patch };
     this.db.run(
-      'UPDATE bots SET name=?,handle=?,title=?,description=?,avatar=?,model=?,allowed_tools=?,max_budget_usd=?,auto_memory=?,auto_memory_every=? WHERE id=?',
+      'UPDATE bots SET name=?,handle=?,title=?,description=?,avatar=?,model=?,allowed_tools=?,max_budget_usd=?,auto_memory=?,auto_memory_every=?,provider=?,backup=? WHERE id=?',
       b.name, b.handle, b.title, b.description, b.avatar, b.model, JSON.stringify(b.allowedTools), b.maxBudgetUsd,
-      b.autoMemory ? 1 : 0, b.autoMemoryEvery, id,
+      b.autoMemory ? 1 : 0, b.autoMemoryEvery, b.provider ?? null, b.backup ? JSON.stringify(b.backup) : null, id,
     );
     return b;
   }
@@ -93,9 +101,11 @@ export class Repos {
       this.db.run('DELETE FROM bots WHERE id=?', id);
       this.db.run('DELETE FROM room_members WHERE bot_id=?', id);
       this.db.run('DELETE FROM sessions WHERE bot_id=?', id);
+      this.db.run('DELETE FROM lane_pauses WHERE bot_id=?', id);
       this.db.run('DELETE FROM auto_memory WHERE bot_id=?', id);
       this.db.run('DELETE FROM bot_skills WHERE bot_id=?', id);
       this.db.run('DELETE FROM routines WHERE bot_id=?', id);
+      this.db.run('UPDATE tasks SET assignee_bot_id=NULL WHERE assignee_bot_id=?', id);
       this.db.run('UPDATE rooms SET coordinator_bot_id=NULL WHERE coordinator_bot_id=?', id);
     });
   }
@@ -163,8 +173,10 @@ export class Repos {
       this.db.run('DELETE FROM room_members WHERE room_id=?', id);
       this.db.run('DELETE FROM messages WHERE room_id=?', id);
       this.db.run('DELETE FROM sessions WHERE room_id=?', id);
+      this.db.run('DELETE FROM lane_pauses WHERE room_id=?', id);
       this.db.run('DELETE FROM auto_memory WHERE room_id=?', id);
       this.db.run('DELETE FROM routines WHERE room_id=?', id);
+      this.db.run('DELETE FROM tasks WHERE room_id=?', id);
       this.db.run('DELETE FROM approvals WHERE room_id=?', id);
     });
   }
@@ -186,6 +198,9 @@ export class Repos {
       createdAt: r.created_at as number,
       ...(r.model ? { model: r.model as string, modelReason: (r.model_reason as string) ?? undefined } : {}),
       ...(r.attachments ? { attachments: JSON.parse(r.attachments as string) as string[] } : {}),
+      ...(r.client_msg_id ? { clientMsgId: r.client_msg_id as string } : {}),
+      ...(r.cancelled_at ? { cancelledAt: r.cancelled_at as number } : {}),
+      ...(r.edited_at ? { editedAt: r.edited_at as number } : {}),
     };
   }
   insertMessage(m: Omit<Message, 'id' | 'seq' | 'createdAt'> & { id?: string }): Message {
@@ -193,11 +208,14 @@ export class Repos {
       const seq =
         this.db.get<{ s: number }>('SELECT COALESCE(MAX(seq),0)+1 AS s FROM messages WHERE room_id=?', m.roomId)?.s ?? 1;
       const msg: Message = { ...m, id: m.id ?? nanoid(12), seq, createdAt: now() };
+      // The id column only exists from migration 180, so a message without one is written as it always was.
+      const withId = msg.clientMsgId ? ',client_msg_id' : '';
       this.db.run(
-        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO messages (id,room_id,seq,author_type,author_id,kind,text,payload,cause_id,hop,turn_id,created_at,model,model_reason,attachments' + withId + ') VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?' + (withId ? ',?' : '') + ')',
         msg.id, msg.roomId, msg.seq, msg.authorType, msg.authorId, msg.kind, msg.text,
         msg.payload ? JSON.stringify(msg.payload) : null, msg.causeId, msg.hop, msg.turnId, msg.createdAt,
         msg.model ?? null, msg.modelReason ?? null, msg.attachments?.length ? JSON.stringify(msg.attachments) : null,
+        ...(msg.clientMsgId ? [msg.clientMsgId] : []),
       );
       return msg;
     });
@@ -208,6 +226,32 @@ export class Repos {
     const m = { ...cur, ...patch };
     this.db.run('UPDATE messages SET text=?, payload=? WHERE id=?', m.text, m.payload ? JSON.stringify(m.payload) : null, id);
     return m;
+  }
+  /** Queue controls: the owner cancelled a queued message before any bot read it. Returns the time set. */
+  markMessageCancelled(id: string): number {
+    const at = now();
+    this.db.run('UPDATE messages SET cancelled_at=? WHERE id=?', at, id);
+    return at;
+  }
+  /** Queue controls: the owner's edit of a message still queued. Returns the time set. */
+  editMessageText(id: string, text: string): number {
+    const at = now();
+    this.db.run('UPDATE messages SET text=?, edited_at=? WHERE id=?', text, at, id);
+    return at;
+  }
+  /** Every picture reference on any message, so the media sweep keeps them (U2a). */
+  attachmentRefs(): string[] {
+    const out: string[] = [];
+    for (const r of this.db.all('SELECT attachments FROM messages WHERE attachments IS NOT NULL')) {
+      try { out.push(...(JSON.parse(r.attachments as string) as string[])); } catch { /* unreadable: nothing to keep */ }
+    }
+    return out;
+  }
+
+  /** The message a client already sent under `clientMsgId` in this room (B5), if any. */
+  findByClientMsgId(roomId: string, clientMsgId: string): Message | undefined {
+    const r = this.db.get('SELECT * FROM messages WHERE room_id=? AND client_msg_id=?', roomId, clientMsgId);
+    return r && this.rowToMessage(r);
   }
   getMessage(id: string): Message | undefined {
     const r = this.db.get('SELECT * FROM messages WHERE id=?', id);
@@ -290,6 +334,39 @@ export class Repos {
         'ON CONFLICT(bot_id,room_id) DO UPDATE SET sdk_session_id=excluded.sdk_session_id,last_seen_seq=excluded.last_seen_seq,' +
         'updated_at=excluded.updated_at,provider=excluded.provider',
       botId, roomId, s.sdkSessionId, s.lastSeenSeq, now(), s.provider,
+    );
+  }
+
+  /**
+   * Token-efficiency state of the (bot, room) session (migration 170). Kept apart from getSession/saveSession so
+   * their shape stays as it was. Every field is null when unknown, which on a legacy row means "never measured".
+   */
+  getSessionState(botId: string, roomId: string): SessionState {
+    const r = this.db.get('SELECT * FROM sessions WHERE bot_id=? AND room_id=?', botId, roomId);
+    const num = (v: unknown) => (typeof v === 'number' ? v : null);
+    const str = (v: unknown) => (typeof v === 'string' ? v : null);
+    return {
+      costTotal: num(r?.cost_total),
+      contextTokens: num(r?.context_tokens),
+      contextAt: num(r?.context_at),
+      contextWindow: num(r?.context_window),
+      memorySnapshot: str(r?.memory_snapshot),
+      identitySnapshot: str(r?.identity_snapshot),
+      summary: str(r?.summary),
+    };
+  }
+  /** Writes only the fields given (an explicit null clears one). Creates the row when there is none. */
+  saveSessionState(botId: string, roomId: string, patch: Partial<SessionState>) {
+    const cols: Record<keyof SessionState, string> = {
+      costTotal: 'cost_total', contextTokens: 'context_tokens', contextAt: 'context_at', contextWindow: 'context_window',
+      memorySnapshot: 'memory_snapshot', identitySnapshot: 'identity_snapshot', summary: 'summary',
+    };
+    const keys = (Object.keys(patch) as (keyof SessionState)[]).filter((k) => k in cols && patch[k] !== undefined);
+    if (!keys.length) return;
+    this.db.run('INSERT OR IGNORE INTO sessions (bot_id,room_id,last_seen_seq,updated_at) VALUES (?,?,0,?)', botId, roomId, now());
+    this.db.run(
+      'UPDATE sessions SET ' + keys.map((k) => cols[k] + '=?').join(',') + ' WHERE bot_id=? AND room_id=?',
+      ...keys.map((k) => patch[k]), botId, roomId,
     );
   }
 
@@ -494,7 +571,8 @@ export class Repos {
       // P2: a parked card or takeover (its turn ended and waits for the user) survives a restart.
       this.db.run("UPDATE approvals SET status='expired', decided_at=? WHERE status='pending' AND parked_at IS NULL", now());
       const open = "((kind='approval' AND json_extract(payload, '$.status')='pending' AND json_extract(payload, '$.parked') IS NOT 1) OR " +
-        "(kind='takeover' AND json_extract(payload, '$.status')='waiting'))";
+        "(kind='takeover' AND json_extract(payload, '$.status')='waiting') OR " +
+        "(kind='form' AND json_extract(payload, '$.status')='pending'))";
       const ids = this.db.all<{ id: string }>('SELECT id FROM messages WHERE ' + open).map((r) => r.id);
       this.db.run("UPDATE messages SET payload=json_set(payload, '$.status', 'expired') WHERE " + open);
       return ids.map((id) => this.getMessage(id)).filter((m): m is Message => !!m);
@@ -511,14 +589,14 @@ export class Repos {
   recordUsage(u: {
     botId: string; roomId: string; turnId: string; causeId: string | null; costUsd: number; inputTokens: number;
     outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; modelUsage: unknown; durationMs: number;
-    /** P8: the model that ran, why the router chose it, and what kind of cause started the turn. */
-    model?: string; routeReason?: string; causeKind?: CauseKind;
+    /** P8: the model that ran, why the router chose it, and what kind of cause started the turn. M6: the provider that ran it. */
+    model?: string; routeReason?: string; causeKind?: CauseKind; provider?: ProviderId;
   }) {
     this.db.run(
-      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at,model,route_reason,cause_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO usage (bot_id,room_id,turn_id,cause_id,cost_usd,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,model_usage,duration_ms,created_at,model,route_reason,cause_kind,provider) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
       u.botId, u.roomId, u.turnId, u.causeId, u.costUsd, u.inputTokens, u.outputTokens, u.cacheReadTokens,
       u.cacheWriteTokens, JSON.stringify(u.modelUsage ?? null), u.durationMs, now(),
-      u.model ?? null, u.routeReason ?? null, u.causeKind ?? null,
+      u.model ?? null, u.routeReason ?? null, u.causeKind ?? null, u.provider ?? null,
     );
   }
   private totalsFrom(r: Row | undefined): UsageTotals {
@@ -531,12 +609,13 @@ export class Repos {
       turns: (r?.n as number) ?? 0,
     };
   }
-  usageTotals(where: { botId?: string; roomId?: string; causeId?: string } = {}): UsageTotals {
+  usageTotals(where: { botId?: string; roomId?: string; causeId?: string; sinceMs?: number } = {}): UsageTotals {
     const conds: string[] = [];
     const params: unknown[] = [];
     if (where.botId) { conds.push('bot_id=?'); params.push(where.botId); }
     if (where.roomId) { conds.push('room_id=?'); params.push(where.roomId); }
     if (where.causeId) { conds.push('cause_id=?'); params.push(where.causeId); }
+    if (where.sinceMs) { conds.push('created_at>=?'); params.push(where.sinceMs); }
     const sql = 'SELECT ' + SUM + ' FROM usage' + (conds.length ? ' WHERE ' + conds.join(' AND ') : '');
     return this.totalsFrom(this.db.get(sql, ...params));
   }
@@ -549,43 +628,96 @@ export class Repos {
   }
 
   // ---------- P8: usage by model / cause kind ----------
-  /** Spend grouped by the model that ran or by what started the turn. Rows from before P8 group under ''. */
-  usageBy(by: 'model' | 'causeKind'): UsageGroup[] {
-    const col = by === 'model' ? 'model' : 'cause_kind';
+  /** Spend grouped by the model that ran, what started the turn, or (M6) the provider. Rows from before the column group under ''. */
+  usageBy(by: 'model' | 'causeKind' | 'provider'): UsageGroup[] {
+    const col = by === 'model' ? 'model' : by === 'provider' ? 'provider' : 'cause_kind';
     return this.db
       .all('SELECT COALESCE(' + col + ", '') k, " + SUM + ' FROM usage GROUP BY k ORDER BY cost DESC')
       .map((r) => ({ key: r.k as string, ...this.totalsFrom(r) }));
   }
   // ---------- P3: lane journal (services/FollowUp.ts) ----------
-  journalAdd(e: Omit<LaneJournalRow, 'id' | 'attempts' | 'createdAt'> & { attempts?: number }): string {
+  journalAdd(e: Omit<LaneJournalRow, 'id' | 'attempts' | 'createdAt' | 'status' | 'messageId'> & { attempts?: number; status?: LaneJournalStatus; messageId?: string | null }): string {
     const id = nanoid(10);
     this.db.run(
-      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,note,attempts,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, e.runId, e.note, e.attempts ?? 0, now(),
+      'INSERT INTO lane_journal (id,bot_id,room_id,cause_id,hop,trigger_seq,run_id,owner_ref,note,attempts,created_at,status,message_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      id, e.botId, e.roomId, e.causeId, e.hop, e.triggerSeq, routineRunOf(e.ownerRef), e.ownerRef, e.note, e.attempts ?? 0, now(), e.status ?? 'queued', e.messageId ?? null,
     );
     return id;
   }
   journalRemove(ids: string[]) {
     for (const id of ids) this.db.run('DELETE FROM lane_journal WHERE id=?', id);
   }
-  /** Every row, oldest first, and empties the table: the caller re-enqueues what it still wants. */
+  /** Steering: a steer the turn answered becomes a 'consumed' marker (see `hiddenMessageIds`). */
+  journalMarkConsumed(id: string) {
+    this.db.run("UPDATE lane_journal SET status='consumed' WHERE id=?", id);
+  }
+  /** Queue controls: a queued item the owner cancelled becomes a 'cancelled' marker (see `hiddenMessageIds`). */
+  journalMarkCancelled(id: string) {
+    this.db.run("UPDATE lane_journal SET status='cancelled' WHERE id=?", id);
+  }
+  /**
+   * Message ids a bot's next turn in a room must not be shown while its read cursor is still behind them: steers its
+   * turns already answered, and messages the owner cancelled from its queue.
+   */
+  hiddenMessageIds(botId: string, roomId: string): Set<string> {
+    return new Set(
+      this.db
+        .all<{ message_id: string }>("SELECT message_id FROM lane_journal WHERE bot_id=? AND room_id=? AND status IN ('consumed','cancelled') AND message_id IS NOT NULL", botId, roomId)
+        .map((r) => r.message_id),
+    );
+  }
+  /** Drops the consumed and cancelled markers the lane's read cursor has now passed (`trigger_seq` is the message's seq). */
+  journalPruneConsumed(botId: string, roomId: string, lastSeenSeq: number) {
+    this.db.run("DELETE FROM lane_journal WHERE bot_id=? AND room_id=? AND status IN ('consumed','cancelled') AND trigger_seq<=?", botId, roomId, lastSeenSeq);
+  }
+  /** Whether any lane pushed this message into a running turn (steered, answered or not). */
+  journalSteered(messageId: string): boolean {
+    return !!this.db.get("SELECT 1 AS x FROM lane_journal WHERE message_id=? AND status IN ('steered','consumed') LIMIT 1", messageId);
+  }
+  /** Whether any bot's read cursor in this room is at or past `seq`: some turn already read the message. */
+  anyCursorAt(roomId: string, seq: number): boolean {
+    return !!this.db.get('SELECT 1 AS x FROM sessions WHERE room_id=? AND last_seen_seq>=? LIMIT 1', roomId, seq);
+  }
+
+  // ---------- queue controls: paused lanes (migration 251) ----------
+  lanePaused(botId: string, roomId: string): boolean {
+    return !!this.db.get('SELECT 1 AS x FROM lane_pauses WHERE bot_id=? AND room_id=?', botId, roomId);
+  }
+  setLanePaused(botId: string, roomId: string, paused: boolean) {
+    if (paused) this.db.run('INSERT OR IGNORE INTO lane_pauses (bot_id, room_id, paused_at) VALUES (?,?,?)', botId, roomId, now());
+    else this.db.run('DELETE FROM lane_pauses WHERE bot_id=? AND room_id=?', botId, roomId);
+  }
+  /** Bots whose queue is paused in this room. */
+  pausedBots(roomId: string): string[] {
+    return this.db.all<{ bot_id: string }>('SELECT bot_id FROM lane_pauses WHERE room_id=?', roomId).map((r) => r.bot_id);
+  }
+  /**
+   * Every row still to run (queued, running or steered-but-unanswered), oldest first, and removes them: the caller
+   * re-enqueues what it still wants. Consumed-steer and cancelled markers are not work and stay.
+   */
   journalTakeAll(): LaneJournalRow[] {
     return this.db.tx(() => {
-      const rows = this.db.all('SELECT * FROM lane_journal ORDER BY created_at, rowid').map((r) => ({
+      const rows = this.db.all("SELECT * FROM lane_journal WHERE status IN ('queued','steered') ORDER BY created_at, rowid").map((r) => ({
         id: r.id as string,
         botId: r.bot_id as string,
         roomId: r.room_id as string,
         causeId: r.cause_id as string,
         hop: r.hop as number,
         triggerSeq: r.trigger_seq as number,
-        runId: (r.run_id as string) ?? null,
+        ownerRef: (r.owner_ref as string) ?? (r.run_id ? 'routine:' + (r.run_id as string) : null),
         note: (r.note as string) ?? null,
         attempts: r.attempts as number,
         createdAt: r.created_at as number,
+        status: r.status as LaneJournalStatus,
+        messageId: (r.message_id as string) ?? null,
       }));
-      this.db.run('DELETE FROM lane_journal');
+      this.db.run("DELETE FROM lane_journal WHERE status IN ('queued','steered')");
       return rows;
     });
+  }
+  /** Whether a lane item is journaled (queued, running or steered) for this owner: a ref, or any ref starting with `prefix`. */
+  journalHasOwner(prefix: string): boolean {
+    return !!this.db.get("SELECT 1 AS x FROM lane_journal WHERE status IN ('queued','steered') AND substr(owner_ref, 1, ?) = ? LIMIT 1", prefix.length, prefix);
   }
   /** Routine runs still `running`: their turn died with the previous hub process. */
   runningRuns(): { id: string; routineId: string }[] {
@@ -610,8 +742,55 @@ export interface LaneJournalRow {
   causeId: string;
   hop: number;
   triggerSeq: number;
-  runId: string | null;
+  /** What the turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`); its `onDone` is rebuilt from this. */
+  ownerRef: string | null;
   note: string | null;
   attempts: number;
   createdAt: number;
+  /**
+   * Migration 250: `queued` (a lane item), `steered` (pushed into a running turn, unanswered), `consumed` (answered),
+   * `cancelled` (the owner cancelled the queued item; a marker that hides the message from this lane, like `consumed`).
+   */
+  status: LaneJournalStatus;
+  /** Steer rows and queued items that came from one message (a person's, a routine's or a trigger's). */
+  messageId: string | null;
+}
+export type LaneJournalStatus = 'queued' | 'steered' | 'consumed' | 'cancelled';
+
+/** Per-session token-efficiency state (migration 170); see Repos.getSessionState. */
+export interface SessionState {
+  /** The SDK's cumulative cost last reported for this session; null on a legacy row. */
+  costTotal: number | null;
+  /** Input tokens of the last top-level model call of the last turn; null = never measured. */
+  contextTokens: number | null;
+  /** When contextTokens was measured (ms). */
+  contextAt: number | null;
+  /** P4-2: the model's context window as the provider last reported it; null = never reported. */
+  contextWindow: number | null;
+  memorySnapshot: string | null;
+  identitySnapshot: string | null;
+  /** The hub's running room summary, written when the session rotates. */
+  summary: string | null;
+}
+
+/** The routine run id inside a `routine:<runId>` owner ref, for the legacy `run_id` column; null for any other ref. */
+function routineRunOf(ownerRef: string | null | undefined): string | null {
+  return ownerRef?.startsWith('routine:') ? ownerRef.slice(8) : null;
+}
+
+/** A stored `bots.provider`: a provider id this build knows, or null (follow the default). An unknown id reads as null. */
+function providerOf(v: unknown): ProviderId | null {
+  return typeof v === 'string' && (PROVIDER_IDS as readonly string[]).includes(v) ? (v as ProviderId) : null;
+}
+
+/** A stored `bots.backup` (JSON {provider, model}), or null when absent or unreadable. */
+function backupOf(v: unknown): BotBackup | null {
+  if (typeof v !== 'string' || !v) return null;
+  try {
+    const b = JSON.parse(v) as Partial<BotBackup>;
+    const provider = providerOf(b?.provider);
+    return provider && typeof b.model === 'string' && b.model ? { provider, model: currentModelId(b.model) } : null;
+  } catch {
+    return null;
+  }
 }

@@ -12,9 +12,16 @@
 //! `hubDir` in config.json to the repo root (debug builds) or `POCKETROCKET_HUB_DIR` in the
 //! environment, and the app runs `packages/hub/src/index.ts` via tsx.
 
+mod envpath;
 mod proc;
 mod scan;
 mod ssh;
+mod term;
+mod localcopy;
+mod update;
+// pubkey_is_set is used at runtime (update.rs); the rest is the release gate, used by tests only
+#[cfg_attr(not(test), allow(dead_code))]
+mod updater_config;
 
 use proc::{kill_tree, no_window, own_process_group, Tail};
 use serde::{Deserialize, Serialize};
@@ -28,7 +35,7 @@ use std::time::{Duration, Instant};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::NewWindowResponse;
-use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, State, Url, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -43,11 +50,14 @@ pub struct Config {
     /// [`close_to_tray`]. Absent from older config.json files.
     #[serde(default)]
     pub close_to_tray: Option<bool>,
+    /// A4: the update version the person answered "Later" to; the automatic check does not notify about it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped_update: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { mode: "local".into(), ssh_host: "".into(), port: 7788, hub_dir: None, close_to_tray: None }
+        Self { mode: "local".into(), ssh_host: "".into(), port: 7788, hub_dir: None, close_to_tray: None, skipped_update: None }
     }
 }
 
@@ -194,9 +204,9 @@ fn hub_url(port: u16, token: &str) -> String {
     // desktop=1 always (the web UI uses it for desktop-only affordances, the token prompt included); the
     // hub only accepts the token in the fragment, which never leaves the webview.
     if token.is_empty() {
-        format!("http://127.0.0.1:{port}/?desktop=1")
+        format!("http://127.0.0.1:{port}/?desktop=1&caps=localcopy")
     } else {
-        format!("http://127.0.0.1:{port}/?desktop=1#token={token}")
+        format!("http://127.0.0.1:{port}/?desktop=1&caps=localcopy#token={token}")
     }
 }
 
@@ -478,6 +488,11 @@ fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, Strin
     cmd.env("PORT", cfg.port.to_string());
     cmd.env("POCKETROCKET_TOKEN", token);
     cmd.env("NODE_NO_WARNINGS", "1");
+    // Windows: folders added to the user or machine Path since the app started (a CLI installed while
+    // it ran), so "Restart hub" finds them. Elsewhere, or with nothing new, the inherited PATH stands.
+    if let Some(path) = envpath::fresh_path() {
+        cmd.env("PATH", path);
+    }
     // The optional account project is never in source: a release build bakes it in from CI secrets.
     // A value already in the user's environment wins; with neither, the hub runs with accounts off.
     for (name, baked) in [
@@ -641,6 +656,7 @@ fn connect(app: AppHandle, state: AppState, splash: bool) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_title(&window_title(&cfg));
     }
+    close_popouts(&app);
     std::thread::spawn(move || run_connection(app, state, cfg, gen, old));
 }
 
@@ -905,6 +921,10 @@ async fn save_config(app: AppHandle, state: State<'_, AppState>, mut config: Con
     if config.close_to_tray.is_none() {
         config.close_to_tray = state.0.lock().unwrap().config.close_to_tray;
     }
+    // Nor the skipped update version.
+    if config.skipped_update.is_none() {
+        config.skipped_update = state.0.lock().unwrap().config.skipped_update.clone();
+    }
     save_config_file(&app, &config);
     let mode = config.mode.clone();
     {
@@ -949,6 +969,169 @@ fn set_close_behaviour(app: &AppHandle, state: &AppState, on: bool) {
 /// The tray's "Keep running when window closes" item, so the splash page's checkbox can update it.
 struct TrayCheck(CheckMenuItem<tauri::Wry>);
 
+/// The "Server terminal" window: a bundled page with its own capability, running `ssh -tt <host>` in a
+/// ConPTY (see term.rs). It is how Claude Code gets logged in on the server without leaving the app.
+fn open_terminal(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(term::LABEL) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(app, term::LABEL, WebviewUrl::App("terminal.html".into()))
+        .title("PocketRocket - Server terminal")
+        .inner_size(980.0, 640.0)
+        .min_inner_size(480.0, 300.0)
+        .build();
+}
+
+/// A bot id becomes part of a window label, so only [A-Za-z0-9_-] is accepted (the hub's own ids always are).
+fn valid_bot_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// U1: the hub page asks for a bot pop-out with `window.open("<hub>/?popout=<botId>")`. That arrives in
+/// on_new_window, so it needs no IPC command and no capability: the page cannot open anything but this one
+/// kind of window, on the hub origin, for a validated id. Returns the id, or None for any other URL.
+fn popout_request(url: &Url) -> Option<(String, Option<String>)> {
+    let hub = url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+        && url.port_or_known_default() == Some(HUB_PORT.load(Ordering::Relaxed));
+    if !hub {
+        return None;
+    }
+    let get = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.to_string());
+    let id = get("popout")?;
+    if !valid_bot_id(&id) {
+        return None;
+    }
+    // Optional room to show; same charset, otherwise dropped (the page then picks the bot's own chat).
+    let room = get("room").filter(|r| valid_bot_id(r));
+    Some((id, room))
+}
+
+/// A new window the hub page asked for that is not a bot pop-out: an "Open on my PC" file copy (see localcopy.rs),
+/// or a web link for the default browser.
+fn new_window_elsewhere(app: &AppHandle, url: &Url) {
+    let port = HUB_PORT.load(Ordering::Relaxed);
+    if let Some(why) = localcopy::refusal(url, port) {
+        tell(app, "Couldn't open that file", why);
+        return;
+    }
+    let Some(req) = localcopy::request(url, port) else {
+        open_in_browser(url);
+        return;
+    };
+    let app = app.clone();
+    // Network and disk work, off the UI thread.
+    std::thread::spawn(move || {
+        let token = app.state::<AppState>().0.lock().unwrap_or_else(|e| e.into_inner()).token.clone();
+        let Ok(documents) = app.path().document_dir() else {
+            tell(&app, "Couldn't open that file", "Your Documents folder wasn't found.");
+            return;
+        };
+        if let Err(why) = localcopy::save_and_open(&documents, port, &token, &req) {
+            tell(&app, "Couldn't open that file", &why);
+        }
+    });
+}
+
+/// A desktop notification from the app itself (the hub page raises its own through the plugin).
+fn tell(app: &AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
+        eprintln!("{title}: {body} ({e})");
+    }
+}
+
+/// Last position and size of each bot's pop-out in this session, so reopening puts it back.
+static POPOUT_GEOM: Mutex<Vec<(String, (i32, i32, u32, u32))>> = Mutex::new(Vec::new());
+
+fn remember_popout(window: &tauri::Window) {
+    let label = window.label().to_string();
+    let (Ok(pos), Ok(size)) = (window.outer_position(), window.inner_size()) else { return };
+    // A minimized window reports a far off-screen position; do not remember that.
+    if pos.x < -10000 || pos.y < -10000 || size.width < 100 || size.height < 100 {
+        return;
+    }
+    let mut g = POPOUT_GEOM.lock().unwrap_or_else(|e| e.into_inner());
+    g.retain(|(l, _)| *l != label);
+    g.push((label, (pos.x, pos.y, size.width, size.height)));
+}
+
+/// U1: open (or focus) the chat window for one bot. Pointed at the hub like the main window, with the same
+/// navigation lock. Never holds the state lock while talking to the window.
+fn open_bot_popout(app: &AppHandle, bot_id: &str, room_id: Option<&str>) {
+    if !valid_bot_id(bot_id) {
+        return;
+    }
+    let label = format!("bot-{bot_id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let (port, token, quitting) = match app.try_state::<AppState>() {
+        Some(st) => {
+            let inner = st.0.lock().unwrap();
+            (inner.config.port, inner.token.clone(), inner.quitting)
+        }
+        None => return,
+    };
+    if quitting {
+        return;
+    }
+    // The token rides only in the fragment, as for the main window; the page strips it after reading it.
+    let mut url = format!("http://127.0.0.1:{port}/?desktop=1&caps=localcopy&popout={bot_id}");
+    if let Some(r) = room_id.filter(|r| valid_bot_id(r)) {
+        url.push_str(&format!("&room={r}"));
+    }
+    if !token.is_empty() {
+        url.push_str(&format!("#token={token}"));
+    }
+    let Ok(parsed) = url.parse::<Url>() else { return };
+    let h = app.clone();
+    let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+        .title("PocketRocket - bot chat")
+        .inner_size(460.0, 720.0)
+        .min_inner_size(320.0, 420.0)
+        .on_navigation(|url| {
+            if stays_in_webview(url) {
+                return true;
+            }
+            open_in_browser(url);
+            false
+        })
+        .on_new_window(move |url, _features| {
+            match popout_request(&url) {
+                Some((id, room)) => {
+                    let h = h.clone();
+                    std::thread::spawn(move || open_bot_popout(&h, &id, room.as_deref()));
+                }
+                None => new_window_elsewhere(&h, &url),
+            }
+            NewWindowResponse::Deny
+        })
+        .build();
+    if let Ok(w) = built {
+        let saved = POPOUT_GEOM.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(l, _)| *l == label).map(|(_, g)| *g);
+        if let Some((x, y, cw, ch)) = saved {
+            let _ = w.set_size(tauri::PhysicalSize::new(cw, ch));
+            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
+}
+
+/// The popouts hold the old hub token, so a reconnect (new token) closes them; the chat's "Pop out" opens a fresh one.
+fn close_popouts(app: &AppHandle) {
+    for (label, w) in app.webview_windows() {
+        if label.starts_with("bot-") {
+            let _ = w.destroy();
+        }
+    }
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -973,6 +1156,7 @@ fn catch_alt_enter(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Res
     use webview2_com::AcceleratorKeyPressedEventHandler;
     use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS};
     const VK_RETURN: u32 = 0x0D;
+    const VK_T: u32 = 0x54;
     let app = app.clone();
     window.with_webview(move |webview| {
         let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
@@ -982,6 +1166,14 @@ fn catch_alt_enter(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Res
                 args.KeyEventKind(&mut kind)?;
                 args.VirtualKey(&mut key)?;
                 args.PhysicalKeyStatus(&mut status)?;
+                // Alt+T opens the Server terminal (the tray icon is easy to miss).
+                if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN && key == VK_T {
+                    args.SetHandled(true)?;
+                    if !status.WasKeyDown.as_bool() {
+                        let app = app.clone();
+                        std::thread::spawn(move || open_terminal(&app));
+                    }
+                }
                 if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN && key == VK_RETURN {
                     args.SetHandled(true)?;
                     // Holding the keys repeats the key press, which must not flicker the window.
@@ -1127,7 +1319,13 @@ pub fn run() {
         }))
         // Rust-side confirm dialogs only; no capability grants the pages dialog access.
         .plugin(tauri_plugin_dialog::init())
+        // Local desktop notifications. Granted only to the hub origin, and only the notify commands (capabilities/hub-notify.json).
+        .plugin(tauri_plugin_notification::init())
+        // Signed self-updates (endpoint + pubkey in tauri.conf.json > plugins.updater). Registration only: no capability
+        // grants updater:* and no command wraps it, so only Rust can check or install, never the hub page.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state.clone())
+        .manage(term::Term::default())
         .invoke_handler(tauri::generate_handler![
             get_config,
             get_status,
@@ -1138,6 +1336,14 @@ pub fn run() {
             open_hub,
             open_log,
             remote_claude_status,
+            term::term_open,
+            term::term_write,
+            term::term_resize,
+            term::term_close,
+            term::term_host,
+            term::term_open_url,
+            term::term_copy,
+            term::term_paste,
             scan::list_ssh_hosts,
             scan::scan_ssh_hosts,
             scan::ssh_host_fingerprint,
@@ -1168,6 +1374,7 @@ pub fn run() {
                 .find(|w| w.label == "main")
                 .cloned()
                 .ok_or("window \"main\" is missing from tauri.conf.json")?;
+            let popout_app = app.handle().clone();
             let main_window = WebviewWindowBuilder::from_config(app.handle(), &win_cfg)?
                 .on_navigation(|url| {
                     if stays_in_webview(url) {
@@ -1176,8 +1383,15 @@ pub fn run() {
                     open_in_browser(url);
                     false
                 })
-                .on_new_window(|url, _features| {
-                    open_in_browser(&url);
+                .on_new_window(move |url, _features| {
+                    match popout_request(&url) {
+                        // U1: a bot pop-out from the hub page; built off this thread (window work can deadlock here).
+                        Some((id, room)) => {
+                            let h = popout_app.clone();
+                            std::thread::spawn(move || open_bot_popout(&h, &id, room.as_deref()));
+                        }
+                        None => new_window_elsewhere(&popout_app, &url),
+                    }
                     NewWindowResponse::Deny
                 })
                 .build()?;
@@ -1194,15 +1408,16 @@ pub fn run() {
             let t_show = MenuItem::with_id(app, "tray_show", "Show PocketRocket", true, None::<&str>)?;
             let m_fullscreen = MenuItem::with_id(app, "toggle_fullscreen", "Full screen on or off (Alt+Enter)", true, None::<&str>)?;
             let m_settings = MenuItem::with_id(app, "settings", "Connection settings", true, None::<&str>)?;
+            let m_term = MenuItem::with_id(app, "terminal", "Server terminal (Alt+T)", true, None::<&str>)?;
             let m_reload = MenuItem::with_id(app, "reload", "Reload", true, None::<&str>)?;
             let m_data = MenuItem::with_id(app, "open_data", "Open data folder", true, None::<&str>)?;
             let m_log = MenuItem::with_id(app, "open_log", "Open hub log", true, None::<&str>)?;
-            let m_updates = MenuItem::with_id(app, "check_updates", "Check for updates", true, None::<&str>)?;
+            let m_updates = MenuItem::with_id(app, update::MENU_CHECK, "Check for updates", true, None::<&str>)?;
             let m_about = MenuItem::with_id(app, "about", "About PocketRocket", true, None::<&str>)?;
             let t_keep = CheckMenuItem::with_id(app, "tray_keep", "Keep running when window closes", true, keep, None::<&str>)?;
             let t_quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[
-                &t_show, &m_fullscreen, &m_settings, &m_reload,
+                &t_show, &m_fullscreen, &m_settings, &m_term, &m_reload,
                 &PredefinedMenuItem::separator(app)?,
                 &m_data, &m_log,
                 &PredefinedMenuItem::separator(app)?,
@@ -1215,6 +1430,8 @@ pub fn run() {
             app.manage(LocalOnlyItems(m_data.clone(), m_log.clone()));
             sync_mode_menu(&handle, &initial_mode);
             app.manage(TrayCheck(t_keep.clone()));
+            // A4: the update item and the daily check. Built before the tray, so the menu handler always finds it.
+            app.manage(update::Updates::new(&handle, tray_menu.clone(), m_updates.clone())?);
             let tray_state = state.clone();
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("PocketRocket")
@@ -1222,6 +1439,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "tray_show" => show_main_window(app),
+                    "terminal" => open_terminal(app),
                     "tray_keep" => {
                         let on = !close_to_tray(&tray_state.0.lock().unwrap().config);
                         set_close_behaviour(app, &tray_state, on);
@@ -1238,6 +1456,7 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            update::start_background_checks(handle.clone());
 
             // First run: start nothing until the person has picked where to run (the splash asks).
             if !first_run {
@@ -1270,13 +1489,15 @@ pub fn run() {
                     show_main_window(app);
                     toggle_fullscreen(app);
                 }
+                "terminal" => open_terminal(app),
                 "open_data" => open_data_folder(app),
                 "open_log" => open_log_file(app),
                 "settings" => {
                     show_main_window(app);
                     show_splash(app);
                 }
-                "check_updates" => { if let Ok(u) = Url::parse(RELEASES_URL) { open_in_browser(&u); } }
+                // A4: a real check (or, with an update found, the install question). Never from the webview.
+                id @ (update::MENU_CHECK | update::MENU_NOTES) => update::on_menu(app, id),
                 "about" => {
                     show_main_window(app);
                     let (runtime, data, log) = {
@@ -1301,7 +1522,19 @@ pub fn run() {
         // P9: close-to-tray. Closing the main window hides it while the app (and in local mode the hub and
         // its bots) keeps running; the tray or a second launch brings it back, and only Quit really exits.
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if window.label() == term::LABEL {
+                    if let Some(t) = window.app_handle().try_state::<term::Term>() {
+                        t.close();
+                    }
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label().starts_with("bot-") {
+                    // A pop-out only closes itself: no tray hiding, no quit, no hub or bot stopped.
+                    remember_popout(window);
+                    return;
+                }
                 if window.label() != "main" {
                     return;
                 }
@@ -1321,6 +1554,9 @@ pub fn run() {
         .expect("error while building PocketRocket")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                if let Some(t) = app.try_state::<term::Term>() {
+                    t.close();
+                }
                 if let Some(st) = app.try_state::<AppState>() {
                     let mut inner = st.0.lock().unwrap();
                     inner.quitting = true;
@@ -1339,11 +1575,25 @@ mod tests {
     }
 
     #[test]
+    fn popout_requests_are_hub_only_and_validated() {
+        HUB_PORT.store(7788, Ordering::Relaxed);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=bot_1-a")), Some(("bot_1-a".into(), None)));
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=b&room=r-1")), Some(("b".into(), Some("r-1".into()))));
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=b&room=../x")), Some(("b".into(), None)));
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=a%20b")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=..%2Fx")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/?popout=")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:9999/?popout=x")), None);
+        assert_eq!(popout_request(&u("https://evil.com/?popout=x")), None);
+        assert_eq!(popout_request(&u("http://127.0.0.1:7788/")), None);
+    }
+
+    #[test]
     fn only_splash_and_hub_stay_in_the_webview() {
         HUB_PORT.store(7788, Ordering::Relaxed);
         assert!(stays_in_webview(&u("http://tauri.localhost/index.html")));
         assert!(stays_in_webview(&u("tauri://localhost/index.html")));
-        assert!(stays_in_webview(&u("http://127.0.0.1:7788/?desktop=1#token=abc")));
+        assert!(stays_in_webview(&u("http://127.0.0.1:7788/?desktop=1&caps=localcopy#token=abc")));
         assert!(stays_in_webview(&u("http://localhost:7788/settings")));
 
         assert!(!stays_in_webview(&u("http://127.0.0.1:3000/")));
@@ -1357,8 +1607,8 @@ mod tests {
 
     #[test]
     fn hub_url_always_says_desktop() {
-        assert_eq!(hub_url(7788, ""), "http://127.0.0.1:7788/?desktop=1");
-        assert_eq!(hub_url(7788, "abc"), "http://127.0.0.1:7788/?desktop=1#token=abc");
+        assert_eq!(hub_url(7788, ""), "http://127.0.0.1:7788/?desktop=1&caps=localcopy");
+        assert_eq!(hub_url(7788, "abc"), "http://127.0.0.1:7788/?desktop=1&caps=localcopy#token=abc");
     }
 
     #[test]

@@ -49,23 +49,30 @@ export function ProviderCard({
 }) {
   const { checking, recheck } = useRecheck(info.id, onChecked);
   const pill = statusPill(info.check);
+  const blurbId = 'provider-blurb-' + info.id;
 
   return (
+    // Only the title row is the radio. Interactive content inside role="radio" breaks screen-reader output and
+    // arrow-key roving, so the hint (it can hold links) and Re-check sit beside it in the card. A click anywhere
+    // else on the card still selects it, for the mouse.
     <div
       className={cn(
-        'cursor-pointer rounded-lg p-3.5 ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'cursor-pointer rounded-lg p-3.5 ring-1 transition-colors',
         selected ? 'bg-accent/8 ring-accent/50' : 'bg-card2/40 ring-line hover:bg-hover',
       )}
-      onClick={onSelect}
-      role="radio"
-      aria-checked={selected}
-      // A div with role=radio is invisible to the keyboard unless it is focusable and answers to keys
-      // itself. Roving tabindex (only the checked card is tabbable) plus arrows to move between cards,
-      // which is what a real radio group does.
-      tabIndex={selected ? 0 : -1}
-      onKeyDown={(e) => radioKeyDown(e, onSelect)}
+      onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button')) onSelect(); }}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div
+        role="radio"
+        aria-checked={selected}
+        aria-describedby={blurbId}
+        // A div with role=radio is invisible to the keyboard unless it is focusable and answers to keys
+        // itself. Roving tabindex (only the checked card is tabbable) plus arrows to move between cards,
+        // which is what a real radio group does.
+        tabIndex={selected ? 0 : -1}
+        onKeyDown={(e) => radioKeyDown(e, onSelect)}
+        className="-m-1 flex items-center justify-between gap-2 rounded-md p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
         <div className="flex items-center gap-2">
           <RadioDot checked={selected} />
           <span className="text-ui font-medium">{info.label}</span>
@@ -73,19 +80,20 @@ export function ProviderCard({
         </div>
         <Badge tone={pill.tone === 'ok' ? 'ok' : pill.tone === 'warn' ? 'warn' : 'muted'}>{pill.text}</Badge>
       </div>
-      <div className="mt-1 pl-6 text-ui text-muted">{info.blurb}</div>
-      {info.maturity === 'untested' && (
-        <div className="mt-1 pl-6 text-hint text-warn">
-          Untested. Check approvals before actions outside the shared folder.
-        </div>
-      )}
+      <div id={blurbId} className="mt-1 pl-6 text-ui text-muted">
+        {info.blurb}
+        {info.maturity === 'untested' && <span className="mt-1 block text-hint text-warn">Untested. Check approvals before actions outside the shared folder.</span>}
+        {info.testedVersions && <span className="mt-1 block text-hint text-muted">Tested with versions {info.testedVersions}.</span>}
+      </div>
+      {/* The CLI runs, but on a version outside the tested range (or one it could not read): a warning, not a failure. */}
+      {info.check.versionWarning && <p className="mt-1 pl-6 text-hint text-warn">{info.check.versionWarning}</p>}
       {!info.check.ok && info.check.hint && (
         <div className="md mt-1.5 pl-6 text-hint text-dim">
           <Markdown>{info.check.hint}</Markdown>
         </div>
       )}
       <div className="mt-2 pl-6">
-        <Button size="sm" onClick={(e) => { e.stopPropagation(); void recheck(); }} disabled={checking}>
+        <Button size="sm" aria-label={'Re-check ' + info.label} onClick={() => void recheck()} disabled={checking}>
           {checking ? 'Checking…' : 'Re-check'}
         </Button>
       </div>

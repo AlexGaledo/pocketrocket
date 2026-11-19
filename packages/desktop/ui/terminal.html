@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Server terminal</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<style>
+  html, body { height: 100%; margin: 0; background: #0b0d10; color: #cbd2da; font: 13px system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  #bar { display: flex; gap: 10px; align-items: center; padding: 6px 10px; background: #14181d; border-bottom: 1px solid #232a32; }
+  #bar b { font-weight: 600; }
+  #bar span { flex: 1; color: #7f8b98; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button { background: #232a32; color: inherit; border: 1px solid #323b45; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { background: #2c353f; }
+  #term { flex: 1; min-height: 0; padding: 6px 0 0 8px; }
+  #msg { padding: 24px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="bar"><b>Server terminal</b><span id="host"></span><button id="re">Reconnect</button></div>
+<div id="term"></div>
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-web-links.js"></script>
+<script src="terminal.js"></script>
+</body>
+</html>

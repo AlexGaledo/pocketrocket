@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { BookOpen, FolderGit2, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
+import { Bell, BookOpen, Flag, FolderGit2, KeyRound, Wrench, Info, Palette, Plug, ShieldCheck, Sparkles, UserRound, type LucideIcon, LockKeyhole } from 'lucide-react';
 // P9
 import { Monitor, Smartphone } from 'lucide-react';
 import { DevicesSection } from '../settings/DevicesSection';
@@ -22,17 +22,26 @@ import { ClaudeSection } from '../settings/ClaudeSection';
 import { BotsSection } from '../settings/BotsSection';
 import { AppearanceSection } from '../settings/AppearanceSection';
 import { AboutSection } from '../settings/AboutSection';
+import { NotificationsSection } from '../settings/NotificationsSection';
 import { KnowledgeSection } from '../settings/KnowledgeSection';
 import { IntegrationsSection } from '../settings/IntegrationsSection';
 import { ProjectsSection } from '../settings/ProjectsSection';
+import { CredentialsSection } from '../settings/CredentialsSection';
+import { McpServersSection } from '../settings/McpServersSection';
+import { BotReportsSection } from '../settings/BotReportsSection';
 
 export type SectionId = 'account' | 'security' | 'claude' | 'bots' | 'appearance' | 'about' | 'knowledge'
   // P4
   | 'integrations'
   | 'projects'
+  | 'tools'
+  | 'reports'
   // P9
   | 'devices'
-  | 'pc-runner';
+  | 'pc-runner'
+  | 'credentials'
+  // U7: desktop card (app only) + Telegram (every non-device client)
+  | 'notifications';
 
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'account', label: 'Account', icon: UserRound },
@@ -40,14 +49,20 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'claude', label: 'Claude', icon: Sparkles },
   { id: 'bots', label: 'Bots', icon: ShieldCheck },
   { id: 'projects', label: 'Projects', icon: FolderGit2 },
+  { id: 'tools', label: 'Tools', icon: Wrench },
+  { id: 'reports', label: 'Reports', icon: Flag },
   // P4
   { id: 'integrations', label: 'Connections', icon: Plug },
+  // G4: saved logins bots can type into a page (desktop only: the hub refuses a phone).
+  // Logins, Tools and Reports are desktop only: they are not in DEVICE_SECTIONS, and the hub 403s a phone on their routes.
+  { id: 'credentials', label: 'Logins', icon: KeyRound },
   // P7
   { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
   // P9
   { id: 'devices', label: 'Devices', icon: Smartphone },
   // Desktop only (not in DEVICE_SECTIONS): the hub refuses a phone on /api/pc-runner.
   { id: 'pc-runner', label: 'PC runner', icon: Monitor },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'about', label: 'About', icon: Info },
 ];
@@ -80,17 +95,20 @@ function useHealth() {
 export function SettingsDialog({ section: opening, onClose }: { section?: SectionId; onClose: () => void }) {
   // P9
   const device = useStore((s) => s.device);
-  const sections = device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS;
+  const sections = (device ? SECTIONS.filter((x) => DEVICE_SECTIONS.includes(x.id)) : SECTIONS);
   const [section, setSection] = useState<SectionId>(opening ?? (device && !DEVICE_SECTIONS.includes(lastSection) ? 'devices' : lastSection));
   const sideNav = useMediaQuery(SIDE_NAV_QUERY);
   const { health, refresh: refreshHealth } = useHealth();
 
-  // A small dot on "Claude" when it isn't ready, so the problem is visible from any section.
+  // A small dot on "Providers" ("Claude" with one) when a provider some bot runs on isn't ready, so the problem is
+  // visible from any section. With bots on their own providers, that is the default plus every bot's own.
   const providers = useStore((s) => s.providers);
   const providerId = useStore((s) => s.settings.provider);
+  const bots = useStore((s) => s.bots);
   const list = providers?.providers ?? [];
-  const active = list.find((p) => p.id === providerId) ?? list[0];
-  const claudeNeedsAttention = !!active && !active.check.ok;
+  const inUse = new Set([providerId, ...bots.map((b) => b.provider ?? providerId)]);
+  const watched = list.filter((p) => inUse.has(p.id));
+  const claudeNeedsAttention = (watched.length ? watched : list.slice(0, 1)).some((p) => !p.check.ok);
 
   const select = (value: string) => {
     lastSection = value as SectionId;
@@ -119,7 +137,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
               >
                 {/* Icons only in the side list; the top strip needs the room to fit every name (it scrolls when it cannot). */}
                 <Icon size={15} aria-hidden className="hidden shrink-0 sm:block" />
-                {id === 'claude' && list.length > 1 ? 'Connection' : label}
+                {id === 'claude' && list.length > 1 ? 'Providers' : label}
                 {id === 'claude' && claudeNeedsAttention && (
                   <>
                     <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn sm:ml-auto" />
@@ -141,10 +159,14 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             <TabsPrimitive.Content value="bots" tabIndex={-1} className={PANEL}><BotsSection health={health} onHealthStale={refreshHealth} /></TabsPrimitive.Content>
             {/* P4 */}
             <TabsPrimitive.Content value="integrations" tabIndex={-1} className={PANEL}><IntegrationsSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="credentials" tabIndex={-1} className={PANEL}><CredentialsSection /></TabsPrimitive.Content>
             {/* P7 */}
             <TabsPrimitive.Content value="knowledge" tabIndex={-1} className={PANEL}><KnowledgeSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="notifications" tabIndex={-1} className={PANEL}><NotificationsSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="appearance" tabIndex={-1} className={PANEL}><AppearanceSection readOnly={device} /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="about" tabIndex={-1} className={PANEL}><AboutSection health={health} /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="tools" tabIndex={-1} className={PANEL}><McpServersSection /></TabsPrimitive.Content>
+            <TabsPrimitive.Content value="reports" tabIndex={-1} className={PANEL}><BotReportsSection /></TabsPrimitive.Content>
             {/* P9 */}
             <TabsPrimitive.Content value="projects" tabIndex={-1} className={PANEL}><ProjectsSection /></TabsPrimitive.Content>
             <TabsPrimitive.Content value="devices" tabIndex={-1} className={PANEL}><DevicesSection /></TabsPrimitive.Content>

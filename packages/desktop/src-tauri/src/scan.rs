@@ -448,6 +448,7 @@ pub const SCAN_SCRIPT: &str = concat!(
     "c=; if [ \"$u\" = 0 ]; then c=$(timeout 3 sudo -n -u pocketrocket -H /home/pocketrocket/.local/bin/claude auth status 2>/dev/null); ",
     "elif [ \"$(id -un 2>/dev/null)\" = pocketrocket ]; then c=$(timeout 3 /home/pocketrocket/.local/bin/claude auth status 2>/dev/null); fi; ",
     "printf \"claude=%s\\n\" \"$(printf %s \"$c\" | tr -d \"\\r\\n\" | head -c 1000)\"; ",
+    "if [ -x /home/pocketrocket/.local/bin/agy ] || command -v agy >/dev/null 2>&1; then echo agy=1; fi; ",
     "exit 0"
 );
 
@@ -475,6 +476,7 @@ pub struct Facts {
     pub dir: Option<String>,
     pub health: Option<String>,
     pub claude: Option<String>,
+    pub agy: bool,
 }
 
 const KNOWN_DIRS: [&str; 1] = ["/home/pocketrocket/pocketrocket"];
@@ -502,6 +504,7 @@ pub fn parse_facts(stdout: &[u8]) -> Facts {
             "dir" if f.dir.is_none() => f.dir = KNOWN_DIRS.iter().find(|d| **d == v).map(|d| d.to_string()),
             "health" if f.health.is_none() && !v.is_empty() => f.health = Some(clean(v, 1000)),
             "claude" if f.claude.is_none() && !v.is_empty() => f.claude = Some(clean(v, 1000)),
+            "agy" => f.agy |= v == "1",
             _ => {}
         }
     }
@@ -561,6 +564,8 @@ pub struct ScanResult {
     pub install_dir: Option<String>,
     pub root: Option<bool>,
     pub claude: Option<ClaudeAccount>,
+    /// The Gemini CLI (`agy`) is installed for the hub user or on the login user's PATH. None when the check didn't run.
+    pub agy: Option<bool>,
 }
 
 pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[u8], stderr: &str) -> ScanResult {
@@ -575,6 +580,7 @@ pub fn classify(alias: &str, exit_code: Option<i32>, timed_out: bool, stdout: &[
         r.service = f.active.clone();
         r.install_dir = f.dir.clone();
         r.claude = f.claude.as_deref().and_then(parse_auth_status);
+        r.agy = Some(f.agy);
         let mine = env!("CARGO_PKG_VERSION");
         if let Some(v) = f.health.as_deref().and_then(health_version) {
             r.version_matches = (!v.is_empty()).then(|| v == mine);
@@ -1090,6 +1096,9 @@ mod tests {
         assert_eq!(r.version_matches, Some(true));
         assert_eq!(r.root, Some(true));
         assert_eq!(r.claude, Some(ClaudeAccount { logged_in: Some(true), email: Some("a@b.com".into()), plan: Some("max".into()) }));
+        assert_eq!(r.agy, Some(false));
+        let gemini = classify("vps", Some(0), false, format!("{out}agy=1\n").as_bytes(), "");
+        assert_eq!(gemini.agy, Some(true));
 
         let old = classify("vps", Some(0), false, b"pr_scan=1\nhealth={\"ok\":false,\"version\":\"0.0.1\"}\nclaude=\n", "");
         assert_eq!(old.kind, "running");
@@ -1121,6 +1130,7 @@ mod tests {
         assert_eq!(gone.kind, "unreachable");
         let slow = classify("vps", None, true, b"", "");
         assert_eq!(slow.kind, "unreachable");
+        assert_eq!(slow.agy, None);
         let windows_server = classify("vps", Some(1), false, b"", "'sh' is not recognized as an internal or external command\r\n");
         assert_eq!(windows_server.kind, "none");
     }
@@ -1134,6 +1144,8 @@ mod tests {
         assert_eq!(f.uid, None);
         assert_eq!(f.dir, None);
         assert_eq!(f.active, None);
+        assert!(!f.agy);
+        assert!(!parse_facts(b"pr_scan=1\nagy=yes; rm -rf /\n").agy);
         assert_eq!(health_version(f.health.as_deref().unwrap()), Some(String::new()));
         // anything past 4 KB is ignored, including a marker
         let mut long = "x".repeat(5000);

@@ -15,6 +15,7 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
   const theme = useStore((s) => s.settings.theme);
   const connected = useStore((s) => s.connected);
   const hubIssue = useStore((s) => s.hubIssue);
+  const hasConnected = useStore((s) => s.hasConnected);
   const account = useStore((s) => s.account);
   // P9: a paired phone may not open the workspace, change settings or reach account routes (403).
   const device = useStore((s) => s.device);
@@ -27,8 +28,9 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
   const dark = resolveDark(theme);
   const signedIn = !device && account.enabled && account.signedIn;
   const canSignIn = !device && account.enabled && !account.signedIn;
-  const server = connected ? 'Online' : hubIssue ? 'Offline' : 'Connecting…';
-  const serverDot = connected ? 'bg-ok' : hubIssue ? 'bg-bad' : 'bg-dim';
+  // A link that was up and dropped, or went quiet, is "Reconnecting" until a retry has been refused (then "Offline").
+  const server = connected ? 'Online' : hubIssue ? 'Offline' : hasConnected ? 'Reconnecting…' : 'Connecting…';
+  const serverDot = connected ? 'bg-ok' : hubIssue ? 'bg-bad' : hasConnected ? 'bg-warn' : 'bg-dim';
 
   /**
    * The shared folder lives on whatever machine the hub runs on, so the hub is what opens it. On a server hub

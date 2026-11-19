@@ -130,7 +130,10 @@ START_URL=()
 # no Origin header, which Chromium's remote-debugging Origin allowlist only checks/enforces when
 # an Origin header is present (i.e. a browser page trying to reach it) — see deploy/setup-vps.sh
 # header comment and the PocketRocket audit item 8 for the verification notes.
+# Smooth scrolling and page animations turn one scroll or hover into dozens of frames that VNC then has to encode
+# and send; switching them off keeps the Screen tab responsive. Pages still render the same, just without tweening.
 "$CHROME" "${SANDBOX_ARGS[@]}" --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check \
+  --disable-smooth-scrolling --force-prefers-reduced-motion \
   --disable-session-crashed-bubble --disable-features=TranslateUI --password-store=basic \
   --remote-debugging-port="$CDP_PORT" --remote-debugging-address=127.0.0.1 \
   --user-data-dir="$PROFILE" --window-position=0,0 --window-size="$W,$((H-40))" \
@@ -141,5 +144,7 @@ START_URL=()
 # control goes through an X property, so it needs this display and its cookie, nothing on the network.
 VNC_ARGS=()
 if [ "${VNC_VIEWONLY:-0}" = "1" ]; then VNC_ARGS=(-viewonly); fi
-x11vnc -display "$DISP" -localhost -nopw -forever -shared -noxdamage ${VNC_ARGS[@]+"${VNC_ARGS[@]}"} -rfbport "$VNC_PORT" -quiet >/dev/null 2>&1 &
+# Frame rate: x11vnc follows Xvfb's DAMAGE events to find what changed instead of rescanning the whole frame on
+# every poll (the old -noxdamage), and -wait/-defer halve its default 20 ms poll and send delays.
+x11vnc -display "$DISP" -localhost -nopw -forever -shared -wait 10 -defer 10 ${VNC_ARGS[@]+"${VNC_ARGS[@]}"} -rfbport "$VNC_PORT" -quiet >/dev/null 2>&1 &
 exec websockify --web /usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT"

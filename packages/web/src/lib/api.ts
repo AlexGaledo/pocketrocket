@@ -2,17 +2,25 @@ import type { BotPreview, SearchHit } from '@pocketrocket/shared';
 import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
-  ComputerStatus,
+  ComputerStatus, FailoverCard, FailoverDecision, FailoverState,
+  SandboxStatus,
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import type { AuditEntry, UserSessionInfo } from '@pocketrocket/shared';
+import type { Workflow, WorkflowApprovalCard, WorkflowDecision, WorkflowInput, WorkflowPatch, WorkflowRun, WorkflowRunSummary } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
 import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
-import type { PcRunnerJob, PcRunnerStatus } from '@pocketrocket/shared';
+import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
+import type { MachineInfo, MachinePolicy, PcRunnerStatus } from '@pocketrocket/shared';
+import type { BotExportResult, BotImportResult, ContextUsage, LaneQueue, Task, TaskStatus } from '@pocketrocket/shared';
+import type { PcJobRequest, PcJobView } from './pcRun';
+import type { ProjectReposFile, ReposPutBody } from './projectRepos';
+import { listQuery, PC_ENTRY_PAGE, type PcSessionDetail, type PcSessionQuery, type PcSessionSummary, type PcSeqEntry } from './pcSessions';
+import type { TelegramState } from './telegram';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -71,13 +79,55 @@ function fileToBase64(file: Blob): Promise<string> {
   });
 }
 
+/** A bot's own account of being stopped (GET /api/bot-reports). */
+export interface BotReportRow {
+  id: string; botId: string; roomId: string | null; kind: 'captcha' | 'login' | 'blocked' | 'other'; site: string; reason: string;
+  status: 'pending' | 'resolved' | 'dismissed'; createdAt: number;
+}
+/** One outside MCP server as the hub lists it. Tokens and env values are never in it, only whether they are set. */
+export interface McpServerRow {
+  name: string; kind: 'http' | 'stdio' | 'invalid'; status: 'configured' | 'invalid'; problems: string[];
+  url?: string; urlHasQuery?: boolean; tokenSet?: boolean; command?: string; args?: string[]; argsMasked?: boolean; envKeys?: string[];
+  rooms: string[]; bots: string[]; approve: 'every-call' | 'writes' | 'none'; readTools: string[]; needs: string[];
+  lastCheck: { ok: boolean; result: string; at: number } | null;
+}
+export interface McpServerInput {
+  name: string; url?: string; token?: string; command?: string; args?: string[]; env?: Record<string, string>;
+  rooms?: string[]; bots?: string[]; approve?: McpServerRow['approve'];
+}
+export interface McpServerPatch {
+  token?: string | null; approve?: McpServerRow['approve']; rooms?: string[]; bots?: string[];
+}
+export interface TaskInput { title: string; assigneeBotId?: string | null }
+
 export const api = {
+  tasks: {
+    list: (roomId: string) => req<Task[]>('GET', '/api/rooms/' + encodeURIComponent(roomId) + '/tasks?all=1'),
+    create: (roomId: string, t: TaskInput) => req<Task>('POST', '/api/rooms/' + encodeURIComponent(roomId) + '/tasks', t),
+    update: (roomId: string, id: string, patch: { status?: TaskStatus; assigneeBotId?: string | null; title?: string }) =>
+      req<Task>('PATCH', '/api/rooms/' + encodeURIComponent(roomId) + '/tasks/' + encodeURIComponent(id), patch),
+  },
+  botReports: {
+    list: () => req<BotReportRow[]>('GET', '/api/bot-reports'),
+    set: (id: string, status: BotReportRow['status']) => req<BotReportRow>('PATCH', '/api/bot-reports/' + encodeURIComponent(id), { status }),
+  },
+  mcpServers: {
+    list: () => req<{ servers: McpServerRow[] }>('GET', '/api/mcp-servers'),
+    add: (s: McpServerInput) => req<McpServerRow>('POST', '/api/mcp-servers', s),
+    patch: (name: string, p: McpServerPatch) => req<McpServerRow>('PATCH', '/api/mcp-servers/' + encodeURIComponent(name), p),
+    remove: (name: string) => req<{ ok: true }>('DELETE', '/api/mcp-servers/' + encodeURIComponent(name)),
+    check: (name: string) => req<{ ok: boolean; result: string; at: number }>('POST', '/api/mcp-servers/' + encodeURIComponent(name) + '/check', {}),
+  },
   /**
    * A room's file folder (hub token only; a paired phone gets 403). Paths are relative to the room's folder with '/'
    * separators, '' being the folder itself. `files.changed` events name the folder whose listing changed.
    */
   files: {
     list: (roomId: string, path = '') => req<FileListing>('GET', filesBase(roomId) + '?path=' + encodeURIComponent(path)),
+    /** Where an absolute server path (as a bot writes it) sits in the room's folder; 404 when it is outside it. */
+    where: (roomId: string, abs: string) => req<{ path: string; kind: 'file' | 'dir' }>('GET', filesBase(roomId) + '/where?path=' + encodeURIComponent(abs)),
+    /** Opens a file of the room's folder in a bot's server browser. Answers whose screen it used. */
+    browse: (roomId: string, path: string, botId?: string) => req<{ botId: string | null }>('POST', filesBase(roomId) + '/browse', { path, ...(botId ? { botId } : {}) }),
     /** The raw-bytes URL. It needs the Bearer header, so fetch it with `blob` rather than putting it in an <img>. */
     rawUrl: (roomId: string, path: string, download = false) =>
       filesBase(roomId) + '/raw?path=' + encodeURIComponent(path) + (download ? '&download=1' : ''),
@@ -113,6 +163,8 @@ export const api = {
     create: (input: { name: string; team?: boolean }) => req<{ project: ProjectInfo; bots: Bot[] }>('POST', '/api/projects', input),
     setMembers: (slug: string, memberIds: string[]) => req<ProjectInfo>('PUT', '/api/projects/' + encodeURIComponent(slug) + '/members', { memberIds }),
     lint: (slug: string) => req<ProjectLint>('GET', '/api/projects/' + encodeURIComponent(slug) + '/lint'),
+    repos: (slug: string) => req<ProjectReposFile>('GET', '/api/projects/' + encodeURIComponent(slug) + '/repos'),
+    setRepos: (slug: string, body: ReposPutBody) => req<ProjectReposFile>('PUT', '/api/projects/' + encodeURIComponent(slug) + '/repos', body),
   },
   auth: {
     status: () => req<{ passwordSet: boolean; signedIn: boolean }>('GET', '/api/auth/status'),
@@ -133,6 +185,9 @@ export const api = {
   // Spends the hub token on a single-use ticket so the token itself never reaches an iframe URL. With a botId
   // the ticket opens that bot's screen only.
   screenTicket: (botId?: string) => req<{ url: string }>('POST', '/api/screen/ticket', botId ? { botId } : undefined),
+  /** Opens a web link in a bot's server browser (that bot, else the chat's first bot with Browser). Answers whose screen. */
+  screenOpen: (url: string, roomId?: string | null, botId?: string) =>
+    req<{ botId: string | null }>('POST', '/api/screen/open', { url, ...(roomId ? { roomId } : {}), ...(botId ? { botId } : {}) }),
   computers: {
     get: (botId: string) => req<ComputerStatus>('GET', '/api/computers/' + encodeURIComponent(botId)),
     wake: (botId: string, o: { auto?: boolean } = {}) => req<ComputerStatus>('POST', '/api/computers/' + encodeURIComponent(botId) + '/wake', o),
@@ -146,6 +201,8 @@ export const api = {
   // A picture, base64 in JSON. Reading one back is lib/media.ts, which wants a blob rather than JSON.
   media: {
     upload: (data: string) => req<{ ref: string }>('POST', '/api/media', { data }),
+    /** A picture for a chat message: the hub's larger cap (10 MB), same checks on the bytes. */
+    uploadAttachment: (data: string) => req<{ ref: string }>('POST', '/api/media?for=attachment', { data }),
   },
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
@@ -157,6 +214,10 @@ export const api = {
     setMemory: (id: string, text: string) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/memory', { text }),
     skills: (id: string) => req<string[]>('GET', '/api/bots/' + id + '/skills'),
     setSkills: (id: string, skillIds: string[]) => req<{ ok: true }>('PUT', '/api/bots/' + id + '/skills', { skillIds }),
+    /** U10: the bot as a shareable file. Never holds secrets, paths or permissions. */
+    export: (id: string, includeMemory: boolean) => req<BotExportResult>('GET', '/api/bots/' + id + '/export' + (includeMemory ? '?memory=1' : '')),
+    /** U10: always makes a new bot. `file` is the parsed JSON the user picked. */
+    import: (file: unknown, includeMemory: boolean) => req<BotImportResult>('POST', '/api/bots/import' + (includeMemory ? '?memory=1' : ''), file),
     resetSession: (id: string, roomId: string) => req<{ ok: true }>('POST', '/api/bots/' + id + '/reset-session', { roomId }),
   },
   routing: {
@@ -172,6 +233,14 @@ export const api = {
     setModel: (id: string, model: string | null) => req<Room>('PUT', '/api/rooms/' + id + '/model', { model }),
     // `before` is a message seq (exclusive): the hub returns the page of messages just older than it.
     messages: (id: string, before?: number) => req<Message[]>('GET', '/api/rooms/' + id + '/messages?limit=' + MESSAGE_PAGE + (before ? '&before=' + before : '')),
+    /** Queue controls (02 Phase 2): each bot's waiting items in this room. A refusal throws ApiError with the hub's reason. */
+    queue: (id: string) => req<LaneQueue[]>('GET', '/api/rooms/' + id + '/queue'),
+    /** P4-2: each member bot's context size in this room, by bot id; bots with nothing to show are left out. */
+    context: (id: string) => req<Record<string, ContextUsage>>('GET', '/api/rooms/' + id + '/context'),
+    queueCancel: (id: string, journalId: string) => req<Message>('POST', '/api/rooms/' + id + '/queue/cancel', { journalId }),
+    queueEdit: (id: string, journalId: string, text: string) => req<Message>('POST', '/api/rooms/' + id + '/queue/edit', { journalId, text }),
+    queueSendNow: (id: string, botId: string) => req<{ interrupted: boolean }>('POST', '/api/rooms/' + id + '/queue/send-now', { botId }),
+    queuePause: (id: string, botId: string | undefined, paused: boolean) => req<LaneQueue[]>('POST', '/api/rooms/' + id + '/queue/pause', { ...(botId ? { botId } : {}), paused }),
   },
   skills: {
     list: () => req<Skill[]>('GET', '/api/skills'),
@@ -190,15 +259,31 @@ export const api = {
     run: (id: string) => req<{ ok: boolean }>('POST', '/api/routines/' + id + '/run'),
     runs: (id: string) => req<RoutineRun[]>('GET', '/api/routines/' + id + '/runs'),
   },
+  workflows: {
+    list: () => req<Workflow[]>('GET', '/api/workflows'),
+    get: (id: string) => req<Workflow>('GET', '/api/workflows/' + id),
+    create: (w: WorkflowInput) => req<Workflow>('POST', '/api/workflows', w),
+    update: (id: string, w: WorkflowPatch) => req<Workflow>('PATCH', '/api/workflows/' + id, w),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/workflows/' + id),
+    run: (id: string) => req<WorkflowRunSummary>('POST', '/api/workflows/' + id + '/run'),
+    runs: (id: string, limit = 20) => req<WorkflowRunSummary[]>('GET', '/api/workflows/' + id + '/runs?limit=' + limit),
+    getRun: (runId: string) => req<WorkflowRun>('GET', '/api/workflow-runs/' + runId),
+    cancel: (runId: string) => req<WorkflowRunSummary>('POST', '/api/workflow-runs/' + runId + '/cancel'),
+    retry: (runId: string) => req<WorkflowRunSummary>('POST', '/api/workflow-runs/' + runId + '/retry'),
+    cards: () => req<WorkflowApprovalCard[]>('GET', '/api/workflow-cards'),
+    /** Person-only: the hub refuses a bot, the PC runner, a cta button and chat text. */
+    decide: (runId: string, d: WorkflowDecision) => req<WorkflowRunSummary>('POST', '/api/workflow-runs/' + runId + '/decision', d),
+  },
   usage: (q: { botId?: string; roomId?: string } = {}) => {
     const p = new URLSearchParams();
     if (q.botId) p.set('botId', q.botId);
     if (q.roomId) p.set('roomId', q.roomId);
-    // byModel / byCause arrive from P8 hubs; an older hub leaves them out.
-    return req<{ totals: UsageTotals; rows: UsageRow[]; byModel?: UsageGroup[]; byCause?: UsageGroup[] }>('GET', '/api/usage?' + p.toString());
+    // byModel / byCause arrive from P8 hubs and byProvider from v0.5; an older hub leaves them out.
+    return req<{ totals: UsageTotals; rows: UsageRow[]; byModel?: UsageGroup[]; byCause?: UsageGroup[]; byProvider?: UsageGroup[] }>('GET', '/api/usage?' + p.toString());
   },
   previews: () => req<Record<string, BotPreview>>('GET', '/api/previews'),
   search: (q: string) => req<SearchHit[]>('GET', '/api/search?q=' + encodeURIComponent(q)),
+  sandbox: { status: () => req<SandboxStatus>('GET', '/api/sandbox/status') },
   settings: {
     get: () => req<Settings>('GET', '/api/settings'),
     update: (patch: SettingsPatch) => req<Settings>('PUT', '/api/settings', patch),
@@ -206,6 +291,11 @@ export const api = {
   providers: {
     list: () => req<ProvidersResponse>('GET', '/api/providers'),
     check: (id: ProviderId) => req<ProviderCheck>('POST', '/api/providers/' + id + '/check'),
+  },
+  /** M8 failover cards (spec 01 P3-1): open cards and bots running on their backup; the owner's answer. */
+  failover: {
+    get: () => req<FailoverState>('GET', '/api/failover'),
+    decide: (id: string, decision: FailoverDecision['decision']) => req<FailoverCard>('POST', '/api/failover-cards/' + encodeURIComponent(id) + '/decision', { decision }),
   },
   secrets: {
     get: () => req<SecretsStatus>('GET', '/api/secrets'),
@@ -260,11 +350,31 @@ export const api = {
   // The owner's PC as a job runner. Hub principal only; a paired phone and the runner itself get 403.
   pcRunner: {
     status: () => req<PcRunnerStatus>('GET', '/api/pc-runner'),
-    jobs: (limit = 50) => req<PcRunnerJob[]>('GET', '/api/pc-runner/jobs?limit=' + limit),
-    job: (id: string) => req<PcRunnerJob>('GET', '/api/pc-runner/jobs/' + encodeURIComponent(id)),
+    jobs: (limit = 50) => req<PcJobView[]>('GET', '/api/pc-runner/jobs?limit=' + limit),
+    /** Owner starts a run (bridge P4). The click in a password-signed-in browser is the approval: 403 otherwise, 409 if the runner is off. */
+    start: (body: PcJobRequest) => req<PcJobView>('POST', '/api/pc-runner/jobs', body),
+    job: (id: string) => req<PcJobView>('GET', '/api/pc-runner/jobs/' + encodeURIComponent(id)),
     /** Shown once and never stored here: the caller keeps it in component state only. Replaces the old token. */
     mintToken: () => req<{ token: string }>('POST', '/api/pc-runner/token', {}),
     turnOff: () => req<{ ok: true; cancelled: number }>('DELETE', '/api/pc-runner'),
+    machines: () => req<MachineInfo[]>('GET', '/api/pc-runner/machines'),
+    setMachinePolicy: (id: string, policy: MachinePolicy) => req<MachineInfo>('PUT', '/api/pc-runner/machines/' + encodeURIComponent(id), { policy }),
+  },
+  // Claude Code sessions mirrored from the owner's PC (bridge P3). Hub principal only.
+  pcSessions: {
+    list: (p: PcSessionQuery = {}) => req<{ sessions: PcSessionSummary[] }>('GET', '/api/pc-sessions' + listQuery(p)),
+    get: (id: string) => req<PcSessionDetail>('GET', '/api/pc-sessions/' + encodeURIComponent(id)),
+    entries: (id: string, after = 0, limit = PC_ENTRY_PAGE) => req<{ entries: PcSeqEntry[]; more: boolean }>('GET', '/api/pc-sessions/' + encodeURIComponent(id) + '/entries?after=' + after + '&limit=' + limit),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/pc-sessions/' + encodeURIComponent(id)),
+    /** Bridge P6: one turn on the VPS copy of a moved session. 409 while a turn runs; owner, signed-in browser only. */
+    continue: (id: string, body: { prompt: string }) => req<{ ok: true }>('POST', '/api/pc-sessions/' + encodeURIComponent(id) + '/continue', body),
+  },
+  // Saved logins for fill_credential. The secret is write-only: it is sent here and never comes back.
+  credentials: {
+    list: () => req<{ credentials: CredentialInfo[] }>('GET', '/api/credentials'),
+    create: (c: Omit<CredentialCreate, 'username'> & { username?: string }) => req<CredentialInfo>('POST', '/api/credentials', c),
+    update: (id: string, c: CredentialPatch) => req<CredentialInfo>('PATCH', '/api/credentials/' + encodeURIComponent(id), c),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/credentials/' + encodeURIComponent(id)),
   },
   devices: {
     list:() => req<{ devices: DeviceInfo[]; current: string | null }>('GET', '/api/devices'),
@@ -272,6 +382,16 @@ export const api = {
     pairing: () => req<PairingCode>('POST', '/api/devices/pairing', {}),
     rename: (id: string, name: string) => req<DeviceInfo>('PATCH', '/api/devices/' + encodeURIComponent(id), { name }),
     revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/devices/' + encodeURIComponent(id)),
+  },
+  // Settings › Notifications › Telegram. Owner only; the hub never sends the token back.
+  telegram: {
+    get: () => req<TelegramState>('GET', '/api/telegram'),
+    setToken: (token: string) => req<TelegramState>('PUT', '/api/telegram/token', { token }),
+    removeToken: () => req<TelegramState>('DELETE', '/api/telegram/token'),
+    link: () => req<TelegramState>('POST', '/api/telegram/link', {}),
+    unlink: () => req<TelegramState>('POST', '/api/telegram/unlink', {}),
+    setNotify: (notify: boolean) => req<TelegramState>('PUT', '/api/telegram/notify', { notify }),
+    test: () => req<{ ok: true }>('POST', '/api/telegram/test', {}),
   },
   push: {
     status: () => req<{ publicKey: string; subscriptions: number }>('GET', '/api/push'),

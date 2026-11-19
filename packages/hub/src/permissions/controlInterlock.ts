@@ -7,11 +7,11 @@ import { DESKTOP_TOOL_NAMES } from '../agent/desktopTools.js';
  * (desktop tool handlers, the HTTP MCP endpoint, the Claude PreToolUse hook, PermissionBroker.decide).
  */
 
-/** True for the tools that drive a bot's computer: Playwright MCP (`mcp__browser__*`) and the desktop_* tools. */
+/** True for the tools that drive a bot's computer: Playwright MCP (`mcp__browser__*`) and the desktop_* tools (fill_credential too: it types into that browser). */
 export function isComputerTool(name: string): boolean {
   if (name.startsWith('mcp__browser__')) return true;
   const bare = name.startsWith('mcp__pocketrocket__') ? name.slice('mcp__pocketrocket__'.length) : name;
-  return DESKTOP_TOOL_NAMES.includes(bare);
+  return DESKTOP_TOOL_NAMES.includes(bare) || bare === 'fill_credential';
 }
 
 /** Builds a per-call guard from a "why is this bot blocked" lookup. */
