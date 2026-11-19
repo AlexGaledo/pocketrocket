@@ -276,8 +276,8 @@ export const api = {
     const p = new URLSearchParams();
     if (q.botId) p.set('botId', q.botId);
     if (q.roomId) p.set('roomId', q.roomId);
-    // byModel / byCause arrive from P8 hubs; an older hub leaves them out.
-    return req<{ totals: UsageTotals; rows: UsageRow[]; byModel?: UsageGroup[]; byCause?: UsageGroup[] }>('GET', '/api/usage?' + p.toString());
+    // byModel / byCause arrive from P8 hubs and byProvider from v0.5; an older hub leaves them out.
+    return req<{ totals: UsageTotals; rows: UsageRow[]; byModel?: UsageGroup[]; byCause?: UsageGroup[]; byProvider?: UsageGroup[] }>('GET', '/api/usage?' + p.toString());
   },
   previews: () => req<Record<string, BotPreview>>('GET', '/api/previews'),
   search: (q: string) => req<SearchHit[]>('GET', '/api/search?q=' + encodeURIComponent(q)),
