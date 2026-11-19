@@ -17,6 +17,21 @@ const KNOWN_KEYS: Record<string, { label: string; description: string; placehold
     description: 'Only needed without a Claude subscription.',
     placeholder: 'sk-ant-…',
   },
+  GEMINI_API_KEY: {
+    label: 'Gemini API key',
+    description: 'Lets Gemini bots run routines and triggers. Without it, Gemini answers only messages you send.',
+    placeholder: 'AIza…',
+  },
+  OPENAI_API_KEY: {
+    label: 'OpenAI API key',
+    description: 'Optional. Used by Codex bots.',
+    placeholder: 'sk-…',
+  },
+  XAI_API_KEY: {
+    label: 'xAI API key',
+    description: 'Optional. Used by Grok bots.',
+    placeholder: 'xai-…',
+  },
 };
 
 export function ApiKeyField({ keyName, isSet, onSaved, onSave, label, description, placeholder, saveLabel, removable = true }: {

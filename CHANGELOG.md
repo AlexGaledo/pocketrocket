@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The limit card, a backup per bot and an "On Gemini" badge (web)
+
+- When a bot hits its provider's usage limit and has a backup, its chat shows a card: "Ada hit Claude's 5-hour limit. It resets at 14:00." Press **Continue on Gemini** to run that request once on the backup, with approvals on, or **Wait until 14:00**. The same card is in Needs you, and the bot is listed there as needing you until you answer.
+- The card never offers a button the hub would refuse. If the bot left the chat, its backup changed, the backup is not enabled, or the backup is at its own limit, Continue is hidden and the card says why. If nobody answers by the reset, the card goes quiet ("Not continued. Claude resets at 14:00.") and then closes.
+- The bot dialog has one "If Claude hits its limit" choice (None, or Continue on another provider), with the backup's model beside it. The model list follows the provider. Only you can set it, and only on a hub with more than one provider.
+- While a bot runs on its backup, a quiet "On Gemini until 14:00" label shows in the chat header and on the bot's page, and the sidebar row says it too.
+- A limit note for a bot with no backup now has a link that opens that bot's settings.
+- Provider cards show which versions were tested and warn when the installed CLI is a different one. Settings lists the API key of every enabled provider, not only the default's, so the Gemini API key can be set there.
+
 ### Continue on the backup when a provider hits its limit (hub)
 
 - When a bot's provider reaches its usage limit, the turn ends at once with the usual note. If the bot has a backup, you also get a card: continue on the backup, or wait for the reset. The card is listed with the other things waiting for you, and it closes at the reset time. Nothing else waits on it, so the bot's other work and the hub's turn slots stay free.

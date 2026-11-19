@@ -12,6 +12,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { STATUS_LABEL, avatarStatus, isWorking, useBotStatus, type BotStatus } from '../lib/botStatus';
 import { toolPhrase } from '../lib/toolPhrases';
 import { PopoutButton } from './PopoutButton';
+import { activeFor, onBackupText } from '../lib/failover';
 import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
 
 /** Shared by bot and room rows: a whole-row button, so Tab reaches every chat and Enter/Space opens it. */
@@ -86,6 +87,7 @@ export function Sidebar() {
   const openDialog = useStore((s) => s.openDialog);
   const settings = useStore((s) => s.settings);
   const providers = useStore((s) => s.providers);
+  const failoverActive = useStore((s) => s.failover.active);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const toast = useStore((s) => s.toast);
@@ -129,11 +131,13 @@ export function Sidebar() {
 
   const row = (b: Bot) => {
     const dm = dmFor(b.id);
+    const onBackup = activeFor(failoverActive, b.id, Date.now());
     return (
       <BotRow
         key={b.id}
         bot={b}
         status={statusOf(b.id)}
+        backupText={onBackup ? onBackupText(onBackup, providers) : null}
         activity={activityFor(b, messages)}
         preview={previews[b.id]?.text ?? null}
         active={!!dm && dm.id === activeRoomId}
@@ -316,9 +320,11 @@ export function Sidebar() {
 }
 
 /** One bot in the sidebar. The second line says who must act, in words and color, and never names a tool. */
-function BotRow({ bot, status, activity, preview, active, unread, onOpen, onSettings }: {
+function BotRow({ bot, status, backupText, activity, preview, active, unread, onOpen, onSettings }: {
   bot: Bot;
   status: BotStatus;
+  /** M8: "On Gemini until 14:00" while its attended turns run on the backup; it stands in for the idle preview. */
+  backupText?: string | null;
   activity: { text: string; toBot: string | null } | null;
   /** Its latest message, as plain words. */
   preview: string | null;
@@ -328,7 +334,7 @@ function BotRow({ bot, status, activity, preview, active, unread, onOpen, onSett
   onSettings?: () => void;
 }) {
   const idle = preview ? preview.replace(/[*_`#>~]/g, '').replace(/\s+/g, ' ').trim() : '@' + bot.handle;
-  const sub = status === 'idle' ? idle
+  const sub = status === 'idle' ? backupText ?? idle
     : status === 'waiting_on_bot' ? (activity?.toBot ? 'Waiting on @' + activity.toBot : STATUS_LABEL[status])
     : status === 'needs_you' || status === 'paused' ? STATUS_LABEL[status]
     : activity?.text ?? STATUS_LABEL[status];

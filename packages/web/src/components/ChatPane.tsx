@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, FolderOpen, Info, Monitor, Paperclip, Send, Settings2, ShieldAlert, Square, Users, X, Zap } from 'lucide-react';
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
 import { RocketMark } from './RocketMark';
-import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload } from '@pocketrocket/shared';
+import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload, TurnFailurePayload } from '@pocketrocket/shared';
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
@@ -23,6 +23,8 @@ import { QueueChips } from './QueueChips';
 import { allOnClaude, fmtReset, heldGroups, limitName } from '../lib/limits';
 import { useLimits } from '../lib/useLimits';
 import { WorkflowCardsForRoom } from './workflows/WorkflowCard';
+import { FailoverCardsForRoom } from './FailoverCard';
+import { activeFor, onBackupText } from '../lib/failover';
 import { laneKey } from '../lib/queue';
 import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
 import type { DeliveryPayload, SendMode } from '@pocketrocket/shared';
@@ -42,6 +44,8 @@ export function ChatPane() {
   const helloReceived = useStore((s) => s.helloReceived);
   const control = useStore((s) => s.control);
   const queues = useStore((s) => s.queues);
+  const failoverActive = useStore((s) => s.failover.active);
+  const providers = useStore((s) => s.providers);
   // P9: a paired phone may not create or edit bots and rooms (the hub answers 403), so it is not offered.
   const device = useStore((s) => s.device);
 
@@ -89,6 +93,8 @@ export function ChatPane() {
   const screenShown = panelOpen && panelKind === 'screen';
   const held = room.kind === 'group' ? members.filter((m) => (control[m.id]?.control ?? 'agent') !== 'agent') : [];
   const queuePaused = members.filter((m) => queues[laneKey(m.id, room.id)]?.paused);
+  // M8: bots whose attended turns run on their backup until the limit resets ("On Gemini until 14:00").
+  const onBackup = members.flatMap((m) => { const a = activeFor(failoverActive, m.id, Date.now()); return a ? [{ m, text: onBackupText(a, providers) }] : []; });
 
   return (
     <>
@@ -106,6 +112,7 @@ export function ChatPane() {
               {held.map((m) => <Badge key={m.id} tone="warn">@{m.handle} {control[m.id]?.control === 'paused' ? 'paused' : 'screen: you'}</Badge>)}
               {/* The queue's pause, worded apart from the screen's "paused" above. Resume is on the chip by the composer. */}
               {queuePaused.map((m) => <Badge key={'q' + m.id} tone="warn">{room.kind === 'dm' ? 'Queue paused' : '@' + m.handle + ' queue paused'}</Badge>)}
+              {onBackup.map(({ m, text }) => <Badge key={'b' + m.id}>{room.kind === 'dm' ? text : '@' + m.handle + ' ' + text.charAt(0).toLowerCase() + text.slice(1)}</Badge>)}
             </span>
           </div>
           <div className="truncate text-hint text-muted">
@@ -146,6 +153,8 @@ export function ChatPane() {
       <Transcript key={room.id} roomId={room.id} />
       {/* A workflow's approval step waits here, in the chat it runs in, until you answer it. */}
       <WorkflowCardsForRoom roomId={room.id} />
+      {/* A bot here hit its provider's limit and has a backup: continue there once, or wait. */}
+      <FailoverCardsForRoom roomId={room.id} />
       <Composer members={members} />
     </>
   );
@@ -517,9 +526,23 @@ function SystemLine({ m, bots }: { m: Message; bots: Bot[] }) {
       <div className="min-w-0 flex-1">
         {isRoutine && p && <div className="font-medium text-fg">Schedule: {p.name}</div>}
         <div className="md whitespace-pre-wrap"><RichText text={m.text} bots={bots} /></div>
+        {(m.payload as TurnFailurePayload | null)?.setBackup && m.authorId && <SetBackupLink botId={m.authorId} bots={bots} />}
       </div>
       <span className="text-hint text-dim">{fmtTime(m.createdAt)}</span>
     </div>
+  );
+}
+
+/** M8: a usage-limit note for a bot with no backup links to its settings, where the backup is set. Owner only. */
+function SetBackupLink({ botId, bots }: { botId: string; bots: Bot[] }) {
+  const openDialog = useStore((s) => s.openDialog);
+  const device = useStore((s) => s.device);
+  const bot = botById(bots, botId);
+  if (!bot || device) return null;
+  return (
+    <button type="button" className="touch-target mt-0.5 rounded-xs text-hint text-accent underline hover:text-fg" onClick={() => openDialog({ kind: 'bot', bot })}>
+      Open {bot.name}'s settings
+    </button>
   );
 }
 
@@ -1122,7 +1145,10 @@ function LimitBanner({ members }: { members: Bot[] }) {
   const limits = useLimits();
   const providers = useStore((s) => s.providers);
   const defaultProvider = useStore((s) => s.settings.provider);
-  const groups = heldGroups(members, defaultProvider, limits, providers);
+  const failoverActive = useStore((s) => s.failover.active);
+  // A bot running on its backup (M8) can reply, so it is not one this note is about; its header badge says where it runs.
+  const now = Date.now();
+  const groups = heldGroups(members.filter((m) => !activeFor(failoverActive, m.id, now)), defaultProvider, limits, providers);
   if (!groups.length) return null;
   const label = (id: string) => providers?.providers.find((p) => p.id === id)?.label ?? id;
   return (

@@ -2,7 +2,7 @@ import type { BotPreview, SearchHit } from '@pocketrocket/shared';
 import type {
   Bot, BotInput, Room, RoomInput, Message, Skill, Routine, RoutineRun, RoutineInput, UsageTotals, UsageRow, HealthInfo,
   Settings, SettingsPatch, ProvidersResponse, ProviderId, ProviderCheck, SecretsStatus, AccountState, UsageGroup,
-  ComputerStatus,
+  ComputerStatus, FailoverCard, FailoverDecision, FailoverState,
   SandboxStatus,
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
@@ -289,6 +289,11 @@ export const api = {
   providers: {
     list: () => req<ProvidersResponse>('GET', '/api/providers'),
     check: (id: ProviderId) => req<ProviderCheck>('POST', '/api/providers/' + id + '/check'),
+  },
+  /** M8 failover cards (spec 01 P3-1): open cards and bots running on their backup; the owner's answer. */
+  failover: {
+    get: () => req<FailoverState>('GET', '/api/failover'),
+    decide: (id: string, decision: FailoverDecision['decision']) => req<FailoverCard>('POST', '/api/failover-cards/' + encodeURIComponent(id) + '/decision', { decision }),
   },
   secrets: {
     get: () => req<SecretsStatus>('GET', '/api/secrets'),
