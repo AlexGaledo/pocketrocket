@@ -178,8 +178,22 @@ export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
  * about 5 MB (counted after encoding, which adds a third), so the raw cap sits below it with headroom.
  */
 export const MAX_ATTACHMENT_IMAGE_BYTES = 3.5 * 1024 * 1024;
-/** Most pictures on one message. */
-export const MAX_ATTACHMENTS = 4;
+/** Most attachments (pictures and files together) on one message. */
+export const MAX_ATTACHMENTS = 8;
+/** The most one attached file may weigh (documents, PDFs, archives, audio...). */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+/** The most one attached video may weigh. The hub checks the bytes really are a video before allowing this size. */
+export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+/** What `POST /api/files` answers, and `GET /api/files/:hash/meta`. */
+export interface StoredFileMeta {
+  ref: string;
+  /** The name the person's file had, cleaned up for display. Never used as a path on the hub. */
+  name: string;
+  /** A type read from the bytes when known (video/mp4...), otherwise the declared one, otherwise application/octet-stream. */
+  type: string;
+  size: number;
+  kind: 'file' | 'video';
+}
 export const AttachmentUploadSchema = z.object({
   data: z.string().max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
 });

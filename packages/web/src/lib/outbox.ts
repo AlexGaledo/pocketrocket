@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENTS, SEND_MODES, isMediaRef, type SendMode } from '@pocketrocket/shared';
+import { MAX_ATTACHMENTS, SEND_MODES, isAttachmentRef, type SendMode } from '@pocketrocket/shared';
 import { getJson, setJson, versionedKey } from './persist';
 
 /**
@@ -24,7 +24,7 @@ export const OUTBOX_KEY = versionedKey('outbox', 1);
 const MAX_ENTRIES = 200;
 
 const STATUSES: readonly string[] = ['sending', 'sent', 'failed'];
-const isRefs = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.length <= MAX_ATTACHMENTS && v.every(isMediaRef);
+const isRefs = (v: unknown): v is string[] => Array.isArray(v) && v.length > 0 && v.length <= MAX_ATTACHMENTS && v.every(isAttachmentRef);
 function isEntry(v: unknown): v is OutboxEntry {
   if (typeof v !== 'object' || v === null) return false;
   const e = v as Record<string, unknown>;

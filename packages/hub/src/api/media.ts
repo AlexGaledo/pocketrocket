@@ -1,5 +1,6 @@
+import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { AttachmentUploadSchema, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_IMAGE_BYTES, MediaUploadSchema } from '@pocketrocket/shared';
+import { AttachmentUploadSchema, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_IMAGE_BYTES, MAX_VIDEO_BYTES, MediaUploadSchema } from '@pocketrocket/shared';
 import { readBody } from './body.js';
 import { principalOf } from './guard.js';
 import { MediaRejected, type MediaStore } from '../services/MediaStore.js';
@@ -44,6 +45,46 @@ export function createMediaApi({ media }: { media: MediaStore }) {
         if (e instanceof MediaRejected) return send(res, e.status, { error: e.message });
         throw e;
       }
+    }
+    // Files and videos on a chat message. The body is the raw bytes (no base64, no JSON) so a 200 MB video streams
+    // straight to disk. The name rides in `x-file-name` (URI-encoded) and the browser's guess at the type in
+    // `x-file-type`; both are only ever shown. Content-Type is application/octet-stream (see checkContentType).
+    if (method === 'POST' && /^\/api\/files\/?$/.test(pathname)) {
+      if (principalOf(req)?.kind !== 'hub') return send(res, 403, { error: 'Only the desktop app can do this' });
+      const declaredLength = Number(req.headers['content-length'] ?? 0);
+      if (declaredLength > MAX_VIDEO_BYTES) {
+        req.resume();
+        return send(res, 413, { error: 'Videos can be up to 200 MB, other files 25 MB.' });
+      }
+      let name: string | undefined;
+      try { name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')); } catch { name = undefined; }
+      try {
+        return send(res, 200, await media.putFile(req, { name, declaredType: String(req.headers['x-file-type'] ?? '') }));
+      } catch (e) {
+        if (e instanceof MediaRejected) {
+          req.resume();
+          return send(res, e.status, { error: e.message });
+        }
+        throw e;
+      }
+    }
+    const f = /^\/api\/files\/([0-9a-f]{64})(\/meta)?$/.exec(pathname);
+    if (method === 'GET' && f) {
+      const found = media.readFile(f[1]);
+      if (!found) return send(res, 404, { error: 'Not found' });
+      if (f[2]) return send(res, 200, found.meta);
+      // Always a download, never rendered by the browser: whatever the bytes are, they cannot run as a page here.
+      res.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'content-length': found.meta.size,
+        'content-disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(found.meta.name),
+        'cache-control': 'private, no-cache',
+        'x-content-type-options': 'nosniff',
+        'content-security-policy': "default-src 'none'; sandbox",
+        'cross-origin-resource-policy': 'same-origin',
+      });
+      fs.createReadStream(found.path).pipe(res);
+      return true;
     }
     const m = /^\/api\/media\/([0-9a-f]{64})$/.exec(pathname);
     if (method !== 'GET' || !m) return false;

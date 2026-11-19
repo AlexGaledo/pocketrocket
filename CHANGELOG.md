@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Attach any file or a video to a chat message (hub, web)
+
+- The paperclip, drag-and-drop and paste now take any file, not only PNG, JPEG and WebP pictures. Files can be up to 25 MB and videos up to 200 MB, with up to 8 attachments per message. Pictures still go the picture way (shown to the bot inline, metadata stripped). Everything else, GIFs included, uploads as its own bytes with a progress percentage.
+- The bot gets a read-only copy of each file in its attachments folder and a note naming each one. It opens text, code, CSV and PDF files with Read. For a video it uses ffmpeg (now installed by the server setup) to pull frames and sound into its workspace, because Claude cannot watch video directly. Where ffmpeg is missing, the bot says so and asks for screenshots.
+- Sent files show in the chat as chips with name and size, and clicking one downloads it. Downloads are always served as attachments and never rendered in the browser. The hub decides whether something is a video from its bytes, not from its name. Unused files are cleared on the same schedule as pictures.
+
 ## [0.5.1] - 2026-11-20
 
 ### Desktop: Tauri 2.12 (desktop)

@@ -13,7 +13,7 @@ import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInpu
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
-import type { FileChangeResult, FileListing, FileUploadInput } from '@pocketrocket/shared';
+import type { FileChangeResult, FileListing, FileUploadInput, StoredFileMeta } from '@pocketrocket/shared';
 import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
 import type { MachineInfo, MachinePolicy, PcRunnerStatus } from '@pocketrocket/shared';
 import type { BotExportResult, BotImportResult, ContextUsage, LaneQueue, Task, TaskStatus } from '@pocketrocket/shared';
@@ -203,6 +203,40 @@ export const api = {
     upload: (data: string) => req<{ ref: string }>('POST', '/api/media', { data }),
     /** A picture for a chat message: the hub's larger cap (10 MB), same checks on the bytes. */
     uploadAttachment: (data: string) => req<{ ref: string }>('POST', '/api/media?for=attachment', { data }),
+  },
+  // Files and videos on a chat message: raw bytes up (XHR, for progress), a download and the name back.
+  attachments: {
+    upload: (file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<StoredFileMeta> =>
+      new Promise((resolve, reject) => {
+        const x = new XMLHttpRequest();
+        x.open('POST', '/api/files');
+        x.setRequestHeader('content-type', 'application/octet-stream');
+        x.setRequestHeader('x-file-name', encodeURIComponent(file.name));
+        if (file.type) x.setRequestHeader('x-file-type', file.type);
+        const token = getToken();
+        if (token) x.setRequestHeader('authorization', 'Bearer ' + token);
+        x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+        x.onload = () => {
+          let j: { error?: string } = {};
+          try { j = JSON.parse(x.responseText); } catch { /* not JSON: use the status text */ }
+          if (x.status === 401) reportAuthFailure();
+          if (x.status >= 200 && x.status < 300) resolve(j as StoredFileMeta);
+          else reject(new ApiError(j.error ?? (x.statusText || 'Upload failed'), x.status));
+        };
+        x.onerror = () => reject(new ApiError('Upload failed. Check the connection and try again.', 0));
+        x.onabort = () => reject(new ApiError('Upload cancelled', 0));
+        signal?.addEventListener('abort', () => x.abort());
+        x.send(file);
+      }),
+    meta: (hash: string) => req<StoredFileMeta>('GET', '/api/files/' + hash + '/meta'),
+    /** The file's bytes (Bearer header, so not a plain link). */
+    blob: async (hash: string): Promise<Blob> => {
+      const token = getToken();
+      const r = await fetch('/api/files/' + hash, { headers: token ? { authorization: 'Bearer ' + token } : {} });
+      if (r.status === 401) reportAuthFailure();
+      if (!r.ok) throw new ApiError(r.status === 404 ? 'That file is gone (files are kept a while, then cleared).' : r.statusText, r.status);
+      return r.blob();
+    },
   },
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
