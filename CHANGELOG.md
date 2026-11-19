@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Workflow canvas stays readable with many steps (web)
+
+- The canvas now opens on the first three steps at a readable size instead of shrinking every step to fit; the rest are a scroll away. An 8-step workflow used to open as tiny unreadable boxes.
+
 ### Workflows: canvas, steps list and approval card (web)
 
 - Automations has a Workflows section; each workflow opens its own page with Enabled, Run now, a Canvas | Steps switch (remembered per browser), a step inspector, per-step status and cost, run history, Cancel and Retry step.

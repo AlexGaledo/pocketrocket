@@ -37,6 +37,9 @@ export interface CanvasProps {
 const NODE_W = 248;
 const NODE_H = 104;
 const GAP = 72;
+/** How many steps the first view fits, and the smallest zoom it may use to do so (text stays readable). */
+const FIT_STEPS = 3;
+const FIT_MIN_ZOOM = 0.7;
 
 interface StepData extends Record<string, unknown> {
   step: WorkflowNode; index: number; steps: WorkflowNode[]; ctx: StepContext; result?: WorkflowStepResult;
@@ -133,7 +136,9 @@ export default function WorkflowCanvas({ steps, ctx, results, selectedId, proble
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
-        fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+        // Fit the first few steps, not all of them: eight steps fitted at once shrink to unreadable boxes. The rest are
+        // a pan away (the wheel pans), and the view starts at the trigger.
+        fitViewOptions={{ padding: 0.15, maxZoom: 1, minZoom: FIT_MIN_ZOOM, nodes: nodes.slice(0, FIT_STEPS).map((n) => ({ id: n.id })) }}
         minZoom={0.3}
         nodesDraggable={false}
         nodesConnectable={false}
