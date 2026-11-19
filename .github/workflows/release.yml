@@ -60,6 +60,9 @@ jobs:
           fi
 
       - name: Test
+        # Tag builds gate on the full suite. Dispatch dry runs only produce an installer to try out; every PR
+        # already ran the tests in ci.yml, and the Windows runner is flaky on several timing-sensitive hub tests.
+        if: github.event_name != 'workflow_dispatch'
         run: pnpm test
 
       - name: Prepare desktop bundle (hub build + web build + Node sidecar)
