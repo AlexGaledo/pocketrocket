@@ -8,7 +8,7 @@
  * owns. `POCKETROCKET_TOKEN` is never on any list, and a provider never sees another provider's key.
  */
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'grok';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'grok' | 'gemini';
 
 /** Names every child gets when the hub has them. Matched case-insensitively (Windows env is case-blind). */
 const BASE_NAMES = [
@@ -29,6 +29,10 @@ const PROVIDER_NAMES: Record<ProviderKind, string[]> = {
   // OpenCode is a multi-provider front end and reads all three vendor keys itself.
   opencode: ['XAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
   grok: ['XAI_API_KEY'],
+  // M7: the Antigravity CLI (`agy acp`). Only the API key; its Google login lives in the user's own profile dirs
+  // (HOME/APPDATA, on the base list). The hub MCP bearer goes in the ACP session request, not the environment.
+  // The variable name is Gemini's documented one; confirming `agy` reads it is part of the owner's live test (P2-4).
+  gemini: ['GEMINI_API_KEY'],
 };
 const PROVIDER_PREFIXES: Record<ProviderKind, string[]> = {
   claude: ['CLAUDE_'],
@@ -36,6 +40,7 @@ const PROVIDER_PREFIXES: Record<ProviderKind, string[]> = {
   // OPENCODE_SERVER_PASSWORD / OPENCODE_CONFIG_CONTENT are set explicitly by the adapter and covered here.
   opencode: ['OPENCODE_'],
   grok: ['GROK_', 'POCKETROCKET_MCP_'],
+  gemini: [],
 };
 
 /** Never forwarded, whatever a prefix would say. The hub token is the crown jewel. */

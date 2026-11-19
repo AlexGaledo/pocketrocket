@@ -86,6 +86,33 @@ in Settings or onboarding, and not part of this checklist. See CONTRIBUTING.md.
 Model picker: Sonnet 5 (default), Opus 5, Fable 5.1, Haiku 4.5. DM a bot "Reply with exactly:
 pong", then ask it to write a file outside the workspace to see an approval card.
 
+### 4a. Gemini live test (v0.5.0, spec 01 task P2-4). Owner, then pr-backend
+
+Gemini (`agy acp`, Google's Antigravity CLI) is in the code as `maturity: 'untested'` and opt-in only. It was built
+against the ACP contract and a fake agent (`test-fixtures/acp/fake-acp-agent.mjs`), never a real `agy` or Google account.
+It flips to `verified`, and becomes on by default, only after every line below is ticked. pr-infra's I-1 (PATH re-read
+on hub spawn) should land first, or install `agy` before starting the app.
+
+Setup: install `agy` from https://antigravity.google (PocketRocket never downloads it), run `agy` once in a terminal and
+sign in with the Google AI account, then start the hub with `POCKETROCKET_PROVIDERS=gemini` and `POCKETROCKET_DEBUG=1`.
+Create a bot and set its provider to `gemini` (`PATCH /api/bots/:id {"provider":"gemini"}` until the picker ships).
+
+| # | Check | Status | How |
+|---|---|---|---|
+| G1 | Detection: Settings › Providers › Gemini (or `POST /api/providers/gemini/check`) finds `agy`, shows its version and `exePath`. Record the install folder on PC and VPS so it can join the lookup after `AGY_EXE` | ☐ | also try with `agy` missing: a clear hint, nothing downloaded |
+| G2 | Reported auth: what `check()` returns as `auth` / `authMethod` on the Google login and on an API key. If both say `unknown`, find where `agy` reports its auth (its `initialize` `_meta`, a status command) and send it to pr-backend for `parseGeminiAuth` | ☐ | the guard treats `unknown` as the Google login, so routines stay refused until this is known |
+| G3 | API-key variable: does `agy` read `GEMINI_API_KEY`? Set it in Settings › Secrets, sign out of Google, run a DM turn | ☐ | if it uses another name, pr-backend changes `GEMINI_KEY_VAR` and the env list in `providers/env.ts` |
+| G4 | DM turn: "Reply with exactly: pong" gets `pong`; a second message resumes the session (check `session/resume` or `session/load` in the debug log) | ☐ | |
+| G5 | Hand-off: in a group, the Gemini bot hands off to a Claude bot with `@` or the hand-off tool; the hub tools reach it (HTTP MCP, or the stdio bridge if `agy` lacks `mcpCapabilities.http`; note which) | ☐ | |
+| G6 | **Does `agy` ask before writes and shell?** Ask it to write a file outside the workspace and to run `rm` on a temp file: an approval card must appear. Note which ACP `kind` and `locations` it sends | ☐ | if it never asks, Gemini stays `best-effort`, and a strict (backup) turn must run read-only (spec 01 §4.7 item 7) |
+| G7 | Modes: which modes or `mode` config options `agy` lists; on a routine with an API key, the strict turn switched to the asking mode (debug log `session/set_mode`) | ☐ | |
+| G8 | Models: which `model` config option values `agy` offers; replace `GEMINI_MODELS` with them | ☐ | |
+| G9 | Interrupt: Stop during a long answer ends the turn as stopped within a few seconds, and no `agy` process is left (Task Manager / `ps`) | ☐ | |
+| G10 | Unattended guard: on the Google login a routine posts "did not run: Gemini on a Google sign-in…" and does not run; Run now on the same routine runs; with the API key the routine runs and still cards | ☐ | |
+| G11 | Limit fixture: when a Gemini limit is hit, save the JSON-RPC error and any `notice` update from the debug log as `providers/__fixtures__/gemini/limit-quota.agy.json`; the note must read as a limit with a reset time, not the raw text | ☐ | pr-backend tightens `geminiLimit` from it |
+| G12 | Where `agy` stores its login on the PC and on the VPS (and whether the VPS needs a keyring or a device-code login). Recommend the API key on the VPS | ☐ | |
+| G13 | Record the tested `agy` version in `AGY_TESTED`, set `GEMINI_INFO.maturity = 'verified'` and `testedVersions`, and add Gemini to the default enabled list | ☐ | pr-backend, after G1-G12 |
+
 ## 5. Product / UX
 
 | Item | Status |

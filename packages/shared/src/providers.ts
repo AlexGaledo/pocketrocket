@@ -5,7 +5,8 @@ import { MAX_AVATAR_LENGTH, SEND_MODES, isMediaRef } from './models.js';
 // Each bot runs on its own provider (`Bot.provider`), or on the default one (settings.provider) when it names none.
 // Models are chosen per bot from its provider's list. Adapters live in packages/hub/src/providers/.
 
-export const PROVIDER_IDS = ['claude', 'codex', 'opencode', 'grok'] as const;
+// 'gemini' (M7) is Google's Antigravity CLI (`agy acp`) through the generic ACP adapter. Opt-in until the owner's live test.
+export const PROVIDER_IDS = ['claude', 'codex', 'opencode', 'grok', 'gemini'] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 export interface ModelInfo {
@@ -41,6 +42,11 @@ export interface ProviderCheck {
    * installed, so the fix is to check again, not to reinstall.
    */
   unresponsive?: boolean;
+  /**
+   * M7: the installed CLI's version is outside the range PocketRocket was tested with, or could not be read. A
+   * warning only: the provider still runs. Absent when the version is a tested one (or the provider has no range).
+   */
+  versionWarning?: string;
   /** Why the check failed (missing CLI, not logged in, no API key). */
   error?: string;
   /** What the user should do next: install command, login command, where to get a key. Markdown, 1-3 lines. */
@@ -64,6 +70,8 @@ export interface ProviderInfo {
    * picker says as much rather than presenting it as a peer of the two that were.
    */
   maturity: 'verified' | 'untested';
+  /** M7: the CLI versions this adapter was tested with, ready to show ("1.4-1.6"). Absent = no range recorded yet. */
+  testedVersions?: string;
   /**
    * A message sent to a busy bot can join its running turn (steering). Claude: true once the installed CLI has
    * reported the `interrupt_receipt_v1` capability, so false until its first turn. Other providers: false, and a

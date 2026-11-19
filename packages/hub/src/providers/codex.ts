@@ -82,14 +82,14 @@ export function spawnTarget(exe: string, args: string[]): { command: string; arg
   return { command: exe, argv: args };
 }
 
-interface RunResult {
+export interface RunResult {
   code: number | null;
   stdout: string;
   stderr: string;
 }
 
-/** Run the CLI once and collect its output; never rejects. */
-function run(exe: string, args: string[], timeoutMs: number): Promise<RunResult> {
+/** Run the CLI once and collect its output; never rejects. Shared with the ACP adapter (providers/acp/client.ts). */
+export function run(exe: string, args: string[], timeoutMs: number): Promise<RunResult> {
   return new Promise((resolve) => {
     const { command, argv } = spawnTarget(exe, args);
     let child: ChildProcess;
@@ -120,7 +120,7 @@ function run(exe: string, args: string[], timeoutMs: number): Promise<RunResult>
 }
 
 /** Codex spawns sandbox helper processes, so a plain kill() can leave children behind on Windows. */
-function killTree(child: ChildProcess): void {
+export function killTree(child: ChildProcess): void {
   if (child.pid == null || child.exitCode !== null) return;
   if (process.platform === 'win32') {
     try {

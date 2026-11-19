@@ -4,7 +4,7 @@ import type { SecretsStatus } from '@pocketrocket/shared';
 import { SECRETS_PATH, restrictFile } from '../config.js';
 
 /** Keys the settings UI offers a field for. Provider adapters read them through SecretsStore.get(). */
-export const SECRET_KEYS = ['XAI_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+export const SECRET_KEYS = ['XAI_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY'] as const;
 export type SecretKey = (typeof SECRET_KEYS)[number];
 
 /**

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Gemini through the Antigravity CLI, untested (hub)
+
+- A bot can now run on Gemini through Google's Antigravity CLI (`agy`). Gemini is **untested**: it was built and checked against a stand-in, never a real `agy` or Google account, so it stays off unless the hub starts with `POCKETROCKET_PROVIDERS=gemini`. It goes on by default only after the owner's live test.
+- PocketRocket never downloads `agy`. It finds your own copy (`AGY_EXE` first, then your PATH). If `agy` is missing, the check says how to install it and sign in.
+- On a Google sign-in, Gemini answers only what a person starts: your messages, the hand-offs in those threads, and Run now. Routines, triggers and workflow steps don't run on it. They post a note saying so. They do run when `agy` itself reports that it uses a Gemini API key, and approvals still apply then.
+- When Gemini asks to change a file or run a command, the hub decides with the same rules as for Claude. Files in the bot's own folders and safe commands go ahead. Anything else gets an approval card, also on routine turns with approvals bypassed.
+- Under the hood, the hub now speaks the Agent Client Protocol (ACP), so more agents can be added the same way later. The check also reports the CLI's version and warns when that version has not been tested.
+
 ### Each bot can run on its own provider (hub)
 
 - A bot can now have its own provider instead of following the one set in Settings. Only you can choose it, through the bot's settings (the REST API). A bot that tries to set a provider or a backup for itself or another bot is refused. The provider picker in the app comes in a later update.

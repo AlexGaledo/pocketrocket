@@ -623,6 +623,7 @@ export class BotRunner {
       // Browser/Desktop are dropped for this turn when the bot's computer could not start.
       allowedBuiltins: computerDown ? bot.allowedTools.filter((t) => t !== 'Browser' && t !== 'Desktop') : bot.allowedTools,
       bypassPermissions: bypass,
+      strictApprovals: !!req.strictApprovals,
       permission: async (name, input, extra) => {
         const r = await this.broker.decide(permCtx, name, input, { signal: ac.signal, blockedPath: extra?.blockedPath });
         return r.behavior === 'allow' ? 'allow' : 'deny';

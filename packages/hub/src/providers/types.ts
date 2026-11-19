@@ -55,6 +55,12 @@ export interface TurnContext {
    * allow-all config) rather than routing asks through `permission`, which would allow them anyway.
    */
   bypassPermissions?: boolean;
+  /**
+   * The turn is strict (a routine, trigger or workflow step; decision Q6): approvals apply even under bypass, so
+   * `bypassPermissions` is already false. An adapter that can pick its agent's approval mode starts it in the most
+   * restrictive one that still asks (M7, ACP).
+   */
+  strictApprovals?: boolean;
   /** Route a tool call through the PermissionBroker (approval cards). */
   permission: (
     toolName: string,
