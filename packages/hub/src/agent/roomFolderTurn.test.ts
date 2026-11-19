@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelInfo, ProviderCheck, ProviderId, Room } from '@pocketrocket/shared';
 import { Db } from '../db/db.js';
 import { Repos } from '../db/repos.js';
@@ -15,6 +15,8 @@ import { EMPTY_USAGE, type AgentProvider, type TurnContext, type TurnOutcome, ty
 import type { ProviderRegistry } from '../providers/registry.js';
 import { RoomFiles } from '../rooms/roomFiles.js';
 import { BotRunner } from './BotRunner.js';
+import { settings } from '../services/SettingsStore.js';
+import { readOnlyWriteDecision } from '../permissions/readOnlyRoots.js';
 
 /** A turn may use the file folder of the room it is replying in, and no other room's or project's. */
 
@@ -35,7 +37,7 @@ class RecordingProvider implements AgentProvider {
 }
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 
 function setup(opts: { bypass?: boolean } = {}) {
   const db = new Db(':memory:');
@@ -129,5 +131,41 @@ describe('a turn\'s file folder', () => {
     const ctx = await s.run(s.roomA);
     expect(ctx.projectDirs).toEqual([]);
     expect(read(ctx, path.join(s.projects.dirOf('alpha'), 'current.md'))).toMatch(/another room/);
+  });
+
+  it('lets the persona read every project from any room, read-only, and write only in its room folder', async () => {
+    const s = setup({ bypass: true });
+    const realGet = settings.get.bind(settings);
+    vi.spyOn(settings, 'get').mockImplementation(() => ({ ...realGet(), personaBotId: s.bot.id }));
+    const alpha = s.projects.dirOf('alpha');
+    const beta = s.projects.dirOf('beta');
+
+    const inA = await s.run(s.roomA);
+    expect(inA.projectDirs).toEqual([alpha]);
+    expect(inA.readOnlyDirs).toContain(beta);
+    expect(inA.readOnlyDirs).not.toContain(alpha);
+    expect(read(inA, path.join(beta, 'current.md'))).toBeNull();
+    expect(inA.projectGuard!('Bash', { command: 'cat ' + beta.replaceAll('\\', '/') + '/current.md' }, inA.workspaceDir)).toBeNull();
+    expect(readOnlyWriteDecision('Write', { file_path: path.join(beta, 'current.md') }, inA.readOnlyDirs!, inA.workspaceDir, true)?.decision).toBe('deny');
+    expect(readOnlyWriteDecision('Write', { file_path: path.join(alpha, 'current.md') }, inA.readOnlyDirs!, inA.workspaceDir, true)).toBeNull();
+    expect(inA.systemPrompt).toContain('read every project');
+    // It may list the projects folder to find a slug, but not other rooms' folders.
+    expect(inA.projectGuard!('Glob', { path: path.dirname(alpha), pattern: '*' }, inA.workspaceDir)).toBeNull();
+    expect(inA.projectGuard!('Bash', { command: 'ls ' + path.dirname(alpha).replaceAll('\\', '/') }, inA.workspaceDir)).toBeNull();
+    expect(inA.projectGuard!('Glob', { path: s.roomsDir, pattern: '*' }, inA.workspaceDir)).toMatch(/another room/);
+    // Other rooms' folders stay shut.
+    expect(read(inA, path.join(s.roomsDir, s.plain.id, 'x.md'))).toMatch(/another room/);
+
+    const inDm = await s.run(s.dm);
+    expect(inDm.readOnlyDirs).toEqual(expect.arrayContaining([alpha, beta]));
+    expect(read(inDm, path.join(alpha, 'current.md'))).toBeNull();
+  });
+
+  it('gives other bots none of that', async () => {
+    const s = setup();
+    const ctx = await s.run(s.dm);
+    expect(ctx.readOnlyDirs ?? []).not.toContain(s.projects.dirOf('alpha'));
+    expect(ctx.systemPrompt).not.toContain('read every project');
+    expect(ctx.projectGuard!('Glob', { path: path.dirname(s.projects.dirOf('alpha')), pattern: '*' }, ctx.workspaceDir)).toMatch(/another room/);
   });
 });

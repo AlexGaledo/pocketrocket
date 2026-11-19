@@ -214,7 +214,7 @@ export class PermissionBroker {
       if (!outside.length) return { behavior: 'allow' };
       const intoReadOnly = readOnly.length > 0 && outside.some((p) => isInside(p, readOnly, WORKSPACE_DIR));
       reason = intoReadOnly
-        ? toolName + ' into the read-only knowledge repo: ' + outside.join(', ')
+        ? toolName + ' into a read-only folder: ' + outside.join(', ')
         : toolName + ' outside workspace: ' + outside.join(', ');
     } else if (toolName === 'Bash') {
       const cmd = String(input.command ?? '');
