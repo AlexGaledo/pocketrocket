@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
+This release also contains the 0.4.0 work (0.4.0 was not tagged separately): workflows, Telegram notifications, moving and syncing PC sessions, the server bot sandbox and more. Gemini support (through the Antigravity CLI) is included but untested until the owner's live test.
+
 ### A CLI installed while the app runs is found after "Restart hub" (app)
 
 - On Windows, each time the app starts its hub it reads the user and system `Path` again, so a command-line tool installed while PocketRocket was open (for example the Gemini CLI, `agy`) is found after "Restart hub" without quitting the app. Folders already on the PATH keep their order; new ones are added at the end.
@@ -156,6 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A mirrored session now has a Move to VPS button. It lists the repos that move with it, asks which chat should follow the server turns when the project has several, and says why it is disabled: PC offline, not signed in, no linked repo, a client repo, or a repo that is not set to bundle sync.
 - A moved session shows an On VPS badge in the list and in its header (Moving to VPS and Pulling back while your PC works). Under it, a Continue on VPS box sends one turn at a time with a live status line, and Pull back asks for confirmation first and waits for a running turn to finish.
 - Move and pull jobs appear in the PC runner job log with their repos, commits, session size and, for a pull, whether the changes were applied to your folder or left on a wip branch.
+
 ### Bot sandbox on the server, which lets client repos sync (hub, app, deploy)
 
 - A new switch, Settings > Security > "Run bot tools in a sandbox (Linux server)", runs each Claude turn inside bubblewrap. A bot's Bash and file tools (and the Browser tool's Playwright process) then see only the read-only system, their own bot folder, the room and project folders they belong to, the shared workspace and the network. Other projects, other bots' folders, the vault key, the hub token, the database and your server login are not mounted, so they do not exist inside. It is off by default and only you can change it: no bot can switch it off.
