@@ -6,7 +6,7 @@ import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Messag
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api } from '../lib/api';
-import { Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
+import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Badge, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { LinkBot, Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { AlwaysAllow, RuleOffer, TakeoverCard } from './ComputerControl';
@@ -586,13 +586,11 @@ function ApprovalCard({ m }: { m: Message }) {
   const pcJob = p.toolName === 'run_on_pc' ? pcJobInput(p) : null;
   const outcome = p.status === 'allow' ? (handoff ? 'Sent' : proposal ? 'Added' : 'Allowed once') : p.status === 'always' ? (once ? 'Allowed once' : 'Allowed for that session') : p.status === 'deny' ? (handoff ? 'Kept here' : proposal ? 'Not added' : 'Denied') : p.status === 'timeout' ? 'Timed out, denied' : p.status === 'expired' ? 'Expired after restart. Ask the bot to retry.' : null;
   return (
-    <div className={cn('max-w-[640px] overflow-hidden rounded-lg ring-1', p.danger ? 'ring-bad/40' : pending ? 'ring-warn/40' : 'ring-line')}>
-      <div className="flex items-center gap-2 px-4 pt-3 text-ui">
-        <ShieldAlert size={15} className={p.danger ? 'text-bad' : pending ? 'text-warn' : 'text-muted'} />
+    <ActionCard tone={p.danger ? 'danger' : pending ? 'warn-soft' : 'quiet'} className="max-w-[640px]">
+      <ActionCardHeader compact icon={<ShieldAlert size={15} className={p.danger ? 'text-bad' : pending ? 'text-warn' : 'text-muted'} />}
+        meta={<>{!yesOrNo && <span className="font-mono text-hint text-muted">{p.toolName}</span>}{outcome && <span className="ml-auto text-hint text-muted">{outcome}</span>}</>}>
         <span className="font-medium">{handoff ? 'Pass this to another bot?' : proposal ? 'Add a routing rule?' : p.danger ? 'Risky action needs your OK' : 'Needs your OK'}</span>
-        {!yesOrNo && <span className="font-mono text-hint text-muted">{p.toolName}</span>}
-        {outcome && <span className="ml-auto text-hint text-muted">{outcome}</span>}
-      </div>
+      </ActionCardHeader>
       <div className="px-4 py-1.5 text-ui text-muted">{p.reason}</div>
       {pending && p.parked && <div className="px-4 pb-1.5 text-ui text-warn">Run paused until you answer.</div>}
       {pcJob ? (
@@ -611,7 +609,7 @@ function ApprovalCard({ m }: { m: Message }) {
       )}
       {pending && (
         // P9: wraps on a phone, and touch targets grow to 44px (`.touch-target` in index.css).
-        <div className="flex flex-wrap gap-2 px-4 pb-4">
+        <ActionCardActions>
           {needsSignIn
             ? <SignInToApprove />
             : <Button size="sm" variant="primary" className="touch-target" onClick={() => { setAnswered(true); decide(p.approvalId, 'allow'); }}>{handoff ? 'Send it' : proposal ? 'Add it' : 'Allow once'}</Button>}
@@ -622,11 +620,11 @@ function ApprovalCard({ m }: { m: Message }) {
           {device && !yesOrNo && !once && <span className="basis-full text-hint text-muted">Always allow is desktop only.</span>}
           {once && !needsSignIn && <span className="basis-full text-hint text-muted">Asked every time.</span>}
           {refused && <p role="alert" className="basis-full text-hint leading-snug text-bad">{refused}</p>}
-        </div>
+        </ActionCardActions>
       )}
       {always === 'saved' && <div className="px-4 pb-3 text-hint text-muted">Rule saved. Revoke in Settings › Bots.</div>}
       {answered && always !== 'saved' && !device && !yesOrNo && !once && (p.status === 'allow' || p.status === 'always') && <RuleOffer p={p} botId={m.authorId} botName={botById(bots, m.authorId)?.name ?? 'this bot'} />}
-    </div>
+    </ActionCard>
   );
 }
 

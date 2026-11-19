@@ -6,7 +6,7 @@ import type { ApprovalPayload, Bot, ComputerControl, ControlStatus, Message, Tak
 import { useStore, botById } from '../store';
 import { api } from '../lib/api';
 import { deviceId, hasComputer, holdsScreen } from '../lib/screenView';
-import { Button, Input, cn } from './ui';
+import { ActionCard, ActionCardHeader, Button, Input, cn } from './ui';
 import { broadPattern, suggestPattern } from '../lib/rulePattern';
 
 const DEFAULT: Omit<ControlStatus, 'botId'> = { control: 'agent', holder: null, since: 0, takeover: null };
@@ -102,14 +102,13 @@ export function TakeoverCard({ m }: { m: Message }) {
   const open = p.status === 'waiting' || p.status === 'parked';
   const outcome = p.status === 'done' ? 'Handed back' : p.status === 'expired' ? 'No longer waiting' : null;
   return (
-    <div className={cn('max-w-[640px] overflow-hidden rounded-lg ring-1', open ? 'ring-warn/60' : 'ring-line')}>
-      <div className="flex flex-wrap items-start gap-x-2 gap-y-1 px-4 pt-3 text-body">
+    <ActionCard tone={open ? 'warn' : 'quiet'} className="max-w-[640px]">
+      <ActionCardHeader meta={outcome && <span className="pt-0.5 text-hint text-muted">{outcome}</span>}>
         <span className="min-w-0 flex-1 font-medium">{bot ? bot.name : 'A bot'} {open ? 'needs you' : 'needed you'}: {p.reason}</span>
-        {outcome && <span className="pt-0.5 text-hint text-muted">{outcome}</span>}
-      </div>
+      </ActionCardHeader>
       {p.note && <div className="px-4 pt-1 text-ui text-muted">Your note: {p.note}</div>}
       {open && bot ? <TakeoverActions bot={bot} /> : <div className="h-3" />}
-    </div>
+    </ActionCard>
   );
 }
 
