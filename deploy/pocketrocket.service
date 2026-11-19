@@ -14,7 +14,10 @@ Environment=PATH=/home/pocketrocket/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=POCKETROCKET_DATA=/home/pocketrocket/pocketrocket/data
 Environment=XAUTHORITY=/home/pocketrocket/pocketrocket/data/desktop-home/.Xauthority
 WorkingDirectory=/home/pocketrocket/pocketrocket/packages/hub
-ExecStart=/home/pocketrocket/pocketrocket/packages/hub/node_modules/.bin/tsx src/index.ts
+# The prebuilt bundle (scripts/build-hub-server.mjs, built by scripts/deploy.sh) runs on plain node: no
+# TypeScript compiler at runtime and one process instead of tsx's two. Without it (bundle step failed, or a
+# hand-made install that never ran it) the hub runs from source as before.
+ExecStart=/bin/sh -c 'if [ -f dist/hub.mjs ]; then exec node dist/hub.mjs; else exec node_modules/.bin/tsx src/index.ts; fi'
 Restart=always
 RestartSec=3
 KillMode=control-group

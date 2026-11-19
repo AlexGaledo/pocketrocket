@@ -36,6 +36,11 @@ jobs:
       - name: Build (typecheck + vite)
         run: pnpm -r build
 
+      - name: Server hub bundle (what scripts/deploy.sh runs)
+        run: |
+          pnpm hub:server-bundle
+          node --check packages/hub/dist/hub.mjs
+
       - name: Web bundle budget (no canvas code in the entry chunk)
         run: |
           node --test scripts/bundle-budget.test.mjs

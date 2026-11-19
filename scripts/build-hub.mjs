@@ -19,13 +19,12 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import * as esbuild from 'esbuild';
+import { bundleHub } from './hub-esbuild.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HUB = path.join(ROOT, 'packages', 'hub');
 const BUILD = path.join(HUB, 'build');
 const WEB_DIST = path.join(ROOT, 'packages', 'web', 'dist');
-const SHARED_ENTRY = path.join(ROOT, 'packages', 'shared', 'src', 'index.ts');
 
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
@@ -156,29 +155,7 @@ fs.rmSync(path.join(HUB, 'packages'), { recursive: true, force: true });
 
 // 3. bundle
 console.log('[hub:bundle] bundling src/index.ts -> build/hub.mjs');
-await esbuild.build({
-  entryPoints: [path.join(HUB, 'src', 'index.ts')],
-  outfile: path.join(BUILD, 'hub.mjs'),
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node22',
-  packages: 'external',
-  sourcemap: false,
-  logLevel: 'info',
-  // Some CJS deps pulled in through the bundle expect `require` to exist in module scope.
-  banner: { js: "import{createRequire as __prCreateRequire}from'node:module';const require=__prCreateRequire(import.meta.url);" },
-  plugins: [
-    {
-      // `packages: 'external'` externalises every bare specifier and there is no way to
-      // un-externalise one of them from the CLI, so resolve the workspace package by hand.
-      name: 'inline-shared',
-      setup(build) {
-        build.onResolve({ filter: /^@pocketrocket\/shared(\/.*)?$/ }, () => ({ path: SHARED_ENTRY }));
-      },
-    },
-  ],
-});
+await bundleHub(path.join(BUILD, 'hub.mjs'));
 
 // 4. web dist -> build/web
 const webOut = path.join(BUILD, 'web');
