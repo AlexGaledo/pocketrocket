@@ -412,6 +412,33 @@ export function Badge({ children, tone = 'muted' }: { children: React.ReactNode;
   );
 }
 
+/**
+ * How full something is: a plan window now, the context window later. A 6 px bar with the percentage and `detail`
+ * (a reset time) always written out, so colour is never the only cue. The fill is the accent below 80 %, warn from
+ * 80 %, bad at the limit (`atLimit`, or 100 %). Screen readers get `role="meter"` and one sentence:
+ * "Claude 5-hour limit 82%, resets 14:00".
+ */
+export function Meter({ label, value, detail, atLimit, className }: { label: string; value: number; detail?: string | null; atLimit?: boolean; className?: string }) {
+  const pct = Math.max(0, Math.min(100, Math.round(value)));
+  const full = atLimit || pct >= 100;
+  const fill = full ? 'bg-bad' : pct >= 80 ? 'bg-warn' : 'bg-accent';
+  const text = pct + '%' + (detail ? ', ' + detail : '');
+  return (
+    <div role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-valuetext={label + ' ' + text} className={cn('flex flex-col gap-1.5', className)}>
+      <div aria-hidden className="flex items-baseline justify-between gap-3 text-hint">
+        <span className="min-w-0 truncate font-medium text-fg">{label}</span>
+        <span className="shrink-0 text-muted">
+          <span className={cn('font-mono', full && 'font-semibold text-fg')}>{pct}%</span>
+          {detail && <> · {detail}</>}
+        </span>
+      </div>
+      <div aria-hidden className="h-1.5 overflow-hidden rounded-full bg-line">
+        <div className={cn('h-full rounded-full', fill)} style={{ width: pct + '%' }} />
+      </div>
+    </div>
+  );
+}
+
 export function fmtUsd(n: number) {
   return '$' + (n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2));
 }

@@ -100,12 +100,15 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
   const sideNav = useMediaQuery(SIDE_NAV_QUERY);
   const { health, refresh: refreshHealth } = useHealth();
 
-  // A small dot on "Claude" when it isn't ready, so the problem is visible from any section.
+  // A small dot on "Providers" ("Claude" with one) when a provider some bot runs on isn't ready, so the problem is
+  // visible from any section. With bots on their own providers, that is the default plus every bot's own.
   const providers = useStore((s) => s.providers);
   const providerId = useStore((s) => s.settings.provider);
+  const bots = useStore((s) => s.bots);
   const list = providers?.providers ?? [];
-  const active = list.find((p) => p.id === providerId) ?? list[0];
-  const claudeNeedsAttention = !!active && !active.check.ok;
+  const inUse = new Set([providerId, ...bots.map((b) => b.provider ?? providerId)]);
+  const watched = list.filter((p) => inUse.has(p.id));
+  const claudeNeedsAttention = (watched.length ? watched : list.slice(0, 1)).some((p) => !p.check.ok);
 
   const select = (value: string) => {
     lastSection = value as SectionId;
@@ -134,7 +137,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
               >
                 {/* Icons only in the side list; the top strip needs the room to fit every name (it scrolls when it cannot). */}
                 <Icon size={15} aria-hidden className="hidden shrink-0 sm:block" />
-                {id === 'claude' && list.length > 1 ? 'Connection' : label}
+                {id === 'claude' && list.length > 1 ? 'Providers' : label}
                 {id === 'claude' && claudeNeedsAttention && (
                   <>
                     <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn sm:ml-auto" />

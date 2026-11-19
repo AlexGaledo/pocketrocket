@@ -15,6 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When Gemini asks to change a file or run a command, the hub decides with the same rules as for Claude. Files in the bot's own folders and safe commands go ahead. Anything else gets an approval card, also on routine turns with approvals bypassed.
 - Under the hood, the hub now speaks the Agent Client Protocol (ACP), so more agents can be added the same way later. The check also reports the CLI's version and warns when that version has not been tested.
 
+### Plan limits and a provider per bot (web)
+
+- The Usage page shows how full each Claude plan window is, as a bar with the percent and the reset time written out.
+  It turns amber from 80% and red at the limit. Nothing shows for a provider signed in with an API key.
+- When a bot in the chat can't reply because its provider hit a plan limit, a calm note above the message box says
+  which limit and when it resets. It goes away by itself at the reset time.
+- On a hub with more than one provider, the bot dialog has a Provider choice (Default, or a provider by name, with
+  "untested" kept). The model list follows it. If the bot has schedules or triggers, it warns that they will run on
+  the new provider with nobody watching.
+- The model picker in the message box shows only when every bot in the room runs on Claude.
+- With more than one provider, the Settings section is called Providers, and its "needs attention" dot covers every
+  provider a bot runs on. On each provider card, only the name row is the radio button, so Re-check and setup links
+  work properly with a keyboard and a screen reader.
+- Usage is split by provider when more than one has been used, and spend on a subscription login is marked as an
+  estimate.
+
 ### Each bot can run on its own provider (hub)
 
 - A bot can now have its own provider instead of following the one set in Settings. Only you can choose it, through the bot's settings (the REST API). A bot that tries to set a provider or a backup for itself or another bot is refused. The provider picker in the app comes in a later update.
