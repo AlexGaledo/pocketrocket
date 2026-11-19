@@ -149,6 +149,10 @@ describe('a turn\'s file folder', () => {
     expect(readOnlyWriteDecision('Write', { file_path: path.join(beta, 'current.md') }, inA.readOnlyDirs!, inA.workspaceDir, true)?.decision).toBe('deny');
     expect(readOnlyWriteDecision('Write', { file_path: path.join(alpha, 'current.md') }, inA.readOnlyDirs!, inA.workspaceDir, true)).toBeNull();
     expect(inA.systemPrompt).toContain('read every project');
+    // It may list the projects folder to find a slug, but not other rooms' folders.
+    expect(inA.projectGuard!('Glob', { path: path.dirname(alpha), pattern: '*' }, inA.workspaceDir)).toBeNull();
+    expect(inA.projectGuard!('Bash', { command: 'ls ' + path.dirname(alpha).replaceAll('\\', '/') }, inA.workspaceDir)).toBeNull();
+    expect(inA.projectGuard!('Glob', { path: s.roomsDir, pattern: '*' }, inA.workspaceDir)).toMatch(/another room/);
     // Other rooms' folders stay shut.
     expect(read(inA, path.join(s.roomsDir, s.plain.id, 'x.md'))).toMatch(/another room/);
 
@@ -162,5 +166,6 @@ describe('a turn\'s file folder', () => {
     const ctx = await s.run(s.dm);
     expect(ctx.readOnlyDirs ?? []).not.toContain(s.projects.dirOf('alpha'));
     expect(ctx.systemPrompt).not.toContain('read every project');
+    expect(ctx.projectGuard!('Glob', { path: path.dirname(s.projects.dirOf('alpha')), pattern: '*' }, ctx.workspaceDir)).toMatch(/another room/);
   });
 });

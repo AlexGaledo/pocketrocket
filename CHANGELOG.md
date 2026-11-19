@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The persona bot can read every project's folder from any room, read-only. It still writes only in the folder of the room it is in: the other projects are read-only roots (mounted read-only in the bot sandbox, refused by the write guard even with approvals bypassed).
 - Its prompt says so, so it stops telling the owner a project's folder is closed to it.
 - Other rooms' folders, the hub's keys, token and database stay out of reach. Other bots are unchanged.
+- It can list the projects folder to find a project's name. Other bots still cannot.
+- A refused write into a read-only folder now says "read-only folder", not "knowledge repo", since a project folder can be one too.
 
 ## [0.5.1] - 2026-11-20
 

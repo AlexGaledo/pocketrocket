@@ -678,7 +678,7 @@ export class BotRunner {
       projectGuard: this.projects || this.roomFiles
         ? (name, input, cwd) => folderAccessDenied(name, input, cwd, [
             ...(this.projects
-              ? [{ root: this.projects.root, allowed: isPersona ? this.projects.knownSlugs() : roomProject ? [roomProject.slug] : [], known: this.projects.knownSlugs() }]
+              ? [{ root: this.projects.root, allowed: isPersona ? this.projects.knownSlugs() : roomProject ? [roomProject.slug] : [], known: this.projects.knownSlugs(), listable: isPersona }]
               : []),
             ...(this.roomFiles
               ? [{ root: this.roomFiles.roomsDir, allowed: folder?.kind === 'room' ? [room.id] : [], known: this.repos.listRooms().map((r) => r.id) }]

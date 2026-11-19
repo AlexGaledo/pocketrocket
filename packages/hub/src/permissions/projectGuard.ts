@@ -10,6 +10,8 @@ export interface FolderScope {
   root: string;
   allowed: readonly string[];
   known: readonly string[];
+  /** The folder itself may be listed (the persona, which may read every project). Its subfolders still follow `allowed`. */
+  listable?: boolean;
 }
 
 /** The owner-edited repo list in a project's folder (services/ProjectService.ts REPOS_FILE). */
@@ -68,7 +70,7 @@ function scopeDenied(toolName: string, input: Record<string, unknown>, cwd: stri
     const rootText = root.replaceAll('\\', '/');
     const after = new RegExp('(?:' + escapeRe(rootText) + '|\\.\\./' + escapeRe(base) + ')(?:/([\\w.*?-]*))?', 'gi');
     for (const m of cmd.matchAll(after)) {
-      if (!m[1] || !allowed.includes(m[1])) return refuse(m[1] || 'list');
+      if (!m[1] ? !scope.listable : !allowed.includes(m[1])) return refuse(m[1] || 'list');
     }
     // A plain relative path, after `cd ..`. Only names that are real, so `src/projects/x` is left alone.
     for (const m of cmd.matchAll(new RegExp('\\b' + escapeRe(base) + '/([\\w-]+)', 'g'))) {
@@ -83,7 +85,7 @@ function scopeDenied(toolName: string, input: Record<string, unknown>, cwd: stri
     const inside = rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
     if (inside) {
       const name = rel.split(path.sep)[0];
-      if (!name || !allowed.includes(name)) return refuse(name || 'list');
+      if (!name ? !scope.listable : !allowed.includes(name)) return refuse(name || 'list');
       continue;
     }
     // A recursive search from above the folder would read every room's files.
