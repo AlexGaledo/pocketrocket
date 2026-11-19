@@ -17,6 +17,22 @@ export interface ModelInfo {
   default?: boolean;
 }
 
+/**
+ * Model ids a provider no longer offers, and the id that replaced each. Read-time only: a stored bot (or backup) on an
+ * old id reads as the new one, and the next save writes it. The ids are unique to their provider, so no provider
+ * check is needed. Gemini's first list was a guess made before the live test (P2-4); agy 1.5.12 offers other ids.
+ */
+export const RENAMED_MODELS: Readonly<Record<string, string>> = {
+  'gemini-default': 'gemini-3.1-pro',
+  'gemini-3-pro': 'gemini-3.1-pro',
+  'gemini-3-flash': 'gemini-3.8-flash',
+};
+
+/** `id`, or what replaced it. */
+export function currentModelId(id: string): string {
+  return Object.hasOwn(RENAMED_MODELS, id) ? RENAMED_MODELS[id] : id;
+}
+
 export type ProviderAuth = 'subscription' | 'apiKey' | 'none' | 'unknown';
 
 export interface ProviderCheck {

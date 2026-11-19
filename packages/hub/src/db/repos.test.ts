@@ -118,6 +118,23 @@ describe('M6: provider per bot', () => {
     expect(r.getBot(b.id)).toMatchObject({ provider: null, backup: null });
   });
 
+  it('reads a Gemini model id from before the live list as its replacement, bot and backup alike (P2-4)', () => {
+    const r = fresh();
+    const a = r.createBot({ ...base, provider: 'gemini' });
+    const b = r.createBot({ ...base, handle: 'b' });
+    const c = r.createBot({ ...base, handle: 'c', provider: 'gemini' });
+    r.db.run("UPDATE bots SET model='gemini-default' WHERE id=?", a.id);
+    r.db.run(`UPDATE bots SET backup='{"provider":"gemini","model":"gemini-3-pro"}' WHERE id=?`, b.id);
+    r.db.run("UPDATE bots SET model='gemini-3-flash' WHERE id=?", c.id);
+    expect(r.getBot(a.id)!.model).toBe('gemini-3.1-pro');
+    expect(r.getBot(b.id)!.backup).toEqual({ provider: 'gemini', model: 'gemini-3.1-pro' });
+    expect(r.getBot(c.id)!.model).toBe('gemini-3.8-flash');
+    // Any other id reads unchanged, and the next save writes the new one.
+    expect(r.getBot(b.id)!.model).toBe('m');
+    r.updateBot(a.id, { name: 'Saved' });
+    expect(r.db.get('SELECT model FROM bots WHERE id=?', a.id)!.model).toBe('gemini-3.1-pro');
+  });
+
   it('records the provider on usage rows and groups by it', () => {
     const r = fresh();
     const bot = r.createBot(base);

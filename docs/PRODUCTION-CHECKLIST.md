@@ -81,6 +81,7 @@ in Settings or onboarding, and not part of this checklist. See CONTRIBUTING.md.
 | Provider | Check detects install/login | Live DM turn | Approval card | Session resume | Cost shown | Status |
 |---|---|---|---|---|---|---|
 | Claude (Agent SDK) | ☑ | ☑ pong | ☑ | ☑ (cache read) | ☑ | ready |
+| Gemini (`agy acp` 1.5.12, API key, VPS) | ☑ apiKey / gemini-api-key | ☑ | partial: shell asks, file writes do not (strict turns run read-only) | ☑ (`session/resume`) | ☑ tokens, $0 (agy reports no cost) | opt-in (`POCKETROCKET_PROVIDERS`), `untested`, best-effort permissions |
 | Codex / OpenCode / Grok | — | — | — | — | — | disabled for v1 (dev flag only) |
 
 Model picker: Sonnet 5 (default), Opus 5, Fable 5.1, Haiku 4.5. DM a bot "Reply with exactly:
@@ -88,10 +89,12 @@ pong", then ask it to write a file outside the workspace to see an approval card
 
 ### 4a. Gemini live test (v0.5.0, spec 01 task P2-4). Owner, then pr-backend
 
-Gemini (`agy acp`, Google's Antigravity CLI) is in the code as `maturity: 'untested'` and opt-in only. It was built
-against the ACP contract and a fake agent (`test-fixtures/acp/fake-acp-agent.mjs`), never a real `agy` or Google account.
-It flips to `verified`, and becomes on by default, only after every line below is ticked. pr-infra's I-1 (PATH re-read
-on hub spawn) should land first, or install `agy` before starting the app.
+Gemini (`agy acp`, Google's Antigravity CLI) is in the code as `maturity: 'untested'` and opt-in only. Live-tested
+2026-11-19 on the VPS (Linux) with `agy` 1.5.12 at `/home/pocketrocket/.local/bin/agy`, a Gemini API key in Secrets and
+`~/.gemini/antigravity-cli/settings.json` `{"modelProvider":"gemini"}`. It stays `untested` and off by default: `agy`
+does not ask before its own file writes (G6), the Google sign-in was not tried (G12) and no real limit was captured
+(G11). Strict turns (routines, triggers, workflow steps, a failover backup) on Gemini therefore run in `agy`'s `plan`
+mode, or are refused when that mode is missing (see G6).
 
 Setup: install `agy` from https://antigravity.google (PocketRocket never downloads it), run `agy` once in a terminal and
 sign in with the Google AI account, then start the hub with `POCKETROCKET_PROVIDERS=gemini` and `POCKETROCKET_DEBUG=1`.
@@ -99,19 +102,19 @@ Create a bot and set its provider to `gemini` (`PATCH /api/bots/:id {"provider":
 
 | # | Check | Status | How |
 |---|---|---|---|
-| G1 | Detection: Settings › Providers › Gemini (or `POST /api/providers/gemini/check`) finds `agy`, shows its version and `exePath`. Record the install folder on PC and VPS so it can join the lookup after `AGY_EXE` | ☐ | also try with `agy` missing: a clear hint, nothing downloaded |
-| G2 | Reported auth: what `check()` returns as `auth` / `authMethod` on the Google login and on an API key. If both say `unknown`, find where `agy` reports its auth (its `initialize` `_meta`, a status command) and send it to pr-backend for `parseGeminiAuth` | ☐ | the guard treats `unknown` as the Google login, so routines stay refused until this is known |
-| G3 | API-key variable: does `agy` read `GEMINI_API_KEY`? Set it in Settings › Secrets, sign out of Google, run a DM turn | ☐ | if it uses another name, pr-backend changes `GEMINI_KEY_VAR` and the env list in `providers/env.ts` |
-| G4 | DM turn: "Reply with exactly: pong" gets `pong`; a second message resumes the session (check `session/resume` or `session/load` in the debug log) | ☐ | |
-| G5 | Hand-off: in a group, the Gemini bot hands off to a Claude bot with `@` or the hand-off tool; the hub tools reach it (HTTP MCP, or the stdio bridge if `agy` lacks `mcpCapabilities.http`; note which) | ☐ | |
-| G6 | **Does `agy` ask before writes and shell?** Ask it to write a file outside the workspace and to run `rm` on a temp file: an approval card must appear. Note which ACP `kind` and `locations` it sends | ☐ | if it never asks, Gemini stays `best-effort`, and a strict (backup) turn must run read-only (spec 01 §4.7 item 7) |
-| G7 | Modes: which modes or `mode` config options `agy` lists; on a routine with an API key, the strict turn switched to the asking mode (debug log `session/set_mode`) | ☐ | |
-| G8 | Models: which `model` config option values `agy` offers; replace `GEMINI_MODELS` with them | ☐ | |
-| G9 | Interrupt: Stop during a long answer ends the turn as stopped within a few seconds, and no `agy` process is left (Task Manager / `ps`) | ☐ | |
-| G10 | Unattended guard: on the Google login a routine posts "did not run: Gemini on a Google sign-in…" and does not run; Run now on the same routine runs; with the API key the routine runs and still cards | ☐ | |
-| G11 | Limit fixture: when a Gemini limit is hit, save the JSON-RPC error and any `notice` update from the debug log as `providers/__fixtures__/gemini/limit-quota.agy.json`; the note must read as a limit with a reset time, not the raw text | ☐ | pr-backend tightens `geminiLimit` from it |
-| G12 | Where `agy` stores its login on the PC and on the VPS (and whether the VPS needs a keyring or a device-code login). Recommend the API key on the VPS | ☐ | |
-| G13 | Record the tested `agy` version in `AGY_TESTED`, set `GEMINI_INFO.maturity = 'verified'` and `testedVersions`, and add Gemini to the default enabled list | ☐ | pr-backend, after G1-G12 |
+| G1 | Detection: Settings › Providers › Gemini (or `POST /api/providers/gemini/check`) finds `agy`, shows its version and `exePath`. Record the install folder on PC and VPS so it can join the lookup after `AGY_EXE` | ☑ | found `agy` 1.5.12 on the VPS at `/home/pocketrocket/.local/bin/agy`. Not yet in the built-in lookup (only `AGY_EXE` and PATH); PC install folder not recorded yet |
+| G2 | Reported auth: what `check()` returns as `auth` / `authMethod` on the Google login and on an API key. If both say `unknown`, find where `agy` reports its auth (its `initialize` `_meta`, a status command) and send it to pr-backend for `parseGeminiAuth` | ☑ | after #179: `auth: apiKey`, `authMethod: gemini-api-key`. `agy` reports no method in use; `initialize` lists `authMethods` oauth-personal, oauth-business, gemini-api-key, agent-platform; `agentCapabilities.loadSession`; session resume/close/load/list/additionalDirectories; `_meta.antigravity {tier, systemPrompt.append}`. The hub infers apiKey from the key in the spawn env plus `modelProvider: "gemini"` |
+| G3 | API-key variable: does `agy` read `GEMINI_API_KEY`? Set it in Settings › Secrets, sign out of Google, run a DM turn | ☑ | `agy` reads `GEMINI_API_KEY`, but only with `"modelProvider": "gemini"` in `~/.gemini/antigravity-cli/settings.json` |
+| G4 | DM turn: "Reply with exactly: pong" gets `pong`; a second message resumes the session (check `session/resume` or `session/load` in the debug log) | ☑ | DM answered; the next message resumed the session; context size reported (window 1,048,576) |
+| G5 | Hand-off: in a group, the Gemini bot hands off to a Claude bot with `@` or the hand-off tool; the hub tools reach it (HTTP MCP, or the stdio bridge if `agy` lacks `mcpCapabilities.http`; note which) | ☑ | the Gemini bot called `mcp_pocketrocket_handoff` and the Claude bot answered (HTTP MCP). A hand-off-only turn wrote no usage row; fixed in the G13 PR (a run that called a tool is accounted) |
+| G6 | **Does `agy` ask before writes and shell?** Ask it to write a file outside the workspace and to run `rm` on a temp file: an approval card must appear. Note which ACP `kind` and `locations` it sends | partial | shell asks: kind `execute`, card tool `acp:execute:run_command`, `rawInput.CommandLine`; deny ends the turn in <1 s, no `agy` left. **File writes do not ask**: `write_file` to `/tmp/g6-probe.txt` (outside the workspace) ran with no `session/request_permission`, in `agy`'s `default` mode, approvals on `ask`. So Gemini stays `best-effort`, and strict turns run read-only: `plan` mode before the prompt, refused if `agy` offers no `plan` or refuses the switch, stopped if it announces an edit/delete/move/switch_mode call or leaves `plan`. Still to check live: that `agy` in `plan` refuses `write_file` |
+| G7 | Modes: which modes or `mode` config options `agy` lists; on a routine with an API key, the strict turn switched to the asking mode (debug log `session/set_mode`) | ☑ | modes `default` ("Ask before edits and commands, per your permission settings"), `accept-edits`, `plan`. Strict turns now pick `plan` (not `default`, which lets writes through) |
+| G8 | Models: which `model` config option values `agy` offers; replace `GEMINI_MODELS` with them | ☑ | `model` values: gemini-4-neon, gemini-4-carbon, gemini-4-hydrogen, gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.1-pro (current). `models.availableModels` adds effort variants (`-low`/`-high`, `-xhigh`), not offered. `GEMINI_MODELS` replaced; old ids read as gemini-3.1-pro / gemini-3.8-flash |
+| G9 | Interrupt: Stop during a long answer ends the turn as stopped within a few seconds, and no `agy` process is left (Task Manager / `ps`) | ☑ | Stop ended the turn in ~0.2 s, no `agy` left |
+| G10 | Unattended guard: on the Google login a routine posts "did not run: Gemini on a Google sign-in…" and does not run; Run now on the same routine runs; with the API key the routine runs and still cards | ☑ | after #179: a scheduled one-shot routine ran on the API key; usage row provider=gemini, model=gemini-3.1-pro, tokens recorded, cost $0. Google-login refusal not tried (no Google login on the VPS) |
+| G11 | Limit fixture: when a Gemini limit is hit, save the JSON-RPC error and any `notice` update from the debug log as `providers/__fixtures__/gemini/limit-quota.agy.json`; the note must read as a limit with a reset time, not the raw text | ☐ | no real limit hit yet; `geminiLimit` still matches the synthetic fixture |
+| G12 | Where `agy` stores its login on the PC and on the VPS (and whether the VPS needs a keyring or a device-code login). Recommend the API key on the VPS | partial | API key is the working path on the VPS. Google sign-in not tried on either machine |
+| G13 | Record the tested `agy` version in `AGY_TESTED`, set `GEMINI_INFO.maturity = 'verified'` and `testedVersions`, and add Gemini to the default enabled list | partial | `AGY_TESTED` = 1.5.12, `testedVersions: '1.5.12'`, `GEMINI_MODELS` from G8. Kept `untested` and opt-in (not in the default enabled list) because of G6, G11, G12. Flip to `verified` after: `plan` refuses writes live, a Google sign-in run, a captured limit |
 
 ## 5. Product / UX
 

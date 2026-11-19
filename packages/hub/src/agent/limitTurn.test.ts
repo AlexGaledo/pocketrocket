@@ -69,7 +69,7 @@ describe('a turn that ends on a provider limit', () => {
   it('M8: with a backup set the note has no pointer (the router offers the card); a sign-in failure never has one', async () => {
     const resetsAt = Date.now() + 2 * 3600_000;
     const s = setup(() => ({ ok: false, error: 'usage limit reached', limit: { kind: 'usage', window: 'five_hour', resetsAt } }));
-    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3-pro' } } as never);
+    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3.1-pro' } } as never);
     const r = await s.runner.runTurn({ bot: s.repos.getBot(s.bot.id)!, room: s.room, members: [s.bot], injected: 'hi', hop: 0, causeId: 'c1' } as never);
     expect(r.limit?.kind).toBe('usage');
     expect(s.notes()[0].text).toBe('Ada turn ended: Claude 5-hour limit reached, resets ' + resetTime(resetsAt) + '.');

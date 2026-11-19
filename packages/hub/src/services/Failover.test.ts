@@ -30,7 +30,7 @@ function setup(o: { held?: (id: ProviderId, model?: string) => boolean; enabled?
     timeZone: 'UTC',
   });
   const bot = repos.createBot({ name: 'Ada', handle: 'ada', title: '', description: '', avatar: '', model: 'claude-sonnet-5', allowedTools: [], maxBudgetUsd: 1 });
-  repos.updateBot(bot.id, { backup: { provider: 'gemini', model: 'gemini-3-pro' } });
+  repos.updateBot(bot.id, { backup: { provider: 'gemini', model: 'gemini-3.1-pro' } });
   const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
   const limited = (over: Partial<LimitedTurn> = {}) =>
     svc.limited({
@@ -44,7 +44,7 @@ describe('raising the card', () => {
   it('a usage limit on a bot with a backup raises one pending card that expires at the reset', () => {
     const s = setup();
     const card = s.limited()!;
-    expect(card).toMatchObject({ status: 'pending', provider: 'claude', window: 'five_hour', backup: { provider: 'gemini', model: 'gemini-3-pro' }, resetsAt: RESET, expiresAt: RESET });
+    expect(card).toMatchObject({ status: 'pending', provider: 'claude', window: 'five_hour', backup: { provider: 'gemini', model: 'gemini-3.1-pro' }, resetsAt: RESET, expiresAt: RESET });
     expect(s.svc.state().cards).toHaveLength(1);
     // The public card carries no cause, seqs or budget.
     expect(Object.keys(s.svc.state().cards[0])).not.toContain('causeId');
@@ -67,7 +67,7 @@ describe('raising the card', () => {
 
   it('no loops: a limit on a turn that already ran on the backup raises nothing', () => {
     const s = setup();
-    expect(s.limited({ onBackup: true, provider: 'gemini', model: 'gemini-3-pro' })).toBeNull();
+    expect(s.limited({ onBackup: true, provider: 'gemini', model: 'gemini-3.1-pro' })).toBeNull();
   });
 
   it('no card without a backup, or with one that cannot run (disabled, held, the same model), or with nothing left to spend', () => {
@@ -76,7 +76,7 @@ describe('raising the card', () => {
     expect(s.limited()).toBeNull();
     s.repos.updateBot(s.bot.id, { backup: { provider: 'claude', model: 'claude-sonnet-5' } });
     expect(s.limited()).toBeNull();
-    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3-pro' } });
+    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3.1-pro' } });
     expect(s.limited({ budgetLeftUsd: 0 })).toBeNull();
     expect(setup({ enabled: ['claude'] }).limited()).toBeNull();
     expect(setup({ held: (id) => id === 'gemini' }).limited()).toBeNull();
@@ -99,10 +99,10 @@ describe('answering the card', () => {
     const card = s.limited()!;
     expect(s.svc.stickyFor(s.bot.id)).toBeNull();
     s.svc.decide(card.id, { decision: 'continue' });
-    expect(s.continued).toEqual([{ botId: s.bot.id, roomId: s.room.id, causeId: 'cause1', hop: 0, backup: { provider: 'gemini', model: 'gemini-3-pro' }, fromSeq: 3, toSeq: 5, budgetUsd: 0.7 }]);
-    expect(s.notes.at(-1)!.text).toBe('Ada continues on Gemini (gemini-3-pro), with approvals on. Until Claude resets at 14:00, what you send Ada runs there too.');
-    expect(s.svc.state()).toEqual({ cards: [], active: [{ botId: s.bot.id, from: 'claude', backup: { provider: 'gemini', model: 'gemini-3-pro' }, until: RESET }] });
-    expect(s.svc.stickyFor(s.bot.id)).toEqual({ provider: 'gemini', model: 'gemini-3-pro' });
+    expect(s.continued).toEqual([{ botId: s.bot.id, roomId: s.room.id, causeId: 'cause1', hop: 0, backup: { provider: 'gemini', model: 'gemini-3.1-pro' }, fromSeq: 3, toSeq: 5, budgetUsd: 0.7 }]);
+    expect(s.notes.at(-1)!.text).toBe('Ada continues on Gemini (gemini-3.1-pro), with approvals on. Until Claude resets at 14:00, what you send Ada runs there too.');
+    expect(s.svc.state()).toEqual({ cards: [], active: [{ botId: s.bot.id, from: 'claude', backup: { provider: 'gemini', model: 'gemini-3.1-pro' }, until: RESET }] });
+    expect(s.svc.stickyFor(s.bot.id)).toEqual({ provider: 'gemini', model: 'gemini-3.1-pro' });
     // Once per press: a second answer is refused and queues nothing.
     expect(() => s.svc.decide(card.id, { decision: 'continue' })).toThrow(FailoverError);
     expect(s.continued).toHaveLength(1);
@@ -116,14 +116,14 @@ describe('answering the card', () => {
   it('Continue stops applying when the owner removes or changes the backup', () => {
     const s = setup();
     s.svc.decide(s.limited()!.id, { decision: 'continue' });
-    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3-flash' } });
+    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3.8-flash' } });
     expect(s.svc.stickyFor(s.bot.id)).toBeNull();
   });
 
   it('Continue is refused when the backup changed since the card, or is held now; nothing is queued', () => {
     const s = setup();
     const card = s.limited()!;
-    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3-flash' } });
+    s.repos.updateBot(s.bot.id, { backup: { provider: 'gemini', model: 'gemini-3.8-flash' } });
     expect(() => s.svc.decide(card.id, { decision: 'continue' })).toThrow(/backup changed/);
     expect(s.svc.state().cards).toEqual([]);
 

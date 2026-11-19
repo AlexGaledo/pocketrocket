@@ -23,7 +23,7 @@ const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms));
 const T0 = Date.UTC(2026, 10, 19, 10, 0);
 const RESET = T0 + 4 * 3600_000;
 const LIMITED = (provider: ProviderId = 'claude'): Partial<TurnResult> => ({
-  ok: false, error: 'usage limit reached', costUsd: 0.3, provider, model: provider === 'claude' ? 'claude-sonnet-5' : 'gemini-3-pro',
+  ok: false, error: 'usage limit reached', costUsd: 0.3, provider, model: provider === 'claude' ? 'claude-sonnet-5' : 'gemini-3.1-pro',
   limit: { kind: 'usage', window: 'five_hour', resetsAt: RESET },
 });
 
@@ -48,7 +48,7 @@ function setup(o: { backup?: boolean } = {}) {
   });
   router.failover = failover;
   const bot = repos.createBot({ name: 'Ada', handle: 'ada', title: '', description: '', avatar: '', model: 'claude-sonnet-5', allowedTools: [], maxBudgetUsd: 1 });
-  if (o.backup !== false) repos.updateBot(bot.id, { backup: { provider: 'gemini', model: 'gemini-3-pro' } });
+  if (o.backup !== false) repos.updateBot(bot.id, { backup: { provider: 'gemini', model: 'gemini-3.1-pro' } });
   const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
   const lanes = () => repos.db.all<{ n: number }>('SELECT COUNT(*) AS n FROM lane_journal')[0].n;
   return { repos, router, failover, reqs, script, bot: bot as Bot, room, lanes, setNow: (t: number) => (now = t) };
@@ -81,7 +81,7 @@ describe('the failover card through the router', () => {
     s.failover.decide(s.failover.state().cards[0].id, { decision: 'continue' });
     await until(() => s.reqs.length === 2);
     const r = s.reqs[1];
-    expect(r.providerOverride).toEqual({ provider: 'gemini', model: 'gemini-3-pro' });
+    expect(r.providerOverride).toEqual({ provider: 'gemini', model: 'gemini-3.1-pro' });
     expect(r.strictApprovals).toBe(true);
     expect(r.causeId).toBe(first.causeId);
     expect(r.causeKind).toBe('user');
@@ -112,7 +112,7 @@ describe('the failover card through the router', () => {
     await until(() => s.reqs.length === 2);
     s.router.onUserMessage(s.room.id, 'and the summary');
     await until(() => s.reqs.length === 3);
-    expect(s.reqs[2].providerOverride).toEqual({ provider: 'gemini', model: 'gemini-3-pro' });
+    expect(s.reqs[2].providerOverride).toEqual({ provider: 'gemini', model: 'gemini-3.1-pro' });
     expect(s.reqs[2].strictApprovals).toBe(true);
     // A routine in that window is unattended: it stays on Claude.
     s.router.fireRoutine(s.room, s.bot, '[Routine "n"] go', { routineId: 'r1', runId: 'run1', name: 'n' });

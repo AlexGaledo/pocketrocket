@@ -1,7 +1,7 @@
 import type { BotPreview, SearchHit } from '@pocketrocket/shared';
 import { nanoid } from 'nanoid';
 import {
-  AUTO_MEMORY_EVERY, PROVIDER_IDS,
+  AUTO_MEMORY_EVERY, PROVIDER_IDS, currentModelId,
   type Bot, type BotBackup, type ProviderId, type Room, type Message, type Routine, type RoutineRun, type Skill, type UsageTotals, type UsageRow, type MessageKind, type AuthorType,
   type CauseKind, type UsageGroup, type OpenApproval,
   type User,
@@ -48,7 +48,7 @@ export class Repos {
       title: (r.title as string) ?? '',
       description: (r.description as string) ?? '',
       avatar: (r.avatar as string) || '',
-      model: r.model as string,
+      model: currentModelId(r.model as string),
       allowedTools: JSON.parse((r.allowed_tools as string) || '[]'),
       maxBudgetUsd: r.max_budget_usd as number,
       autoMemory: !!(r.auto_memory as number),
@@ -789,7 +789,7 @@ function backupOf(v: unknown): BotBackup | null {
   try {
     const b = JSON.parse(v) as Partial<BotBackup>;
     const provider = providerOf(b?.provider);
-    return provider && typeof b.model === 'string' && b.model ? { provider, model: b.model } : null;
+    return provider && typeof b.model === 'string' && b.model ? { provider, model: currentModelId(b.model) } : null;
   } catch {
     return null;
   }

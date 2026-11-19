@@ -65,7 +65,7 @@ export function createProviders(deps: RegistryDeps): ProviderRegistry {
     codex: createCodexProvider(),
     opencode: createOpenCodeProvider(),
     grok: createGrokProvider(),
-    // M7: Antigravity CLI over ACP. Opt-in (POCKETROCKET_PROVIDERS) and `untested` until the owner's live test.
+    // M7: Antigravity CLI over ACP. Opt-in (POCKETROCKET_PROVIDERS) and `untested`: live-tested on agy 1.5.12, but writes do not ask (G6).
     gemini: createGeminiProvider(),
   };
   const enabled = deps.enabled ?? ENABLED_PROVIDERS;

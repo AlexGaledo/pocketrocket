@@ -15,9 +15,10 @@ import type { TurnLimit } from './types.js';
  * adapter. PocketRocket never downloads or installs `agy` (it is closed source); it finds the user's own copy and
  * drives it as is, which is the one route a Google AI Pro login allows [G3].
  *
- * UNTESTED: written to the ACP contract and a fake agent, never run against a real `agy` or Google account. The owner's
- * live test (P2-4, docs/PRODUCTION-CHECKLIST.md) confirms the install path, the sign-in, how `agy` reports its auth,
- * the API-key variable, whether it asks before writes and shell, and a real limit message. Until then: `untested`.
+ * Live-tested (P2-4, docs/PRODUCTION-CHECKLIST.md §4a) with agy 1.5.12 on Linux and a Gemini API key: DMs, resume,
+ * context size, hub MCP tools, interrupt, a scheduled routine and usage rows work. Still `untested` in the picker:
+ * the Google sign-in was not tried, no real limit has been captured, and agy's `default` mode asks before shell but
+ * NOT before its own file writes (G6). So strict turns run read-only (`strictReadOnly` below).
  */
 
 export const GEMINI_INFO: ProviderStaticInfo = {
@@ -26,28 +27,34 @@ export const GEMINI_INFO: ProviderStaticInfo = {
   blurb: "Google Gemini through the Antigravity CLI (agy). Sign in with Google, or use a Gemini API key.",
   authModes: ['subscription', 'apiKey'],
   secretKeys: ['GEMINI_API_KEY'],
-  // Parity depends on agy asking through session/request_permission; unverified until P2-4.
+  // agy asks through session/request_permission before shell, but not before its own file writes (live G6, 1.5.12).
   permissions: 'best-effort',
+  // Not `verified`: writes do not ask, the Google sign-in and a real limit are untried. The picker keeps its warning.
   maturity: 'untested',
+  testedVersions: '1.5.12',
 };
 
 /** The variable the key is handed to `agy` in. Gemini's documented name; P2-4 confirms `agy` reads it. */
 export const GEMINI_KEY_VAR = 'GEMINI_API_KEY';
 
-/**
- * No version has been run against PocketRocket yet. P2-4 records the first one here ({ min: '1.2.0', max: '1.2.9' }),
- * and `testedVersions` on the info follows it.
- */
-export const AGY_TESTED: { min: string; max: string } | null = null;
+/** The agy versions run live against PocketRocket (P2-4). `GEMINI_INFO.testedVersions` says the same for the UI. */
+export const AGY_TESTED: { min: string; max: string } | null = { min: '1.5.12', max: '1.5.12' };
 
 /**
- * Curated, not discovered: ACP has no model list call. The bot's model is only applied when `agy` offers it as a
- * `model` config option; otherwise `agy` keeps its own default. P2-4 replaces these ids with what `agy` offers.
+ * Curated, not discovered: ACP has no model list call. These are the `model` config option values agy 1.5.12 offered
+ * live (P2-4, G8); its `models.availableModels` also lists effort variants (`-low`/`-high`), left out here. The bot's
+ * model is only applied when agy offers it in that session; otherwise agy keeps its own current one. Bots saved on the
+ * pre-live ids (`gemini-default`, `gemini-3-pro`, `gemini-3-flash`) read as these (`RENAMED_MODELS` in shared).
  */
 export const GEMINI_MODELS: ModelInfo[] = [
-  { id: 'gemini-default', label: 'Gemini (agy default)', note: "whatever agy is set to", default: true },
-  { id: 'gemini-3-pro', label: 'Gemini 3 Pro', note: 'strongest; used only if agy offers it' },
-  { id: 'gemini-3-flash', label: 'Gemini 3 Flash', note: 'faster; used only if agy offers it' },
+  { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', note: "agy's default", default: true },
+  { id: 'gemini-4-neon', label: 'Gemini 4 Neon', note: 'used only if your plan offers it' },
+  { id: 'gemini-4-carbon', label: 'Gemini 4 Carbon', note: 'used only if your plan offers it' },
+  { id: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen', note: 'used only if your plan offers it' },
+  { id: 'gemini-4-argon', label: 'Gemini 4 Argon', note: 'used only if your plan offers it' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', note: 'faster' },
+  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', note: 'faster' },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', note: 'faster' },
 ];
 
 export const GEMINI_HINT =
@@ -177,6 +184,9 @@ export function geminiPreset(opts: GeminiProviderOptions = {}): AcpPreset {
     args: ['acp'],
     env,
     limitOf: (text) => geminiLimit(text),
+    // Live G6: in agy's `default` mode `write_file` ran outside the workspace with no permission request. A strict turn
+    // (routine, trigger, workflow step, failover backup) therefore runs in agy's `plan` mode, or not at all.
+    strictReadOnly: true,
     async check(probe): Promise<ProviderCheck> {
       const exe = await findExe();
       if (!exe) return { ok: false, auth: 'none', exePath: process.env.AGY_EXE || 'agy (on PATH)', error: 'agy (the Antigravity CLI) was not found', hint: GEMINI_HINT };

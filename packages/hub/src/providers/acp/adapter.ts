@@ -10,7 +10,7 @@ import {
   type SessionConfigOption,
   type SessionModeState,
 } from '@agentclientprotocol/sdk';
-import type { ModelInfo, ProviderCheck, ProviderId, ProviderStaticInfo } from '@pocketrocket/shared';
+import { currentModelId, type ModelInfo, type ProviderCheck, type ProviderId, type ProviderStaticInfo } from '@pocketrocket/shared';
 import { VERSION } from '../../config.js';
 import { childEnv, type ProviderKind } from '../env.js';
 import { addSecret, redact } from '../redact.js';
@@ -19,7 +19,7 @@ import type { TurnUsage } from '../../services/UsageTracker.js';
 import { limitError } from '../claude.js';
 import { hubMcpServer, startAcp, withTimeout, type AcpProcess } from './client.js';
 import { AcpEventMapper } from './events.js';
-import { decideAcpPermission, strictModeChange } from './permissions.js';
+import { decideAcpPermission, readOnlyModeChange, readOnlyViolation, strictModeChange } from './permissions.js';
 
 /** Cold start of a closed CLI (first run after boot, an antivirus scan): the same 12 s Claude gets. */
 export const ACP_START_TIMEOUT_MS = 12_000;
@@ -27,6 +27,11 @@ export const ACP_START_TIMEOUT_MS = 12_000;
 const SESSION_TIMEOUT_MS = 60_000;
 /** After `session/cancel`, how long the agent gets to answer the prompt with `cancelled` before it is killed. */
 const CANCEL_GRACE_MS = 5_000;
+
+/** Told to the agent on a read-only strict turn, after the prompt, so it reports instead of trying to write. */
+export const READ_ONLY_NOTE =
+  'This run is unattended and read-only: you cannot create, change, move or delete files, and trying ends the run. ' +
+  'Read what you need and report what should change instead.';
 
 /** Everything that makes one ACP agent different from another. `providers/gemini.ts` is the first. */
 export interface AcpPreset {
@@ -47,6 +52,11 @@ export interface AcpPreset {
   /** The provider's limit matcher over an error or notice text; null when it is not a limit. */
   limitOf(text: string): TurnLimit | null;
   check(probe: () => Promise<AcpProbe>): Promise<ProviderCheck>;
+  /**
+   * The agent's ask mode does not ask before its own file writes (agy 1.5.12, live G6), so a strict turn must run in
+   * the agent's read-only mode instead, and is refused when it has none (spec 01 §4.7 item 7).
+   */
+  strictReadOnly?: boolean;
 }
 
 /** What `initialize` told us, for `check()`. */
@@ -187,11 +197,25 @@ export class AcpProvider implements AgentProvider {
     let cancelled = false;
     let killTimer: NodeJS.Timeout | undefined;
     let budgetHit = false;
+    // A strict turn on an agent that writes without asking runs read-only (spec 01 §4.7 item 7). `readOnlyId` is the
+    // mode it runs in once switched; from then on a write-kind tool call or a mode change stops the turn.
+    const readOnly = !!ctx.strictApprovals && !!this.preset.strictReadOnly;
+    let readOnlyId: string | null = null;
+    let violation: string | null = null;
+    // Set once the prompt is out: from then on the agent may spend, so a run it worked on is a usage row however it ends.
+    let prompted = false;
+    let answeredModel: string | undefined;
+    const spent = (): Partial<TurnOutcome> =>
+      prompted && mapper.worked ? { accounted: true, ...(answeredModel && answeredModel !== ctx.model ? { model: answeredModel } : {}) } : {};
     let p: AcpProcess;
     try {
       p = startAcp(exe, this.preset.args, { cwd: ctx.workspaceDir, env: this.env() }, {
         onUpdate: (n) => {
           if (sessionId && n.sessionId !== sessionId) return;
+          if (readOnlyId !== null && !violation) {
+            violation = readOnlyViolation(n.update, readOnlyId);
+            if (violation) cancel();
+          }
           mapper.push(n.update);
           // The agent's own dollar figure, when it gives one, is the only cost an ACP run reports.
           if (!budgetHit && ctx.maxBudgetUsd > 0 && ownCost() > ctx.maxBudgetUsd) {
@@ -199,7 +223,7 @@ export class AcpProvider implements AgentProvider {
             cancel();
           }
         },
-        onPermission: (req, signal) => decideAcpPermission(req, ctx, AbortSignal.any([signal, ctx.signal])),
+        onPermission: (req, signal) => decideAcpPermission(req, ctx, AbortSignal.any([signal, ctx.signal]), readOnly),
       });
     } catch (e) {
       return outcome('could not start ' + cli + ': ' + messageOf(e), { limit: { kind: 'down' } });
@@ -273,8 +297,22 @@ export class AcpProvider implements AgentProvider {
         return outcome('interrupted');
       }
 
-      // A strict turn starts in the most restrictive mode that still asks (spec 01 §4.4, §4.7 item 7).
-      if (ctx.strictApprovals) {
+      if (readOnly) {
+        // Not "a mode that asks": this agent's ask mode lets its own writes through without a request, so no
+        // permission answer can stop them. Its read-only mode is the only control; without one the turn does not run.
+        const ro = readOnlyModeChange(modes, configOptions);
+        const refused = (why: string) => outcome(cli + ' ' + why + ', so this unattended run was not started: ' + cli + ' does not ask before it writes files.');
+        if (!ro) return refused('offers no read-only mode');
+        try {
+          if (ro.kind === 'mode' && !ro.current) await p.conn.agent.request(methods.agent.session.setMode, { sessionId, modeId: ro.modeId });
+          else if (ro.kind === 'config' && !ro.current) await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: ro.configId, value: ro.value });
+        } catch (e) {
+          if (cancelled) return outcome('interrupted');
+          return refused('would not switch to its read-only mode (' + redact(messageOf(e)).slice(0, 200) + ')');
+        }
+        readOnlyId = ro.kind === 'mode' ? ro.modeId : ro.value;
+      } else if (ctx.strictApprovals) {
+        // A strict turn starts in the most restrictive mode that still asks (spec 01 §4.4, §4.7 item 7).
         const change = strictModeChange(modes, configOptions);
         if (change?.kind === 'mode') await p.conn.agent.request(methods.agent.session.setMode, { sessionId, modeId: change.modeId });
         else if (change?.kind === 'config') await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: change.configId, value: change.value });
@@ -282,22 +320,24 @@ export class AcpProvider implements AgentProvider {
       // The bot's model, when the agent offers it as a model option. Otherwise the agent keeps its own default.
       const modelOpt = (configOptions ?? []).find((o) => o.type === 'select' && o.category === 'model');
       // The model the agent runs on, for the usage row: the bot's when applied, else the agent's own current one.
-      let answeredModel: string | undefined;
+      // A model id the provider renamed (a bot saved before the live list) asks for its replacement.
+      const wanted = currentModelId(ctx.model);
       if (modelOpt && modelOpt.type === 'select') {
         answeredModel = modelOpt.currentValue;
-        if (modelOpt.currentValue !== ctx.model) {
+        if (modelOpt.currentValue !== wanted) {
           const values = modelOpt.options.flatMap((o) => ('group' in o ? o.options : [o])).map((o) => o.value);
-          if (values.includes(ctx.model)) {
-            await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: modelOpt.id, value: ctx.model });
-            answeredModel = ctx.model;
+          if (values.includes(wanted)) {
+            await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: modelOpt.id, value: wanted });
+            answeredModel = wanted;
           }
         }
       }
 
-      const prompt: ContentBlock[] = [{ type: 'text', text: buildAcpPrompt(ctx, resumed) }];
+      const prompt: ContentBlock[] = [{ type: 'text', text: buildAcpPrompt(ctx, resumed) + (readOnly ? '\n\n' + READ_ONLY_NOTE : '') }];
       if (init.agentCapabilities?.promptCapabilities?.image) {
         for (const img of ctx.images ?? []) if (img.data) prompt.push({ type: 'image', data: img.data.toString('base64'), mimeType: img.mediaType });
       }
+      prompted = true;
       const res: PromptResponse = await Promise.race([p.conn.agent.request(methods.agent.session.prompt, { sessionId, prompt }), died]);
       mapper.flush();
 
@@ -310,6 +350,7 @@ export class AcpProvider implements AgentProvider {
         ...(answeredModel && answeredModel !== ctx.model ? { model: answeredModel } : {}),
         ...(mapper.sessionCostUsd !== undefined ? { sessionCostUsd: mapper.sessionCostUsd } : {}),
       };
+      if (violation) return outcome(cli + ' was stopped: it ' + violation + ' during an unattended read-only run', extra);
       if (budgetHit) return outcome('budget exceeded: $' + costUsd.toFixed(4) + ' over the $' + String(ctx.maxBudgetUsd) + ' cap', extra);
       if (res.stopReason === 'cancelled' || cancelled) return outcome('interrupted', extra);
       if (res.stopReason === 'end_turn') {
@@ -323,7 +364,9 @@ export class AcpProvider implements AgentProvider {
       return outcome(cli + ' stopped: ' + String(res.stopReason), extra);
     } catch (e) {
       mapper.flush();
-      if (cancelled) return outcome('interrupted');
+      // A run the agent already worked on (text or a tool call: a hand-off, say) is a usage row however it ended.
+      if (violation) return outcome(cli + ' was stopped: it ' + violation + ' during an unattended read-only run', spent());
+      if (cancelled) return outcome('interrupted', spent());
       let msg = messageOf(e);
       // The agent died: its stdout closed first, so the pending request failed as "connection closed". Say how it died.
       if (/connection closed|process exited/i.test(msg)) {
@@ -333,11 +376,11 @@ export class AcpProvider implements AgentProvider {
       const text = msg + (mapper.notices.length ? ' ' + mapper.notices.join(' ') : '');
       if (isAuthError(e)) {
         const limit: TurnLimit = { kind: 'auth' };
-        return outcome(limitError(limit) + '. ' + this.preset.hint, { limit });
+        return outcome(limitError(limit) + '. ' + this.preset.hint, { ...spent(), limit });
       }
       const limit = this.preset.limitOf(text);
-      if (limit) return outcome(limitError(limit), { limit });
-      return outcome((text.startsWith(cli + ' ') ? '' : cli + ': ') + redact(text).slice(0, 500));
+      if (limit) return outcome(limitError(limit), { ...spent(), limit });
+      return outcome((text.startsWith(cli + ' ') ? '' : cli + ': ') + redact(text).slice(0, 500), spent());
     } finally {
       clearTimeout(killTimer);
       ctx.signal.removeEventListener('abort', cancel);

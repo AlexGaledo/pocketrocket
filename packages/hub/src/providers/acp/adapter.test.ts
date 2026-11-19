@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Bot, Room } from '@pocketrocket/shared';
 import { isStaleSessionError } from '../../agent/BotRunner.js';
-import { createGeminiProvider } from '../gemini.js';
+import { createGeminiProvider, geminiPreset } from '../gemini.js';
 import type { TurnContext, TurnSink } from '../types.js';
+import { AcpProvider, READ_ONLY_NOTE } from './adapter.js';
 import { MCP_STDIO_BRIDGE } from './client.js';
 
 /**
@@ -36,6 +37,12 @@ afterEach(() => {
 
 function provider(knobs: Record<string, string> = {}) {
   return createGeminiProvider({ exe: FAKE, env: { FAKE_ACP_RECORD: recordPath, ...knobs }, secrets: { get: () => null } });
+}
+
+/** The same fake behind a preset whose ask mode does ask before writes: the generic strict path, without read-only. */
+function askingProvider(knobs: Record<string, string> = {}) {
+  const opts = { exe: FAKE, env: { FAKE_ACP_RECORD: recordPath, ...knobs }, secrets: { get: () => null } };
+  return new AcpProvider({ ...geminiPreset(opts), strictReadOnly: false }, opts);
 }
 
 type Rec = Record<string, unknown> & { method?: string; params?: Record<string, unknown> };
@@ -155,6 +162,30 @@ describe('ACP adapter: usage of a run that reports no cost (agy on Gemini)', () 
     expect(o.ok).toBe(false);
     expect(o.accounted).toBeUndefined();
   });
+
+  it('a run that only called a hub tool (a hand-off, no text) is accounted (live G5)', async () => {
+    const r = recorder();
+    const o = await provider({ FAKE_ACP_SCENARIO: 'tool-only', FAKE_ACP_MODEL: 'gemini-3.1-pro' }).runTurn(makeCtx({ model: 'gemini-3.1-pro' }), r.sink);
+    expect(o.ok).toBe(true);
+    expect(r.only('text')).toEqual([]);
+    expect(r.only('use').map((c) => c[2])).toEqual(['mcp_pocketrocket_handoff']);
+    expect(o.accounted).toBe(true);
+  });
+
+  it('a run that called a tool and then died is still accounted, with its error', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'tool-only-crash' }).runTurn(makeCtx(), recorder().sink);
+    expect(o.ok).toBe(false);
+    expect(o.error).toMatch(/exited with code 3/);
+    expect(o.accounted).toBe(true);
+  });
+
+  it('a bot saved on a pre-live model id asks agy for its replacement', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'quiet', FAKE_ACP_MODEL: 'gemini-3.1-pro' }).runTurn(makeCtx({ model: 'gemini-3-pro' }), recorder().sink);
+    expect(o.ok).toBe(true);
+    // Already agy's current model: nothing to set, and the usage row names what ran.
+    expect(calls('session/set_config_option')).toEqual([]);
+    expect(o.model).toBe('gemini-3.1-pro');
+  });
 });
 
 describe('ACP adapter: sessions', () => {
@@ -224,11 +255,107 @@ describe('ACP adapter: tool calls and permission requests', () => {
 
   it('a strict turn starts the agent in its most restrictive mode that asks, and still asks', async () => {
     let asked = 0;
-    await provider({ FAKE_ACP_SCENARIO: 'tool', FAKE_ACP_KIND: 'other' }).runTurn(
+    await askingProvider({ FAKE_ACP_SCENARIO: 'tool', FAKE_ACP_KIND: 'other' }).runTurn(
       makeCtx({ strictApprovals: true, permission: async () => (asked++, 'allow') }),
       recorder().sink,
     );
     expect(calls('session/set_mode').map((c) => c.params)).toEqual([{ sessionId: 'sess-1', modeId: 'default' }]);
+    expect(asked).toBe(1);
+  });
+});
+
+describe('ACP adapter: strict turns on Gemini run read-only (live G6, spec 01 §4.7 item 7)', () => {
+  const target = () => path.join(tmp, 'outside', 'g6-probe.txt');
+  beforeEach(() => fs.mkdirSync(path.join(tmp, 'outside')));
+
+  it('NEGATIVE: an ordinary turn shows the gap: agy-like writes happen with no permission request', async () => {
+    let asked = 0;
+    const o = await provider({ FAKE_ACP_SCENARIO: 'silent-write', FAKE_ACP_PATH: target() }).runTurn(
+      makeCtx({ permission: async () => (asked++, 'deny') }),
+      recorder().sink,
+    );
+    expect(o.ok).toBe(true);
+    expect(asked).toBe(0);
+    expect(fs.existsSync(target())).toBe(true);
+  });
+
+  it('a strict turn switches to plan mode before the prompt, tells the bot, and the write does not happen', async () => {
+    let asked = 0;
+    const r = recorder();
+    const o = await provider({ FAKE_ACP_SCENARIO: 'silent-write', FAKE_ACP_PATH: target() }).runTurn(
+      makeCtx({ strictApprovals: true, permission: async () => (asked++, 'allow') }),
+      r.sink,
+    );
+    expect(calls('session/set_mode').map((c) => c.params)).toEqual([{ sessionId: 'sess-1', modeId: 'plan' }]);
+    // The mode is set before the prompt goes out.
+    const order = recorded().map((x) => x.method).filter((m) => m === 'session/set_mode' || m === 'session/prompt');
+    expect(order).toEqual(['session/set_mode', 'session/prompt']);
+    const prompt = calls('session/prompt')[0].params!.prompt as Array<{ text: string }>;
+    expect(prompt[0].text).toContain(READ_ONLY_NOTE);
+    expect(fs.existsSync(target())).toBe(false);
+    expect(asked).toBe(0);
+    // The announced edit stops the turn: it is an error, not a normal reply.
+    expect(o.ok).toBe(false);
+    expect(o.error).toMatch(/tried to change files .*read-only run/);
+  });
+
+  it('NEGATIVE: an agent that ignores plan mode is cancelled on the announced edit, before it writes', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'silent-write', FAKE_ACP_PATH: target(), FAKE_ACP_IGNORE_PLAN: '1' }).runTurn(
+      makeCtx({ strictApprovals: true }),
+      recorder().sink,
+    );
+    expect(calls('session/cancel').map((c) => c.params)).toEqual([{ sessionId: 'sess-1' }]);
+    expect(fs.existsSync(target())).toBe(false);
+    expect(o.ok).toBe(false);
+    expect(o.error).toMatch(/read-only run/);
+  });
+
+  it('NEGATIVE: an agent with no read-only mode does not run a strict turn at all', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'silent-write', FAKE_ACP_PATH: target(), FAKE_ACP_NO_PLAN: '1' }).runTurn(
+      makeCtx({ strictApprovals: true }),
+      recorder().sink,
+    );
+    expect(o.ok).toBe(false);
+    expect(o.error).toMatch(/offers no read-only mode, so this unattended run was not started/);
+    expect(calls('session/prompt')).toEqual([]);
+    expect(calls('session/set_mode')).toEqual([]);
+    expect(fs.existsSync(target())).toBe(false);
+  });
+
+  it('NEGATIVE: a refused mode switch refuses the turn', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'silent-write', FAKE_ACP_PATH: target(), FAKE_ACP_SET_MODE_FAIL: '1' }).runTurn(
+      makeCtx({ strictApprovals: true }),
+      recorder().sink,
+    );
+    expect(o.ok).toBe(false);
+    expect(o.error).toMatch(/would not switch to its read-only mode/);
+    expect(calls('session/prompt')).toEqual([]);
+    expect(fs.existsSync(target())).toBe(false);
+  });
+
+  it('NEGATIVE: the agent leaving read-only mode on its own stops the turn', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'leave-mode' }).runTurn(makeCtx({ strictApprovals: true }), recorder().sink);
+    expect(o.ok).toBe(false);
+    expect(o.error).toMatch(/left read-only mode \(default\)/);
+    expect(calls('session/cancel')).toHaveLength(1);
+  });
+
+  it('NEGATIVE: an edit permission request on a read-only turn is refused without asking anyone', async () => {
+    let asked = 0;
+    await provider({ FAKE_ACP_SCENARIO: 'tool', FAKE_ACP_KIND: 'edit', FAKE_ACP_PATH: path.join(tmp, 'workspace', 'a.txt') }).runTurn(
+      makeCtx({ strictApprovals: true, permission: async () => (asked++, 'allow') }),
+      recorder().sink,
+    );
+    expect(asked).toBe(0);
+    expect(recorded().find((x) => x.permissionAnswer)!.permissionAnswer).toEqual({ outcome: { outcome: 'selected', optionId: 'no' } });
+  });
+
+  it('a strict turn still asks the broker for shell on a read-only turn', async () => {
+    let asked = 0;
+    await provider({ FAKE_ACP_SCENARIO: 'tool', FAKE_ACP_KIND: 'execute', FAKE_ACP_COMMAND: 'ls' }).runTurn(
+      makeCtx({ strictApprovals: true, permission: async () => (asked++, 'deny') }),
+      recorder().sink,
+    );
     expect(asked).toBe(1);
   });
 });
