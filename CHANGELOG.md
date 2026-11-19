@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Workflows: canvas, steps list and approval card (web)
+
+- Automations has a Workflows section; each workflow opens its own page with Enabled, Run now, a Canvas | Steps switch (remembered per browser), a step inspector, per-step status and cost, run history, Cancel and Retry step.
+- The canvas (React Flow, loaded only when opened) adds steps with a "+" on each line; the Steps list does the same with menus and works on phones. Errors from the shared chain rules show before you save.
+- A workflow's approval step shows as a card in its chat and in Needs you with Approve, Reject and Send back with a note. Only that card answers it.
+- Usage lists "Workflows" as a cause. Cards in the chat now share one `ActionCard` primitive (no visual change).
+
 ### Workflows say where a saved file went (hub)
 
 - A workflow whose output step saves a file now posts a short note in the chat naming the file. Before, the chat's last word on the run was "waiting for your approval" even after it finished.

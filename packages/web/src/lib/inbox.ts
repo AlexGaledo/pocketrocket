@@ -4,10 +4,13 @@
  * from the control status, and skills from GET /api/skills (reviewStatus / pendingVersions). No hub endpoint is
  * added; a source that would need one is listed in the changelog notes instead.
  */
-import { ASK_EVERY_TIME_TOOLS, SIGN_IN_TOOLS, type ApprovalPayload, type ControlStatus, type FormPayload, type Message, type OpenApproval, type Skill } from '@pocketrocket/shared';
+import { ASK_EVERY_TIME_TOOLS, SIGN_IN_TOOLS, type ApprovalPayload, type ControlStatus, type FormPayload, type Message, type OpenApproval, type Skill, type WorkflowApprovalCard } from '@pocketrocket/shared';
 import { toolPhrase } from './toolPhrases';
 
-export type InboxKind = 'approval' | 'takeover' | 'skill' | 'form';
+export type InboxKind = 'approval' | 'takeover' | 'skill' | 'form' | 'workflow';
+
+/** How long a workflow approval card waits (the hub's 24 h park limit), to work back from `expiresAt` to when it began. */
+const WORKFLOW_CARD_WAIT_MS = 24 * 3_600_000;
 
 export interface InboxItem {
   /** Stable across renders: `approval:<id>`, `takeover:<messageId>`, `skill:<id>`. */
@@ -23,6 +26,8 @@ export interface InboxItem {
   /** Epoch ms it started waiting, or null when the data in hand does not say. */
   since: number | null;
   approvalId?: string;
+  /** Workflow approval steps only: the card itself, answered right on the row (it is person-only, and the row is that surface). */
+  workflowCard?: WorkflowApprovalCard;
   /** Approvals only, when the card is loaded: which tool is waiting and its input. Context for the row, never a consent surface. */
   approval?: Pick<ApprovalPayload, 'toolName' | 'toolInput'>;
   /**
@@ -37,6 +42,8 @@ export interface InboxInput {
   messages: Record<string, Message[]>;
   control: Record<string, ControlStatus>;
   skills: Skill[] | null;
+  /** Open workflow approval cards, each with the room its workflow runs in. */
+  workflowCards?: { card: WorkflowApprovalCard; roomId: string | null }[];
 }
 
 /** Cards that are yes-or-no proposals rather than a tool call; ApprovalCard words them differently. */
@@ -54,8 +61,22 @@ const isPendingApproval = (m: Message): m is Message & { payload: ApprovalPayloa
 const isPendingForm = (m: Message): m is Message & { payload: FormPayload } =>
   m.kind === 'form' && (m.payload as FormPayload | null)?.status === 'pending';
 
-export function selectInbox({ openApprovals, messages, control, skills }: InboxInput): InboxItem[] {
+export function selectInbox({ openApprovals, messages, control, skills, workflowCards }: InboxInput): InboxItem[] {
   const items: InboxItem[] = [];
+
+  // A workflow's approval step: person-only, so the row carries the whole card and nothing else answers it.
+  for (const { card, roomId } of workflowCards ?? []) {
+    items.push({
+      key: 'workflow:' + card.runId + ':' + card.nodeId,
+      kind: 'workflow',
+      botId: null,
+      roomId,
+      title: 'Approval needed',
+      detail: card.workflowName + ': ' + card.title,
+      since: card.expiresAt - WORKFLOW_CARD_WAIT_MS,
+      workflowCard: card,
+    });
+  }
 
   // Approvals: the hello list knows every open card; loaded rooms add detail (and any card the list missed).
   const cards = new Map<string, { m: Message & { payload: ApprovalPayload }; roomId: string }>();

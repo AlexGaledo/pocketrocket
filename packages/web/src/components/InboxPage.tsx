@@ -2,7 +2,7 @@
 // lib/inbox.ts; the primary action opens the room (or the bot's Skills tab), and a plain approval can be answered
 // here with the same store action the card uses.
 import { useEffect, useState } from 'react';
-import { ClipboardList, Hand, Inbox, Monitor, Sparkles, ShieldQuestion } from 'lucide-react';
+import { ClipboardList, Hand, Inbox, Monitor, Sparkles, ShieldQuestion, Workflow as WorkflowIcon } from 'lucide-react';
 import { useStore, botById } from '../store';
 import { fmtAge, type InboxItem } from '../lib/inbox';
 import { cardWords } from '../lib/approvalWords';
@@ -10,8 +10,9 @@ import { fmtInput } from './WorkLine';
 import { useInbox } from '../lib/useInbox';
 import { Avatar, Button, EmptyState, Skeleton, SkeletonGroup } from './ui';
 import { FleetHeader, PageBody } from './FleetPages';
+import { WorkflowApprovalCardView } from './workflows/WorkflowCard';
 
-const KIND_ICON = { approval: ShieldQuestion, takeover: Monitor, skill: Sparkles, form: ClipboardList } as const;
+const KIND_ICON = { approval: ShieldQuestion, takeover: Monitor, skill: Sparkles, form: ClipboardList, workflow: WorkflowIcon } as const;
 
 export function InboxPage() {
   const items = useInbox();
@@ -35,7 +36,10 @@ export function InboxPage() {
           </EmptyState>
         ) : (
           <ul className="space-y-2 pt-2" aria-label="Waiting on you">
-            {items.map((it) => <InboxRow key={it.key} item={it} now={now} />)}
+            {items.map((it) => it.workflowCard
+              // A workflow approval is answered right here, on its card: nothing else (a bot, a button, chat text) can answer it.
+              ? <li key={it.key}><WorkflowApprovalCardView card={it.workflowCard} className="w-full" /></li>
+              : <InboxRow key={it.key} item={it} now={now} />)}
           </ul>
         )}
       </PageBody>

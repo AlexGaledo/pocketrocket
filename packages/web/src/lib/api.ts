@@ -7,6 +7,7 @@ import type {
   IntegrationsState, IntegrationInfo, IntegrationProvider, OAuthAppInput, OAuthAppStatus, PendingConnect, TokenConnectInput,
 } from '@pocketrocket/shared';
 import type { AuditEntry, UserSessionInfo } from '@pocketrocket/shared';
+import type { Workflow, WorkflowApprovalCard, WorkflowDecision, WorkflowInput, WorkflowPatch, WorkflowRun, WorkflowRunSummary } from '@pocketrocket/shared';
 import type { KnowledgeStatus, SkillGitImportResult, VoiceProposal } from '@pocketrocket/shared';
 import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInput } from '@pocketrocket/shared';
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
@@ -255,6 +256,21 @@ export const api = {
     remove: (id: string) => req<{ ok: true }>('DELETE', '/api/routines/' + id),
     run: (id: string) => req<{ ok: boolean }>('POST', '/api/routines/' + id + '/run'),
     runs: (id: string) => req<RoutineRun[]>('GET', '/api/routines/' + id + '/runs'),
+  },
+  workflows: {
+    list: () => req<Workflow[]>('GET', '/api/workflows'),
+    get: (id: string) => req<Workflow>('GET', '/api/workflows/' + id),
+    create: (w: WorkflowInput) => req<Workflow>('POST', '/api/workflows', w),
+    update: (id: string, w: WorkflowPatch) => req<Workflow>('PATCH', '/api/workflows/' + id, w),
+    remove: (id: string) => req<{ ok: true }>('DELETE', '/api/workflows/' + id),
+    run: (id: string) => req<WorkflowRunSummary>('POST', '/api/workflows/' + id + '/run'),
+    runs: (id: string, limit = 20) => req<WorkflowRunSummary[]>('GET', '/api/workflows/' + id + '/runs?limit=' + limit),
+    getRun: (runId: string) => req<WorkflowRun>('GET', '/api/workflow-runs/' + runId),
+    cancel: (runId: string) => req<WorkflowRunSummary>('POST', '/api/workflow-runs/' + runId + '/cancel'),
+    retry: (runId: string) => req<WorkflowRunSummary>('POST', '/api/workflow-runs/' + runId + '/retry'),
+    cards: () => req<WorkflowApprovalCard[]>('GET', '/api/workflow-cards'),
+    /** Person-only: the hub refuses a bot, the PC runner, a cta button and chat text. */
+    decide: (runId: string, d: WorkflowDecision) => req<WorkflowRunSummary>('POST', '/api/workflow-runs/' + runId + '/decision', d),
   },
   usage: (q: { botId?: string; roomId?: string } = {}) => {
     const p = new URLSearchParams();

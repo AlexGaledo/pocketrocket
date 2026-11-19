@@ -12,6 +12,7 @@ import { RightPanel } from './RightPanel';
 import { FilesPanel } from './files/FilesPanel';
 import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
+import { WorkflowPage } from './workflows/WorkflowPage';
 import { InboxPage } from './InboxPage';
 import { TasksPage } from './TasksPage';
 import { PcSessionsPage } from './PcSessionsPage';
@@ -179,7 +180,7 @@ export function App() {
         <div inert={!!page} className="flex min-h-0 flex-1 flex-col"><ChatPane /></div>
         {page && (
           <div className="@container panel absolute inset-0 flex flex-col">
-            {page.kind === 'bot' ? <BotPage botId={page.botId} tab={page.tab} /> : page.kind === 'automations' ? <AutomationsPage /> : page.kind === 'inbox' ? <InboxPage /> : page.kind === 'tasks' ? <TasksPage /> : page.kind === 'pcsessions' ? <PcSessionsPage /> : <UsagePage />}
+            {page.kind === 'bot' ? <BotPage botId={page.botId} tab={page.tab} /> : page.kind === 'workflow' ? <WorkflowPage id={page.id} /> : page.kind === 'automations' ? <AutomationsPage /> : page.kind === 'inbox' ? <InboxPage /> : page.kind === 'tasks' ? <TasksPage /> : page.kind === 'pcsessions' ? <PcSessionsPage /> : <UsagePage />}
           </div>
         )}
       </main>
