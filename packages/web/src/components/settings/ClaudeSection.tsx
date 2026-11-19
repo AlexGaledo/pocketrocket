@@ -29,6 +29,9 @@ export function ClaudeSection() {
   const active = list.find((p) => p.id === settings.provider) ?? list[0];
   const models: ModelInfo[] = [AUTO_MODEL_INFO, ...(active?.models?.length ? active.models : MODELS.map((m) => ({ id: m.id, label: m.label })))];
   const multiple = list.length > 1;
+  // Every enabled provider's keys, not only the default's: a bot can run on (or back up to) any of them. Gemini's key,
+  // for one, is what lets its routines run; without it a Gemini bot answers only messages a person sends.
+  const secretKeys = [...new Set((multiple ? list : active ? [active] : []).flatMap((p) => p.secretKeys))];
 
   // Refetch for the source of truth, but patch the check in place now so the card updates at once.
   const patchCheck = (id: ProviderId, check: ProviderCheck) => {
@@ -73,10 +76,10 @@ export function ClaudeSection() {
 
       <RoutingRulesGroup />
 
-      {active && active.secretKeys.length > 0 && (
+      {secretKeys.length > 0 && (
         <Group>
           <Card className="space-y-4">
-            {active.secretKeys.map((key) => (
+            {secretKeys.map((key) => (
               <ApiKeyField key={key} keyName={key} isSet={!!secrets[key]} onSaved={setSecrets} />
             ))}
           </Card>

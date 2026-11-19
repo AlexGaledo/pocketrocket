@@ -68,9 +68,14 @@ const WINDOW_LABEL: Record<string, string> = {
   overage: 'extra usage limit',
 };
 
+/** "5-hour limit", "weekly Opus limit", or "usage limit" for a window we have no words for. */
+export function windowLabel(window: string | undefined): string {
+  return (window && WINDOW_LABEL[window]) || 'usage limit';
+}
+
 /** "Claude 5-hour limit", "Claude weekly Opus limit", "Codex usage limit". */
 export function limitName(l: Pick<ProviderLimitState, 'window'>, providerLabel: string): string {
-  return providerLabel + ' ' + ((l.window && WINDOW_LABEL[l.window]) || 'usage limit');
+  return providerLabel + ' ' + windowLabel(l.window);
 }
 
 /**

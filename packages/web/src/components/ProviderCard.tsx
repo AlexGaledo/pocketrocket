@@ -83,7 +83,10 @@ export function ProviderCard({
       <div id={blurbId} className="mt-1 pl-6 text-ui text-muted">
         {info.blurb}
         {info.maturity === 'untested' && <span className="mt-1 block text-hint text-warn">Untested. Check approvals before actions outside the shared folder.</span>}
+        {info.testedVersions && <span className="mt-1 block text-hint text-muted">Tested with versions {info.testedVersions}.</span>}
       </div>
+      {/* The CLI runs, but on a version outside the tested range (or one it could not read): a warning, not a failure. */}
+      {info.check.versionWarning && <p className="mt-1 pl-6 text-hint text-warn">{info.check.versionWarning}</p>}
       {!info.check.ok && info.check.hint && (
         <div className="md mt-1.5 pl-6 text-hint text-dim">
           <Markdown>{info.check.hint}</Markdown>

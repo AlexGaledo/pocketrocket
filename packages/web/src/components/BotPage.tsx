@@ -15,6 +15,7 @@ import { TeachBar } from './TeachControls';
 import { avatarStatus, useBotStatus } from '../lib/botStatus';
 import { ReflectionSetting, SkillVersionsPanel } from './SkillVersions';
 import { PageBody, RoutinesSection } from './FleetPages';
+import { activeFor, onBackupText } from '../lib/failover';
 
 export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   const bot = useStore((s) => botById(s.bots, botId));
@@ -25,6 +26,8 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   const openDialog = useStore((s) => s.openDialog);
   const setActiveRoom = useStore((s) => s.setActiveRoom);
   const { statusOf } = useBotStatus();
+  const backup = useStore((s) => activeFor(s.failover.active, botId, Date.now()));
+  const providers = useStore((s) => s.providers);
   if (!bot) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-ui text-muted">
@@ -40,7 +43,10 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
         <Tooltip content="Back to chat"><Button variant="ghost" size="icon" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button></Tooltip>
         <Avatar bot={bot} {...avatarStatus(statusOf(bot.id))} size={30} />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-body font-semibold" title={bot.name}>{bot.name}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-body font-semibold" title={bot.name}>{bot.name}</h1>
+            {backup && <Badge>{onBackupText(backup, providers)}</Badge>}
+          </div>
           <div className="truncate text-hint text-muted">{bot.title || '@' + bot.handle}</div>
         </div>
         {dm && <Button size="sm" variant="ghost" title="Open chat" aria-label={'Open chat with ' + bot.name} onClick={() => { closePage(); setActiveRoom(dm.id); }}><MessageSquare size={14} aria-hidden /><span className="@max-[480px]:hidden">Chat</span></Button>}

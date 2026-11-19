@@ -9,8 +9,9 @@ export function useInbox(): InboxItem[] {
   const messages = useStore((s) => s.messages);
   const control = useStore((s) => s.control);
   const skills = useStore((s) => s.inboxSkills);
+  const failoverCards = useStore((s) => s.failover.cards);
   const cards = useWorkflows((s) => s.cards);
   const workflows = useWorkflows((s) => s.workflows);
   const workflowCards = useMemo(() => cards.map((card) => ({ card, roomId: workflows?.find((w) => w.id === card.workflowId)?.roomId ?? null })), [cards, workflows]);
-  return useMemo(() => selectInbox({ openApprovals, messages, control, skills, workflowCards }), [openApprovals, messages, control, skills, workflowCards]);
+  return useMemo(() => selectInbox({ openApprovals, messages, control, skills, workflowCards, failoverCards }), [openApprovals, messages, control, skills, workflowCards, failoverCards]);
 }

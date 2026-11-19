@@ -1,6 +1,6 @@
 import type { BotPreview } from '@pocketrocket/shared';
 import { create } from 'zustand';
-import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, ProviderLimitState, AccountState, SendMode } from '@pocketrocket/shared';
+import type { Bot, BotState, Message, Room, ServerEvent, UsageTotals, Settings, SettingsPatch, ProvidersResponse, ProviderLimitState, AccountState, SendMode, FailoverState } from '@pocketrocket/shared';
 import { DEFAULT_SETTINGS, MODELS, SIGNED_OUT } from '@pocketrocket/shared';
 import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
@@ -182,6 +182,11 @@ interface State {
   providers: ProvidersResponse | null;
   /** Provider limits in force (spec 01 P0-5): from GET /api/providers, replaced whole by WS `provider.limit`. Expired entries stay until the next list; read through `useLimits`. */
   limits: ProviderLimitState[];
+  /**
+   * M8 failover (spec 01 P3-2): open limit cards and bots running on their backup. From GET /api/failover after each
+   * hello, replaced whole by WS `failover.changed`. Empty on a hub older than v0.5 (404).
+   */
+  failover: FailoverState;
   /** Optional sign-in. SIGNED_OUT (enabled: false) until GET /api/account answers, and if it never does. */
   account: AccountState;
   /**
@@ -250,6 +255,9 @@ interface State {
    */
   updateSettings: (patch: SettingsPatch) => Promise<boolean>;
   fetchProviders: () => Promise<void>;
+  fetchFailover: () => Promise<void>;
+  /** Takes an answered card off the list at once; the hub's `failover.changed` confirms it. */
+  dropFailoverCard: (id: string) => void;
   fetchAccount: () => Promise<void>;
   /** Takes the answer of an account POST: a full AccountState is used as is, anything else triggers a refetch. */
   applyAccountResponse: (res: AccountActionResponse) => void;
@@ -336,6 +344,7 @@ export const useStore = create<State>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   providers: null,
   limits: [],
+  failover: { cards: [], active: [] },
   account: SIGNED_OUT,
   helloReceived: false,
   device: isDevice(),
@@ -405,6 +414,7 @@ export const useStore = create<State>((set, get) => ({
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
+        void get().fetchFailover();
         void get().fetchAccount();
         // Workflows and their approval cards may have changed while the link was down.
         void refreshWorkflows();
@@ -430,6 +440,9 @@ export const useStore = create<State>((set, get) => ({
       }
       case 'provider.limit':
         set({ limits: ev.limits });
+        return;
+      case 'failover.changed':
+        set({ failover: { cards: ev.cards, active: ev.active } });
         return;
       case 'account.changed':
         set({ account: ev.account });
@@ -818,6 +831,16 @@ export const useStore = create<State>((set, get) => ({
       set({ providers: get().providers ?? FALLBACK_PROVIDERS });
     }
   },
+
+  fetchFailover: async () => {
+    try {
+      set({ failover: await api.failover.get() });
+    } catch {
+      // An older hub (404) has no failover: no cards, no badges.
+    }
+  },
+
+  dropFailoverCard: (id) => set((s) => ({ failover: { ...s.failover, cards: s.failover.cards.filter((c) => c.id !== id) } })),
 
   fetchAccount: async () => {
     try {

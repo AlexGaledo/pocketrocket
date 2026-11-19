@@ -66,7 +66,7 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
   const [f, setF] = useState<BotInput>({
     name: bot?.name ?? '', handle: bot?.handle ?? '', title: bot?.title ?? '', description: bot?.description ?? '', avatar: bot && (isBotIconKey(bot.avatar) || isMediaRef(bot.avatar)) ? bot.avatar : '',
     model: bot?.model ?? settings.defaultModel ?? DEFAULT_MODEL, allowedTools: bot?.allowedTools ?? DEFAULT_TOOLS, maxBudgetUsd: bot?.maxBudgetUsd ?? 2,
-    provider: bot?.provider ?? null,
+    provider: bot?.provider ?? null, backup: bot?.backup ?? null,
   });
   // null follows the default (settings.provider), and the model list follows whichever provider that makes it.
   const runsOn = list.find((p) => p.id === (f.provider ?? settings.provider));
@@ -79,7 +79,16 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
   const setProvider = (provider: ProviderId | null) => {
     const next = modelsOf(list.find((p) => p.id === (provider ?? settings.provider)));
     const model = f.model === AUTO_MODEL_INFO.id || next.some((m) => m.id === f.model) ? f.model : (next.find((m) => m.default) ?? next[0])?.id ?? f.model;
-    set({ provider, model });
+    // A backup on the provider the bot now runs on is no backup: a limit there holds both.
+    const runs = provider ?? settings.provider;
+    set({ provider, model, backup: f.backup?.provider === runs ? null : f.backup });
+  };
+  // Spec 01 P3-2: the one backup the failover card offers. Any other enabled provider, with one of its own models.
+  const backupChoices = list.filter((p) => p.id !== (f.provider ?? settings.provider));
+  const setBackupProvider = (id: ProviderId | null) => {
+    if (!id) return set({ backup: null });
+    const ms = modelsOf(list.find((p) => p.id === id));
+    set({ backup: { provider: id, model: (ms.find((m) => m.default) ?? ms[0])?.id ?? '' } });
   };
   const autoHandle = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
 
@@ -87,8 +96,8 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
     setBusy(true);
     try {
       // provider is the owner's call and is only sent when the select is shown, so a one-provider hub never touches it.
-      const { provider, ...rest } = f;
-      const input: BotInput = pickProvider ? { ...rest, provider } : rest;
+      const { provider, backup, ...rest } = f;
+      const input: BotInput = pickProvider ? { ...rest, provider, backup: backup?.model ? backup : null } : rest;
       if (bot) {
         await api.bots.update(bot.id, input);
       } else {
@@ -162,6 +171,28 @@ export function BotDialog({ bot, onClose }: { bot: Bot | null; onClose: () => vo
           {isHeavyModel(f.model) && <p className="mt-1 text-hint text-muted">This model {HEAVY_MODEL_HINT}. Sonnet or Auto suits most bots.</p>}
         </Field>
         <Field><Label hint="stops a runaway reply">Usage limit per reply (API-price USD)</Label><Input type="number" step="0.5" min="0.05" value={f.maxBudgetUsd} onChange={(e) => set({ maxBudgetUsd: Number(e.target.value) })} /></Field>
+        {pickProvider && backupChoices.length > 0 && (
+          <>
+            <Field className={f.backup ? undefined : 'sm:col-span-2'}>
+              <Label hint="Asks you first">{'If ' + (runsOn?.label ?? 'it') + ' hits its limit'}</Label>
+              <Select value={f.backup?.provider ?? ''} onChange={(e) => setBackupProvider((e.target.value || null) as ProviderId | null)}>
+                <option value="">None: wait for the reset</option>
+                {backupChoices.map((p) => <option key={p.id} value={p.id}>{'Continue on ' + providerOptionLabel(p)}</option>)}
+                {/* A saved backup this hub no longer offers stays visible rather than reading as another choice. */}
+                {f.backup && !backupChoices.some((p) => p.id === f.backup!.provider) && <option value={f.backup.provider}>{'Continue on ' + f.backup.provider}</option>}
+              </Select>
+            </Field>
+            {f.backup && (
+              <Field>
+                <Label>Backup model</Label>
+                <Select value={f.backup.model} onChange={(e) => set({ backup: { provider: f.backup!.provider, model: e.target.value } })}>
+                  {modelsOf(list.find((p) => p.id === f.backup!.provider)).map((m) => <option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>)}
+                  {!modelsOf(list.find((p) => p.id === f.backup!.provider)).some((m) => m.id === f.backup!.model) && <option value={f.backup.model}>{f.backup.model}</option>}
+                </Select>
+              </Field>
+            )}
+          </>
+        )}
       </div>
       <div className="mt-3">
         {/* Toggle buttons, not a form control: the caption names the group and each button reports its own state. */}
