@@ -60,6 +60,8 @@ function recorder() {
     onToolUse: (id, name, input) => out.push(['use', id, name, input]),
     onToolResult: (id, o, isError) => out.push(['result', id, o, isError]),
     onState: (s) => out.push(['state', s]),
+    onNote: (t) => out.push(['note', t]),
+    onLimit: (l) => out.push(['limit', l]),
   };
   return { out, sink, only: (k: string) => out.filter((c) => c[0] === k) };
 }
@@ -417,5 +419,120 @@ describe('ACP adapter: stop, limits, failures', () => {
     expect(o.ok).toBe(false);
     expect(o.error).toMatch(/agy failed to start/);
     expect(fs.readdirSync(tmp).sort()).toEqual(['workspace']);
+  });
+});
+
+describe('ACP adapter: agy reports its limit as answer text (live G11, real capture)', () => {
+  const CAPTURE = path.join(HUB, 'src', 'providers', '__fixtures__', 'gemini', 'limit-quota.agy.json');
+  type Capture = { updates: Array<{ params: { update: { content: { text: string } } } }>; promptResponse: unknown };
+  const capture = () => JSON.parse(fs.readFileSync(CAPTURE, 'utf8')) as Capture;
+  /** A capture file shaped like the real one, with these chunk texts as its updates. */
+  function captureOf(texts: string[]): string {
+    const c = capture();
+    const file = path.join(tmp, 'capture-' + String(Math.random()).slice(2) + '.json');
+    const tpl = c.updates[0];
+    c.updates = texts.map((text) => ({ ...tpl, params: { ...tpl.params, update: { ...tpl.params.update, content: { ...tpl.params.update.content, text } } } }));
+    fs.writeFileSync(file, JSON.stringify(c));
+    return file;
+  }
+  const H = 3_600_000;
+
+  it('the captured quota run ends on a usage limit with its reset time, and no warning reaches the room', async () => {
+    const r = recorder();
+    const before = Date.now();
+    const o = await provider({ FAKE_ACP_SCENARIO: 'replay', FAKE_ACP_REPLAY: CAPTURE }).runTurn(makeCtx(), r.sink);
+    expect(o.ok).toBe(false);
+    expect(o.error).toMatch(/usage limit reached/);
+    expect(o.limit?.kind).toBe('usage');
+    // The last positive "Resets in" of the capture: 167h47m0s.
+    const reset = (167 * 60 + 47) * 60_000;
+    expect(o.limit!.resetsAt! - before).toBeGreaterThanOrEqual(reset - 1000);
+    expect(o.limit!.resetsAt! - Date.now()).toBeLessThanOrEqual(reset);
+    expect(r.only('text')).toEqual([]);
+    expect(r.only('delta')).toEqual([]);
+  });
+
+  it('only agy retry lines (no quota line) is a limit with no reset, for the default hold', async () => {
+    const retries = capture().updates.map((u) => u.params.update.content.text).filter((t) => t.includes('RESOURCE_EXHAUSTED'));
+    expect(retries.length).toBeGreaterThan(0);
+    const r = recorder();
+    const o = await provider({ FAKE_ACP_SCENARIO: 'replay', FAKE_ACP_REPLAY: captureOf(retries) }).runTurn(makeCtx(), r.sink);
+    expect(o.ok).toBe(false);
+    expect(o.limit).toEqual({ kind: 'usage' });
+    expect(r.only('text')).toEqual([]);
+  });
+
+  it('a real answer plus the warnings keeps the answer and still records the limit', async () => {
+    const r = recorder();
+    const o = await provider({ FAKE_ACP_SCENARIO: 'replay', FAKE_ACP_REPLAY: CAPTURE, FAKE_ACP_REPLY: 'Here is the answer.' }).runTurn(makeCtx(), r.sink);
+    expect(o.ok).toBe(true);
+    expect(o.limit).toBeUndefined();
+    expect(r.only('text')).toEqual([['text', 'Here is the answer.']]);
+    expect(r.out.some((c) => String(c[1]).includes('⚠'))).toBe(false);
+    const limits = r.only('limit');
+    expect(limits).toHaveLength(1);
+    expect(limits[0][1]).toMatchObject({ status: 'rejected', kind: 'usage' });
+    expect((limits[0][1] as { resetsAt: number }).resetsAt - Date.now()).toBeGreaterThan(167 * H);
+  });
+
+  it('an answer after agy retried its way through is only a warning, not a hold', async () => {
+    const r = recorder();
+    const file = captureOf(['\n⚠ API error (attempt 1): RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model. Resets in 0s.\n']);
+    const o = await provider({ FAKE_ACP_SCENARIO: 'replay', FAKE_ACP_REPLAY: file, FAKE_ACP_REPLY: 'Done.' }).runTurn(makeCtx(), r.sink);
+    expect(o.ok).toBe(true);
+    expect(r.only('text')).toEqual([['text', 'Done.']]);
+    expect(r.only('limit')).toEqual([['limit', { status: 'allowed_warning', kind: 'usage' }]]);
+  });
+
+  it('NEGATIVE: a bot that talks about quotas and 429s without the agy warning shape is a normal answer', async () => {
+    const r = recorder();
+    const texts = [
+      'Your Individual quota reached its cap last week; RESOURCE_EXHAUSTED (code 429) means you are out of quota. Resets in 2h.',
+      '\n⚠ Note: my quota is fine, I checked the 429 docs.\n',
+    ];
+    const o = await provider({ FAKE_ACP_SCENARIO: 'replay', FAKE_ACP_REPLAY: captureOf(texts) }).runTurn(makeCtx(), r.sink);
+    expect(o.ok).toBe(true);
+    expect(o.limit).toBeUndefined();
+    expect(r.only('limit')).toEqual([]);
+    expect(r.only('text')).toEqual([['text', texts.join('')]]);
+  });
+});
+
+describe('ACP adapter: a model the sign-in does not offer (live G11, Google sign-in)', () => {
+  const tier = { FAKE_ACP_SCENARIO: 'quiet', FAKE_ACP_MODEL: 'gemini-3.8-flash-high' };
+
+  it('agy refusing the model (-32602 Unknown model ID) does not fail the turn: its own model runs, noted once', async () => {
+    const p = provider({ ...tier, FAKE_ACP_MODELS: 'gemini-3.8-flash-high,gemini-4-neon', FAKE_ACP_REJECT_MODEL: '1' });
+    const r = recorder();
+    const o = await p.runTurn(makeCtx({ model: 'gemini-4-neon' }), r.sink);
+    expect(o.ok).toBe(true);
+    expect(r.only('text')).toEqual([['text', 'Hi']]);
+    expect(o.model).toBe('gemini-3.8-flash-high');
+    expect(calls('session/set_config_option').map((c) => c.params?.value)).toEqual(['gemini-4-neon']);
+    expect(r.only('note')).toEqual([['note', 'could not use gemini-4-neon (agy does not offer it on this sign-in), so it ran on gemini-3.8-flash-high.']]);
+    // The next turn of the same bot is not noted again.
+    const r2 = recorder();
+    const o2 = await p.runTurn(makeCtx({ model: 'gemini-4-neon', turnId: 't2' }), r2.sink);
+    expect(o2.ok).toBe(true);
+    expect(o2.model).toBe('gemini-3.8-flash-high');
+    expect(r2.only('note')).toEqual([]);
+  });
+
+  it('a model agy does not list in session/new is not asked for; its current one runs and is recorded', async () => {
+    const r = recorder();
+    const o = await provider(tier).runTurn(makeCtx({ model: 'gemini-4-neon' }), r.sink);
+    expect(o.ok).toBe(true);
+    expect(calls('session/set_config_option')).toEqual([]);
+    expect(o.model).toBe('gemini-3.8-flash-high');
+    expect(r.only('note')).toHaveLength(1);
+  });
+
+  it('a model agy lists and accepts is applied, with no note', async () => {
+    const r = recorder();
+    const o = await provider({ ...tier, FAKE_ACP_MODELS: 'gemini-3.8-flash-high,gemini-3.7-flash' }).runTurn(makeCtx({ model: 'gemini-3.7-flash' }), r.sink);
+    expect(o.ok).toBe(true);
+    expect(calls('session/set_config_option').map((c) => c.params?.value)).toEqual(['gemini-3.7-flash']);
+    expect(o.model).toBeUndefined(); // what the bot asked for ran
+    expect(r.only('note')).toEqual([]);
   });
 });

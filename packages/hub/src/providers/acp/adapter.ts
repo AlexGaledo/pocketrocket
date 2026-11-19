@@ -49,8 +49,13 @@ export interface AcpPreset {
   args: string[];
   /** Extra child env: the API key, when one is set. Allowlisted again by `childEnv`. */
   env(): NodeJS.ProcessEnv;
-  /** The provider's limit matcher over an error or notice text; null when it is not a limit. */
+  /** The provider's limit matcher over an error, a notice or `splitWarnings` lines; null when it is not a limit. */
   limitOf(text: string): TurnLimit | null;
+  /**
+   * Takes status lines the agent streams as answer text out of a chunk (agy writes its limit as `⚠ …` text and ends the
+   * turn normally, live G11). What is left goes to the room; the warnings go to `limitOf`. Absent: all text is answer.
+   */
+  splitWarnings?(text: string): { text: string; warnings: string[] };
   check(probe: () => Promise<AcpProbe>): Promise<ProviderCheck>;
   /**
    * The agent's ask mode does not ask before its own file writes (agy 1.5.12, live G6), so a strict turn must run in
@@ -97,6 +102,8 @@ export class AcpProvider implements AgentProvider {
   /** M8 (P4-1): `usage_update.used` becomes `contextTokens`, so a session rotates on size as on Claude (0 until the agent reports). */
   readonly reportsContextTokens = true;
   private active = new Map<string, { cancel: () => void }>();
+  /** Model fallbacks already noted (bot, wanted, used), so a bot whose model this sign-in lacks is told once, not every turn. */
+  private notedFallbacks = new Set<string>();
 
   constructor(private preset: AcpPreset, private opts: AcpProviderOptions = {}) {
     this.id = preset.info.id;
@@ -177,7 +184,7 @@ export class AcpProvider implements AgentProvider {
   async runTurn(ctx: TurnContext, sink: TurnSink): Promise<TurnOutcome> {
     const started = Date.now();
     const cli = this.preset.cliName;
-    const mapper = new AcpEventMapper(sink);
+    const mapper = new AcpEventMapper(sink, this.preset.splitWarnings?.bind(this.preset));
     const outcome = (error: string | undefined, extra: Partial<TurnOutcome> = {}): TurnOutcome => ({
       ok: !error,
       error,
@@ -317,8 +324,11 @@ export class AcpProvider implements AgentProvider {
         if (change?.kind === 'mode') await p.conn.agent.request(methods.agent.session.setMode, { sessionId, modeId: change.modeId });
         else if (change?.kind === 'config') await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: change.configId, value: change.value });
       }
-      // The bot's model, when the agent offers it as a model option. Otherwise the agent keeps its own default.
-      const modelOpt = (configOptions ?? []).find((o) => o.type === 'select' && o.category === 'model');
+      // The bot's model, when the agent offers it as a model option. Otherwise the agent keeps its own current one, and
+      // the room is told once. The offered values differ by sign-in (live G8/G11: the Google sign-in lacks gemini-4-*),
+      // so they are read from the session, and a model the agent still refuses (-32602 "Unknown model ID") falls back
+      // the same way instead of failing the turn.
+      const modelOpt = (configOptions ?? []).find((o) => o.type === 'select' && (o.category === 'model' || o.id === 'model'));
       // The model the agent runs on, for the usage row: the bot's when applied, else the agent's own current one.
       // A model id the provider renamed (a bot saved before the live list) asks for its replacement.
       const wanted = currentModelId(ctx.model);
@@ -326,10 +336,18 @@ export class AcpProvider implements AgentProvider {
         answeredModel = modelOpt.currentValue;
         if (modelOpt.currentValue !== wanted) {
           const values = modelOpt.options.flatMap((o) => ('group' in o ? o.options : [o])).map((o) => o.value);
-          if (values.includes(wanted)) {
-            await p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: modelOpt.id, value: wanted });
-            answeredModel = wanted;
+          let missed = !values.includes(wanted);
+          if (!missed) {
+            try {
+              await Promise.race([p.conn.agent.request(methods.agent.session.setConfigOption, { sessionId, configId: modelOpt.id, value: wanted }), died]);
+              answeredModel = wanted;
+            } catch (e) {
+              if (cancelled) return outcome('interrupted');
+              if (/exited with code|failed to start|connection closed|process exited/i.test(messageOf(e))) throw e;
+              missed = true;
+            }
           }
+          if (missed && wanted && modelOpt.currentValue) this.noteFallback(ctx, sink, wanted, modelOpt.currentValue);
         }
       }
 
@@ -354,9 +372,17 @@ export class AcpProvider implements AgentProvider {
       if (budgetHit) return outcome('budget exceeded: $' + costUsd.toFixed(4) + ' over the $' + String(ctx.maxBudgetUsd) + ' cap', extra);
       if (res.stopReason === 'cancelled' || cancelled) return outcome('interrupted', extra);
       if (res.stopReason === 'end_turn') {
-        // An agent that reports its quota as a notice and then ends the turn without a word is limited, not done.
-        const limit = !mapper.answered ? this.limitFromNotices(mapper.notices) : null;
-        return limit ? outcome(limitError(limit), { ...extra, limit }) : outcome(undefined, extra);
+        // agy's limit is warning text in the answer (live G11), taken out by the mapper; other agents send a notice.
+        const warned = mapper.warnings.length ? this.preset.limitOf(mapper.warnings.join('\n')) : null;
+        if (!mapper.answered) {
+          // Nothing but warnings or a notice, then a normal end_turn: limited, not done. BotRunner writes the note.
+          const limit = warned ?? this.limitFromNotices(mapper.notices);
+          return limit ? outcome(limitError(limit), { ...extra, limit }) : outcome(undefined, extra);
+        }
+        // A real answer plus a warning: the answer stands, the limit is still recorded (ProviderHealth). With a reset
+        // time it is the quota itself; agy's retry lines alone mean it got through, so only a warning.
+        if (warned) sink.onLimit?.({ status: warned.resetsAt ? 'rejected' : 'allowed_warning', kind: warned.kind, ...(warned.resetsAt ? { resetsAt: warned.resetsAt } : {}) });
+        return outcome(undefined, extra);
       }
       if (res.stopReason === 'max_tokens') return outcome(cli + ' stopped: it reached its output token limit', extra);
       if (res.stopReason === 'max_turn_requests') return outcome(cli + ' stopped: it reached its own step limit', extra);
@@ -373,7 +399,7 @@ export class AcpProvider implements AgentProvider {
         const code = await Promise.race([p.exited, sleep(1000).then(() => undefined)]);
         if (code !== undefined) msg = p.spawnError() ? cli + ' failed to start: ' + p.spawnError() : cli + ' exited with code ' + String(code) + tail(p.stderr());
       }
-      const text = msg + (mapper.notices.length ? ' ' + mapper.notices.join(' ') : '');
+      const text = msg + (mapper.notices.length ? ' ' + mapper.notices.join(' ') : '') + (mapper.warnings.length ? ' ' + mapper.warnings.join(' ') : '');
       if (isAuthError(e)) {
         const limit: TurnLimit = { kind: 'auth' };
         return outcome(limitError(limit) + '. ' + this.preset.hint, { ...spent(), limit });
@@ -389,6 +415,14 @@ export class AcpProvider implements AgentProvider {
       p.stop();
       await Promise.race([p.exited, sleep(3000)]);
     }
+  }
+
+  /** One quiet note per bot and fallback: the bot's model is not available on this sign-in, so the agent's own one ran. */
+  private noteFallback(ctx: TurnContext, sink: TurnSink, wanted: string, used: string) {
+    const key = ctx.bot.id + '|' + wanted + '|' + used;
+    if (this.notedFallbacks.has(key)) return;
+    this.notedFallbacks.add(key);
+    sink.onNote?.('could not use ' + wanted + ' (' + this.preset.cliName + ' does not offer it on this sign-in), so it ran on ' + used + '.');
   }
 
   private limitFromNotices(notices: string[]): TurnLimit | null {
