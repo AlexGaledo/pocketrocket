@@ -1,19 +1,18 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Download, FileText, Film, FolderOpen, Info, Monitor, Paperclip, Send, Settings2, ShieldAlert, Square, Users, X, Zap } from 'lucide-react';
+import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Download, FileText, Film, Info, Paperclip, Send, ShieldAlert, Square, X, Zap } from 'lucide-react';
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
 import { RocketMark } from './RocketMark';
+import { ChatHeader } from './ChatHeader';
 import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload, TurnFailurePayload } from '@pocketrocket/shared';
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
 import { api, ApiError } from '../lib/api';
-import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Badge, Banner, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
+import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Banner, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { LinkBot, Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
 import { AlwaysAllow, RuleOffer, TakeoverCard } from './ComputerControl';
 import { CtaButtons, FormCard } from './Cards';
 import { WorkLine, fmtInput, isStep } from './WorkLine';
-import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
-import { selectScreenSize } from '../lib/screenView';
 import { useMediaUrl } from '../lib/media';
 import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
 import { MAX_ATTACHMENTS, reencodeImage, uploadAttachment } from '../lib/attach';
@@ -25,29 +24,16 @@ import { allOnClaude, fmtReset, heldGroups, limitName } from '../lib/limits';
 import { useLimits } from '../lib/useLimits';
 import { WorkflowCardsForRoom } from './workflows/WorkflowCard';
 import { FailoverCardsForRoom } from './FailoverCard';
-import { activeFor, onBackupText } from '../lib/failover';
-import { ContextMeter } from './ContextMeter';
-import { laneKey } from '../lib/queue';
+import { activeFor } from '../lib/failover';
 import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
 import type { DeliveryPayload, SendMode } from '@pocketrocket/shared';
 
-export function ChatPane() {
+/** `hideHeader`: the new layout draws a project room's header itself, above both the chat and the Map tab. */
+export function ChatPane({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const room = useStore(selectActiveRoom);
   const bots = useStore((s) => s.bots);
-  const { statusOf } = useBotStatus();
-  const panelOpen = useStore((s) => s.panelOpen);
-  const panelKind = useStore((s) => s.panelKind);
-  const openFiles = useStore((s) => s.openFiles);
-  const openScreen = useStore((s) => s.openScreen);
-  const closePanel = useStore((s) => s.closePanel);
-  const openPage = useStore((s) => s.openPage);
-  const screenSize = useStore(selectScreenSize);
   const openDialog = useStore((s) => s.openDialog);
   const helloReceived = useStore((s) => s.helloReceived);
-  const control = useStore((s) => s.control);
-  const queues = useStore((s) => s.queues);
-  const failoverActive = useStore((s) => s.failover.active);
-  const providers = useStore((s) => s.providers);
   // P9: a paired phone may not create or edit bots and rooms (the hub answers 403), so it is not offered.
   const device = useStore((s) => s.device);
 
@@ -88,72 +74,11 @@ export function ChatPane() {
   }
 
   const members = room.memberIds.map((id) => botById(bots, id)).filter((b): b is Bot => !!b);
-  const working = members.filter((m) => isWorking(statusOf(m.id)));
-  const needs = members.filter((m) => statusOf(m.id) === 'needs_you').length;
-  // P2: in a group, say which bots' screens the user holds or paused.
-  const filesShown = panelOpen && panelKind === 'files';
-  const screenShown = panelOpen && panelKind === 'screen';
-  // A deleted coordinator leaves its id on the room; no badge rather than "@undefined".
-  const coordinator = room.coordinatorBotId ? botById(bots, room.coordinatorBotId) : undefined;
-  const held = room.kind === 'group' ? members.filter((m) => (control[m.id]?.control ?? 'agent') !== 'agent') : [];
-  const queuePaused = members.filter((m) => queues[laneKey(m.id, room.id)]?.paused);
-  // M8: bots whose attended turns run on their backup until the limit resets ("On Gemini until 14:00").
-  const onBackup = members.flatMap((m) => { const a = activeFor(failoverActive, m.id, Date.now()); return a ? [{ m, text: onBackupText(a, providers) }] : []; });
 
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
-        {room.kind === 'group' && <RoomAvatar room={room} size={30} />}
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            {room.kind === 'dm' && members[0]
-              ? <button type="button" className="min-w-24 truncate rounded-xs text-left text-body font-semibold hover:underline" title={'Open ' + members[0].name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: members[0].id, tab: 'memory' })}>{room.name}</button>
-              : room.kind === 'group' && !device
-                ? <button type="button" className="min-w-24 truncate rounded-xs text-left text-body font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" title="Group details" onClick={() => openDialog({ kind: 'room', room })}>{room.name}</button>
-                : <span className="min-w-24 truncate text-body font-semibold">{room.name}</span>}
-            <span className="flex min-w-0 items-center gap-2 overflow-hidden @max-[640px]:hidden">
-              {coordinator && <Badge tone="accent">coordinator @{coordinator.handle}</Badge>}
-              {held.map((m) => <Badge key={m.id} tone="warn">@{m.handle} {control[m.id]?.control === 'paused' ? 'paused' : 'screen: you'}</Badge>)}
-              {/* The queue's pause, worded apart from the screen's "paused" above. Resume is on the chip by the composer. */}
-              {queuePaused.map((m) => <Badge key={'q' + m.id} tone="warn">{room.kind === 'dm' ? 'Queue paused' : '@' + m.handle + ' queue paused'}</Badge>)}
-              {onBackup.map(({ m, text }) => <Badge key={'b' + m.id}>{room.kind === 'dm' ? text : '@' + m.handle + ' ' + text.charAt(0).toLowerCase() + text.slice(1)}</Badge>)}
-            </span>
-          </div>
-          <div className="truncate text-hint text-muted">
-            {room.kind === 'dm' ? members[0]?.title || '@' + members[0]?.handle : members.map((m) => '@' + m.handle).join('  ')}
-            {needs > 0 && <span className="ml-2 text-warn">{room.kind === 'dm' ? 'Needs you' : needs + (needs === 1 ? ' needs you' : ' need you')}</span>}
-            {working.length > 0 && <span className="ml-2 text-ok">{working.length} working</span>}
-          </div>
-        </div>
-        {room.kind === 'dm' && members[0] && <ContextMeter botId={members[0].id} roomId={room.id} className="w-44 shrink-0 @max-[640px]:hidden" />}
-        {/* A narrow group header has the group's own picture, and the sidebar lists its bots: the name keeps the room.
-            In a one-on-one chat the name and the button beside this already open the bot's page, so the face only shows
-            its state. */}
-        <div className={cn('flex shrink-0 -space-x-2', room.kind === 'group' && '@max-[480px]:hidden')}>
-          {members.slice(0, HEADER_AVATARS).map((m) => room.kind === 'dm' ? (
-            <span key={m.id} className="rounded-full ring-2 ring-bg"><Avatar bot={m} {...avatarStatus(statusOf(m.id))} size={26} /></span>
-          ) : (
-            <button key={m.id} type="button" className="rounded-full ring-2 ring-bg" aria-label={'Open ' + m.name + "'s page"} title={'Open ' + m.name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: m.id, tab: 'memory' })}>
-              <Avatar bot={m} {...avatarStatus(statusOf(m.id))} size={26} />
-            </button>
-          ))}
-          {members.length > HEADER_AVATARS && (
-            <span className="flex h-[26px] items-center rounded-full bg-card2 px-1.5 text-hint text-muted ring-2 ring-bg" title={members.slice(HEADER_AVATARS).map((m) => m.name).join(', ')}>+{members.length - HEADER_AVATARS}</span>
-          )}
-        </div>
-        {room.kind === 'group' && !device && (
-          <Button variant="ghost" size="icon" title="Group details" aria-label="Group details" onClick={() => openDialog({ kind: 'room', room })}><Users size={16} /></Button>
-        )}
-        {room.kind === 'dm' && members[0] && (
-          <Button variant="ghost" size="icon" title="Memory, skills and automations" aria-label={'Open ' + members[0].name + "'s page"} onClick={() => openPage({ kind: 'bot', botId: members[0].id, tab: 'memory' })}><Settings2 size={16} /></Button>
-        )}
-        {screenSize !== 'focus' && (
-          <>
-            <Button data-files-toggle variant="ghost" size="icon" className="aria-pressed:bg-active aria-pressed:text-fg" title={filesShown ? 'Hide files' : 'Files'} aria-label="Files" aria-pressed={filesShown} onClick={() => (filesShown ? closePanel() : openFiles())}><FolderOpen size={16} /></Button>
-            <Button variant="ghost" size="icon" className="aria-pressed:bg-active aria-pressed:text-fg" title={screenShown ? 'Hide screen' : 'Watch screen'} aria-label="Screen" aria-pressed={screenShown} onClick={() => (screenShown ? closePanel() : openScreen())}><Monitor size={16} /></Button>
-          </>
-        )}
-      </header>
+      {/* The new layout draws a project room's header above the chat (App.tsx, ProjectHeader.tsx). */}
+      {!hideHeader && <ChatHeader room={room} members={members} />}
       {/* Keyed so scroll state and the paging bookkeeping start fresh in every room. */}
       <Transcript key={room.id} roomId={room.id} />
       {/* A workflow's approval step waits here, in the chat it runs in, until you answer it. */}
@@ -183,9 +108,6 @@ function TranscriptSkeleton({ label }: { label: string }) {
     </SkeletonGroup>
   );
 }
-
-/** A room can hold 10 bots; past this the header says +N, so the name and buttons keep their width. */
-const HEADER_AVATARS = 4;
 
 function Transcript({ roomId }: { roomId: string }) {
   const messages = useStore((s) => s.messages[roomId]);
@@ -496,9 +418,10 @@ function DeliveryStatus({ delivery, bots }: { delivery: DeliveryPayload; bots: B
 
 function Item({ m, bots }: { m: Message; bots: Bot[] }) {
   switch (m.kind) {
-    case 'approval': return <ApprovalCard m={m} />;
-    case 'takeover': return <TakeoverCard m={m} />;
-    case 'form': return <FormCard m={m} />;
+    // `data-msg`: the overview's Review scrolls here (lib/useProject.ts revealMessage). `contents` keeps the layout as it was.
+    case 'approval': return <div data-msg={m.id} className="contents"><ApprovalCard m={m} /></div>;
+    case 'takeover': return <div data-msg={m.id} className="contents"><TakeoverCard m={m} /></div>;
+    case 'form': return <div data-msg={m.id} className="contents"><FormCard m={m} /></div>;
     case 'handoff': return <HandoffCard m={m} bots={bots} />;
     default: {
       // A bot outside this chat reporting back: its work is in its own chat.

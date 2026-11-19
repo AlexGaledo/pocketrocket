@@ -324,11 +324,17 @@ export function TabsList({ children, variant = 'segmented', className }: { child
     </TabsVariantContext.Provider>
   );
 }
-export function TabsTrigger({ value, children }: { value: string; children: React.ReactNode }) {
+/**
+ * `id` and `controls`: for tabs whose panels live outside the Tabs root (the project header's Chat | Map), so the tab
+ * points at the real panel instead of a TabsContent that is never drawn.
+ */
+export function TabsTrigger({ value, children, id, controls }: { value: string; children: React.ReactNode; id?: string; controls?: string }) {
   const variant = React.useContext(TabsVariantContext);
   return (
     <TabsPrimitive.Trigger
       value={value}
+      {...(id ? { id } : {})}
+      {...(controls ? { 'aria-controls': controls } : {})}
       className={variant === 'underline'
         ? 'relative shrink-0 whitespace-nowrap py-2 text-ui text-muted hover:text-fg focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:text-fg data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-full data-[state=active]:after:bg-accent'
         : 'flex-1 shrink-0 whitespace-nowrap rounded-sm px-1.5 py-1.5 text-label text-muted hover:text-fg data-[state=active]:bg-panel data-[state=active]:text-fg data-[state=active]:shadow-[var(--shadow-sm)]'}
@@ -660,7 +666,8 @@ export interface StagePlan { done: number; total: number; stage: string | null }
  * A project's progress as a row of small bars (done, current, next), then the stage and `done/total`, or "No plan
  * yet". The bars are a picture of the numbers, which are always written out; screen readers get one sentence.
  */
-export function StagePips({ plan, pips = 5, className }: { plan: StagePlan | null; pips?: number; className?: string }) {
+/** `wrap`: the stage name may wrap under a narrow header instead of being cut off. */
+export function StagePips({ plan, pips = 5, wrap = false, className }: { plan: StagePlan | null; pips?: number; wrap?: boolean; className?: string }) {
   if (!plan || plan.total <= 0) return <span className={cn('text-hint text-dim', className)}>No plan yet</span>;
   const done = Math.max(0, Math.min(plan.total, plan.done));
   const filled = done >= plan.total ? pips : Math.min(pips - 1, Math.floor((done / plan.total) * pips));
@@ -672,7 +679,7 @@ export function StagePips({ plan, pips = 5, className }: { plan: StagePlan | nul
           <span key={i} className={cn('h-1 w-3.5 rounded-full', i < filled ? 'bg-line2' : i === filled ? 'bg-accent' : 'bg-line')} />
         ))}
       </span>
-      <span aria-hidden className="min-w-0 truncate">
+      <span aria-hidden className={wrap ? 'min-w-0 [overflow-wrap:anywhere]' : 'min-w-0 truncate'}>
         {plan.stage && <>{plan.stage} · </>}<span className="font-mono">{done}/{plan.total}</span>
       </span>
     </span>

@@ -6,7 +6,9 @@ import type { KnowledgeStatus } from '@pocketrocket/shared';
 import type { ControlStatus } from '@pocketrocket/shared';
 import type { Skill, ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse, type ProjectInfo } from './lib/api';
-import { fetchProjects } from './lib/projects';
+import { fetchProjects, projectOfRoom } from './lib/projects';
+import { getLayout, subscribeLayout } from './lib/layout';
+import type { ProjectOverview } from '@pocketrocket/shared';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
 import { notifyEvent } from './lib/notifyEvents';
@@ -17,12 +19,14 @@ import { newClientId, readJournal, writeJournal, type OutboxEntry } from './lib/
 import { applyLaneQueue, replaceRoomQueues, type Queues } from './lib/queue';
 import { applyContext, replaceRoomContexts, type Contexts } from './lib/context';
 import { refreshWorkflows } from './lib/workflows';
-import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
+import { OVERVIEW_OPEN_MIN, PANEL_INLINE_MIN, SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths, type PanelKind } from './lib/panes';
 import type { SectionId } from './components/dialogs/SettingsDialog';
 
 export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
 /** What the main pane shows over the chat. Null is the chat. */
-export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'workflow'; id: string } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' } | { kind: 'pcsessions' };
+export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'workflow'; id: string } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' } | { kind: 'pcsessions' }
+  /** New layout: a project's Map tab, over its chat (docs/specs/toki-ui.md). */
+  | { kind: 'map'; slug: string };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
@@ -70,6 +74,19 @@ function matches(query: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** New layout (docs/specs/toki-ui.md): per browser, and never on a paired phone. */
+const tokiLayout = (device: boolean) => getLayout() === 'toki' && !device;
+const OVERVIEW_RAIL_KEY = 'pocketrocket.overviewRail';
+/** In the new layout the right slot holds the overview wherever it fits beside the chat. */
+function overviewHome(vw: number): boolean {
+  return tokiLayout(isDevice()) && vw >= PANEL_INLINE_MIN;
+}
+/** The rail choice once made; until then the overview starts open on a wide window and as the rail below that. */
+function readOverviewRail(vw: number): boolean {
+  const v = getItem(OVERVIEW_RAIL_KEY);
+  return v === '1' ? true : v === '0' ? false : vw < OVERVIEW_OPEN_MIN;
 }
 
 export interface Toast {
@@ -166,8 +183,15 @@ interface State {
   panelExpanded: boolean;
   /** Whose screen the user chose in a group chat. lib/screenView.ts says whose actually shows. */
   panelBotId: string | null;
-  /** What the right panel shows while open: the screen, or the room's files (components/files). */
-  panelKind: 'screen' | 'files';
+  /**
+   * What the right panel shows while open: the screen, the room's files (components/files), or, in the new layout,
+   * the overview (components/overview). There the overview is what the slot goes back to when the others close.
+   */
+  panelKind: PanelKind;
+  /** New layout: the overview is folded to its icon rail. Remembered per browser once chosen. */
+  overviewRail: boolean;
+  /** Per project slug: its parsed current.md; null when the hub refused or has no such endpoint. */
+  overviews: Record<string, ProjectOverview | null>;
   /**
    * Files was opened over a screen the user was watching. That viewer stays mounted, hidden, so its noVNC
    * connection survives a look at the files; it is let go when the panel closes.
@@ -257,6 +281,11 @@ interface State {
    */
   projects: ProjectInfo[];
   loadProjects: () => Promise<void>;
+  /** Fetches one project's overview (GET /api/projects/:slug/overview). */
+  loadOverview: (slug: string) => Promise<void>;
+  /** New layout: shows the overview in the right slot; `rail: false` unfolds it. */
+  openOverview: (opts?: { rail?: boolean }) => void;
+  setOverviewRail: (rail: boolean) => void;
   loadInboxSkills: () => Promise<void>;
 
   setConnected: (v: boolean) => void;
@@ -341,12 +370,15 @@ export const useStore = create<State>((set, get) => ({
   routinesRev: 0,
   triggersRev: 0,
   memory: {},
-  panelOpen: false,
+  // A fresh start is the chat; in the new layout on a wide window, the chat with its project's overview.
+  panelOpen: overviewHome(window.innerWidth),
   sidebarOpen: !matches(NARROW_SIDEBAR_QUERY) && getItem('pocketrocket.sidebar') !== '0',
   paneW: readPaneWidths(window.innerWidth),
   panelExpanded: false,
   panelBotId: null,
-  panelKind: 'screen',
+  panelKind: overviewHome(window.innerWidth) ? 'overview' : 'screen',
+  overviewRail: readOverviewRail(window.innerWidth),
+  overviews: {},
   screenParked: false,
   filesTarget: null,
   filesRev: {},
@@ -413,6 +445,26 @@ export const useStore = create<State>((set, get) => ({
     if (get().device) return set({ projects: [] });
     set({ projects: await fetchProjects(api.projects.list) });
   },
+  loadOverview: async (slug) => {
+    try {
+      const o = await api.projects.overview(slug);
+      set({ overviews: { ...get().overviews, [slug]: o } });
+    } catch {
+      // An older hub (404) or a refused device: no plan, said quietly as "No plan yet".
+      set({ overviews: { ...get().overviews, [slug]: null } });
+    }
+  },
+  openOverview: (opts) => set((s) => ({
+    panelOpen: true,
+    panelKind: 'overview',
+    screenParked: false,
+    panelExpanded: false,
+    overviewRail: opts?.rail === false ? false : s.overviewRail,
+  })),
+  setOverviewRail: (rail) => {
+    setItem(OVERVIEW_RAIL_KEY, rail ? '1' : '0');
+    set({ overviewRail: rail });
+  },
 
   setConnected: (connected) => {
     const was = get().connected;
@@ -435,13 +487,17 @@ export const useStore = create<State>((set, get) => ({
     // Ahead of the hub (spec B1): once it sends `projects.changed`, take its list as is.
     const loose = ev as unknown as { type: string; projects?: unknown };
     if (loose.type === 'projects.changed') {
+      // The hub's event carries nothing (paired phones get every event); an older draft carried the list.
       if (Array.isArray(loose.projects) && !s.device) set({ projects: loose.projects as ProjectInfo[] });
+      else void get().loadProjects();
       return;
     }
     switch (ev.type) {
       case 'hello': {
         const settings = ev.settings ?? DEFAULT_SETTINGS;
         set({ bots: ev.bots, rooms: ev.rooms, botStates: ev.botStates, loaded: {}, settings, helloReceived: true, device: ev.principal ? ev.principal === 'device' : s.device, signedIn: !!ev.signedIn, approvalErrors: {}, formErrors: {}, openApprovals: ev.openApprovals ?? [], queues: {} });
+        // A paired phone keeps the classic layout, so it never keeps the overview the first paint guessed at.
+        if (get().device && get().panelKind === 'overview') set({ panelOpen: false, panelKind: 'screen' });
         // `queues: {}`: lanes may have changed while the link was down; each room's load fetches its snapshot again.
         applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
@@ -538,6 +594,9 @@ export const useStore = create<State>((set, get) => ({
         const streaming = { ...s.streaming };
         delete streaming[ev.turnId];
         set({ streaming, contexts: applyContext(s.contexts, ev.botId, ev.roomId, ev.context) });
+        // A bot may have just ticked a box in its project's current.md: refresh what the header and overview say.
+        const project = projectOfRoom(s.projects, ev.roomId);
+        if (project && project.slug in s.overviews) void get().loadOverview(project.slug);
         const roomActive = ev.roomId === s.activeRoomId;
         if (ev.error) {
           play('error', { roomActive });
@@ -781,7 +840,16 @@ export const useStore = create<State>((set, get) => ({
       filesTarget: at && roomId ? { roomId, path: at.path, file: at.file, seq: (s.filesTarget?.seq ?? 0) + 1 } : s.filesTarget,
     });
   },
-  closePanel: () => set({ panelOpen: false, screenParked: false }),
+  closePanel: () => {
+    const s = get();
+    // New layout: closing the screen or files goes back to the overview rather than an empty slot. Where the panel
+    // covers the window instead (a phone), closing means back to the chat; the next open is the overview either way.
+    if (tokiLayout(s.device)) {
+      const back = s.panelOpen && s.panelKind !== 'overview' && window.innerWidth >= PANEL_INLINE_MIN;
+      return set({ panelOpen: back, panelKind: 'overview', screenParked: false, panelExpanded: false });
+    }
+    set({ panelOpen: false, screenParked: false });
+  },
   openPage: (page) => set({ page }),
   closePage: () => set({ page: null }),
   openPcSession: (id) => set({ page: { kind: 'pcsessions' }, pcSessionFocus: id, dialog: null }),
@@ -923,3 +991,14 @@ function settleSends(clientIds: string[]) {
   for (const id of done) clearAck(id);
   setOutbox(cur.filter((e) => !done.has(e.clientId)));
 }
+
+// Flipping the "New layout" switch: the overview comes into the right slot, or leaves it for the classic panel.
+subscribeLayout(() => {
+  const s = useStore.getState();
+  if (tokiLayout(s.device)) {
+    if (!s.panelOpen && window.innerWidth >= PANEL_INLINE_MIN) useStore.setState({ panelOpen: true, panelKind: 'overview', overviewRail: readOverviewRail(window.innerWidth) });
+  } else if (s.panelKind === 'overview') {
+    useStore.setState({ panelOpen: false, panelKind: 'screen' });
+  }
+  if (s.page?.kind === 'map' && !tokiLayout(s.device)) useStore.setState({ page: null });
+});

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { PanelLeftOpen, X } from 'lucide-react';
-import { useStore } from '../store';
+import { useStore, selectActiveRoom } from '../store';
 import { useMediaQuery } from '../lib/useMediaQuery';
 import { reconnectWsNow } from '../lib/ws';
 import { CHAT_RAIL_W, PANEL_INLINE_MIN, PANEL_SOLO_MIN, SIDEBAR_INLINE_MIN, applyPaneVars, paneLayout } from '../lib/panes';
@@ -10,6 +10,10 @@ import { PaneSeparator } from './PaneSeparator';
 import { Sidebar } from './Sidebar';
 import { ChatPane } from './ChatPane';
 import { RightPanel } from './RightPanel';
+import { OverviewPanel } from './overview/OverviewPanel';
+import { ProjectHeader, PROJECT_TAB_IDS } from './ProjectHeader';
+import { MapPage } from './map/MapPage';
+import { useActiveProject, useToki } from '../lib/useProject';
 import { FilesPanel } from './files/FilesPanel';
 import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
@@ -47,6 +51,13 @@ export function App() {
   const setPaneOpen = useStore((s) => s.setPaneOpen);
   const panelOpen = useStore((s) => s.panelOpen);
   const filesOpen = useStore((s) => s.panelOpen && s.panelKind === 'files');
+  // New layout: the overview holds the right slot, folded to a rail or open (components/overview).
+  const toki = useToki();
+  const overviewOpen = useStore((s) => s.panelOpen && s.panelKind === 'overview') && toki;
+  const overviewRail = useStore((s) => s.overviewRail);
+  const project = useActiveProject();
+  const activeRoom = useStore(selectActiveRoom);
+  const projectRoom = project && activeRoom?.id === project.roomId ? activeRoom : null;
   const screenParked = useStore((s) => s.screenParked);
   const dialog = useStore((s) => s.dialog);
   const openDialog = useStore((s) => s.openDialog);
@@ -61,13 +72,18 @@ export function App() {
   const panelFits = useMediaQuery(PANEL_QUERY);
   const panelFitsAlone = useMediaQuery(PANEL_SOLO_QUERY);
   // Between the two, an open panel folds the sidebar away instead of covering the window (lib/panes.ts).
-  const squeezed = panelOpen && panelFitsAlone && !panelFits;
+  // The overview is the exception: it never pushes the sidebar out, and covers the window below the three-pane width.
+  const squeezed = panelOpen && !overviewOpen && panelFitsAlone && !panelFits;
   const sidebarInline = sidebarFits && !squeezed;
   const panelInline = panelFits || squeezed;
   const focus = screenSize === 'focus';
   // Files takes the panel unless the user is driving a screen, which always wins the room.
   const filesShown = filesOpen && !focus;
-  const covering = !panelInline && (screenSize !== 'glance' || filesShown);
+  const overviewShown = overviewOpen && !focus;
+  const covering = !panelInline && (screenSize !== 'glance' || filesShown || overviewShown);
+  // A project's Map tab lies over its chat under the project header; every other page covers the whole pane.
+  const mapPage = page?.kind === 'map' && !!projectRoom;
+  const coverPage = page && page.kind !== 'map' ? page : null;
 
   // U3: the skill pool feeds the Needs you inbox; refetched when skills change. The tab title carries the count.
   const skillsRev = useStore((s) => s.skillsRev);
@@ -183,15 +199,30 @@ export function App() {
       </div>
       {sidebarInline && <PaneSeparator pane="sidebar" label="Resize sidebar" controls="pane-sidebar" />}
       <main className={cn('@container panel relative flex min-w-0 flex-col overflow-clip', focus && panelInline ? 'shrink-0 border-r border-line' : 'flex-1')} style={focus && panelInline ? { width: CHAT_RAIL_W } : undefined}>
-        {/* Pages lie over the chat rather than replace it, so its draft and scroll position wait underneath. */}
-        <div inert={!!page} className="flex min-h-0 flex-1 flex-col"><ChatPane /></div>
-        {page && (
+        {/* New layout: a project room's header sits above both of its tabs, so switching tabs never moves it. */}
+        {projectRoom && project && <div inert={!!coverPage} className="flex shrink-0 flex-col"><ProjectHeader project={project} room={projectRoom} /></div>}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {/* Pages lie over the chat rather than replace it, so its draft and scroll position wait underneath. */}
+          <div
+            inert={!!page}
+            className="flex min-h-0 flex-1 flex-col"
+            {...(projectRoom ? { id: PROJECT_TAB_IDS.chat.panel, role: 'tabpanel', 'aria-labelledby': PROJECT_TAB_IDS.chat.tab } : {})}
+          >
+            <ChatPane hideHeader={!!projectRoom} />
+          </div>
+          {mapPage && (
+            <div id={PROJECT_TAB_IDS.map.panel} role="tabpanel" aria-labelledby={PROJECT_TAB_IDS.map.tab} className="absolute inset-0 flex flex-col">
+              <MapPage />
+            </div>
+          )}
+        </div>
+        {coverPage && (
           <div className="@container panel absolute inset-0 flex flex-col">
-            {page.kind === 'bot' ? <BotPage botId={page.botId} tab={page.tab} /> : page.kind === 'workflow' ? <WorkflowPage id={page.id} /> : page.kind === 'automations' ? <AutomationsPage /> : page.kind === 'inbox' ? <InboxPage /> : page.kind === 'tasks' ? <TasksPage /> : page.kind === 'pcsessions' ? <PcSessionsPage /> : <UsagePage />}
+            {coverPage.kind === 'bot' ? <BotPage botId={coverPage.botId} tab={coverPage.tab} /> : coverPage.kind === 'workflow' ? <WorkflowPage id={coverPage.id} /> : coverPage.kind === 'automations' ? <AutomationsPage /> : coverPage.kind === 'inbox' ? <InboxPage /> : coverPage.kind === 'tasks' ? <TasksPage /> : coverPage.kind === 'pcsessions' ? <PcSessionsPage /> : <UsagePage />}
           </div>
         )}
       </main>
-      {panelInline && !focus && <PaneSeparator pane="panel" label={filesShown ? 'Resize files' : 'Resize screen'} controls="pane-panel" />}
+      {panelInline && !focus && !(overviewShown && overviewRail) && <PaneSeparator pane="panel" label={filesShown ? 'Resize files' : overviewShown ? 'Resize overview' : 'Resize screen'} controls="pane-panel" />}
       {/* One element at every size, thumbnail included, with only its CSS changing. Moving an iframe in the DOM
           reloads it, which would spend a ticket and drop the noVNC connection on every change of size. */}
       <div
@@ -200,7 +231,7 @@ export function App() {
         tabIndex={-1}
         role={covering ? 'dialog' : undefined}
         aria-modal={covering || undefined}
-        aria-label={covering ? (filesShown ? 'Files' : 'Screen') : undefined}
+        aria-label={covering ? (filesShown ? 'Files' : overviewShown ? 'Overview' : 'Screen') : undefined}
         onKeyDown={(e) => {
           // The DOM check: Escape in a dialog opened from in here (a file preview) bubbles through its portal to
           // this handler, and must close that dialog only.
@@ -213,8 +244,9 @@ export function App() {
         style={covering || focus ? undefined : { width: 'var(--panel-w)' }}
       >
         {/* Under Files the screen stays mounted: a thumbnail while the bot uses it, else hidden but connected. */}
-        <RightPanel inline={panelInline} parked={filesShown && screenParked} beside={filesShown ? (covering ? 'cover' : 'inline') : null} />
+        <RightPanel inline={panelInline} parked={filesShown && screenParked} beside={filesShown || overviewShown ? (covering ? 'cover' : 'inline') : null} />
         {filesOpen && <div className={focus ? 'hidden' : 'flex min-w-0 flex-1'}><FilesPanel inline={panelInline} /></div>}
+        {overviewShown && <div className="flex min-w-0 flex-1"><OverviewPanel inline={panelInline} /></div>}
       </div>
 
       {sidebarOpen && !sidebarInline && (
