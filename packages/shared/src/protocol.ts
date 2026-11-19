@@ -34,6 +34,11 @@ export type ServerEvent =
   | { type: 'failover.changed'; cards: FailoverState['cards']; active: FailoverState['active'] }
   | { type: 'bots.changed'; bots: Bot[] }
   | { type: 'rooms.changed'; rooms: Room[] }
+  /**
+   * A project was created, deleted, or its members or linked room changed; clients refetch GET /api/projects. Carries
+   * nothing, because paired phones get every event and /api/projects (with each project's folder path) is closed to them.
+   */
+  | { type: 'projects.changed' }
   | { type: 'message.new'; message: Message }
   | { type: 'message.update'; id: string; roomId: string; patch: Partial<Message> }
   | { type: 'turn.start'; turnId: string; botId: string; roomId: string; causeId: string; hop: number }

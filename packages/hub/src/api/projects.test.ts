@@ -219,12 +219,13 @@ describe('the dev team template', () => {
   it('gives every clone the required skills and its source skills, without repeats', () => {
     const { repos, projects } = withSources();
     const shipping = repos.listSkills().find((s) => s.name === 'safe-shipping')!;
+    const map = repos.listSkills().find((s) => s.name === 'project-map')!;
     const debug = repos.upsertSkill({ name: 'debugging', description: '', path: '/x/debugging', source: 'authored', reviewStatus: 'approved', createdByBot: null });
     const source = repos.getBotByHandle(DEV_TEAM_TEMPLATE.roles[0].source)!;
     repos.setBotSkills(source.id, [shipping.id, debug.id]);
     const { bots } = projects.create({ name: 'Shop', team: true });
-    expect(repos.botSkillIds(bots[0].id).slice().sort()).toEqual([shipping.id, debug.id].sort());
-    expect(repos.botSkillIds(bots[1].id)).toEqual([shipping.id]);
+    expect(repos.botSkillIds(bots[0].id).slice().sort()).toEqual([shipping.id, debug.id, map.id].sort());
+    expect(repos.botSkillIds(bots[1].id).slice().sort()).toEqual([shipping.id, map.id].sort());
   });
   it('records the template in the project folder, and keeps a file already there', () => {
     const { projects } = withSources();
@@ -255,7 +256,7 @@ describe('the dev team template', () => {
   it('leaves nothing behind when the team cannot be made', () => {
     const { repos, projects, root } = service();
     makeBot(repos, DEV_TEAM_TEMPLATE.roles[0].source, SOURCE);
-    repos.upsertSkill({ name: 'safe-shipping', description: '', path: '/x/safe-shipping', source: 'authored', reviewStatus: 'approved', createdByBot: null });
+    for (const name of DEV_TEAM_TEMPLATE.skills) repos.upsertSkill({ name, description: '', path: '/x/' + name, source: 'authored', reviewStatus: 'approved', createdByBot: null });
     const before = repos.listBots().length;
     expect(() => projects.create({ name: 'Half', team: true })).toThrow(/needs the bot/);
     expect(repos.listBots()).toHaveLength(before);

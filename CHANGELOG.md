@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Project map and progress, read-only (hub)
+
+- `GET /api/projects/:slug/map` reads `map.json` from the project's folder and checks it: a file over 64 KB, broken JSON or a wrong shape comes back as an error to show, never a partial map. Links to missing boxes are dropped and counted.
+- `GET /api/projects/:slug/overview` reads the plan from `current.md` with no AI turn: ticked and open checkboxes, the stage you are in, the next step, the last three done items and what is waiting on you.
+- A new `projects.changed` event fires when a project is created, deleted, or its members or chat change, so the app can refresh its project list.
+- A new `project-map` skill ships with the hub and is added to the skill pool when it is missing. New team projects (template v3) give it to every bot; attach it to an existing project's lead in Skills. Asking that bot for a map is an ordinary message that uses one turn.
+- All of this stays on your machine and is closed to paired phones.
+
 ### Attach any file or a video to a chat message (hub, web)
 
 - The paperclip, drag-and-drop and paste now take any file, not only PNG, JPEG and WebP pictures. Files can be up to 25 MB and videos up to 200 MB, with up to 8 attachments per message. Pictures still go the picture way (shown to the bot inline, metadata stripped). Everything else, GIFs included, uploads as its own bytes with a progress percentage.

@@ -29,11 +29,16 @@ const send = (res: ServerResponse, status: number, body: unknown): true => {
  *   GET    /api/projects/:slug/search   ?q=&archived=1, with no AI turn
  *   GET    /api/projects/:slug/lint     what has gone stale or messy
  *   GET    /api/projects/:slug/repos    { repos: ProjectRepo[] } from repos.json (bridge P5)
+ *   GET    /api/projects/:slug/map      ProjectMapReply from map.json (Toki UI B2); a bad file is an `error`, not a failure
+ *   GET    /api/projects/:slug/overview ProjectOverview parsed from current.md, with no AI turn (Toki UI B3)
  *   PUT    /api/projects/:slug/repos    { repos } -> saved file; 400 names every schema problem. Remotes only, never a PC path
  *   DELETE /api/projects/:slug          forgets it; the folder and any cloned bots stay
+ *
+ * Create, members, room and delete each emit `projects.changed` once (no payload: a paired phone gets every event).
  */
 export function createProjectsApi(deps: { projects: ProjectService; repos: Repos; db?: Db }) {
   const { projects, repos, db } = deps;
+  const changed = () => events.emitEvent({ type: 'projects.changed' });
   return async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname !== '/api/projects' && !url.pathname.startsWith('/api/projects/')) return false;
@@ -54,21 +59,24 @@ export function createProjectsApi(deps: { projects: ProjectService; repos: Repos
           const made = projects.create(p.data);
           if (made.bots.length) events.emitEvent({ type: 'bots.changed', bots: repos.listBots() });
           if (made.room) events.emitEvent({ type: 'rooms.changed', rooms: repos.listRooms() });
+          changed();
           return send(res, 200, made);
         }
       }
       const [slug, action] = parts;
-      if (parts.length === 1 && method === 'DELETE') { projects.remove(slug); return send(res, 200, { ok: true }); }
+      if (parts.length === 1 && method === 'DELETE') { projects.remove(slug); changed(); return send(res, 200, { ok: true }); }
       if (parts.length === 2 && action === 'members' && method === 'PUT') {
         const p = MembersInput.safeParse(body);
         if (!p.success) return send(res, 400, { error: p.error.issues.map((i) => i.path.join('.') + ': ' + i.message).join('; ') });
         projects.setMembers(slug, p.data.memberIds);
+        changed();
         return send(res, 200, projects.need(slug));
       }
       if (parts.length === 2 && action === 'room' && method === 'PUT') {
         const p = RoomLinkInput.safeParse(body);
         if (!p.success) return send(res, 400, { error: p.error.issues.map((i) => i.path.join('.') + ': ' + i.message).join('; ') });
         projects.setRoom(slug, p.data.roomId);
+        changed();
         return send(res, 200, projects.need(slug));
       }
       if (parts.length === 2 && action === 'search' && method === 'GET') {
@@ -82,6 +90,8 @@ export function createProjectsApi(deps: { projects: ProjectService; repos: Repos
         projects.need(slug);
         return send(res, 200, projects.reposFile(slug));
       }
+      if (parts.length === 2 && action === 'map' && method === 'GET') return send(res, 200, projects.map(slug));
+      if (parts.length === 2 && action === 'overview' && method === 'GET') return send(res, 200, projects.overview(slug));
       if (parts.length === 2 && action === 'repos' && method === 'PUT') {
         const saved = projects.setRepos(slug, body);
         const actor = actorOf(req);

@@ -12,6 +12,7 @@ import { reportOrphanBotDirs } from './services/orphanBotDirs.js';
 import { Repos } from './db/repos.js';
 import { MemoryService } from './services/MemoryService.js';
 import { SkillService } from './services/SkillService.js';
+import { ensureBuiltinSkills } from './services/builtinSkills.js';
 import { UsageTracker } from './services/UsageTracker.js';
 import { AutoMemory } from './services/AutoMemory.js';
 import { SettingsStore, installSettings } from './services/SettingsStore.js';
@@ -230,6 +231,10 @@ export function createHub(opts: HubOptions = {}): Hub {
     reportOrphanBotDirs(BOTS_DIR, repos.listBots().map((b) => b.id));
   }
   const skills = new SkillService(repos);
+  if (!opts.skipBootstrap) {
+    // Skills that ship with the hub (project-map for the Toki map); added once, never overwritten.
+    try { ensureBuiltinSkills(skills, repos); } catch (e) { logError('[builtin skills]', e); }
+  }
   const secrets = new SecretsStore();
   const account = opts.account ?? new AccountService();
   const settings = new SettingsStore({
