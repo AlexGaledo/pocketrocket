@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Workflows say where a saved file went (hub)
+
+- A workflow whose output step saves a file now posts a short note in the chat naming the file. Before, the chat's last word on the run was "waiting for your approval" even after it finished.
+
+### Fewer needless approval cards (hub)
+
+- A Bash command that sends output to `/dev/null` (`git log 2>/dev/null`) no longer counts as writing outside the workspace, so strict turns such as workflow steps stop asking for plain reads.
+
+### Telegram notifications card (app)
+
+- Settings › Notifications now shows on every client except a paired phone, with a pointer to "Phone: Devices › Notifications on this device"; the desktop-notification card still appears only in the desktop app.
+- New Telegram card: paste a bot token (checked, then shown as @yourbot), link your chat with a short code, QR code or "Open in Telegram", then turn on "Notify me here". The cloud warning (messages are content-free, Telegram still sees that something happened) is shown above the switch. Send a test, Unlink, a BotFather /revoke pointer and a "one hub per bot token" note are on the card. Needs the hub routes from the Telegram backend change.
+
+### Workflows: hub foundations
+
+- A turn now belongs to an owner ref (`routine:<runId>` or `workflow:<runId>:<step>`) instead of a bare routine run id, in the lane journal and on parked approvals, and what the turn does when it ends is rebuilt from it after a restart or a parked approval. Routines behave as before (a run still closes when its turn ends, and a turn cut off by two restarts closes its run as an error). Existing rows are filled in by migration 290.
+- A lane can run a step alone (never batched with chat messages), a workflow run's budget caps every hand-off on its thread the way a trigger's daily budget does, "Run now" and "Test fire" mark their thread as person-started, and Usage has a "Workflow" cause kind.
+- New tables `workflows` and `workflow_runs` (migrations 291-292). Nothing uses them yet: the runner, approval card, REST and bot tools follow in the next change.
+
+### Workflows: the run engine, approval card, REST and bot tools (hub)
+
+- A workflow is a fixed chain of steps (a trigger, then bot steps, approval steps and an output) that starts from a routine, an event trigger or "Run now". Each bot step is its own turn: alone in the bot's queue, with approvals on even under bypass, at hop 0 (so two hand-offs inside every step never trip the hand-off limit), and capped at what is left of the run's budget. The run stops with a note in the chat when it spends its budget. The previous step's text reaches the next step fenced as data, never as instructions.
+- Progress is saved after every step. After a restart a run resumes at the right step: a step that was cut off is resumed once by the usual follow-up, and a run that died between two steps carries on from the next one. A run you Stop ends as "stopped by you" and Retry runs that step again; steers you send into a running step are kept on that step's timeline.
+- An approval step posts a card only you can answer (approve, reject, or send back once with a note). It waits through the night, expires after 24 hours (the run ends in an error and Retry asks again) and shows in Needs you. A bot, a cta button, a chat message or a tool approval answer cannot decide it, and a paired phone can answer it but not build workflows.
+- An output step posts the last output to the chat, or saves it as a file in the chat's files folder (relative paths only; a path that climbs out of the folder is refused).
+- New routes: `/api/workflows`, `/api/workflow-runs`, `/api/workflow-cards`, and events `workflows.changed`, `workflow.run`, `workflow.cards`. Bots get `list_workflows`, and `create_workflow` and `update_workflow`, which show you an approval card first. A routine or trigger that a workflow uses cannot be deleted (409) until the workflow is changed. Migration 293 adds the chat to `workflow_runs`.
+
+### Telegram notifications (hub)
+
+- You can link your Telegram to get a short notice when a bot needs your approval or a routine finishes. Create a bot with @BotFather, save its token, then press Start in Telegram with the one-time code (10 minutes, one use, a `t.me` link). Only a private chat from a person (not a bot, not a group) whose id matches the chat is accepted, and five wrong codes lock linking for 15 minutes. The hub keeps your numeric Telegram id, not your username.
+- The message is one fixed line per kind plus your hub address when you set one up, never a bot, room, tool or message name. It is off until you switch it on, and a Telegram-only owner (no phone subscription) is notified. Phone push and Telegram each coalesce bursts on their own 30 second clock.
+- The hub only reads Telegram while a link code is waiting, aborts that poll on shutdown, and never removes a webhook: if another PocketRocket or a webhook uses the bot, linking says so (409). The bot token is kept encrypted, scrubbed from logs and errors, and never shown again. New routes under `/api/telegram`, for the desktop app only (not paired phones, not bots).
+
+### Bundle budget in CI, Telegram notes in the docs (infra)
+
+- CI now fails if the web entry chunk contains workflow-canvas (`@xyflow`) code or grows past a size budget (`scripts/bundle-budget.mjs`, about today's size plus 15%).
+- Docs: `api.telegram.org` is on the outbound list, the guide has a Telegram notifications section (BotFather, link, what the messages say, revoke), and `deploy/keys.sh` prints the BotFather `/revoke` step for a Telegram integration.
+
 ### Move a PC Claude Code session to the VPS and back (hub)
 
 - A mirrored PC session whose repos all sync by bundle (and are not client repos) can be moved to the VPS: the PC uploads one git bundle per repo and the session file, the hub imports each bundle into a `wip/<machine>/<session>` branch, builds a worktree for it, rewrites the PC paths in the conversation to that worktree and files it where the VPS Claude CLI looks. Only a browser signed in with your password can start a move, and your PC asks again before it uploads anything.

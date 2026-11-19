@@ -60,6 +60,8 @@ const NO_CONTENT = Symbol('no content');
 
 export interface RestDeps {
   repos: Repos; memory: MemoryService; skills: SkillService; scheduler: RoutineScheduler; router: RoomRouter; runner: BotRunner;
+  /** True when a workflow starts from this routine (deleting it is then a 409). */
+  routineInUse?: (routineId: string) => boolean;
   settings: SettingsStore; secrets: SecretsStore; providers: ProviderRegistry;
   /** Mints the single-use tickets the Screen tab trades for its `/screen` cookie. */
   screenSessions: ScreenSessions;
@@ -567,7 +569,12 @@ export function createRest(deps: RestDeps) {
     scheduler.reload();
     return repos.getRoutine(r.id);
   });
-  add('DELETE', '/api/routines/:id', ({ params }) => { repos.deleteRoutine(params.id); scheduler.reload(); return { ok: true }; });
+  add('DELETE', '/api/routines/:id', ({ params }) => {
+    if (deps.routineInUse?.(params.id)) throw new HttpError(409, 'A workflow starts from this routine. Remove or change the workflow first.');
+    repos.deleteRoutine(params.id);
+    scheduler.reload();
+    return { ok: true };
+  });
   add('POST', '/api/routines/:id/run', ({ params }) => ({ ok: scheduler.fire(params.id, { manual: true }) }));
   add('GET', '/api/routines/:id/runs', ({ params }) => repos.listRuns(params.id));
 

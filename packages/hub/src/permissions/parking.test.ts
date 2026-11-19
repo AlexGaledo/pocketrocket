@@ -42,7 +42,7 @@ describe('PermissionBroker parking (unit)', () => {
     const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
     const parks: string[] = [];
     const ctx = (strict: boolean) => ({
-      bot, room, turnId: 't', hop: 2, causeId: 'cause', setState: () => undefined, strictApprovals: strict, runId: 'run-9',
+      bot, room, turnId: 't', hop: 2, causeId: 'cause', setState: () => undefined, strictApprovals: strict, ownerRef: 'routine:run-9',
       park: (why: string) => parks.push(why),
     });
     return { db, repos, store, broker, bot, room, ctx, parks };
@@ -56,7 +56,7 @@ describe('PermissionBroker parking (unit)', () => {
     expect(d).toMatchObject({ behavior: 'deny', message: PARKED_MESSAGE, interrupt: true });
     expect(s.parks).toHaveLength(1);
     const [p] = s.store.listParked();
-    expect(p).toMatchObject({ botId: s.bot.id, roomId: s.room.id, toolName: 'Bash', causeId: 'cause', hop: 2, runId: 'run-9' });
+    expect(p).toMatchObject({ botId: s.bot.id, roomId: s.room.id, toolName: 'Bash', causeId: 'cause', hop: 2, ownerRef: 'routine:run-9' });
     const card = s.repos.messagesAfter(s.room.id, 0).find((m) => m.kind === 'approval')!;
     expect(card.payload).toMatchObject({ status: 'pending', parked: true });
     // A hub restart expires ordinary open cards, not parked ones.
@@ -197,7 +197,7 @@ describe('a 3 a.m. routine parks on its card and completes after the morning app
       { active: () => provider, get: () => provider } as unknown as ProviderRegistry, new TurnRegistry(),
     );
     router.runner = runner;
-    broker.onParkedDecision = (p, d) => router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, runId: p.runId, note: 'Approval: ' + d });
+    broker.onParkedDecision = (p, d) => router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, ownerRef: p.ownerRef, note: 'Approval: ' + d });
     return { db, repos, store, broker, provider, router, scheduler: new RoutineScheduler(repos, router, { timezone: () => 'UTC' }) };
   }
 
@@ -222,7 +222,7 @@ describe('a 3 a.m. routine parks on its card and completes after the morning app
     // The hub restarts overnight: the parked card and its open run survive.
     const h2 = hub(file, now);
     h2.repos.expirePendingApprovals();
-    new FollowUp({ repos: h2.repos, router: h2.router, heldRuns: () => h2.store.parkedRunIds() }).resumeInterrupted();
+    new FollowUp({ repos: h2.repos, router: h2.router, heldRuns: () => h2.store.parkedOwnerRefs() }).resumeInterrupted();
     expect(h2.store.listParked()).toHaveLength(1);
     expect(h2.repos.listRuns(routine.id)[0].status).toBe('running');
 
@@ -259,7 +259,7 @@ describe('a trigger turn (P5) parks on its card like a routine turn', () => {
       { dispatchFromBot: (req, tg) => router.dispatchFromBot(req, tg), setState: () => undefined },
       { active: () => provider, get: () => provider } as unknown as ProviderRegistry, new TurnRegistry(),
     );
-    broker.onParkedDecision = (p, d) => router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, runId: p.runId, note: 'Approval: ' + d });
+    broker.onParkedDecision = (p, d) => router.resumeParked(p.botId, p.roomId, { causeId: p.causeId, hop: p.hop, ownerRef: p.ownerRef, note: 'Approval: ' + d });
     const bot = repos.createBot({ name: 'Releaser', handle: 'releaser', title: '', description: '', avatar: '🤖', model: 'm', allowedTools: ['Bash'], maxBudgetUsd: 2 });
     const room = repos.createRoom({ kind: 'dm', name: 'DM', memberIds: [bot.id], coordinatorBotId: null });
     const results: boolean[] = [];

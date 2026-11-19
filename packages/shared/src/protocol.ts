@@ -10,6 +10,7 @@ import type { RecorderStatus } from './teach.js';
 import type { Task } from './tasks.js';
 import { FormAnswersSchema } from './cards.js';
 import type { PcSessionUpdatedEvent } from './pcSessions.js';
+import type { WorkflowApprovalCard, WorkflowRunSummary } from './workflows.js';
 
 // ---------- server -> client ----------
 export type ServerEvent =
@@ -41,6 +42,13 @@ export type ServerEvent =
   // ---- P3: routines v2 ----
   /** A routine was created, changed or deleted (REST or a bot tool); clients refetch GET /api/routines. */
   | { type: 'routines.changed' }
+  // ---- Workflows v1 ----
+  /** A workflow was created, changed or deleted (REST or a bot tool); clients refetch GET /api/workflows. */
+  | { type: 'workflows.changed' }
+  /** A run started, moved to another step, waited, ended or was retried. Carries no step output (paired phones get every event); fetch GET /api/workflow-runs/:id for it. */
+  | { type: 'workflow.run'; run: WorkflowRunSummary }
+  /** The approval cards waiting for the owner changed: this is the whole list now (the same as GET /api/workflow-cards). */
+  | { type: 'workflow.cards'; cards: WorkflowApprovalCard[] }
   // ---- P7: knowledge repo, voice ----
   | { type: 'knowledge.status'; status: KnowledgeStatus }
   /** voice.md or its pending proposals changed; clients refetch GET /api/bots/:id/voice. */

@@ -19,6 +19,7 @@ import type { BotExportResult, BotImportResult, LaneQueue, Task, TaskStatus } fr
 import type { PcJobRequest, PcJobView } from './pcRun';
 import type { ProjectReposFile, ReposPutBody } from './projectRepos';
 import { listQuery, PC_ENTRY_PAGE, type PcSessionDetail, type PcSessionQuery, type PcSessionSummary, type PcSeqEntry } from './pcSessions';
+import type { TelegramState } from './telegram';
 import { getToken, reportAuthFailure, clearAuthFailure } from './auth';
 
 /**
@@ -358,6 +359,16 @@ export const api = {
     pairing: () => req<PairingCode>('POST', '/api/devices/pairing', {}),
     rename: (id: string, name: string) => req<DeviceInfo>('PATCH', '/api/devices/' + encodeURIComponent(id), { name }),
     revoke: (id: string) => req<{ ok: true }>('DELETE', '/api/devices/' + encodeURIComponent(id)),
+  },
+  // Settings › Notifications › Telegram. Owner only; the hub never sends the token back.
+  telegram: {
+    get: () => req<TelegramState>('GET', '/api/telegram'),
+    setToken: (token: string) => req<TelegramState>('PUT', '/api/telegram/token', { token }),
+    removeToken: () => req<TelegramState>('DELETE', '/api/telegram/token'),
+    link: () => req<TelegramState>('POST', '/api/telegram/link', {}),
+    unlink: () => req<TelegramState>('POST', '/api/telegram/unlink', {}),
+    setNotify: (notify: boolean) => req<TelegramState>('PUT', '/api/telegram/notify', { notify }),
+    test: () => req<{ ok: true }>('POST', '/api/telegram/test', {}),
   },
   push: {
     status: () => req<{ publicKey: string; subscriptions: number }>('GET', '/api/push'),

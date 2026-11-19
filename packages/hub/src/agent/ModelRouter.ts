@@ -156,6 +156,8 @@ export function route(req: RouteRequest): RouteChoice {
   if (skill) return choose(req, 'opus', 'skill', 'because skill "' + skill + '" declares model: opus');
   if (req.causeKind === 'routine') return choose(req, 'sonnet', 'routine', 'for a routine');
   if (req.causeKind === 'trigger') return choose(req, 'haiku', 'triage', 'to triage a trigger');
+  // A workflow step is a scheduled, owner-written job like a routine: the router never second-guesses it.
+  if (req.causeKind === 'workflow') return choose(req, 'sonnet', 'routine', 'for a workflow step');
   return choose(req, 'sonnet', 'default', '(default)');
 }
 

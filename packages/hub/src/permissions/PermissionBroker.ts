@@ -25,8 +25,8 @@ export interface PermCtx {
   /** P3, decision Q6: a routine/trigger turn. Bypass does not apply to it; every gate still asks. */
   strictApprovals?: boolean;
   // ---- P2 ----
-  /** Routine run the turn belongs to, kept on a parked card so the resumed turn can close it. */
-  runId?: string;
+  /** What the turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`), kept on a parked card so the resumed turn settles it. */
+  ownerRef?: string;
   /**
    * Ends the turn because a card parked (a strict turn waited `parkAfterMs` with no answer). BotRunner wires
    * it; without it a strict card times out and denies as before.
@@ -650,7 +650,7 @@ export class PermissionBroker {
       const canPark = !!(ctx.strictApprovals && ctx.park && this.opts.store);
       const timer = canPark
         ? setTimeout(() => {
-            this.opts.store!.park(approvalId, { causeId: ctx.causeId, hop: ctx.hop, runId: ctx.runId ?? null, messageId: msg.id });
+            this.opts.store!.park(approvalId, { causeId: ctx.causeId, hop: ctx.hop, ownerRef: ctx.ownerRef ?? null, messageId: msg.id });
             finish('parked');
           }, this.opts.parkAfterMs ?? APPROVAL_TIMEOUT_MS)
         : setTimeout(() => finish('timeout'), APPROVAL_TIMEOUT_MS);

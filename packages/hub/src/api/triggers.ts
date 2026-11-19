@@ -24,7 +24,7 @@ interface Route { method: string; pattern: RegExp; keys: string[]; handler: (c: 
  *   GET    /api/triggers/:id/fires    recent fires, newest first
  *   POST   /api/triggers/:id/test     fire once with a sample event ({ event?: {...} })
  */
-export function createTriggersApi(deps: { triggers: TriggerService }) {
+export function createTriggersApi(deps: { triggers: TriggerService; /** True when a workflow starts from this trigger. */ inUse?: (id: string) => boolean }) {
   const svc = deps.triggers;
   const routes: Route[] = [];
   const add = (method: string, path: string, handler: Route['handler']) => {
@@ -45,7 +45,12 @@ export function createTriggersApi(deps: { triggers: TriggerService }) {
   add('GET', '/api/triggers', () => svc.state());
   add('POST', '/api/triggers', ({ body }) => svc.create(parse(TriggerInputSchema, body)));
   add('PATCH', '/api/triggers/:id', ({ params, body }) => found(svc.update(params.id, parse(TriggerPatchSchema, body))));
-  add('DELETE', '/api/triggers/:id', ({ params }) => { found(svc.repo.get(params.id)); svc.delete(params.id); return { ok: true }; });
+  add('DELETE', '/api/triggers/:id', ({ params }) => {
+    found(svc.repo.get(params.id));
+    if (deps.inUse?.(params.id)) throw new HttpError(409, 'A workflow starts from this trigger. Remove or change the workflow first.');
+    svc.delete(params.id);
+    return { ok: true };
+  });
   add('GET', '/api/triggers/:id/fires', ({ params }) => { found(svc.repo.get(params.id)); return svc.repo.listFires(params.id); });
   add('POST', '/api/triggers/:id/test', ({ params, body }) => found(svc.testFire(params.id, parse(TriggerTestSchema, body ?? {}))));
 

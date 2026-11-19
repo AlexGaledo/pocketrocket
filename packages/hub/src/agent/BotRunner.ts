@@ -17,6 +17,7 @@ import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
 import type { PcRunner } from '../services/PcRunner.js';
+import type { WorkflowRunner } from '../services/WorkflowRunner.js';
 import type { PcSessions } from '../services/PcSessions.js';
 import type { SessionMoves } from '../services/SessionMoves.js';
 import { createHubTools } from './botTools.js';
@@ -75,8 +76,8 @@ export interface TurnRequest {
    * even when the hub is in bypass mode. RoomRouter sets it from `requiresApprovals(causeId)`.
    */
   strictApprovals?: boolean;
-  /** P2: the routine run this turn belongs to, so a parked turn can still close it when it resumes. */
-  runId?: string;
+  /** What this turn belongs to (`routine:<runId>`, `workflow:<runId>:<nodeId>`), so a parked turn can still settle it when it resumes. */
+  ownerRef?: string;
   /** The last turn here was cut off (token brake, step limit): start a fresh, small session instead of resuming the big one. */
   freshSession?: boolean;
 }
@@ -208,6 +209,8 @@ export class BotRunner {
   control?: ComputerControlService;
   /** The owner's PC as a job runner (run_on_pc). Set by createHub; the tool is offered only while it is paired. */
   pcRunner?: PcRunner;
+  /** Workflows v1: the bot tools `list_workflows`, `create_workflow` and `update_workflow`. */
+  workflows?: WorkflowRunner;
   /** Bridge P4: the PC session mirror, read-only, for @persona's list_pc_sessions and read_pc_session. */
   pcSessions?: PcSessions;
   /** Bridge P6: moved PC sessions, for propose_move and the resume lock in run_on_pc. */
@@ -398,7 +401,7 @@ export class BotRunner {
     const permCtx = {
       bot, room, turnId, hop: req.hop, causeId: req.causeId, setState: (s: 'blocked' | 'working') => setState(s),
       strictApprovals: !!req.strictApprovals,
-      runId: req.runId, park, controlBlocked,
+      ownerRef: req.ownerRef, park, controlBlocked,
     };
 
     // key-registry.json, read once per turn (an edit applies to the next turn), names only.
@@ -468,6 +471,7 @@ export class BotRunner {
       } : undefined,
       routinesChanged: this.hooks.routinesChanged,
       pcRunner: this.pcRunner,
+      workflows: this.workflows,
       pcSessions: this.pcSessions,
       sessionMoves: this.sessionMoves,
       signal: ac.signal,
@@ -481,7 +485,7 @@ export class BotRunner {
     // P2: a bot with a computer can hand it to the user (log in, captcha) and wait for it back.
     if ((desktopOn || browserOn) && this.control) {
       tools.push(takeoverTool({
-        bot, room, turnId, hop: req.hop, causeId: req.causeId, runId: req.runId, repos: this.repos, control: this.control,
+        bot, room, turnId, hop: req.hop, causeId: req.causeId, ownerRef: req.ownerRef, repos: this.repos, control: this.control,
         signal: ac.signal, setState: (s) => setState(s), park, useComputer,
       }));
     }
@@ -954,7 +958,7 @@ export class BotRunner {
     const setState = (st: BotState, note?: string) => this.hooks.setState(bot.id, room.id, st, note);
     const permCtx = {
       bot, room, turnId, hop: 0, causeId, setState: (st: 'blocked' | 'working') => setState(st),
-      strictApprovals: false, runId: undefined, park: () => undefined, controlBlocked: () => null,
+      strictApprovals: false, ownerRef: undefined, park: () => undefined, controlBlocked: () => null,
     };
     const tools = createHubTools({
       bot, room, members: req.members, turnId, hop: 0, causeId,

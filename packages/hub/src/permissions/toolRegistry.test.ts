@@ -58,14 +58,14 @@ describe('hub tool registry (B3)', () => {
     const silent = [
       'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
       'list_rooms', 'request_approval', 'use_stronger_model', 'desktop_screenshot', 'desktop_click', 'desktop_type',
-      'desktop_key', 'desktop_scroll', 'desktop_launch', 'list_routines', 'where_to_run', 'list_machines', 'search_notes', 'write_note',
+      'desktop_key', 'desktop_scroll', 'desktop_launch', 'list_routines', 'list_workflows', 'where_to_run', 'list_machines', 'search_notes', 'write_note',
       'create_task', 'update_task', 'list_tasks', 'search_history', 'recall_memory', 'report_blocked', 'send_feedback', 'request_form',
       'log_decision', 'file_history', 'list_repos',
       ...INTEGRATION_READ_TOOLS,
     ];
     const gated = [
       'create_bot', 'update_bot', 'delete_bot', 'create_room', 'delete_room', 'add_to_room', 'remove_from_room',
-      'create_routine', 'update_routine', 'delete_routine', 'dispatch', 'propose_routing_change', ...INTEGRATION_WRITE_TOOLS, 'run_on_pc', 'propose_move', 'fill_credential',
+      'create_routine', 'update_routine', 'delete_routine', 'create_workflow', 'update_workflow', 'dispatch', 'propose_routing_change', ...INTEGRATION_WRITE_TOOLS, 'run_on_pc', 'propose_move', 'fill_credential',
     ];
     expect([...SILENT_TOOLS].sort()).toEqual([...silent].sort());
     expect([...GATED_TOOLS].sort()).toEqual([...gated].sort());

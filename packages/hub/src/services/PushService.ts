@@ -20,6 +20,12 @@ export function pushPayload(kind: PushKind): Buffer {
 /** Same kind more often than this collapses into one push: ten approval cards in a burst buzz the phone once. */
 const COALESCE_MS = 30_000;
 
+/** Telegram, as the push service sees it: whether it should hear about events, and a way to tell it. */
+export interface TelegramSink {
+  ready(): boolean;
+  notify(kind: PushKind): Promise<void>;
+}
+
 type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body: Buffer }) => Promise<{ status: number }>;
 
 export interface PushDeps {
@@ -41,7 +47,9 @@ export class PushError extends Error {
  * Devices; nothing is sent to anyone who has not. Revoking a device drops its subscriptions (DevicesRepo).
  */
 export class PushService {
-  private last = new Map<PushKind, number>();
+  /** One coalesce stamp per sink and kind, so a quiet sink never blocks another one. */
+  private last = new Map<string, number>();
+  private telegram: TelegramSink | null = null;
   private turnCause = new Map<string, string>();
   private off: (() => void) | null = null;
   private keys: VapidKeys | null = null;
@@ -127,13 +135,30 @@ export class PushService {
     return { sent, failed };
   }
 
-  /** Coalesced send for hub events. */
+  /** Telegram is a second sink next to Web Push (see `notify`). Set by hub.ts. */
+  setTelegram(t: TelegramSink | null): void {
+    this.telegram = t;
+  }
+
+  /**
+   * Coalesced send for hub events, one gate per sink. Each sink has its own "is anyone there to tell" check and its own
+   * 30 s stamp per kind, so an owner with only Telegram is notified, and a sink with nobody behind it neither stamps nor
+   * suppresses the other.
+   */
   notify(kind: Exclude<PushKind, 'test'>): void {
     const t = this.now();
-    if (t - (this.last.get(kind) ?? -Infinity) < COALESCE_MS) return;
-    if (!this.deps.devices.subscriptions().length) return;
-    this.last.set(kind, t);
-    void this.send(kind);
+    if (this.gate('web', kind, t, () => this.deps.devices.subscriptions().length > 0)) void this.send(kind);
+    const tg = this.telegram;
+    if (tg && this.gate('telegram', kind, t, () => tg.ready())) void tg.notify(kind).catch(() => { /* never breaks an approval card */ });
+  }
+
+  /** True when this sink has someone to tell and has not sent `kind` in the last 30 s. Stamps on success. */
+  private gate(sink: string, kind: PushKind, t: number, hasTarget: () => boolean): boolean {
+    const key = sink + ':' + kind;
+    if (t - (this.last.get(key) ?? -Infinity) < COALESCE_MS) return false;
+    if (!hasTarget()) return false;
+    this.last.set(key, t);
+    return true;
   }
 
   /**
