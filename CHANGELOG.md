@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Sending mail or a calendar invite needs your signed-in browser (hub)
+
+- `gmail_send` and `calendar_create_event` now raise a sign-in-only card, like a job on your PC. Each send asks on its own (no "for this session" answer, no rule can pre-approve it), and only a browser signed in with your password can allow it. This holds under the bypass approvals setting too.
+- Why: bots read your mail, and a message can carry instructions. A bot that read the hub token from the server could already answer an ordinary card; it cannot answer this one.
+- GitHub, Slack, ClickUp and Teams writes are unchanged: still a card each time, answerable from any client.
+
 ### Gemini: a usage limit shows as a limit, and a model your sign-in lacks no longer fails the turn (hub)
 
 - When Gemini (agy) runs out of quota, the bot no longer posts agy's raw "⚠ Individual quota reached…" or "RESOURCE_EXHAUSTED (code 429)" warning as its reply. The turn ends on a usage limit with the reset time agy gives, so the limit note and the failover card show instead. If the bot also wrote a real answer, the answer stays and the limit is still recorded.

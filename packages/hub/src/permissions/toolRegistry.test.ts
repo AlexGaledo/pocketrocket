@@ -40,10 +40,10 @@ describe('hub tool registry (B3)', () => {
     expect(missing, 'registered in the hub but not in HUB_TOOLS: ' + missing.join(', ')).toEqual([]);
   });
 
-  it('every integration tool is registered, reads silent and writes gated', () => {
-    for (const t of Object.values(INTEGRATION_TOOLS)) {
+  it('every integration tool is registered: reads silent, writes gated, Google writes sign-in only', () => {
+    for (const [provider, t] of Object.entries(INTEGRATION_TOOLS)) {
       for (const n of t.read) expect(HUB_TOOLS[n], n).toBe('silent');
-      for (const n of t.write) expect(HUB_TOOLS[n], n).toBe('gated');
+      for (const n of t.write) expect(HUB_TOOLS[n], n).toBe(provider === 'google' ? 'signInOnly' : 'gated');
     }
   });
 
@@ -69,8 +69,8 @@ describe('hub tool registry (B3)', () => {
     ];
     expect([...SILENT_TOOLS].sort()).toEqual([...silent].sort());
     expect([...GATED_TOOLS].sort()).toEqual([...gated].sort());
-    expect([...ASK_EVERY_TIME_TOOLS].sort()).toEqual(['fill_credential', 'propose_move', 'propose_routing_change', 'run_on_pc']);
-    expect([...SIGN_IN_TOOLS].sort()).toEqual(['fill_credential', 'propose_move', 'run_on_pc']);
+    expect([...ASK_EVERY_TIME_TOOLS].sort()).toEqual(['calendar_create_event', 'fill_credential', 'gmail_send', 'propose_move', 'propose_routing_change', 'run_on_pc']);
+    expect([...SIGN_IN_TOOLS].sort()).toEqual(['calendar_create_event', 'fill_credential', 'gmail_send', 'propose_move', 'run_on_pc']);
     expect(BROKER_SIGN_IN).toBe(SIGN_IN_TOOLS);
     expect(DESKTOP_TOOL_NAMES).toHaveLength(6);
   });

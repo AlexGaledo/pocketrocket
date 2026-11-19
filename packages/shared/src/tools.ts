@@ -44,6 +44,8 @@ export const INTEGRATION_TOOLS: Record<IntegrationProvider, { read: readonly str
 
 export const INTEGRATION_READ_TOOLS: readonly string[] = Object.values(INTEGRATION_TOOLS).flatMap((t) => t.read);
 export const INTEGRATION_WRITE_TOOLS: readonly string[] = Object.values(INTEGRATION_TOOLS).flatMap((t) => t.write);
+/** Google writes (Gmail send, Calendar invite): sign-in-only cards. */
+export const GOOGLE_WRITE_TOOLS: readonly string[] = INTEGRATION_TOOLS.google.write;
 
 /** The computer-use tools of a bot's virtual desktop. */
 export const DESKTOP_TOOL_NAMES: readonly string[] = [
@@ -92,7 +94,11 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     'dispatch',
   ]),
   // Integration writes; their handlers call askIntegrationWrite.
-  ...gated(INTEGRATION_WRITE_TOOLS),
+  ...gated(INTEGRATION_WRITE_TOOLS.filter((n) => !GOOGLE_WRITE_TOOLS.includes(n))),
+  // Mail and invites go out as the owner, often from a work account, and bots read untrusted mail. So each send is
+  // its own card, and only a browser signed in with the owner's password may allow it: the hub token in DATA_DIR,
+  // which a bot under bypass can read, cannot answer it.
+  ...GOOGLE_WRITE_TOOLS.map((n): [string, HubToolClass] => [n, 'signInOnly']),
   // Its handler calls askRoutingChange.
   ['propose_routing_change', 'askEveryTime'],
   // A Claude Code job on the owner's PC; its handler calls askFleetChange with evenUnderBypass.
