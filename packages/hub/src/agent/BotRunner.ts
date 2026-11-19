@@ -12,7 +12,7 @@ import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
 import { imageNote, materializeImages } from './attachments.js';
-import { EMPTY_USAGE, steerTurn, type AgentProvider, type ProviderInit, type SteerInput, type TurnContext, type TurnOutcome, type TurnSink } from '../providers/types.js';
+import { EMPTY_USAGE, steerTurn, type AgentProvider, type ProviderInit, type SteerInput, type TurnContext, type TurnLimit, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
 import { buildSystemPrompt } from './PromptBuilder.js';
@@ -665,6 +665,8 @@ export class BotRunner {
 
     const sink: TurnSink = {
       onInit: (info) => { this.lastInit = info; },
+      // M5: plan-limit reports feed ProviderHealth (warnings and holds). Test doubles of the registry leave it out.
+      onLimit: (r) => this.providers.health?.report(provider.id, r, route.model),
       onSession: (token) => {
         if (token && token !== session.sdkSessionId) this.repos.saveSession(bot.id, room.id, { sdkSessionId: token, provider: provider.id });
       },
@@ -734,6 +736,7 @@ export class BotRunner {
     let ok = false;
     let error: string | undefined;
     let stoppedByOwner = false;
+    let limit: TurnLimit | undefined;
     let costUsd = 0;
     // Token brake: cache-read tokens summed over every run of this turn (continuations and move-ups included).
     let cacheRead = 0;
@@ -769,7 +772,8 @@ export class BotRunner {
         // behaviour: a turn that died before any result reported nothing).
         const u = o.usage;
         if (u.costUsd || u.inputTokens || u.outputTokens) {
-          this.usage.record(bot.id, room.id, turnId, req.causeId, u, { model: route.model, routeReason: route.reason, causeKind });
+          // P0-4: the model that actually answered (an SDK fallback), not just the one asked for.
+          this.usage.record(bot.id, room.id, turnId, req.causeId, u, { model: o.model ?? route.model, routeReason: route.reason, causeKind });
         }
       };
       record(outcome);
@@ -885,6 +889,9 @@ export class BotRunner {
 
       ok = outcome.ok;
       error = outcome.error;
+      // M5: the run ended on a provider limit. ProviderHealth holds it until it resets; the note below says so.
+      limit = outcome.limit;
+      if (limit) this.providers.health?.hold(provider.id, limit, outcome.model ?? route.model);
     } catch (e) {
       error = redact(String((e as Error).message ?? e));
     } finally {
@@ -926,7 +933,8 @@ export class BotRunner {
     }
     if (error) {
       const msg = this.repos.insertMessage({
-        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system', ...turnFailureNote(bot.name, error, ac.signal.aborted),
+        roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
+        ...turnFailureNote(bot.name, error, ac.signal.aborted, limit ? { ...limit, provider: provider.label } : undefined),
         causeId: req.causeId, hop: req.hop, turnId,
       });
       events.emitEvent({ type: 'message.new', message: msg });

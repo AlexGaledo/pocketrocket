@@ -5,8 +5,9 @@ import { execFile, spawn } from 'node:child_process';
 import {
   createSdkMcpServer, query, tool,
   type Options, type PermissionResult, type SDKMessage, type SDKUserMessage, type PreToolUseHookInput, type PostToolUseHookInput,
+  type SDKAPIRetryMessage, type SDKAssistantMessageError, type SDKRateLimitInfo,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ModelInfo, ProviderCheck, ProviderStaticInfo } from '@pocketrocket/shared';
+import type { ModelInfo, ProviderCheck, ProviderLimitKind, ProviderStaticInfo } from '@pocketrocket/shared';
 import { BASH_MAX_OUTPUT_CHARS, CLAUDE_EXE, DATA_DIR, MAX_MCP_OUTPUT_TOKENS, PLAYWRIGHT_MCP_CLI, VERSION } from '../config.js';
 import { browserMcpRoots, sandboxCommand } from './sandbox.js';
 import { isOutdatedCliError, updateClaudeCli } from './claudeUpdate.js';
@@ -19,7 +20,7 @@ import { secretFileAccess } from '../permissions/secretFiles.js';
 import { denyMessage } from '../permissions/messages.js';
 import { logError } from './redact.js';
 import { outsideMcpNeedsCard } from '../services/outsideMcp.js';
-import type { AgentProvider, HubTool, ProviderInit, SteerInput, SteerResult, TurnContext, TurnImage, TurnOutcome, TurnSink } from './types.js';
+import type { AgentProvider, HubTool, LimitReport, ProviderInit, SteerInput, SteerResult, TurnContext, TurnImage, TurnLimit, TurnOutcome, TurnSink } from './types.js';
 
 // Only these may be pre-approved via allowedTools. A bare allowedTools entry auto-approves the tool
 // EVERYWHERE and bypasses canUseTool, so file/shell tools must never appear there: reads inside
@@ -98,6 +99,79 @@ export const CLAUDE_INFO: ProviderStaticInfo = {
   permissions: 'full',
   maturity: 'verified',
 };
+
+/**
+ * P0-4: the SDK's `fallbackModel` for a bot's model, used by the CLI when that model is overloaded or unavailable (the
+ * primary is retried each turn). Always the next cheaper Claude model: Fable falls back to Opus, Opus to Sonnet.
+ * Sonnet, Haiku and anything unknown get none, so a fallback never moves a bot up or across.
+ */
+export function fallbackModelFor(model: string): string | undefined {
+  const id = (family: string) => MODELS.find((m) => m.id.includes(family))?.id;
+  if (/fable/i.test(model)) return id('opus');
+  if (/opus/i.test(model)) return id('sonnet');
+  return undefined;
+}
+
+/**
+ * The fallback model, when it is the one that answered (for the usage row). The SDK has no message for an overload
+ * fallback, so this reads the top-level assistant `message.model`, which the API gives as a full id
+ * ("claude-sonnet-5-20261001"). Anything else (the model asked for, its dated id, an id the hub does not recognise)
+ * is undefined, so the row keeps the hub's own id and usage-by-model stays grouped.
+ */
+export function ranModel(asked: string, fallback: string | undefined, seen: string | undefined): string | undefined {
+  if (!seen || !fallback || seen.startsWith(asked)) return undefined;
+  return seen.startsWith(fallback) ? fallback : undefined;
+}
+
+/** `resetsAt` from the SDK is unix seconds (the API's reset header); a value already in ms is kept. */
+export function resetMs(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return undefined;
+  return v < 1e12 ? Math.round(v * 1000) : v;
+}
+
+/**
+ * P0-1: a `rate_limit_event` as a LimitReport. A rejected window that extra usage still pays for does not stop the
+ * request, so it is reported as a warning rather than a limit.
+ */
+export function limitReport(info: SDKRateLimitInfo): LimitReport {
+  const overagePays = info.status === 'rejected' && info.rateLimitType !== 'overage' &&
+    (info.overageStatus === 'allowed' || info.overageStatus === 'allowed_warning');
+  return {
+    status: overagePays ? 'allowed_warning' : info.status,
+    kind: 'usage',
+    window: info.rateLimitType,
+    resetsAt: resetMs(info.resetsAt),
+    utilization: typeof info.utilization === 'number' ? info.utilization : undefined,
+  };
+}
+
+/**
+ * Assistant `error` values that mean the provider, not the bot, stopped the run. The CLI sends these as a synthetic
+ * assistant message whose text is its own error wording ("You've hit your limit · resets 2pm"): it is never posted as
+ * the bot's reply nor read for @mentions.
+ */
+const LIMIT_ERRORS: Partial<Record<SDKAssistantMessageError, ProviderLimitKind>> = {
+  rate_limit: 'usage',
+  overloaded: 'overloaded',
+  authentication_failed: 'auth',
+  oauth_org_not_allowed: 'auth',
+};
+
+/** What an `api_retry` the run ended after says about the provider, when the run failed. */
+export function retryLimitKind(r: { error_status: number | null; error: SDKAssistantMessageError }): ProviderLimitKind | undefined {
+  if (r.error === 'rate_limit' || r.error_status === 429) return 'usage';
+  if (r.error === 'overloaded' || r.error_status === 529) return 'overloaded';
+  if (r.error === 'server_error' || r.error_status === null || r.error_status >= 500) return 'down';
+  return undefined;
+}
+
+/** The turn error for a run that ended on a limit. Worded so turnFailure files it as external either way. */
+export function limitError(limit: TurnLimit): string {
+  if (limit.kind === 'usage') return 'usage limit reached' + (limit.window ? ' (' + limit.window + ')' : '');
+  if (limit.kind === 'overloaded') return 'overloaded';
+  if (limit.kind === 'auth') return 'not signed in (authentication failed)';
+  return 'network: Claude could not be reached';
+}
 
 /** The turn error for a run the token brake stopped. Says "budget", so turnFailure files it as external. */
 export function tokenBrakeError(read: number, cap: number): string {
@@ -587,6 +661,7 @@ export class ClaudeProvider implements AgentProvider {
         }
       : {};
 
+    const fallbackModel = fallbackModelFor(ctx.model);
     const options: Options = {
       pathToClaudeCodeExecutable: CLAUDE_EXE,
       // Bridge P7: with settings.sandbox on, the CLI (and the Bash, file tools and Browser MCP it runs) starts inside bubblewrap.
@@ -612,6 +687,8 @@ export class ClaudeProvider implements AgentProvider {
       ],
       resume: ctx.resumeToken ?? undefined,
       model: ctx.model,
+      // P0-4: an overloaded or unavailable Opus/Fable carries on one model down; never up, and none below Opus.
+      fallbackModel,
       systemPrompt: { type: 'preset', preset: 'claude_code', append: ctx.systemPrompt },
       settingSources: [],
       // Flag settings load even with settingSources: [] (user settings do not), so this is what stops the CLI's
@@ -708,6 +785,12 @@ export class ClaudeProvider implements AgentProvider {
     let contextTokens: number | undefined;
     let braked = false;
     const runningCacheRead = () => [...calls.values()].reduce((n, c) => n + c.cacheRead, 0);
+    // P0-1: provider limits. A rejected window or an assistant limit error ends the run as a limit unless a real answer
+    // came after it (the CLI's own fallback or retry got through). The last retry explains a run that failed without one.
+    let rejected: LimitReport | undefined;
+    let apiError: TurnLimit | undefined;
+    let lastRetry: SDKAPIRetryMessage | undefined;
+    let seenModel: string | undefined;
 
     const q = query({ prompt: channel.messages, options });
     let stopping = false;
@@ -757,6 +840,17 @@ export class ClaudeProvider implements AgentProvider {
           if (m.session_id) sink.onSession(m.session_id);
           continue;
         }
+        if (m.type === 'rate_limit_event') {
+          const report = limitReport(m.rate_limit_info);
+          if (report.status === 'rejected') rejected = report;
+          sink.onLimit?.(report);
+          continue;
+        }
+        if (m.type === 'system' && m.subtype === 'api_retry') {
+          lastRetry = m;
+          if (process.env.POCKETROCKET_DEBUG) console.log('[claude ' + bot.handle + '] api_retry', m.attempt + '/' + m.max_retries, m.error_status, m.error);
+          continue;
+        }
         if (m.type === 'stream_event') {
           if (m.parent_tool_use_id) continue;
           consume(m.user_message_uuids);
@@ -767,6 +861,19 @@ export class ClaudeProvider implements AgentProvider {
         if (m.type === 'assistant') {
           if (m.parent_tool_use_id) continue;
           consume(m.user_message_uuids);
+          const limitKind = m.error ? LIMIT_ERRORS[m.error] : undefined;
+          if (limitKind) {
+            // The CLI's error wording, not the bot's reply: held back, and the turn ends on the structured limit.
+            apiError = { kind: limitKind, ...(limitKind === 'usage' && rejected ? { resetsAt: rejected.resetsAt, window: rejected.window } : {}) };
+            continue;
+          }
+          if (!m.error) {
+            // A real answer after a limit signal: the CLI recovered (fallback model, retry), so the run is not limited.
+            rejected = undefined;
+            apiError = undefined;
+            lastRetry = undefined;
+            if (m.message.model && m.message.model !== '<synthetic>') seenModel = m.message.model;
+          }
           const mu = m.message.usage as (Parameters<typeof callInputTokens>[0] & { output_tokens?: number | null }) | undefined;
           if (mu) {
             calls.set(m.message.id ?? 'call-' + calls.size, {
@@ -871,12 +978,34 @@ export class ClaudeProvider implements AgentProvider {
       ok = false;
       error = tokenBrakeError(runningCacheRead(), ctx.cacheReadBudget!);
     }
+    // P0-1: a limit ends the run as failed, even when the CLI called it a success (on a subscription it reports the
+    // limit as a successful result carrying its limit text). A user Stop is not a limit.
+    let limit: TurnLimit | undefined;
+    if (!stopping && !ctx.signal.aborted && !outdatedCli) {
+      if (apiError?.kind === 'usage' || (!apiError && rejected)) {
+        const resetsAt = apiError?.resetsAt ?? rejected?.resetsAt;
+        const window = apiError?.window ?? rejected?.window;
+        limit = { kind: 'usage', ...(resetsAt !== undefined ? { resetsAt } : {}), ...(window ? { window } : {}) };
+      } else if (apiError) {
+        limit = apiError;
+      } else if (!ok && lastRetry) {
+        const kind = retryLimitKind(lastRetry);
+        if (kind) limit = { kind };
+      }
+    }
+    if (limit) {
+      ok = false;
+      error = limitError(limit);
+    }
+    const model = ranModel(ctx.model, fallbackModel, seenModel);
 
     const outcome: TurnOutcome = {
       ok, error, costUsd,
       usage: { costUsd, ...usage, modelUsage, durationMs: durationMs || Date.now() - started },
       durationMs: durationMs || Date.now() - started,
       sessionCostUsd, contextTokens, braked: braked || undefined,
+      ...(limit ? { limit } : {}),
+      ...(model ? { model } : {}),
     };
     return { outcome, outdatedCli: !!outdatedCli, usedTools };
   }

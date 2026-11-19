@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Claude limits are understood, not posted (hub)
+
+- When Claude's plan limit is reached, the bot's turn ends with a clear note such as "Ada turn ended: Claude 5-hour limit reached, resets 14:00." in the hub's local time. Claude's own limit message is no longer posted as the bot's reply, so it can no longer wake other bots with an @mention.
+- The hub remembers which provider (or, for Claude's weekly Opus and Sonnet limits, which model) is at its limit until it resets, and early warnings as you near a limit. `GET /api/providers` returns them as `limits`, and the WS `provider.limit` event sends each change. Nothing is saved: a restart forgets it.
+- A bot on Opus or Fable keeps going one model down (Fable to Opus, Opus to Sonnet) when its model is overloaded or unavailable. It never moves up, and Sonnet and Haiku have no fallback. Usage records the model that actually answered.
+- An overload or outage the CLI's own retries could not get past now ends the turn as such, without posting the raw API error as the reply.
+
 ### Workflow canvas stays readable with many steps (web)
 
 - The canvas now opens on the first three steps at a readable size instead of shrinking every step to fit; the rest are a scroll away. An 8-step workflow used to open as tiny unreadable boxes.
