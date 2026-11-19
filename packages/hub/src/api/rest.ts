@@ -4,8 +4,8 @@ import { actorOf, recordAudit } from '../services/AuditLog.js';
 import { z } from 'zod';
 import {
   BotInputSchema, MaintenanceHoldInputSchema, QueueCancelInputSchema, QueueEditInputSchema, QueuePauseInputSchema, QueueSendNowInputSchema, RoomInputSchema, RoomMessageInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
-  AUTO_MODEL, TASK_STATUSES, isMediaRef, mediaHash,
-  type BotInput, type BusyInfo, type ContextUsage, type HealthInfo, type ProviderId, type Room, type TaskStatus, type UsageResponse,
+  AUTO_MODEL, CLAUDE_SLASH_COMMANDS, TASK_STATUSES, TOKI_SLASH_COMMANDS, isMediaRef, mediaHash,
+  type BotInput, type BusyInfo, type ContextUsage, type HealthInfo, type ProviderId, type Room, type SlashCommandInfo, type TaskStatus, type UsageResponse,
 } from '@pocketrocket/shared';
 import { modelFor, repointBotModel } from '../services/SettingsStore.js';
 import net from 'node:net';
@@ -410,6 +410,18 @@ export function createRest(deps: RestDeps) {
     repos.setBotSkills(bot.id, skillIds);
     skills.materialize(bot.id, bot.handle);
     return { ok: true };
+  });
+  // The composer's `/` menu: the app's own commands, Claude Code's (when a member runs on Claude), then the members' skills.
+  add('GET', '/api/rooms/:id/commands', ({ params }) => {
+    const room = need(repos.getRoom(params.id), 'Room');
+    const bots = room.memberIds.map((id) => repos.getBot(id)).filter((b): b is NonNullable<typeof b> => !!b);
+    const seen = new Set<string>();
+    const out: SlashCommandInfo[] = [];
+    const push = (c: SlashCommandInfo) => { if (!seen.has(c.name)) { seen.add(c.name); out.push(c); } };
+    TOKI_SLASH_COMMANDS.forEach(push);
+    CLAUDE_SLASH_COMMANDS.forEach(push);
+    for (const b of bots) for (const s of skills.skillIndex(b.id)) push({ name: s.name, description: s.description || 'Skill', source: 'skill' });
+    return out;
   });
   add('POST', '/api/bots/:id/reset-session', ({ params, body }) => {
     const bot = need(repos.getBot(params.id), 'Bot');

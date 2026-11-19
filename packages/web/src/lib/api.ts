@@ -13,7 +13,7 @@ import type { Trigger, TriggerFire, TriggerInput, TriggersState, TriggerTestInpu
 import type { ApprovalPolicy, ComputerControl, ControlStatus } from '@pocketrocket/shared';
 import type { RecorderStatus, RecordingInfo, SkillReflectionConfig, SkillVersion, SkillVersionDetail } from '@pocketrocket/shared';
 import type { TrainingDecision, TrainingPassResult, TrainingProposal, TrainingState } from '@pocketrocket/shared';
-import type { FileChangeResult, FileListing, FileUploadInput, StoredFileMeta } from '@pocketrocket/shared';
+import type { FileChangeResult, FileListing, FileUploadInput, SlashCommandInfo, StoredFileMeta } from '@pocketrocket/shared';
 import type { CredentialCreate, CredentialInfo, CredentialPatch } from '@pocketrocket/shared';
 import type { MachineInfo, MachinePolicy, PcRunnerStatus } from '@pocketrocket/shared';
 import type { BotExportResult, BotImportResult, ContextUsage, LaneQueue, Task, TaskStatus } from '@pocketrocket/shared';
@@ -238,6 +238,8 @@ export const api = {
       return r.blob();
     },
   },
+  /** The composer's `/` menu for one room. */
+  commands: (roomId: string) => req<SlashCommandInfo[]>('GET', '/api/rooms/' + encodeURIComponent(roomId) + '/commands'),
   bots: {
     list: () => req<Bot[]>('GET', '/api/bots'),
     create: (b: BotInput) => req<Bot>('POST', '/api/bots', b),

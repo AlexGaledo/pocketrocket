@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A new `project-map` skill ships with the hub and is added to the skill pool when it is missing. New team projects (template v3) give it to every bot; attach it to an existing project's lead in Skills. Asking that bot for a map is an ordinary message that uses one turn.
 - All of this stays on your machine and is closed to paired phones.
 
+### Slash commands in the composer (hub, web)
+
+- Typing `/` at the start of a message opens a command menu. It lists Claude Code's own commands that work for a bot (`/compact`, `/context`, `/cost`, `/init`, `/review`, `/security-review`, `/pr-comments`, `/release-notes`, `/todos`), the skills of the bots in the room, and `/clear`.
+- Sent on its own, a Claude command reaches a Claude bot as the raw command, so Claude Code runs it on that bot's session. Bots on other providers get the text like any message and say they do not have that command.
+- `/skill-name` asks a bot to use that skill, as before.
+- `/clear` is handled by the app. It starts a fresh conversation for every bot in the room and keeps the chat history. Nothing is posted.
+
 ### Attach any file or a video to a chat message (hub, web)
 
 - The paperclip, drag-and-drop and paste now take any file, not only PNG, JPEG and WebP pictures. Files can be up to 25 MB and videos up to 200 MB, with up to 8 attachments per message. Pictures still go the picture way (shown to the bot inline, metadata stripped). Everything else, GIFs included, uploads as its own bytes with a progress percentage.

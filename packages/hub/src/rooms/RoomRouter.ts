@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pickCoordinator } from './coordinator.js';
-import { MAX_ATTACHMENTS, QUEUE_PREVIEW_CHARS, isFileRef } from '@pocketrocket/shared';
+import { CLAUDE_SLASH_COMMANDS, MAX_ATTACHMENTS, QUEUE_PREVIEW_CHARS, isFileRef, slashCommandOf } from '@pocketrocket/shared';
 import type { Bot, BotBackup, BotState, CauseKind, DeliveryPayload, LaneQueue, Message, ProviderId, QueueItem, QueueReason, Room, SendMode, TriggerEvent, TriggerPayload, WorkflowPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, CUTOFF_RETRIES, MAX_CONCURRENT_TURNS, MAX_HOPS, spendCapsOff } from '../config.js';
 import type { LimitedTurn } from '../services/Failover.js';
@@ -635,7 +635,10 @@ export class RoomRouter {
           // The composer's pick is for what a person starts here. Hand-offs and schedules keep each bot's own model.
           const chatModel = items.some((i) => i.causeKind === 'user' && i.hop === 0) ? room.chatModel ?? undefined : undefined;
           const images = this.userImages(bot, unread);
-          req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), ...(items.some((i) => i.freshSession) ? { freshSession: true } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, ownerRef: items.find((i) => i.ownerRef)?.ownerRef, ...(override ? { providerOverride: override } : {}) };
+          // A Claude Code command the person sent on its own: Claude bots get the raw command (the CLI runs it).
+          const only = unread.length === 1 && unread[0].authorType === 'user' && !unread[0].attachments?.length ? unread[0].text.trim() : '';
+          const slashCommand = only && CLAUDE_SLASH_COMMANDS.some((c) => c.name === slashCommandOf(only)) ? only : undefined;
+          req = { bot, room, members, hop, causeId, injected, ...(images.length ? { images } : {}), ...(slashCommand ? { slashCommand } : {}), ...(items.some((i) => i.freshSession) ? { freshSession: true } : {}), latestUserText, routinePrompt, chatModel, causeBudgetUsd, causeKind, strictApprovals, ownerRef: items.find((i) => i.ownerRef)?.ownerRef, ...(override ? { providerOverride: override } : {}) };
           sessionBefore = session.sdkSessionId;
           fromSeq = session.lastSeenSeq;
           result = await this.runner.runTurn(req);

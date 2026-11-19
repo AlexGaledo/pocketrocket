@@ -17,7 +17,7 @@ import { selectScreenSize } from '../lib/screenView';
 import { useMediaUrl } from '../lib/media';
 import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
 import { MAX_ATTACHMENTS, reencodeImage, uploadAttachment } from '../lib/attach';
-import { MAX_FILE_BYTES, MAX_VIDEO_BYTES, fileHash, isFileRef, type StoredFileMeta } from '@pocketrocket/shared';
+import { MAX_FILE_BYTES, MAX_VIDEO_BYTES, fileHash, isFileRef, slashCommandOf, type SlashCommandInfo, type StoredFileMeta } from '@pocketrocket/shared';
 import { IMAGE_TYPES, ImageRefused } from '../lib/media';
 import type { OutboxEntry } from '../lib/outbox';
 import { QueueChips } from './QueueChips';
@@ -940,6 +940,30 @@ function Composer({ members }: { members: Bot[] }) {
     return m ? m[1].toLowerCase() : null;
   }, [text]);
   const suggestions = mentionQuery !== null && !mentionDismissed ? members.filter((b) => b.handle.toLowerCase().startsWith(mentionQuery)).slice(0, 6) : [];
+  // The `/` menu: only while the message is a lone `/word` at its very start (no space typed yet).
+  const [commands, setCommands] = useState<SlashCommandInfo[] | null>(null);
+  const slashQuery = /^\/([a-z0-9:_-]*)$/i.exec(text)?.[1]?.toLowerCase() ?? null;
+  useEffect(() => {
+    if (slashQuery === null || commands !== null || !roomId) return;
+    let live = true;
+    api.commands(roomId).then((c) => live && setCommands(c), () => live && setCommands([]));
+    return () => { live = false; };
+  }, [slashQuery !== null, roomId]);
+  const slashMatches = slashQuery !== null && !mentionDismissed && commands
+    ? commands.filter((c) => c.name.startsWith(slashQuery)).concat(commands.filter((c) => !c.name.startsWith(slashQuery) && c.name.includes(slashQuery))).slice(0, 8)
+    : [];
+  const menu: ({ kind: 'bot'; bot: Bot } | { kind: 'cmd'; cmd: SlashCommandInfo })[] = suggestions.length
+    ? suggestions.map((bot) => ({ kind: 'bot' as const, bot }))
+    : slashMatches.map((cmd) => ({ kind: 'cmd' as const, cmd }));
+  const insertCommand = (c: SlashCommandInfo) => {
+    setText('/' + c.name + ' ');
+    setTimeout(() => ref.current?.focus(), 0);
+  };
+  const pick = (i: number) => {
+    const item = menu[i] ?? menu[0];
+    if (item?.kind === 'bot') insertMention(item.bot);
+    else if (item) insertCommand(item.cmd);
+  };
 
   const insertMention = (b: Bot) => {
     const pos = ref.current?.selectionStart ?? text.length;
@@ -949,6 +973,18 @@ function Composer({ members }: { members: Bot[] }) {
   };
   const submit = (mode?: SendMode) => {
     if (!canSend) return;
+    // `/clear` is the app's own: a fresh session for every bot here. It is not posted to the room.
+    if (slashCommandOf(text) === 'clear' && !pics.length && roomId) {
+      const done = Promise.all(members.map((m) => api.bots.resetSession(m.id, roomId)));
+      setText('');
+      textRef.current = '';
+      writeDraft(roomId, '');
+      done.then(
+        () => setNotice('Fresh start: ' + (members.length === 1 ? (members[0]?.name ?? 'the bot') + ' does' : 'the bots here do') + ' not carry the earlier conversation into the next reply. The chat history stays.'),
+        () => setNotice('Could not clear the conversation. Try again.'),
+      );
+      return;
+    }
     sendMessage(text.trim(), pics.flatMap((p) => (p.ref ? [p.ref] : [])), mode);
     pics.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
     setPics([]);
@@ -961,18 +997,18 @@ function Composer({ members }: { members: Bot[] }) {
     // While an IME is composing (Japanese, Chinese, Korean…), Enter confirms the candidate; it must not send.
     // Safari reports the confirming keydown after composition ends, recognisable only by keyCode 229.
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (suggestions.length) {
+    if (menu.length) {
       if (e.key === 'Escape') { e.preventDefault(); setMentionDismissed(true); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % suggestions.length); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + suggestions.length) % suggestions.length); return; }
-      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); insertMention(suggestions[mentionIdx] ?? suggestions[0]); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % menu.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + menu.length) % menu.length); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); pick(mentionIdx); return; }
     }
     // Enter sends (a busy bot that can steer takes it into its running turn, unless Settings says queue);
     // Ctrl+Enter queues it for after. Alt+Enter is left alone: the desktop app uses it for full screen.
     const send = sendKey(e);
     if (send) { e.preventDefault(); submit(send.mode); }
   };
-  useEffect(() => { setMentionIdx(0); setMentionDismissed(false); }, [mentionQuery]);
+  useEffect(() => { setMentionIdx(0); setMentionDismissed(false); }, [mentionQuery, slashQuery]);
 
   // A bot asking for a login makes replying here the natural move, and the chat goes to the model and the transcript.
   const secretsHint = members.some((m) => control[m.id]?.takeover) ? 'Type secrets on its screen, not here' : null;
@@ -985,11 +1021,18 @@ function Composer({ members }: { members: Bot[] }) {
   return (
     <div ref={shell} className="relative shrink-0 px-3 pb-5 pt-2 sm:px-6">
       <div className="relative mx-auto max-w-[var(--page-max)]">
-        {suggestions.length > 0 && (
-          <div className="absolute bottom-full left-0 mb-2 w-[320px] max-w-full rounded-xl bg-panel p-1.5 shadow-[var(--shadow)]">
-            {suggestions.map((b, i) => (
-              <div key={b.id} className={cn('flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-1.5 text-ui', i === mentionIdx && 'bg-active')} onMouseDown={(e) => { e.preventDefault(); insertMention(b); }}>
-                <span aria-hidden><Avatar bot={b} size={20} /></span><span className="font-medium">@{b.handle}</span><span className="truncate text-hint text-muted">{b.title || b.name}</span>
+        {menu.length > 0 && (
+          <div role="listbox" aria-label={suggestions.length ? 'Mention a bot' : 'Commands'} className={cn('absolute bottom-full left-0 mb-2 max-w-full rounded-xl bg-panel p-1.5 shadow-[var(--shadow)]', suggestions.length ? 'w-[320px]' : 'w-[440px]')}>
+            {menu.map((item, i) => item.kind === 'bot' ? (
+              <div key={item.bot.id} role="option" aria-selected={i === mentionIdx} className={cn('flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-1.5 text-ui', i === mentionIdx && 'bg-active')} onMouseDown={(e) => { e.preventDefault(); pick(i); }}>
+                <span aria-hidden><Avatar bot={item.bot} size={20} /></span><span className="font-medium">@{item.bot.handle}</span><span className="truncate text-hint text-muted">{item.bot.title || item.bot.name}</span>
+              </div>
+            ) : (
+              <div key={item.cmd.name} role="option" aria-selected={i === mentionIdx} className={cn('flex cursor-pointer items-baseline gap-2 rounded-sm px-2.5 py-1.5 text-ui', i === mentionIdx && 'bg-active')} onMouseDown={(e) => { e.preventDefault(); pick(i); }}>
+                <span className="shrink-0 font-mono font-medium">/{item.cmd.name}</span>
+                {item.cmd.argumentHint && <span className="shrink-0 font-mono text-hint text-dim">{item.cmd.argumentHint}</span>}
+                <span className="min-w-0 flex-1 truncate text-hint text-muted">{item.cmd.description}</span>
+                <span className="shrink-0 text-hint text-dim">{item.cmd.source === 'claude' ? 'Claude' : item.cmd.source === 'skill' ? 'Skill' : 'Toki'}</span>
               </div>
             ))}
           </div>
