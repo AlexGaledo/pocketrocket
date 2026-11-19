@@ -79,6 +79,12 @@ export const MAX_AVATAR_LENGTH = 68;
 export const isMediaRef = (v: unknown): v is string => typeof v === 'string' && /^img:[0-9a-f]{64}$/.test(v);
 /** The hash inside a reference. Call after {@link isMediaRef}. */
 export const mediaHash = (ref: string): string => ref.slice('img:'.length);
+/** An uploaded file or video on a chat message (`POST /api/files`), named by the SHA-256 of its bytes. */
+export const isFileRef = (v: unknown): v is string => typeof v === 'string' && /^file:[0-9a-f]{64}$/.test(v);
+/** The hash inside a file reference. Call after {@link isFileRef}. */
+export const fileHash = (ref: string): string => ref.slice('file:'.length);
+/** Anything a chat message may carry: a picture or a file. */
+export const isAttachmentRef = (v: unknown): v is string => isMediaRef(v) || isFileRef(v);
 
 export interface Bot {
   id: string;

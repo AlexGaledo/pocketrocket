@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, FolderOpen, Info, Monitor, Paperclip, Send, Settings2, ShieldAlert, Square, Users, X, Zap } from 'lucide-react';
+import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Download, FileText, Film, FolderOpen, Info, Monitor, Paperclip, Send, Settings2, ShieldAlert, Square, Users, X, Zap } from 'lucide-react';
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
 import { RocketMark } from './RocketMark';
 import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload, TurnFailurePayload } from '@pocketrocket/shared';
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
 import { useStore, selectActiveRoom, botById } from '../store';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import { ActionCard, ActionCardActions, ActionCardHeader, Avatar, Badge, Banner, Button, DialogCloseButton, DialogShell, DialogTitle, Kbd, Menu, MenuContent, MenuItem, MenuSeparator, RoomAvatar, Skeleton, SkeletonGroup, Tooltip, UserAvatar, cn, fmtTime } from './ui';
 import { LinkBot, Markdown } from './Markdown';
 import { SignInToApprove } from './SignInToApprove';
@@ -16,7 +16,8 @@ import { avatarStatus, isWorking, useBotStatus } from '../lib/botStatus';
 import { selectScreenSize } from '../lib/screenView';
 import { useMediaUrl } from '../lib/media';
 import { DRAFT_SAVE_MS, readDraft, writeDraft } from '../lib/drafts';
-import { MAX_ATTACHMENTS, refusalFor, reencodeImage, uploadAttachment } from '../lib/attach';
+import { MAX_ATTACHMENTS, reencodeImage, uploadAttachment } from '../lib/attach';
+import { MAX_FILE_BYTES, MAX_VIDEO_BYTES, fileHash, isFileRef, type StoredFileMeta } from '@pocketrocket/shared';
 import { IMAGE_TYPES, ImageRefused } from '../lib/media';
 import type { OutboxEntry } from '../lib/outbox';
 import { QueueChips } from './QueueChips';
@@ -686,18 +687,61 @@ function RichText({ text, bots }: { text: string; bots: Bot[] }) {
   return <Markdown>{t}</Markdown>;
 }
 
-// ---------- image attachments ----------
+// ---------- attachments ----------
 
-/** Thumbnails for a message's attached pictures, each opening full-size on click. */
+/** A message's attachments: pictures as thumbnails that open full-size, files and videos as chips that download. */
 function Attachments({ refs }: { refs: string[] }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <>
       <div className="mt-1 flex flex-wrap gap-2">
-        {refs.map((ref) => <AttachmentImage key={ref} mediaRef={ref} onOpen={() => setOpen(ref)} />)}
+        {refs.map((ref) => (isFileRef(ref) ? <AttachmentFile key={ref} fileRef={ref} /> : <AttachmentImage key={ref} mediaRef={ref} onOpen={() => setOpen(ref)} />))}
       </div>
       {open && <ImageLightbox mediaRef={open} onClose={() => setOpen(null)} />}
     </>
+  );
+}
+
+/** One attached file: its name and size, and a download. The name comes from the hub, not the message text. */
+function AttachmentFile({ fileRef }: { fileRef: string }) {
+  const hash = fileHash(fileRef);
+  const [meta, setMeta] = useState<StoredFileMeta | null | 'gone'>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.attachments.meta(hash).then((m) => live && setMeta(m), () => live && setMeta('gone'));
+    return () => { live = false; };
+  }, [hash]);
+  const download = async () => {
+    if (!meta || meta === 'gone') return;
+    setBusy(true);
+    setError(null);
+    try {
+      const url = URL.createObjectURL(await api.attachments.blob(hash));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = meta.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not download it.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (meta === null) return <div className="h-12 w-48 animate-pulse rounded-md bg-card2" aria-hidden />;
+  if (meta === 'gone') return <div className="flex h-12 items-center gap-2 rounded-md bg-card2 px-3 text-hint text-dim ring-1 ring-line"><FileText size={16} aria-hidden /> File no longer kept</div>;
+  return (
+    <button type="button" onClick={() => void download()} disabled={busy} title={error ?? 'Download ' + meta.name}
+      className="flex h-12 max-w-72 items-center gap-2 rounded-md bg-card2 px-3 text-left ring-1 ring-line hover:ring-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+      {meta.kind === 'video' ? <Film size={16} className="shrink-0 text-dim" aria-hidden /> : <FileText size={16} className="shrink-0 text-dim" aria-hidden />}
+      <span className="min-w-0">
+        <span className="block truncate text-label">{meta.name}</span>
+        <span className={cn('block text-hint', error ? 'text-bad' : 'text-dim')}>{error ?? (busy ? 'Downloading…' : sizeLabel(meta.size))}</span>
+      </span>
+      <Download size={14} className="ml-1 shrink-0 text-dim" aria-hidden />
+    </button>
   );
 }
 
@@ -724,8 +768,24 @@ function ImageLightbox({ mediaRef, onClose }: { mediaRef: string; onClose: () =>
 
 // ---------- composer: the floating pill ----------
 
-/** A picture on its way: re-encoded and uploaded before the message is queued, so the outbox only ever holds refs. */
-interface PendingPic { id: string; file: File; preview: string; status: 'working' | 'ready' | 'failed'; ref?: string; blob?: Blob; error?: string }
+/**
+ * An attachment on its way, uploaded before the message is queued so the outbox only ever holds refs. Pictures are
+ * re-encoded first (metadata dropped, downscaled); any other file or video goes up as its own bytes.
+ */
+interface PendingPic {
+  id: string; file: File; kind: 'image' | 'file'; preview: string; status: 'working' | 'ready' | 'failed';
+  ref?: string; blob?: Blob; error?: string; progress?: number; abort?: AbortController;
+}
+
+/** PNG, JPEG and WebP go the picture way (the bot sees them inline); everything else, GIFs included, as a file. */
+const isPicture = (f: File) => (IMAGE_TYPES as readonly string[]).includes(f.type);
+const isVideoFile = (f: File) => f.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(f.name);
+/** Why a file cannot be attached, or null. The hub checks again (and checks the bytes really are a video). */
+function fileTooBig(f: File): string | null {
+  if (isVideoFile(f)) return f.size > MAX_VIDEO_BYTES ? f.name + ' is over 200 MB, the most a video can be.' : null;
+  return f.size > MAX_FILE_BYTES ? f.name + ' is over 25 MB, the most a file can be (videos can be 200 MB).' : null;
+}
+const sizeLabel = (n: number) => (n >= 1024 * 1024 ? (Math.round(n / 1024 / 1024 * 10) / 10) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 
 function Composer({ members }: { members: Bot[] }) {
   const sendMessage = useStore((s) => s.sendMessage);
@@ -767,6 +827,18 @@ function Composer({ members }: { members: Bot[] }) {
   const shell = useRef<HTMLDivElement>(null);
   const patchPic = (id: string, patch: Partial<PendingPic>) => setPics((cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   const runUpload = async (id: string, file: File, blob?: Blob) => {
+    if (!isPicture(file)) {
+      const abort = new AbortController();
+      patchPic(id, { status: 'working', error: undefined, progress: 0, abort });
+      try {
+        const meta = await api.attachments.upload(file, (progress) => patchPic(id, { progress }), abort.signal);
+        patchPic(id, { status: 'ready', ref: meta.ref, abort: undefined });
+      } catch (e) {
+        if (abort.signal.aborted) return;
+        patchPic(id, { status: 'failed', abort: undefined, error: e instanceof ApiError ? e.message : 'Could not upload that file.' });
+      }
+      return;
+    }
     patchPic(id, { status: 'working', error: undefined });
     try {
       const b = blob ?? await reencodeImage(file);
@@ -779,23 +851,26 @@ function Composer({ members }: { members: Bot[] }) {
   const addFiles = (files: File[]) => {
     if (!files.length) return;
     const room = MAX_ATTACHMENTS - picsRef.current.length;
-    const allowed = (f: File) => (IMAGE_TYPES as readonly string[]).includes(f.type);
-    const ok = files.filter(allowed);
-    const bad = files.find((f) => !allowed(f));
+    const tooBig = files.map(fileTooBig).find(Boolean) ?? null;
+    const ok = files.filter((f) => !fileTooBig(f));
     const take = ok.slice(0, Math.max(0, room));
-    setNotice(bad ? refusalFor(bad) : ok.length > take.length ? 'Up to ' + MAX_ATTACHMENTS + ' pictures per message.' : null);
-    const fresh = take.map((file) => ({ id: Math.random().toString(36).slice(2), file, preview: URL.createObjectURL(file), status: 'working' as const }));
+    setNotice(tooBig ?? (ok.length > take.length ? 'Up to ' + MAX_ATTACHMENTS + ' attachments per message.' : null));
+    const fresh = take.map((file) => {
+      const kind: PendingPic['kind'] = isPicture(file) ? 'image' : 'file';
+      return { id: Math.random().toString(36).slice(2), file, kind, preview: kind === 'image' ? URL.createObjectURL(file) : '', status: 'working' as const };
+    });
     if (!fresh.length) return;
     setPics((cur) => [...cur, ...fresh]);
     for (const p of fresh) void runUpload(p.id, p.file);
   };
   const dropPic = (id: string) => {
     const p = picsRef.current.find((x) => x.id === id);
-    if (p) URL.revokeObjectURL(p.preview);
+    p?.abort?.abort();
+    if (p?.preview) URL.revokeObjectURL(p.preview);
     setPics((cur) => cur.filter((x) => x.id !== id));
     setNotice(null);
   };
-  useEffect(() => () => picsRef.current.forEach((p) => URL.revokeObjectURL(p.preview)), []);
+  useEffect(() => () => picsRef.current.forEach((p) => { p.abort?.abort(); if (p.preview) URL.revokeObjectURL(p.preview); }), []);
   // Drop anywhere on the chat pane (the composer's parent), not only on the composer itself.
   useEffect(() => {
     const pane = shell.current?.parentElement;
@@ -875,7 +950,7 @@ function Composer({ members }: { members: Bot[] }) {
   const submit = (mode?: SendMode) => {
     if (!canSend) return;
     sendMessage(text.trim(), pics.flatMap((p) => (p.ref ? [p.ref] : [])), mode);
-    pics.forEach((p) => URL.revokeObjectURL(p.preview));
+    pics.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
     setPics([]);
     setNotice(null);
     setText('');
@@ -922,19 +997,29 @@ function Composer({ members }: { members: Bot[] }) {
         <LimitBanner members={members} />
         {roomId && <QueueChips roomId={roomId} members={members} textarea={ref} />}
         <div className={cn('flex flex-col gap-1 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent', dragging && 'ring-2 ring-accent')}>
-          {dragging && <div role="status" className="text-hint text-accent">Drop pictures to attach</div>}
+          {dragging && <div role="status" className="text-hint text-accent">Drop files to attach</div>}
           {pics.length > 0 && (
-            <ul aria-label="Pictures to send" className="flex flex-wrap gap-2 pt-1">
+            <ul aria-label="Attachments to send" className="flex flex-wrap gap-2 pt-1">
               {pics.map((p, i) => (
                 <li key={p.id} className="flex items-center gap-1.5">
-                  <span className="relative block h-14 w-14 shrink-0 overflow-hidden rounded-md ring-1 ring-line">
-                    <img src={p.preview} alt={'Picture ' + (i + 1) + ' to send'} className={cn('h-full w-full object-cover', p.status !== 'ready' && 'opacity-50')} />
-                  </span>
+                  {p.kind === 'image' ? (
+                    <span className="relative block h-14 w-14 shrink-0 overflow-hidden rounded-md ring-1 ring-line">
+                      <img src={p.preview} alt={'Picture ' + (i + 1) + ' to send'} className={cn('h-full w-full object-cover', p.status !== 'ready' && 'opacity-50')} />
+                    </span>
+                  ) : (
+                    <span className={cn('flex h-14 max-w-56 shrink-0 items-center gap-2 rounded-md bg-card2 px-3 ring-1 ring-line', p.status !== 'ready' && 'opacity-70')}>
+                      {isVideoFile(p.file) ? <Film size={16} className="shrink-0 text-dim" aria-hidden /> : <FileText size={16} className="shrink-0 text-dim" aria-hidden />}
+                      <span className="min-w-0">
+                        <span className="block truncate text-label">{p.file.name}</span>
+                        <span className="block text-hint text-dim">{sizeLabel(p.file.size)}</span>
+                      </span>
+                    </span>
+                  )}
                   <span role="status" className={cn('text-hint', p.status === 'failed' ? 'text-bad' : 'text-dim', p.status === 'working' && 'motion-safe:animate-pulse')}>
-                    {p.status === 'working' ? 'Uploading…' : p.status === 'failed' ? p.error ?? 'Not uploaded' : ''}
+                    {p.status === 'working' ? (p.kind === 'file' && p.progress !== undefined ? 'Uploading ' + Math.round(p.progress * 100) + '%' : 'Uploading…') : p.status === 'failed' ? p.error ?? 'Not uploaded' : ''}
                   </span>
                   {p.status === 'failed' && <Button size="sm" variant="ghost" onClick={() => void runUpload(p.id, p.file, p.blob)}>Retry</Button>}
-                  <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={'Remove picture ' + (i + 1)} onClick={() => dropPic(p.id)}><X size={14} /></Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7" aria-label={'Remove ' + (p.kind === 'image' ? 'picture ' + (i + 1) : p.file.name)} onClick={() => dropPic(p.id)}><X size={14} /></Button>
                 </li>
               ))}
             </ul>
@@ -961,11 +1046,10 @@ function Composer({ members }: { members: Bot[] }) {
               type="file"
               hidden
               multiple
-              accept={IMAGE_TYPES.join(',')}
               onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }}
             />
-            <Tooltip content="Attach pictures">
-              <Button variant="ghost" size="icon" aria-label="Attach pictures" disabled={pics.length >= MAX_ATTACHMENTS} onClick={() => fileInput.current?.click()}><Paperclip size={15} /></Button>
+            <Tooltip content="Attach pictures, files or a video">
+              <Button variant="ghost" size="icon" aria-label="Attach files" disabled={pics.length >= MAX_ATTACHMENTS} onClick={() => fileInput.current?.click()}><Paperclip size={15} /></Button>
             </Tooltip>
             <span className="mr-auto" />
             {showPermissions && <PermissionPicker textarea={ref} />}

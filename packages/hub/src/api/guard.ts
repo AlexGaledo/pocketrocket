@@ -92,8 +92,9 @@ export function checkContentType(req: IncomingMessage, url: URL): { ok: true } |
   if (!MUTATING.has(req.method ?? 'GET')) return { ok: true };
   const ct = String(req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
   if (ct === 'application/json') return { ok: true };
-  // The one raw upload: the runner's git bundle. Anything else on that path still has to be JSON.
+  // The raw uploads: the runner's git bundle, and files on a chat message. Anything else on those paths still has to be JSON.
   if (ct === 'application/octet-stream' && /^\/api\/pc-runner\/jobs\/[A-Za-z0-9_-]+\/(bundle|session)$/.test(url.pathname)) return { ok: true };
+  if (ct === 'application/octet-stream' && /^\/api\/files\/?$/.test(url.pathname)) return { ok: true };
   return { ok: false, status: 415, reason: 'Content-Type must be application/json (got ' + (ct || '(none)') + ')' };
 }
 
@@ -336,6 +337,8 @@ const DEVICE_ALLOW: readonly [method: string, path: RegExp][] = [
   ['GET', /^\/api\/rooms\/[^/]+\/context$/],
   // Pictures: a phone sees them. Uploading (POST /api/media) is not listed, so it stays with the hub token.
   ['GET', /^\/api\/media\/[0-9a-f]{64}$/],
+  // Files on chat messages: a phone may download them and read their names. Uploading stays with the hub token.
+  ['GET', /^\/api\/files\/[0-9a-f]{64}(\/meta)?$/],
   ['POST', /^\/api\/rooms\/[^/]+\/messages$/],
   ['GET', /^\/api\/skills$/],
   ['GET', /^\/api\/skills\/[^/]+$/],

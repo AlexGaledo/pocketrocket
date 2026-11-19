@@ -11,7 +11,7 @@ import type { SkillService } from '../services/SkillService.js';
 import type { UsageTracker } from '../services/UsageTracker.js';
 import type { PermissionBroker } from '../permissions/PermissionBroker.js';
 import type { ProviderRegistry } from '../providers/registry.js';
-import { imageNote, materializeImages } from './attachments.js';
+import { fileNote, imageNote, materializeFiles, materializeImages } from './attachments.js';
 import { EMPTY_USAGE, steerTurn, type AgentProvider, type ProviderInit, type SteerInput, type TurnContext, type TurnLimit, type TurnOutcome, type TurnSink } from '../providers/types.js';
 import type { TurnRegistry } from '../mcp/httpServer.js';
 import { addSecret, redact, removeSecret } from '../providers/redact.js';
@@ -289,7 +289,8 @@ export class BotRunner {
     if (!(lane?.provider ?? (bot ? this.providerFor(bot) : this.providers.active())).steer) return { status: 'queued', reason: 'provider' };
     if (!lane?.running) return { status: 'queued', reason: 'between-runs' };
     const images = materializeImages(this.media, ATTACHMENTS_DIR, botId, req.images);
-    const input: SteerInput = { uuid: req.uuid, text: req.text + imageNote(images), ...(images.length ? { images } : {}) };
+    const files = materializeFiles(this.media, ATTACHMENTS_DIR, botId, req.images);
+    const input: SteerInput = { uuid: req.uuid, text: req.text + imageNote(images) + fileNote(files), ...(images.length ? { images } : {}) };
     const r = steerTurn(lane.provider, lane.turnId, input);
     if (r.status !== 'accepted') return r;
     lane.steers.set(input.uuid, input);
@@ -607,6 +608,7 @@ export class BotRunner {
     // Bearer tokens and stdio env values (the owner's API keys): scrubbed from tool output, chat and logs.
     registerOutsideMcpSecrets(outsideMcp);
     const images = materializeImages(this.media, ATTACHMENTS_DIR, bot.id, req.images);
+    const files = materializeFiles(this.media, ATTACHMENTS_DIR, bot.id, req.images);
     const ctx: TurnContext = {
       turnId, bot, room, members: req.members,
       systemPrompt: buildSystemPrompt({
@@ -634,7 +636,7 @@ export class BotRunner {
         canProposeRouting: !!routing,
         skillIndex,
       }),
-      input: (stateHeader ? stateHeader + '\n\n' : '') + (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images),
+      input: (stateHeader ? stateHeader + '\n\n' : '') + (seed ? seed + '\n\n' + req.injected : req.injected) + imageNote(images) + fileNote(files),
       ...(images.length ? { images } : {}),
       resumeToken,
       sessionCostUsd: resumeToken ? state.costTotal : 0,
@@ -663,7 +665,7 @@ export class BotRunner {
       signal: ac.signal,
       mcp: { url: this.turns.url(), token: mcpToken },
       knowledgeDir,
-      readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length ? [path.dirname(images[0].path)] : []), ...personaProjectDirs],
+      readOnlyDirs: [...(bot.handle === SUPPORT_HANDLE ? supportSourceDirs() : []), ...(images.length || files.length ? [path.dirname((images[0] ?? files[0]).path)] : []), ...personaProjectDirs],
       projectDirs: folderDir ? [folderDir] : [],
       // The safe-shipping skill turns the default-branch check on per bot; a project's repo list turns it on, with the repos'
       // own protected branches, for any bot on that project's chat.

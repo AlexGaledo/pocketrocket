@@ -35,7 +35,7 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir "
 need_pkgs=()
 for p in xvfb x11vnc novnc websockify xauth fonts-liberation fonts-noto-color-emoji dbus-x11 \
          xfwm4 xfce4-panel xfdesktop4 xfce4-settings thunar xfce4-terminal mousepad ristretto \
-         adwaita-icon-theme xdotool scrot zstd bubblewrap; do
+         adwaita-icon-theme xdotool scrot zstd bubblewrap ffmpeg; do
   dpkg -s "$p" >/dev/null 2>&1 || need_pkgs+=("$p")
 done
 if [ ${#need_pkgs[@]} -gt 0 ]; then

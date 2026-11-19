@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pickCoordinator } from './coordinator.js';
-import { MAX_ATTACHMENTS, QUEUE_PREVIEW_CHARS } from '@pocketrocket/shared';
+import { MAX_ATTACHMENTS, QUEUE_PREVIEW_CHARS, isFileRef } from '@pocketrocket/shared';
 import type { Bot, BotBackup, BotState, CauseKind, DeliveryPayload, LaneQueue, Message, ProviderId, QueueItem, QueueReason, Room, SendMode, TriggerEvent, TriggerPayload, WorkflowPayload } from '@pocketrocket/shared';
 import { CAUSE_COST_CAP_USD, CUTOFF_RETRIES, MAX_CONCURRENT_TURNS, MAX_HOPS, spendCapsOff } from '../config.js';
 import type { LimitedTurn } from '../services/Failover.js';
@@ -140,7 +140,10 @@ export function formatMessage(repos: Repos, m: Message, text: string = m.text): 
     const b = repos.getBot(m.authorId ?? '');
     who = b ? '@' + b.handle : 'bot';
   }
-  const pics = m.attachments?.length ? ' [' + m.attachments.length + (m.attachments.length === 1 ? ' picture' : ' pictures') + ' attached]' : '';
+  const nFiles = m.attachments?.filter(isFileRef).length ?? 0;
+  const nPics = (m.attachments?.length ?? 0) - nFiles;
+  const parts = [nPics ? nPics + (nPics === 1 ? ' picture' : ' pictures') : '', nFiles ? nFiles + (nFiles === 1 ? ' file' : ' files') : ''].filter(Boolean);
+  const pics = parts.length ? ' [' + parts.join(' and ') + ' attached]' : '';
   return '#' + m.seq + ' [' + who + ']: ' + quoteTags(text) + pics;
 }
 
