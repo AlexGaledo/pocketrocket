@@ -218,6 +218,8 @@ export interface TurnOutcome {
   sessionCostUsd?: number;
   /** Claude: input tokens (uncached + cache read + cache write) of the last top-level model call: the context size. */
   contextTokens?: number;
+  /** P4-2: the model's context window, when the provider reports it (Claude's `modelUsage`, ACP `usage_update.size`). */
+  contextWindow?: number;
   /** Stopped by the token brake (`cacheReadBudget`). */
   braked?: boolean;
   /**

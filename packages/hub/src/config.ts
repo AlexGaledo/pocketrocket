@@ -248,6 +248,8 @@ export const CUTOFF_RETRIES = Number(process.env.CUTOFF_RETRIES ?? 2);
  * resuming. 0 disables rotation.
  */
 export const ROTATE_CONTEXT_TOKENS = Number(process.env.ROTATE_CONTEXT_TOKENS ?? 120_000);
+/** P4-2: the context window the meter assumes when a provider has not reported one (Claude's standard window). */
+export const DEFAULT_CONTEXT_WINDOW = 200_000;
 /**
  * A session idle longer than this has a cold prompt cache (5 min TTL), so resuming it rewrites the whole
  * history at cache-write price. Past this gap, a session above ROTATE_IDLE_MIN_TOKENS rotates instead.

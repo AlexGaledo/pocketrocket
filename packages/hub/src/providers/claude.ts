@@ -123,6 +123,23 @@ export function ranModel(asked: string, fallback: string | undefined, seen: stri
   return seen.startsWith(fallback) ? fallback : undefined;
 }
 
+/**
+ * P4-2: the context window of the model that answered, from the SDK result's `modelUsage` (keyed by model id). The
+ * entry for `seen` when there is one, else the largest (side calls such as Haiku run on a smaller window).
+ */
+export function contextWindowOf(modelUsage: unknown, seen: string | undefined): number | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object') return undefined;
+  const windowOf = (v: unknown) => {
+    const w = (v as { contextWindow?: unknown } | null)?.contextWindow;
+    return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : undefined;
+  };
+  const entries = Object.entries(modelUsage as Record<string, unknown>);
+  const own = seen ? entries.find(([k]) => k === seen || seen.startsWith(k) || k.startsWith(seen)) : undefined;
+  if (own && windowOf(own[1])) return windowOf(own[1]);
+  const all = entries.map(([, v]) => windowOf(v)).filter((w): w is number => w !== undefined);
+  return all.length ? Math.max(...all) : undefined;
+}
+
 /** `resetsAt` from the SDK is unix seconds (the API's reset header); a value already in ms is kept. */
 export function resetMs(v: unknown): number | undefined {
   if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return undefined;
@@ -1000,12 +1017,14 @@ export class ClaudeProvider implements AgentProvider {
       error = limitError(limit);
     }
     const model = ranModel(ctx.model, fallbackModel, seenModel);
+    const contextWindow = contextWindowOf(modelUsage, seenModel);
 
     const outcome: TurnOutcome = {
       ok, error, costUsd,
       usage: { costUsd, ...usage, modelUsage, durationMs: durationMs || Date.now() - started },
       durationMs: durationMs || Date.now() - started,
       sessionCostUsd, contextTokens, braked: braked || undefined,
+      ...(contextWindow ? { contextWindow } : {}),
       ...(limit ? { limit } : {}),
       ...(model ? { model } : {}),
     };

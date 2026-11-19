@@ -16,6 +16,7 @@ import { avatarStatus, useBotStatus } from '../lib/botStatus';
 import { ReflectionSetting, SkillVersionsPanel } from './SkillVersions';
 import { PageBody, RoutinesSection } from './FleetPages';
 import { activeFor, onBackupText } from '../lib/failover';
+import { ContextMeter } from './ContextMeter';
 
 export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   const bot = useStore((s) => botById(s.bots, botId));
@@ -28,6 +29,10 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   const { statusOf } = useBotStatus();
   const backup = useStore((s) => activeFor(s.failover.active, botId, Date.now()));
   const providers = useStore((s) => s.providers);
+  // P4-2: the header's context meter is the bot's one-on-one chat; fetch it here, as that chat may not be loaded.
+  const dmId = rooms.find((r) => r.kind === 'dm' && r.memberIds[0] === botId)?.id;
+  const loadContext = useStore((s) => s.loadContext);
+  useEffect(() => { if (dmId) void loadContext(dmId); }, [dmId, loadContext]);
   if (!bot) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-ui text-muted">
@@ -49,6 +54,7 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
           </div>
           <div className="truncate text-hint text-muted">{bot.title || '@' + bot.handle}</div>
         </div>
+        <ContextMeter botId={bot.id} roomId={dm?.id} className="w-44 shrink-0 @max-[640px]:hidden" />
         {dm && <Button size="sm" variant="ghost" title="Open chat" aria-label={'Open chat with ' + bot.name} onClick={() => { closePage(); setActiveRoom(dm.id); }}><MessageSquare size={14} aria-hidden /><span className="@max-[480px]:hidden">Chat</span></Button>}
         {!device && <Button size="sm" variant="ghost" title="Bot settings" aria-label={bot.name + ' settings'} onClick={() => openDialog({ kind: 'bot', bot })}><Settings2 size={14} aria-hidden /><span className="@max-[480px]:hidden">Settings</span></Button>}
       </header>
@@ -163,6 +169,8 @@ function MemoryTab({ botId }: { botId: string }) {
     if (!room) return;
     if (!(await confirmAction({ title: 'Reset chat context?', body: 'The bot forgets this chat. Its memory stays.', confirmLabel: 'Reset' }))) return;
     await api.bots.resetSession(botId, room.id);
+    // The session row is gone, so the context meter empties too.
+    void useStore.getState().loadContext(room.id);
     toast('Chat context reset');
   };
   return (

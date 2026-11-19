@@ -14,6 +14,7 @@ import { isDesktopMode, isDevice } from './lib/auth';
 import { getItem, setItem } from './lib/persist';
 import { newClientId, readJournal, writeJournal, type OutboxEntry } from './lib/outbox';
 import { applyLaneQueue, replaceRoomQueues, type Queues } from './lib/queue';
+import { applyContext, replaceRoomContexts, type Contexts } from './lib/context';
 import { refreshWorkflows } from './lib/workflows';
 import { SIDEBAR_INLINE_MIN, readPaneWidths, writePaneWidth, type PaneId, type PaneWidths } from './lib/panes';
 import type { SectionId } from './components/dialogs/SettingsDialog';
@@ -237,6 +238,10 @@ interface State {
   queues: Queues;
   /** GET the room's queue snapshot; runs with every (re)load of a room's messages. */
   loadQueue: (roomId: string) => Promise<void>;
+  /** P4-2: each bot's context size per room, keyed `botId:roomId` (lib/context). Only bots on providers that measure it. */
+  contexts: Contexts;
+  /** GET the room's context sizes; runs with every (re)load of a room, and when a bot page opens. */
+  loadContext: (roomId: string) => Promise<void>;
   /** Each resolves to null when the hub took it, or the hub's reason in words when it refused. */
   queueCancel: (roomId: string, journalId: string) => Promise<string | null>;
   queueEdit: (roomId: string, journalId: string, text: string) => Promise<string | null>;
@@ -367,6 +372,15 @@ export const useStore = create<State>((set, get) => ({
   pcSessionFocus: null,
   trainingRev: {},
   tasksRev: {},
+  contexts: {},
+  loadContext: async (roomId) => {
+    try {
+      const byBot = await api.rooms.context(roomId);
+      set({ contexts: replaceRoomContexts(get().contexts, roomId, byBot) });
+    } catch {
+      // An older hub (404): no meter, as before.
+    }
+  },
   queues: {},
   loadQueue: async (roomId) => {
     try {
@@ -502,7 +516,7 @@ export const useStore = create<State>((set, get) => ({
       case 'turn.end': {
         const streaming = { ...s.streaming };
         delete streaming[ev.turnId];
-        set({ streaming });
+        set({ streaming, contexts: applyContext(s.contexts, ev.botId, ev.roomId, ev.context) });
         const roomActive = ev.roomId === s.activeRoomId;
         if (ev.error) {
           play('error', { roomActive });
@@ -665,6 +679,7 @@ export const useStore = create<State>((set, get) => ({
       });
       // After the transcript, so a hello's reload (reconnect) also brings the queue back in step.
       void get().loadQueue(roomId);
+      void get().loadContext(roomId);
     } catch (e) {
       get().toast('Failed to load messages: ' + (e as Error).message, true);
     }

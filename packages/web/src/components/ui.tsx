@@ -418,11 +418,13 @@ export function Badge({ children, tone = 'muted' }: { children: React.ReactNode;
  * 80 %, bad at the limit (`atLimit`, or 100 %). Screen readers get `role="meter"` and one sentence:
  * "Claude 5-hour limit 82%, resets 14:00".
  */
-export function Meter({ label, value, detail, atLimit, className }: { label: string; value: number; detail?: string | null; atLimit?: boolean; className?: string }) {
+/** `marker`: a tick on the bar at `value` percent (e.g. where a session rotates); its `label` is read after the value. */
+export function Meter({ label, value, detail, atLimit, marker, className }: { label: string; value: number; detail?: string | null; atLimit?: boolean; marker?: { value: number; label: string }; className?: string }) {
   const pct = Math.max(0, Math.min(100, Math.round(value)));
   const full = atLimit || pct >= 100;
   const fill = full ? 'bg-bad' : pct >= 80 ? 'bg-warn' : 'bg-accent';
-  const text = pct + '%' + (detail ? ', ' + detail : '');
+  const text = pct + '%' + (detail ? ', ' + detail : '') + (marker ? '; ' + marker.label : '');
+  const tick = marker ? Math.max(0, Math.min(100, marker.value)) : null;
   return (
     <div role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-valuetext={label + ' ' + text} className={cn('flex flex-col gap-1.5', className)}>
       <div aria-hidden className="flex items-baseline justify-between gap-3 text-hint">
@@ -432,8 +434,9 @@ export function Meter({ label, value, detail, atLimit, className }: { label: str
           {detail && <> · {detail}</>}
         </span>
       </div>
-      <div aria-hidden className="h-1.5 overflow-hidden rounded-full bg-line">
+      <div aria-hidden className="relative h-1.5 overflow-hidden rounded-full bg-line">
         <div className={cn('h-full rounded-full', fill)} style={{ width: pct + '%' }} />
+        {tick != null && <div data-meter-marker title={marker!.label} className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-muted" style={{ left: tick + '%' }} />}
       </div>
     </div>
   );

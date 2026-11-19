@@ -5,7 +5,7 @@ import { z } from 'zod';
 import {
   BotInputSchema, MaintenanceHoldInputSchema, QueueCancelInputSchema, QueueEditInputSchema, QueuePauseInputSchema, QueueSendNowInputSchema, RoomInputSchema, RoomMessageInputSchema, RoomModelInputSchema, RoutineInputSchema, RoutingInputSchema, SecretsPatchSchema, SettingsPatchSchema,
   AUTO_MODEL, TASK_STATUSES, isMediaRef, mediaHash,
-  type BotInput, type BusyInfo, type HealthInfo, type ProviderId, type Room, type TaskStatus, type UsageResponse,
+  type BotInput, type BusyInfo, type ContextUsage, type HealthInfo, type ProviderId, type Room, type TaskStatus, type UsageResponse,
 } from '@pocketrocket/shared';
 import { modelFor, repointBotModel } from '../services/SettingsStore.js';
 import net from 'node:net';
@@ -49,6 +49,7 @@ import type { VoiceProposals } from '../services/VoiceProposals.js';
 import { logError } from '../providers/redact.js';
 import { sandboxStatus } from '../providers/sandbox.js';
 import type { MediaStore } from '../services/MediaStore.js';
+import { contextUsage } from '../services/SessionRotation.js';
 
 type Handler = (ctx: { params: Record<string, string>; query: URLSearchParams; body: unknown; req: IncomingMessage }) => unknown | Promise<unknown>;
 interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler }
@@ -486,6 +487,22 @@ export function createRest(deps: RestDeps) {
   const queueFail = <T>(fn: () => T): T => {
     try { return fn(); } catch (e) { if (e instanceof QueueError) throw new HttpError(e.status, e.message); throw e; }
   };
+  // P4-2: the context meter. Per member bot, its session's context size in this room, only when the provider that wrote
+  // the session reports context size (a row with no provider is the bot's own). Bots with nothing to show are left out.
+  add('GET', '/api/rooms/:id/context', ({ params }) => {
+    const room = need(repos.getRoom(params.id), 'Room');
+    const out: Record<string, ContextUsage> = {};
+    for (const botId of room.memberIds) {
+      const bot = repos.getBot(botId);
+      if (!bot) continue;
+      const wrote = repos.getSession(bot.id, room.id).provider;
+      const p = wrote ? providers.get(wrote as ProviderId) : providers.forBot(bot);
+      if ((wrote && p.id !== wrote) || !p.reportsContextTokens) continue;
+      const u = contextUsage(repos.getSessionState(bot.id, room.id));
+      if (u) out[bot.id] = u;
+    }
+    return out;
+  });
   add('GET', '/api/rooms/:id/queue', ({ params }) => queueFail(() => router.queueSnapshot(params.id)));
   add('POST', '/api/rooms/:id/queue/cancel', ({ params, body }) => {
     const { journalId } = parse(QueueCancelInputSchema, body);

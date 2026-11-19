@@ -25,6 +25,7 @@ import { useLimits } from '../lib/useLimits';
 import { WorkflowCardsForRoom } from './workflows/WorkflowCard';
 import { FailoverCardsForRoom } from './FailoverCard';
 import { activeFor, onBackupText } from '../lib/failover';
+import { ContextMeter } from './ContextMeter';
 import { laneKey } from '../lib/queue';
 import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
 import type { DeliveryPayload, SendMode } from '@pocketrocket/shared';
@@ -121,6 +122,7 @@ export function ChatPane() {
             {working.length > 0 && <span className="ml-2 text-ok">{working.length} working</span>}
           </div>
         </div>
+        {room.kind === 'dm' && members[0] && <ContextMeter botId={members[0].id} roomId={room.id} className="w-44 shrink-0 @max-[640px]:hidden" />}
         {/* A narrow group header has the group's own picture, and the sidebar lists its bots: the name keeps the room.
             In a one-on-one chat the name and the button beside this already open the bot's page, so the face only shows
             its state. */}

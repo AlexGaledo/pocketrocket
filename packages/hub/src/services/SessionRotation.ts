@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Bot, Message } from '@pocketrocket/shared';
-import { ROTATE_CONTEXT_TOKENS, ROTATE_IDLE_MIN_TOKENS, ROTATE_IDLE_MS, ROTATE_SEED_MESSAGES } from '../config.js';
+import type { Bot, ContextUsage, Message } from '@pocketrocket/shared';
+import { DEFAULT_CONTEXT_WINDOW, ROTATE_CONTEXT_TOKENS, ROTATE_IDLE_MIN_TOKENS, ROTATE_IDLE_MS, ROTATE_SEED_MESSAGES } from '../config.js';
 import type { Repos, SessionState } from '../db/repos.js';
 import { redact } from '../providers/redact.js';
 import { capBacklog, formatMessage, isConversation } from '../rooms/RoomRouter.js';
@@ -39,6 +39,16 @@ export function rotationReason(state: SessionState, now: number, limits: Rotatio
   if (state.contextTokens > limits.contextTokens) return 'size';
   if (limits.idleMs > 0 && state.contextAt != null && now - state.contextAt > limits.idleMs && state.contextTokens > limits.idleMinTokens) return 'idle';
   return null;
+}
+
+/**
+ * P4-2: the context meter's numbers for a (bot, room) session, or undefined when there is nothing to show (never
+ * measured, or a fresh session that has not run a model call yet). Callers send it only for providers that report
+ * context size. `rotateAt` is null when rotation is off.
+ */
+export function contextUsage(state: Pick<SessionState, 'contextTokens' | 'contextWindow'>, rotateAt: number = ROTATE_CONTEXT_TOKENS): ContextUsage | undefined {
+  if (!(state.contextTokens != null && state.contextTokens > 0)) return undefined;
+  return { contextTokens: state.contextTokens, window: state.contextWindow || DEFAULT_CONTEXT_WINDOW, rotateAt: rotateAt > 0 ? rotateAt : null };
 }
 
 /** The note the room sees when a session rotates. */

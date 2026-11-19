@@ -174,6 +174,7 @@ export class AcpProvider implements AgentProvider {
       usage: { ...EMPTY_USAGE, durationMs: Date.now() - started },
       durationMs: Date.now() - started,
       ...(mapper.contextTokens !== undefined ? { contextTokens: mapper.contextTokens } : {}),
+      ...(mapper.contextSize ? { contextWindow: mapper.contextSize } : {}),
       ...extra,
     });
 

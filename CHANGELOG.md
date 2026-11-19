@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### A context meter on the bot page and in one-on-one chats (hub, web)
+
+- The bot's page and its one-on-one chat header show how full the conversation's context is, for example "Context 42% · 84k of 200k tokens". A tick on the bar marks where the bot starts a fresh session to save tokens (120k by default); screen readers hear "a fresh session starts at 120k" after the value.
+- It updates after every turn and shows only for providers that report context size (Claude, and Gemini through ACP). Nothing shows before the first turn of a session.
+- The window is the one the provider reports for the model (for example 1M on a long-context Claude model); 200k is assumed until it does.
+- New read `GET /api/rooms/:id/context` (a paired phone may read it too), and `turn.end` now carries `context`.
+
 ### The limit card, a backup per bot and an "On Gemini" badge (web)
 
 - When a bot hits its provider's usage limit and has a backup, its chat shows a card: "Ada hit Claude's 5-hour limit. It resets at 14:00." Press **Continue on Gemini** to run that request once on the backup, with approvals on, or **Wait until 14:00**. The same card is in Needs you, and the bot is listed there as needing you until you answer.
