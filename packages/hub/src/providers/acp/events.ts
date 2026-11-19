@@ -45,6 +45,8 @@ function toolInput(u: Pick<ToolCall, 'title' | 'kind' | 'locations' | 'rawInput'
  * - `tool_call` / `tool_call_update` become tool chips, settled once the call reports `completed` or `failed`.
  * - `usage_update` gives the context size (`used`), and the session's cost when the agent reports it in dollars.
  * - `notice` with severity error/warning is kept for the provider's limit matcher; nothing is posted from it.
+ * - Status lines an agent streams as answer text (agy's `⚠` limit warnings, live G11) are taken out by the preset's
+ *   `splitWarnings` before anything is streamed or posted, and kept in `warnings` for the limit matcher.
  * - `compaction_update` (M8, P4-1): a compaction that completed becomes one quiet note (`onNote`), once per compaction id.
  *   The agent's summary is not posted; the context size drops on the next `usage_update`.
  */
@@ -57,7 +59,9 @@ export class AcpEventMapper {
   sessionCostUsd?: number;
   /** Error and warning notices, in order, for the limit matcher. */
   readonly notices: string[] = [];
-  /** True once any assistant text arrived this run. */
+  /** Warning lines taken out of the answer text by `splitWarnings`, in order, for the limit matcher. */
+  readonly warnings: string[] = [];
+  /** True once any assistant text (other than such warnings) arrived this run. */
   answered = false;
   /** True once the agent did anything this run: text or a tool call (a hand-off with no reply still spent tokens). */
   worked = false;
@@ -69,14 +73,25 @@ export class AcpEventMapper {
   private tools = new Map<string, { done: boolean }>();
   private compactions = new Set<string>();
 
-  constructor(private sink: TurnSink) {}
+  constructor(
+    private sink: TurnSink,
+    private splitWarnings?: (text: string) => { text: string; warnings: string[] },
+  ) {}
 
   push(u: SessionUpdate): void {
     if (this.muted) return;
     switch (u.sessionUpdate) {
       case 'agent_message_chunk': {
-        const t = blockText(u.content);
+        let t = blockText(u.content);
         if (!t) return;
+        if (this.splitWarnings) {
+          const s = this.splitWarnings(t);
+          if (s.warnings.length) {
+            this.warnings.push(...s.warnings);
+            if (!s.text.trim()) return;
+            t = s.text;
+          }
+        }
         if (!this.block) this.sink.onState('thinking');
         this.block += t;
         this.answered = true;

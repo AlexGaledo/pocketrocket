@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Gemini: a usage limit shows as a limit, and a model your sign-in lacks no longer fails the turn (hub)
+
+- When Gemini (agy) runs out of quota, the bot no longer posts agy's raw "⚠ Individual quota reached…" or "RESOURCE_EXHAUSTED (code 429)" warning as its reply. The turn ends on a usage limit with the reset time agy gives, so the limit note and the failover card show instead. If the bot also wrote a real answer, the answer stays and the limit is still recorded.
+- A Gemini model your sign-in does not offer (for example Gemini 4 Neon on the Google sign-in) no longer fails the turn: the bot runs on agy's current model, the room gets one quiet note saying so, and Usage records the model that ran.
+
 ### Gemini on an API key runs routines, and Gemini turns show in Usage (hub)
 
 - A Gemini API key saved in Settings now counts: when it is set and agy's settings select `"modelProvider": "gemini"`, the provider check reports API-key auth and routines, triggers and workflow steps run on the Gemini bot. With no key, or a key agy would ignore, the bot still answers only messages a person sends, and the check's hint says what is missing.

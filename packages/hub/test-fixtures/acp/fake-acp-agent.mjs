@@ -5,7 +5,11 @@
 // Knobs (env, handed through AcpProviderOptions.env):
 //   FAKE_ACP_RECORD    file: every message the client sent, one JSON per line, plus {"env":[...names]} at start
 //   FAKE_ACP_SCENARIO  text | quiet | tool | cancel | limit | notice-limit | crash | silent-write | leave-mode |
-//                      tool-only | tool-only-crash   (default text)
+//                      tool-only | tool-only-crash | replay   (default text)
+//   FAKE_ACP_REPLAY    replay: a capture file ({ updates: [session/update...], promptResponse }), e.g. the real agy limit
+//                      in src/providers/__fixtures__/gemini/limit-quota.agy.json; its updates are sent in order under
+//                      this session's id, then its promptResponse result
+//   FAKE_ACP_REPLY     replay: answer text sent as a chunk before the captured updates (a real answer plus a warning)
 //   FAKE_ACP_NO_PLAN   1: offer no read-only (`plan`) mode
 //   FAKE_ACP_SET_MODE_FAIL 1: session/set_mode answers with an error
 //   FAKE_ACP_IGNORE_PLAN 1: silent-write writes even in `plan` (only a cancel before the write stops it)
@@ -15,6 +19,9 @@
 //   FAKE_ACP_META_AUTH value reported as _meta.authMethod in initialize
 //   FAKE_ACP_PROMPT_USAGE JSON put as `usage` on the session/prompt answer (the unstable ACP token counts)
 //   FAKE_ACP_MODEL     session/new offers a `model` select option with this current value
+//   FAKE_ACP_MODELS    comma-separated values that option offers (default: just FAKE_ACP_MODEL)
+//   FAKE_ACP_REJECT_MODEL 1: session/set_config_option on `model` answers -32602 "Unknown model ID" (agy on the Google
+//                      sign-in, live G11) and the current model stays
 //   FAKE_ACP_KIND / FAKE_ACP_PATH / FAKE_ACP_COMMAND  the tool scenario's permission request; FAKE_ACP_PATH is also
 //                      the file silent-write writes
 //
@@ -53,6 +60,13 @@ async function onPrompt(id, params) {
   if (scenario === 'crash') process.exit(3);
   if (scenario === 'limit') {
     send({ id, error: { code: -32603, message: 'RESOURCE_EXHAUSTED: Quota exceeded for this account. Please retry in 120s.' } });
+    return;
+  }
+  if (scenario === 'replay') {
+    const cap = JSON.parse(fs.readFileSync(env.FAKE_ACP_REPLAY, 'utf8').replace(/^\uFEFF/, ''));
+    if (env.FAKE_ACP_REPLY) chunk(sid, env.FAKE_ACP_REPLY);
+    for (const n of cap.updates ?? []) update(sid, n.params.update);
+    send({ id, result: cap.promptResponse?.result ?? { stopReason: 'end_turn' } });
     return;
   }
   if (scenario === 'notice-limit') {
@@ -195,7 +209,7 @@ function onMessage(msg) {
                 configOptions: [
                   {
                     id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: env.FAKE_ACP_MODEL,
-                    options: [{ value: env.FAKE_ACP_MODEL, name: env.FAKE_ACP_MODEL }],
+                    options: (env.FAKE_ACP_MODELS ? env.FAKE_ACP_MODELS.split(',') : [env.FAKE_ACP_MODEL]).map((v) => ({ value: v, name: v })),
                   },
                 ],
               }
@@ -216,6 +230,10 @@ function onMessage(msg) {
       send({ id, result: {} });
       return;
     case 'session/set_config_option':
+      if (params.configId === 'model' && env.FAKE_ACP_REJECT_MODEL === '1') {
+        send({ id, error: { code: -32602, message: 'Unknown model ID: ' + params.value } });
+        return;
+      }
       send({ id, result: {} });
       return;
     case 'session/prompt':

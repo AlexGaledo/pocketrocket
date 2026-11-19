@@ -16,9 +16,10 @@ import type { TurnLimit } from './types.js';
  * drives it as is, which is the one route a Google AI Pro login allows [G3].
  *
  * Live-tested (P2-4, docs/PRODUCTION-CHECKLIST.md §4a) with agy 1.5.12 on Linux and a Gemini API key: DMs, resume,
- * context size, hub MCP tools, interrupt, a scheduled routine and usage rows work. Still `untested` in the picker:
- * the Google sign-in was not tried, no real limit has been captured, and agy's `default` mode asks before shell but
- * NOT before its own file writes (G6). So strict turns run read-only (`strictReadOnly` below).
+ * context size, hub MCP tools, interrupt, a scheduled routine and usage rows work. A real limit was captured on the
+ * Google sign-in on Windows (G11): agy reports it as warning text in the answer (`splitAgyWarnings`). Still `untested`
+ * in the picker: agy's `default` mode asks before shell but NOT before its own file writes (G6), so strict turns run
+ * read-only (`strictReadOnly` below).
  */
 
 export const GEMINI_INFO: ProviderStaticInfo = {
@@ -29,7 +30,7 @@ export const GEMINI_INFO: ProviderStaticInfo = {
   secretKeys: ['GEMINI_API_KEY'],
   // agy asks through session/request_permission before shell, but not before its own file writes (live G6, 1.5.12).
   permissions: 'best-effort',
-  // Not `verified`: writes do not ask, the Google sign-in and a real limit are untried. The picker keeps its warning.
+  // Not `verified`: writes do not ask (G6). The picker keeps its warning.
   maturity: 'untested',
   testedVersions: '1.5.12',
 };
@@ -106,14 +107,57 @@ export function parseGeminiAuth(init: Pick<InitializeResponse, '_meta' | 'agentI
 }
 
 /**
- * Gemini's limit matcher. SYNTHETIC: no real `agy` limit has been captured yet (fixture
- * `__fixtures__/gemini/limit-quota.synthetic.json`); it matches Google's API error vocabulary. TODO(P2-4): replace with
- * the owner's captured fixture and tighten.
+ * One limit warning `agy` streams as ordinary answer text (live G11, agy 1.5.12 on the Google sign-in). agy sends no
+ * JSON-RPC error and no `notice` on a limit: it writes `
+⚠ <warning>
+` as `agent_message_chunk` text and then
+ * answers `session/prompt` with a normal `end_turn`. Two shapes were captured (`__fixtures__/gemini/limit-quota.agy.json`):
+ *
+ * - `⚠ API error (attempt N): RESOURCE_EXHAUSTED (code 429): You have exhausted your capacity on this model.`, maybe
+ *   followed by ` Resets in 0s.`: agy's own retries (N = 1..3).
+ * - `⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h47m0s.`
+ *
+ * Strict on purpose: a whole line, starting with `⚠`, then one of those two exact openings. A bot that only talks
+ * about quotas or 429s is an ordinary answer.
+ */
+const AGY_WARNING_LINE = /^[ \t]*⚠[ \t]*((?:API error \(attempt \d+\): RESOURCE_EXHAUSTED \(code 429\):|Individual quota reached\.)[^\r\n]*?)[ \t]*\r?$/gm;
+
+/**
+ * Takes agy's limit warnings out of a chunk of answer text. `text` is what is left for the room (the chunk unchanged
+ * when it held none); `warnings` are the warning lines without the `⚠`, for `geminiLimit`.
+ */
+export function splitAgyWarnings(text: string): { text: string; warnings: string[] } {
+  if (!text.includes('⚠')) return { text, warnings: [] };
+  const warnings: string[] = [];
+  const rest = text.replace(AGY_WARNING_LINE, (_line, w: string) => {
+    warnings.push(w.trim());
+    return '';
+  });
+  return warnings.length ? { text: rest, warnings } : { text, warnings };
+}
+
+/** `Resets in 167h47m0s` / `12m5s` / `30s` in ms. The last positive one wins; agy's retry lines say `Resets in 0s`. */
+export function agyResetMs(text: string): number | null {
+  let ms: number | null = null;
+  for (const m of text.matchAll(/Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?/g)) {
+    if (m[1] === undefined && m[2] === undefined && m[3] === undefined) continue;
+    const v = Math.round((Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)) * 1000);
+    if (v > 0) ms = v;
+  }
+  return ms;
+}
+
+/**
+ * Gemini's limit matcher, over agy's warning lines (`splitAgyWarnings`), an error or a notice. Tightened to the live
+ * capture (G11): agy's quota line or Google's `RESOURCE_EXHAUSTED` / 429 is a usage limit, its reset from
+ * `Resets in …` (or a JSON-RPC `retryDelay`); retry lines alone give no reset, so the hub's default hold applies.
+ * A bare "quota" or "rate limit" no longer counts. Overload and sign-out stay on Google's API vocabulary (not captured).
  */
 export function geminiLimit(text: string, now = Date.now()): TurnLimit | null {
-  if (/RESOURCE_EXHAUSTED|quota|rate.?limit|usage limit|\b429\b|too many requests/i.test(text)) {
+  if (/Individual quota reached|RESOURCE_EXHAUSTED|\b429\b|too many requests|usage limit/i.test(text)) {
     const secs = /retry (?:in|after) (\d+(?:\.\d+)?)\s*s/i.exec(text) ?? /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/i.exec(text);
-    return { kind: 'usage', ...(secs ? { resetsAt: now + Math.round(Number(secs[1]) * 1000) } : {}) };
+    const ms = agyResetMs(text) ?? (secs ? Math.round(Number(secs[1]) * 1000) : null);
+    return { kind: 'usage', ...(ms ? { resetsAt: now + ms } : {}) };
   }
   if (/UNAVAILABLE|overloaded|\b503\b|\b529\b/i.test(text)) return { kind: 'overloaded' };
   if (/UNAUTHENTICATED|PERMISSION_DENIED.*(?:login|auth)|not signed in|please (?:log|sign) in|login required/i.test(text)) return { kind: 'auth' };
@@ -184,6 +228,7 @@ export function geminiPreset(opts: GeminiProviderOptions = {}): AcpPreset {
     args: ['acp'],
     env,
     limitOf: (text) => geminiLimit(text),
+    splitWarnings: splitAgyWarnings,
     // Live G6: in agy's `default` mode `write_file` ran outside the workspace with no permission request. A strict turn
     // (routine, trigger, workflow step, failover backup) therefore runs in agy's `plan` mode, or not at all.
     strictReadOnly: true,

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PROVIDER_IDS } from '@pocketrocket/shared';
 import { childEnv } from './env.js';
 import { MCP_STDIO_BRIDGE, findExe } from './acp/client.js';
-import { AGY_TESTED, GEMINI_INFO, GEMINI_MODELS, agySettingsPath, agyVersionWarning, createGeminiProvider, geminiLimit, geminiPreset, inferGeminiAuth, parseAgyVersion, parseGeminiAuth, readAgyModelProvider } from './gemini.js';
+import { AGY_TESTED, GEMINI_INFO, GEMINI_MODELS, agyResetMs, agySettingsPath, agyVersionWarning, createGeminiProvider, geminiLimit, geminiPreset, inferGeminiAuth, parseAgyVersion, parseGeminiAuth, readAgyModelProvider, splitAgyWarnings } from './gemini.js';
 import { unattendedRefusal } from './unattended.js';
 import type { Bot } from '@pocketrocket/shared';
 
@@ -128,6 +128,67 @@ describe('limit matcher (synthetic fixture)', () => {
     expect(geminiLimit(FIXTURE.overloaded.message!)).toEqual({ kind: 'overloaded' });
     expect(geminiLimit(FIXTURE.signedOut.message!)).toEqual({ kind: 'auth' });
     expect(geminiLimit(FIXTURE.notALimit.message!)).toBeNull();
+  });
+});
+
+describe('limit matcher (real agy capture, live G11)', () => {
+  const CAPTURE = JSON.parse(fs.readFileSync(path.join(HERE, '__fixtures__', 'gemini', 'limit-quota.agy.json'), 'utf8')) as {
+    updates: Array<{ params: { update: { sessionUpdate: string; content: { text: string } } } }>;
+    promptResponse: { result: { stopReason: string } };
+  };
+  const texts = CAPTURE.updates.map((u) => u.params.update.content.text);
+
+  it('the capture is agent text and a normal end_turn: no error, no notice', () => {
+    expect(CAPTURE.updates.every((u) => u.params.update.sessionUpdate === 'agent_message_chunk')).toBe(true);
+    expect(CAPTURE.promptResponse.result).toEqual({ stopReason: 'end_turn' });
+  });
+
+  it('every captured chunk is all warning: nothing is left for the room', () => {
+    for (const t of texts) {
+      const s = splitAgyWarnings(t);
+      expect(s.warnings).toHaveLength(1);
+      expect(s.text.trim()).toBe('');
+      expect(s.warnings[0]).not.toContain('⚠');
+    }
+  });
+
+  it('reads the quota line as a usage limit with its reset time, ignoring the retry lines\' "Resets in 0s"', () => {
+    const now = 1_000_000;
+    const warnings = texts.flatMap((t) => splitAgyWarnings(t).warnings);
+    expect(geminiLimit(warnings.join('\n'), now)).toEqual({ kind: 'usage', resetsAt: now + (167 * 3600 + 47 * 60) * 1000 });
+    expect(geminiLimit('Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 12m5s.', now))
+      .toEqual({ kind: 'usage', resetsAt: now + 725_000 });
+  });
+
+  it('retry lines alone are a usage limit with no reset', () => {
+    const retry = texts.filter((t) => t.includes('RESOURCE_EXHAUSTED')).flatMap((t) => splitAgyWarnings(t).warnings);
+    expect(retry.length).toBeGreaterThan(0);
+    expect(geminiLimit(retry.join('\n'))).toEqual({ kind: 'usage' });
+  });
+
+  it('parses every countdown shape, and 0s as none', () => {
+    expect(agyResetMs('Resets in 167h47m0s.')).toBe((167 * 3600 + 47 * 60) * 1000);
+    expect(agyResetMs('Resets in 5m30s.')).toBe(330_000);
+    expect(agyResetMs('Resets in 45s.')).toBe(45_000);
+    expect(agyResetMs('Resets in 2h.')).toBe(7_200_000);
+    expect(agyResetMs('Resets in 0s.')).toBeNull();
+    expect(agyResetMs('no countdown')).toBeNull();
+  });
+
+  it('keeps real text next to a warning in the same chunk', () => {
+    const s = splitAgyWarnings('Here you go.\n⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h0m0s.\n');
+    expect(s.text.trim()).toBe('Here you go.');
+    expect(s.warnings).toEqual(['Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h0m0s.']);
+  });
+
+  it('NEGATIVE: text about quotas without the ⚠ agy shape is not a warning, and a bare "quota" is not a limit', () => {
+    for (const t of [
+      'Individual quota reached. Resets in 1h.',
+      'Your quota: RESOURCE_EXHAUSTED (code 429) happens when you run out.',
+      '⚠ Careful: your quota is almost used up.',
+      'Note ⚠ Individual quota reached. Resets in 1h.',
+    ]) expect(splitAgyWarnings(t)).toEqual({ text: t, warnings: [] });
+    expect(geminiLimit('I checked the quota and the rate limit docs for you.')).toBeNull();
   });
 });
 
