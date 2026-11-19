@@ -3,8 +3,8 @@
  * the project whose room is open, and that project's parsed current.md.
  */
 import { useEffect } from 'react';
-import type { ProjectOverview } from '@pocketrocket/shared';
-import { useStore } from '../store';
+import type { Bot, ProjectOverview } from '@pocketrocket/shared';
+import { useStore, botById } from '../store';
 import { useLayout } from './layout';
 import { projectOfRoom } from './projects';
 import type { ProjectInfo } from './api';
@@ -51,4 +51,16 @@ export function revealMessage(messageId: string, tries = 40): void {
     if (left > 0) setTimeout(() => step(left - 1), 50);
   };
   requestAnimationFrame(() => step(tries));
+}
+
+/**
+ * The bot asked for a project's map from the Map tab, where that ask stands (`sent`, then `done` once its turn in the
+ * project room ends), and whether that bot has a turn running in that room right now. Only a running turn counts as
+ * "drawing"; a queued ask is just "asked".
+ */
+export function useMapDrawing(slug: string): { bot: Bot | null; phase: 'sent' | 'done' | null; running: boolean } {
+  const ask = useStore((s) => s.mapAsks[slug]);
+  const bots = useStore((s) => s.bots);
+  const running = useStore((s) => !!ask && Object.values(s.streaming).some((t) => t.botId === ask.botId && t.roomId === ask.roomId));
+  return { bot: ask ? botById(bots, ask.botId) ?? null : null, phase: ask?.phase ?? null, running };
 }

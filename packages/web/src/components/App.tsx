@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { PanelLeftOpen, X } from 'lucide-react';
 import { useStore, selectActiveRoom } from '../store';
 import { useMediaQuery } from '../lib/useMediaQuery';
@@ -12,9 +12,12 @@ import { ChatPane } from './ChatPane';
 import { RightPanel } from './RightPanel';
 import { OverviewPanel } from './overview/OverviewPanel';
 import { ProjectHeader, PROJECT_TAB_IDS } from './ProjectHeader';
-import { MapPage } from './map/MapPage';
+import { importChunk } from '../lib/lazyChunk';
 import { useActiveProject, useToki } from '../lib/useProject';
 import { FilesPanel } from './files/FilesPanel';
+
+// The Map tab is its own chunk (the canvas inside it is another), so the entry bundle only grows by this line.
+const MapPage = lazy(() => importChunk(() => import('./map/MapPage').then((m) => ({ default: m.MapPage }))));
 import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
 import { WorkflowPage } from './workflows/WorkflowPage';
@@ -211,8 +214,8 @@ export function App() {
             <ChatPane hideHeader={!!projectRoom} />
           </div>
           {mapPage && (
-            <div id={PROJECT_TAB_IDS.map.panel} role="tabpanel" aria-labelledby={PROJECT_TAB_IDS.map.tab} className="absolute inset-0 flex flex-col">
-              <MapPage />
+            <div id={PROJECT_TAB_IDS.map.panel} role="tabpanel" aria-labelledby={PROJECT_TAB_IDS.map.tab} className="@container absolute inset-0 flex flex-col">
+              {project && projectRoom && <Suspense fallback={<div aria-hidden className="flex-1 bg-canvas" />}><MapPage project={project} room={projectRoom} /></Suspense>}
             </div>
           )}
         </div>
@@ -362,8 +365,10 @@ function Toasts() {
   const dismissToast = useStore((s) => s.dismissToast);
   // Hand back and Done are at the bottom right while the user drives, and an error toast stays until dismissed.
   const driving = useStore(selectScreenSize) === 'focus';
+  // The project map's prompt bar sits at the bottom of the map: toasts rise above it.
+  const onMap = useStore((s) => s.page?.kind === 'map');
   return (
-    <div role="status" aria-live="polite" className={cn('pointer-events-none fixed right-5 z-[100] flex max-w-[calc(100vw-2.5rem)] flex-col items-end gap-2', driving ? 'bottom-24' : 'bottom-5 max-sm:bottom-[calc(10rem+env(safe-area-inset-bottom))]')}>
+    <div role="status" aria-live="polite" className={cn('pointer-events-none fixed right-5 z-[100] flex max-w-[calc(100vw-2.5rem)] flex-col items-end gap-2', driving || onMap ? 'bottom-24' : 'bottom-5 max-sm:bottom-[calc(10rem+env(safe-area-inset-bottom))]')}>
       {toasts.map((t) => (
         <div
           key={t.id}

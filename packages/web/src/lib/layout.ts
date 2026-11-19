@@ -3,8 +3,9 @@
  * being built behind it. Per browser, so it never touches the hub's settings: `pocketrocket.layout` holds the
  * choice and `public/theme-init.js` mirrors it onto `<html data-layout>` before first paint.
  *
- * While the layout is half-built (phases 1-2) the switch in Settings › Appearance only shows once this browser has
- * opened the app with `?layout=preview`, so the owner never meets it by accident.
+ * From phase 3 the switch in Settings › Appearance is shown to everyone. Phases 1-2 hid it until this browser had
+ * opened the app with `?layout=preview`; that visit is still remembered and the parameter still stripped, so old
+ * links stay tidy.
  */
 import { useSyncExternalStore } from 'react';
 import { getItem, setItem } from './persist';
@@ -43,9 +44,9 @@ export function setLayout(next: Layout): void {
   for (const l of listeners) l();
 }
 
-/** Whether Settings shows the "New layout" switch: after `?layout=preview` once, or while the layout is on. */
+/** Whether Settings shows the "New layout" switch: always, now that the project map is in (phase 3). */
 export function layoutSwitchShown(): boolean {
-  return current === 'toki' || getItem(LAYOUT_PREVIEW_KEY) === '1';
+  return true;
 }
 
 /**

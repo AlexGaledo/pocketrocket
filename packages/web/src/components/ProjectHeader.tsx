@@ -8,8 +8,8 @@ import type { ProjectInfo } from '../lib/api';
 import { PANEL_INLINE_MIN } from '../lib/panes';
 import { useInbox } from '../lib/useInbox';
 import { useMediaQuery } from '../lib/useMediaQuery';
-import { useOverview } from '../lib/useProject';
-import { Badge, Button, StagePips, Tabs, TabsList, TabsTrigger } from './ui';
+import { useMapDrawing, useOverview } from '../lib/useProject';
+import { Badge, Button, Chip, StagePips, Tabs, TabsList, TabsTrigger } from './ui';
 import { HeaderButtons, HeaderFaces, RoomBadges, useMembers } from './ChatHeader';
 
 /** The two tab panels, both drawn by App.tsx. */
@@ -29,6 +29,9 @@ export function ProjectHeader({ project, room }: { project: ProjectInfo; room: R
   const members = useMembers(room);
   const overview = useOverview(project.slug);
   const waiting = useInbox().filter((i) => i.roomId === room.id).length;
+  // While a bot draws the map, the room line says so; it is the way to the Map tab from the chat.
+  const drawing = useMapDrawing(project.slug);
+  const drawingMap = drawing.phase === 'sent' && drawing.running && tab === 'chat';
 
   // Where the overview has no room beside the chat, this opens it over the window. Also the way back to it on a
   // wide window if it was closed there.
@@ -68,6 +71,11 @@ export function ProjectHeader({ project, room }: { project: ProjectInfo; room: R
           ? <button type="button" className="min-w-0 rounded-xs text-left text-ui font-medium [overflow-wrap:anywhere] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" title="Group details" onClick={() => openDialog({ kind: 'room', room })}><span aria-hidden className="text-dim"># </span>{room.name}</button>
           : <span className="min-w-0 text-ui font-medium [overflow-wrap:anywhere]"><span aria-hidden className="text-dim"># </span>{room.name}</span>}
         <HeaderFaces room={room} members={members} />
+        {drawingMap && (
+          <button type="button" className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label={'@' + (drawing.bot?.handle ?? 'bot') + ' is drawing the map. Open the map'} onClick={() => openPage({ kind: 'map', slug: project.slug })}>
+            <Chip className="chip-running font-mono text-accent">map</Chip>
+          </button>
+        )}
         <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden @max-[640px]:hidden">
           <RoomBadges room={room} members={members} />
         </span>
