@@ -3,7 +3,8 @@ import type { AgentProvider } from './types.js';
 
 /**
  * Providers whose consumer login allows only turns a person started (spec 01 §2 [G3], 05 §01 #1). On these, routines,
- * triggers, workflow steps and timed retries refuse unless the CLI itself reports API-key auth. A bug here is a terms
+ * triggers, workflow steps and timed retries refuse unless the check finds API-key auth (reported by the CLI, or for
+ * Gemini a key in the spawn env plus agy set to use it: `inferGeminiAuth`). A bug here is a terms
  * breach, so the rule fails closed: an unknown or unreadable auth counts as the consumer login.
  */
 export const ATTENDED_ONLY_ON_LOGIN: ReadonlySet<ProviderId> = new Set<ProviderId>(['gemini']);

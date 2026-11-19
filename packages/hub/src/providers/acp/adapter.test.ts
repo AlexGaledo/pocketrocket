@@ -131,6 +131,32 @@ describe('ACP adapter: a plain text turn', () => {
   });
 });
 
+describe('ACP adapter: usage of a run that reports no cost (agy on Gemini)', () => {
+  it('marks a finished run accounted, at $0, with the context size and the agent model', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'quiet', FAKE_ACP_MODEL: 'gemini-3.1-pro' }).runTurn(makeCtx(), recorder().sink);
+    expect(o.ok).toBe(true);
+    expect(o.accounted).toBe(true);
+    expect(o.costUsd).toBe(0);
+    expect(o.usage).toMatchObject({ costUsd: 0, inputTokens: 0, outputTokens: 0 });
+    expect(o.contextTokens).toBe(24368);
+    expect(o.contextWindow).toBe(1048576);
+    expect(o.model).toBe('gemini-3.1-pro');
+  });
+
+  it('takes token counts from the prompt answer usage when the agent gives them', async () => {
+    const usage = JSON.stringify({ totalTokens: 1500, inputTokens: 1200, outputTokens: 300, cachedReadTokens: 800, thoughtTokens: 50 });
+    const o = await provider({ FAKE_ACP_SCENARIO: 'quiet', FAKE_ACP_PROMPT_USAGE: usage }).runTurn(makeCtx(), recorder().sink);
+    expect(o.usage).toMatchObject({ inputTokens: 1200, outputTokens: 300, cacheReadTokens: 800, cacheWriteTokens: 0 });
+    expect(o.model).toBeUndefined();
+  });
+
+  it('a run that failed before an answer is not accounted', async () => {
+    const o = await provider({ FAKE_ACP_SCENARIO: 'crash' }).runTurn(makeCtx(), recorder().sink);
+    expect(o.ok).toBe(false);
+    expect(o.accounted).toBeUndefined();
+  });
+});
+
 describe('ACP adapter: sessions', () => {
   it('resumes a stored session, sends the short prompt, and counts only this run against the cost baseline', async () => {
     const o = await provider({ FAKE_ACP_RESUME: '1' }).runTurn(makeCtx({ resumeToken: 'sess-old', sessionCostUsd: 0.1 }), recorder().sink);

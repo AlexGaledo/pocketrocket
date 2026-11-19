@@ -841,9 +841,10 @@ export class BotRunner {
           this.repos.saveSessionState(bot.id, room.id, { contextTokens: o.contextTokens, contextAt: Date.now(), ...(o.contextWindow ? { contextWindow: o.contextWindow } : {}) });
         }
         // Only turns the provider actually accounted for become usage rows (matches the pre-provider
-        // behaviour: a turn that died before any result reported nothing).
+        // behaviour: a turn that died before any result reported nothing). `accounted` covers a finished run that
+        // reports no cost or tokens (Gemini over ACP), which would otherwise never show in Usage.
         const u = o.usage;
-        if (u.costUsd || u.inputTokens || u.outputTokens) {
+        if (o.accounted || u.costUsd || u.inputTokens || u.outputTokens) {
           // P0-4: the model that actually answered (an SDK fallback), not just the one asked for.
           this.usage.record(bot.id, room.id, turnId, req.causeId, u, { model: o.model ?? route.model, routeReason: route.reason, causeKind, provider: provider.id });
         }

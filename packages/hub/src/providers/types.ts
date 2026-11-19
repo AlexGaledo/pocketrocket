@@ -236,6 +236,11 @@ export interface TurnOutcome {
   limit?: TurnLimit;
   /** The model that actually answered, when the provider says and it differs from `TurnContext.model` (an SDK fallback). */
   model?: string;
+  /**
+   * The provider finished the run and accounted for it, even at $0 and no token counts (an ACP agent that reports
+   * neither, e.g. agy on Gemini). BotRunner records a usage row for it, so the run still shows in Usage.
+   */
+  accounted?: boolean;
 }
 
 export interface AgentProvider {

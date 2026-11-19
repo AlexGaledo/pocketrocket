@@ -112,6 +112,21 @@ describe('M6: each bot runs on its own provider (P1-2)', () => {
     expect(s.repos.usageBy('provider').map((g) => g.key).sort()).toEqual(['claude', 'codex']);
   });
 
+  it('a finished run that reports no cost or tokens (Gemini over ACP) still writes a usage row; a failed one does not', async () => {
+    const s = setup();
+    const cy = s.mk('Cy', 'cy', 'codex');
+    let next: TurnOutcome = { ok: true, costUsd: 0, usage: { ...EMPTY_USAGE }, durationMs: 1, accounted: true, model: 'gemini-3.1-pro' };
+    s.codex.runTurn = async () => next;
+    expect((await s.turn(cy.bot, cy.room)).ok).toBe(true);
+    expect(s.repos.usageBy('provider')).toEqual([expect.objectContaining({ key: 'codex', costUsd: 0, turns: 1 })]);
+    expect(s.repos.usageBy('model').map((g) => g.key)).toEqual(['gemini-3.1-pro']);
+
+    // Negative: a run that died before any answer (not accounted, nothing reported) leaves no row.
+    next = { ok: false, error: 'agy exited with code 3', costUsd: 0, usage: { ...EMPTY_USAGE }, durationMs: 1 };
+    await s.turn(cy.bot, cy.room);
+    expect(s.repos.usageTotals({ botId: cy.bot.id }).turns).toBe(1);
+  });
+
   it('keeps the last init of each provider apart', async () => {
     const s = setup();
     const ada = s.mk('Ada', 'ada', null);
