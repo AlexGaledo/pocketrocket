@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### A CLI installed while the app runs is found after "Restart hub" (app)
+
+- On Windows, each time the app starts its hub it reads the user and system `Path` again, so a command-line tool installed while PocketRocket was open (for example the Gemini CLI, `agy`) is found after "Restart hub" without quitting the app. Folders already on the PATH keep their order; new ones are added at the end.
+- The server scan also reports whether the Gemini CLI (`agy`) is installed on the server.
+
 ### A context meter on the bot page and in one-on-one chats (hub, web)
 
 - The bot's page and its one-on-one chat header show how full the conversation's context is, for example "Context 42% · 84k of 200k tokens". A tick on the bar marks where the bot starts a fresh session to save tokens (120k by default); screen readers hear "a fresh session starts at 120k" after the value.

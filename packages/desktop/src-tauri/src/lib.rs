@@ -12,6 +12,7 @@
 //! `hubDir` in config.json to the repo root (debug builds) or `POCKETROCKET_HUB_DIR` in the
 //! environment, and the app runs `packages/hub/src/index.ts` via tsx.
 
+mod envpath;
 mod proc;
 mod scan;
 mod ssh;
@@ -487,6 +488,11 @@ fn spawn_hub(app: &AppHandle, cfg: &Config, token: &str) -> Result<(Child, Strin
     cmd.env("PORT", cfg.port.to_string());
     cmd.env("POCKETROCKET_TOKEN", token);
     cmd.env("NODE_NO_WARNINGS", "1");
+    // Windows: folders added to the user or machine Path since the app started (a CLI installed while
+    // it ran), so "Restart hub" finds them. Elsewhere, or with nothing new, the inherited PATH stands.
+    if let Some(path) = envpath::fresh_path() {
+        cmd.env("PATH", path);
+    }
     // The optional account project is never in source: a release build bakes it in from CI secrets.
     // A value already in the user's environment wins; with neither, the hub runs with accounts off.
     for (name, baked) in [
