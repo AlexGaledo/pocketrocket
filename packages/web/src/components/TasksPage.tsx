@@ -6,8 +6,9 @@ import { ListChecks, Plus } from 'lucide-react';
 import { TASK_STATUSES, type Task, type TaskStatus } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
 import { api } from '../lib/api';
-import { Banner, Button, EmptyState, Input, Label, Select, Skeleton, SkeletonGroup, cn } from './ui';
-import { FleetHeader, PageBody } from './FleetPages';
+import { Banner, Button, EmptyState, Input, Label, SectionLabel, Select, Skeleton, SkeletonGroup, cn } from './ui';
+import { PageBody } from './FleetPages';
+import { PageHeader, useNewPages } from './PageHeader';
 
 const LABEL: Record<TaskStatus, string> = { todo: 'To do', doing: 'Doing', blocked: 'Blocked', done: 'Done' };
 const COLUMNS: TaskStatus[] = ['todo', 'doing', 'blocked', 'done'];
@@ -19,7 +20,7 @@ export function TasksPage() {
   const room = rooms.find((r) => r.id === roomId);
   return (
     <>
-      <FleetHeader title="Tasks" sub={room ? room.name : 'Pick a chat'} />
+      <PageHeader title="Tasks" sub={room ? room.name : 'Pick a chat'} />
       <PageBody>
         <div className="mb-4 max-w-xs">
           <Label htmlFor="tasks-room">Chat</Label>
@@ -38,6 +39,7 @@ function Board({ roomId }: { roomId: string }) {
   const rev = useStore((s) => s.tasksRev[roomId] ?? 0);
   const room = useStore((s) => s.rooms.find((r) => r.id === roomId));
   const bots = useStore((s) => s.bots);
+  const fresh = useNewPages();
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
@@ -94,13 +96,16 @@ function Board({ roomId }: { roomId: string }) {
             const col = tasks.filter((t) => t.status === st);
             return (
               <section key={st} aria-label={LABEL[st] + ', ' + col.length}>
-                <h3 className="mb-2 flex items-center justify-between text-label text-fg">{LABEL[st]}<span className="text-hint text-muted">{col.length}</span></h3>
+                {fresh
+                  ? <SectionLabel as="h3" count={col.length} className="mb-1 px-1">{LABEL[st]}</SectionLabel>
+                  : <h3 className="mb-2 flex items-center justify-between text-label text-fg">{LABEL[st]}<span className="text-hint text-muted">{col.length}</span></h3>}
                 <ul className="space-y-2">
                   {col.map((t) => (
                     <li key={t.id} className={cn('rounded-lg bg-card2/40 p-3 ring-1 ring-line', st === 'done' && 'opacity-70')}>
                       <div className={cn('text-ui', st === 'done' && 'line-through')}>{t.title}</div>
                       {t.notes && <p className="mt-1 line-clamp-3 text-hint text-muted">{t.notes}</p>}
-                      <div className="mt-2 flex gap-2">
+                      {/* New layout: status above assignee, so neither select is cut off in a quarter-width column. */}
+                      <div className={cn('mt-2 flex gap-2', fresh && 'flex-col')}>
                         <Select aria-label={'Status of ' + t.title} value={t.status} onChange={(e) => void patch(t, { status: e.target.value as TaskStatus })}>
                           {TASK_STATUSES.map((s) => <option key={s} value={s}>{LABEL[s]}</option>)}
                         </Select>

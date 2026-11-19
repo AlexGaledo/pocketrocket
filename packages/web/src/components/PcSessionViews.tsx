@@ -9,6 +9,7 @@ import { Badge, Banner, EmptyState, cn } from './ui';
 import { getJson, setJson } from '../lib/persist';
 import { MoveBadge } from './PcMovePanel';
 import { Markdown } from './Markdown';
+import { useNewPages } from './PageHeader';
 
 /** How to turn the mirror on. Shown when there is nothing to list. */
 export function MirrorEmptyState({ filtered }: { filtered: boolean }) {
@@ -31,6 +32,7 @@ export function SessionGroups({ groups, onOpen, now }: { groups: SessionGroup[];
   const save = (next: Set<string>) => { setCollapsed(next); setJson(COLLAPSED_KEY, [...next]); };
   const toggle = (key: string) => { const next = new Set(collapsed); if (next.has(key)) next.delete(key); else next.add(key); save(next); };
   const allFolded = groups.length > 0 && groups.every((g) => collapsed.has(g.key));
+  const fresh = useNewPages();
   return (
     <div className="space-y-3">
       {groups.length > 1 && (
@@ -55,11 +57,12 @@ export function SessionGroups({ groups, onOpen, now }: { groups: SessionGroup[];
                 aria-expanded={open}
                 aria-controls={id}
                 onClick={() => toggle(g.key)}
-                className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left text-label text-fg hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                // New layout: the sidebar's quiet section label (dim label, mono count) instead of a bold row.
+                className={cn('flex w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left text-label hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', fresh ? 'text-dim hover:text-fg' : 'text-fg')}
               >
                 <ChevronRight size={14} aria-hidden className={cn('shrink-0 text-muted transition-transform', open && 'rotate-90')} />
-                <span className="min-w-0 flex-1 truncate">{g.label}</span>
-                <span className="shrink-0 text-hint text-muted">{g.nodes.length}</span>
+                <span className="min-w-0 flex-1 truncate" title={fresh ? g.label : undefined}>{g.label}</span>
+                <span className={cn('shrink-0 text-hint', fresh ? 'font-mono text-dim' : 'text-muted')}>{g.nodes.length}</span>
               </button>
             </h2>
             <ul id={id} hidden={!open} className="mt-1">

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New layout preview, phase 4: the pages (web)
+
+- With "New layout" on, every page over the chat (Needs you, Tasks, PC sessions, Automations, Usage, a workflow, a bot) uses one page header: the same back arrow, title and buttons in the same places, with the title at page-title size. On a narrow window the buttons move under the title instead of squeezing it, and long names wrap instead of being cut off.
+- Needs you groups its rows by project, each with an "Open project" button, and lists rooms with no project last under "Other rooms". Rows keep their Review, Open and Deny buttons; Allow stays on the chat's card.
+- The Bot page shows its tabs as an underline strip under the header. Tasks columns and PC sessions repo groups get the sidebar's quiet section labels, and each task's status and assignee no longer get cut off.
+- The workflow canvas uses the shared canvas colours, so it matches the project map.
+- Paired phones keep the classic pages. With the switch off, every page looks exactly as before.
+
 ### New layout preview, phase 3: the project map (web)
 
 - The "New layout" switch in Settings › Appearance is now shown to everyone (still off by default, still per browser).

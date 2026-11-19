@@ -13,6 +13,16 @@
   --xy-handle-background-color: transparent;
   font-family: inherit;
 }
+/*
+ * New layout (docs/specs/toki-ui.md, W9): the shared canvas set from index.css, so the workflow canvas and the project
+ * map are one surface. In light it is the same paper as before; in dark it is the canvas grey instead of the page.
+ * `pr-canvas` is set only in the new layout (not on a paired phone), so the classic layout keeps today's canvas.
+ */
+.wf-canvas.pr-canvas {
+  --xy-background-color: var(--canvas);
+  --xy-background-pattern-color: var(--canvas-dot);
+  --xy-edge-stroke: var(--edge);
+}
 /* Connections are made with the "+" on an edge, never by dragging, so the handles only anchor the edges. */
 .wf-canvas .react-flow__handle { opacity: 0; pointer-events: none; min-width: 0; min-height: 0; width: 1px; height: 1px; }
 .wf-canvas .react-flow__node { cursor: default; }

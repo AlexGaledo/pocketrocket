@@ -17,6 +17,7 @@ import { ReflectionSetting, SkillVersionsPanel } from './SkillVersions';
 import { PageBody, RoutinesSection } from './FleetPages';
 import { activeFor, onBackupText } from '../lib/failover';
 import { ContextMeter } from './ContextMeter';
+import { PageHeader, useNewPages } from './PageHeader';
 
 export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   const bot = useStore((s) => botById(s.bots, botId));
@@ -32,6 +33,7 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
   // P4-2: the header's context meter is the bot's one-on-one chat; fetch it here, as that chat may not be loaded.
   const dmId = rooms.find((r) => r.kind === 'dm' && r.memberIds[0] === botId)?.id;
   const loadContext = useStore((s) => s.loadContext);
+  const fresh = useNewPages();
   useEffect(() => { if (dmId) void loadContext(dmId); }, [dmId, loadContext]);
   if (!bot) {
     return (
@@ -42,6 +44,43 @@ export function BotPage({ botId, tab }: { botId: string; tab: BotTab }) {
     );
   }
   const dm = rooms.find((r) => r.kind === 'dm' && r.memberIds[0] === bot.id);
+  const onTab = (v: string) => openPage({ kind: 'bot', botId: bot.id, tab: v as BotTab });
+  const triggers = (
+    <>
+      <TabsTrigger value="memory">Memory</TabsTrigger>
+      <TabsTrigger value="skills">Skills</TabsTrigger>
+      <TabsTrigger value="automations">Automations</TabsTrigger>
+      <TabsTrigger value="computer">Computer</TabsTrigger>
+    </>
+  );
+  const body = (
+    <PageBody>
+      <TabsContent value="memory"><MemoryTab botId={bot.id} /><VoicePanel botId={bot.id} /><TrainingSection key={bot.id} botId={bot.id} /></TabsContent>
+      <TabsContent value="skills"><SkillsTab botId={bot.id} /></TabsContent>
+      <TabsContent value="automations"><RoutinesSection botId={bot.id} /><TriggersSection botId={bot.id} /></TabsContent>
+      <TabsContent value="computer"><ComputerTab bot={bot} /></TabsContent>
+    </PageBody>
+  );
+  const meter = <ContextMeter botId={bot.id} roomId={dm?.id} className="w-44 shrink-0 @max-[640px]:hidden" />;
+  const chat = dm && <Button size="sm" variant="ghost" title="Open chat" aria-label={'Open chat with ' + bot.name} onClick={() => { closePage(); setActiveRoom(dm.id); }}><MessageSquare size={14} aria-hidden /><span className="@max-[480px]:hidden">Chat</span></Button>;
+  const settings = !device && <Button size="sm" variant="ghost" title="Bot settings" aria-label={bot.name + ' settings'} onClick={() => openDialog({ kind: 'bot', bot })}><Settings2 size={14} aria-hidden /><span className="@max-[480px]:hidden">Settings</span></Button>;
+  if (fresh) {
+    // New layout: the shared page header, with the bot's face and status ring before the name and the tabs as an
+    // underline strip under it, lined up with the page column. Same buttons, same order.
+    return (
+      <Tabs value={tab} onValueChange={onTab} className="flex min-h-0 flex-1 flex-col">
+        <PageHeader
+          title={bot.name}
+          sub={bot.title || '@' + bot.handle}
+          leading={<Avatar bot={bot} {...avatarStatus(statusOf(bot.id))} size={30} />}
+          titleAside={backup && <Badge>{onBackupText(backup, providers)}</Badge>}
+          actions={<>{meter}{chat}{settings}</>}
+          tabs={<div className="mx-auto w-full max-w-[var(--page-max)] px-2"><TabsList variant="underline" className="border-b border-line px-3">{triggers}</TabsList></div>}
+        />
+        {body}
+      </Tabs>
+    );
+  }
   return (
     <>
       <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">

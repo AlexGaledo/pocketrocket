@@ -2,7 +2,7 @@
 // mounted behind them, so a draft and the scroll position are still there on the way back. RoutinesSection is also
 // the Automations tab of the Bot page, filtered to that bot.
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, History, Play, Plus, Trash2 } from 'lucide-react';
+import { History, Play, Plus, Trash2 } from 'lucide-react';
 import { MODELS, type CauseKind, type ProviderId, type Routine, type RoutineRun, type UsageGroup, type UsageRow } from '@pocketrocket/shared';
 import { MONTHS, SCHEDULE_PRESETS, WEEKDAYS, cronToPreset, describeCron, presetToCron, zonedParts, type SchedulePreset, type ScheduleParts } from '@pocketrocket/shared';
 import { useStore, botById, selectActiveRoom } from '../store';
@@ -12,6 +12,10 @@ import { botProvider, limitName, limitPercent, planMeters, resetPhrase } from '.
 import { useLimits } from '../lib/useLimits';
 import { TriggersSection } from './TriggersSection';
 import { WorkflowsSection } from './workflows/WorkflowsSection';
+import { PageHeader, useNewPages } from './PageHeader';
+
+/** New layout: long names wrap instead of being cut off (a bot, a chat, a schedule). The classic layout truncates. */
+const clip = (fresh: boolean) => (fresh ? 'break-words' : 'truncate');
 
 /** The scrolling column under a page's header, as wide as the chat column. */
 export function PageBody({ children }: { children: ReactNode }) {
@@ -22,24 +26,10 @@ export function PageBody({ children }: { children: ReactNode }) {
   );
 }
 
-export function FleetHeader({ title, sub, actions }: { title: string; sub: string; actions?: ReactNode }) {
-  const closePage = useStore((s) => s.closePage);
-  return (
-    <header className="flex h-14 shrink-0 items-center gap-3 px-5 max-md:pl-14">
-      <Tooltip content="Back to chat"><Button variant="ghost" size="icon" aria-label="Back to chat" onClick={closePage}><ArrowLeft size={16} /></Button></Tooltip>
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate text-body font-semibold">{title}</h1>
-        <div className="truncate text-hint text-muted">{sub}</div>
-      </div>
-      {actions && <div className="flex shrink-0 items-center gap-3">{actions}</div>}
-    </header>
-  );
-}
-
 export function AutomationsPage() {
   return (
     <>
-      <FleetHeader title="Automations" sub="Schedules and triggers, all bots" />
+      <PageHeader title="Automations" sub="Schedules and triggers, all bots" />
       <PageBody><RoutinesSection botId={null} /><TriggersSection botId={null} /><WorkflowsSection /></PageBody>
     </>
   );
@@ -48,7 +38,7 @@ export function AutomationsPage() {
 export function UsagePage() {
   return (
     <>
-      <FleetHeader title="Usage" sub="All bots and chats" />
+      <PageHeader title="Usage" sub="All bots and chats" />
       <PageBody><UsageSection /></PageBody>
     </>
   );
@@ -72,6 +62,7 @@ function scheduleLabel(r: Routine, tz: string) {
 
 /** Every bot's schedules, or one bot's when `botId` is set (which also starts a new schedule on that bot). */
 export function RoutinesSection({ botId }: { botId: string | null }) {
+  const fresh = useNewPages();
   const bots = useStore((s) => s.bots);
   const rooms = useStore((s) => s.rooms);
   const toast = useStore((s) => s.toast);
@@ -220,9 +211,9 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
               <div className="flex items-center gap-2">
                 <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} aria-label={'Schedule ' + r.name + ' enabled'} title="Enabled" />
                 <button className="min-w-0 flex-1 text-left" onClick={() => openEdit(r)}>
-                  <div className="truncate font-medium">{r.name}</div>
-                  <div className="truncate text-muted">{scheduleLabel(r, tz)}</div>
-                  <div className="truncate text-muted">{b ? '@' + b.handle : 'a deleted bot'} in {rm?.name ?? 'a deleted room'}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
+                  <div className={cn('font-medium', clip(fresh))}>{r.name}</div>
+                  <div className={cn('text-muted', clip(fresh))}>{scheduleLabel(r, tz)}</div>
+                  <div className={cn('text-muted', clip(fresh))}>{b ? '@' + b.handle : 'a deleted bot'} in {rm?.name ?? 'a deleted room'}{r.nextRunAt ? ' · next ' + fmtIn(r.nextRunAt, tz) : ''}{r.lastRunAt ? ' · last ' + fmtIn(r.lastRunAt, tz) : ''}</div>
                 </button>
                 <Tooltip content="Run now. This does real work."><Button size="icon" variant="ghost" aria-label={'Run ' + r.name + ' now'} onClick={() => run(r)}><Play size={13} /></Button></Tooltip>
                 <Tooltip content="Run history"><Button size="icon" variant="ghost" aria-label={'Run history for ' + r.name} aria-pressed={!!history} onClick={() => toggleRuns(r)}><History size={13} /></Button></Tooltip>
@@ -250,6 +241,7 @@ export function RoutinesSection({ botId }: { botId: string | null }) {
 }
 
 function UsageSection() {
+  const fresh = useNewPages();
   const bots = useStore((s) => s.bots);
   const rooms = useStore((s) => s.rooms);
   const live = useStore((s) => s.usage);
@@ -272,7 +264,7 @@ function UsageSection() {
       <ul className="flex flex-col gap-1">
         {byBot.map(({ b, cost, turns }) => (
           <li key={b.id} className="flex items-center gap-2 rounded-lg bg-card2/60 px-2 py-1.5">
-            <span aria-hidden className="shrink-0"><Avatar bot={b} size={20} /></span><span className="min-w-0 flex-1 truncate font-medium">{b.name}</span><span className="shrink-0 text-muted">{turns} replies</span><span className="shrink-0 font-mono">{fmtUsd(cost)}</span>
+            <span aria-hidden className="shrink-0"><Avatar bot={b} size={20} /></span><span className={cn('min-w-0 flex-1 font-medium', clip(fresh))}>{b.name}</span><span className="shrink-0 text-muted">{turns} replies</span><span className="shrink-0 font-mono">{fmtUsd(cost)}</span>
           </li>
         ))}
       </ul>
@@ -280,7 +272,7 @@ function UsageSection() {
       <ul className="flex flex-col gap-1">
         {rooms.map((r) => {
           const c = rows.filter((x) => x.roomId === r.id).reduce((a, x) => a + x.costUsd, 0);
-          return <li key={r.id} className="flex items-center gap-2 rounded-lg bg-card2/60 px-2 py-1.5"><span className="min-w-0 flex-1 truncate">{r.kind === 'group' ? '# ' : ''}{r.name}</span><span className="shrink-0 font-mono">{fmtUsd(c)}</span></li>;
+          return <li key={r.id} className="flex items-center gap-2 rounded-lg bg-card2/60 px-2 py-1.5"><span className={cn('min-w-0 flex-1', clip(fresh))}>{r.kind === 'group' ? '# ' : ''}{r.name}</span><span className="shrink-0 font-mono">{fmtUsd(c)}</span></li>;
         })}
       </ul>
       <UsageSplit split={split} />
@@ -339,6 +331,7 @@ const CAUSE_LABEL: Record<CauseKind, string> = {
  * their own rows so automation cost is visible next to chat cost. '' is spend recorded before the hub kept this.
  */
 function UsageSplit({ split }: { split: UsageSplitData }) {
+  const fresh = useNewPages();
   const providers = useStore((s) => s.providers);
   const providerLabel = (k: string) => (!k ? 'Not recorded' : (providers?.providers.find((p) => p.id === k)?.label ?? k));
   // Spend on a subscription login is what the same work would cost on an API key, not a bill, so its row says so.
@@ -355,7 +348,7 @@ function UsageSplit({ split }: { split: UsageSplitData }) {
         <ul className="flex flex-col gap-1">
           {groups.map((g) => (
             <li key={g.key || '-'} className="flex items-center gap-2 rounded-lg bg-card2/60 px-2 py-1.5">
-              <span className={cn('min-w-0 flex-1 truncate', mono && g.key ? 'font-mono text-hint' : 'font-medium', !g.key && 'text-muted')}>{label(g.key)}</span>
+              <span className={cn('min-w-0 flex-1', clip(fresh), mono && g.key ? 'font-mono text-hint' : 'font-medium', !g.key && 'text-muted')}>{label(g.key)}</span>
               <span className="text-muted">{g.turns} replies</span>
               {total > 0 && <span className="w-9 text-right text-dim">{Math.round((g.costUsd / total) * 100)}%</span>}
               {estimate?.(g.key) && <Badge>estimate</Badge>}
