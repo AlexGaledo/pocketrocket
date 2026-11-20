@@ -31,7 +31,7 @@ export function ExportBotControls({ bot }: { bot: Bot }) {
     setNote(null);
     try {
       const r = await api.bots.export(bot.id, memory);
-      saveFile(bot.handle + '.pocketrocket-bot.json', JSON.stringify(r.file, null, 2));
+      saveFile(bot.handle + '.toki-bot.json', JSON.stringify(r.file, null, 2));
       const left = r.skipped ?? [];
       const big = left.filter((k) => k.reason === 'too_big').map((k) => k.name);
       const many = left.filter((k) => k.reason === 'too_many').map((k) => k.name);

@@ -142,7 +142,7 @@ export function Onboarding() {
             <div className="text-title">Toki</div>
             <div className="text-ui font-medium text-muted">Your pocket fleet of AI agents</div>
             <p className="max-w-[42ch] text-ui leading-relaxed text-muted">
-              AI bots that work for you. You approve risky steps.
+              Friendly bots that work for you. You okay anything risky.
             </p>
             <Button variant="primary" className="mt-2" autoFocus onClick={goNext}>Get started</Button>
           </div>
