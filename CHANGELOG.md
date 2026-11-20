@@ -12,12 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `escalate` tool for every bot. When something the bot can't fix itself blocks it (a service that's down, a blocked command, missing access, a key or an approval) and the same fix has failed twice, it posts one message in the room: "🚩 Blocked, need help. @pocketrocket-support: please restart my computer", followed by what it was trying to do and the exact error. Hub and service problems go to @pocketrocket-support, which is woken when it's in the room. Keys, access and decisions go to you.
 - The same blocker can be posted once per 30 minutes, and a message that looks like it contains a secret is refused. `report_blocked` stays for sites that block the bot (captchas, login walls).
 
+## [0.5.3] - 2026-11-20
+
+v0.5.2 was tagged but never published: the repository was renamed while its release was building, and its files were lost. Everything planned for 0.5.2 ships here.
+
 ### The GitHub repository is now AlexGaledo/Toki
 
 - Links in the app (Settings → About, outside-link handling), the website, the README and the guides point to `github.com/AlexGaledo/Toki`. The old `AlexGaledo/pocketrocket` address redirects, so older installs keep updating.
 - New builds check for updates at `github.com/AlexGaledo/Toki/releases/latest/download/latest.json`, and release builds are gated on the new repository name.
 
-## [0.5.2] - 2026-11-20
+### A DM whose bot was deleted no longer says "@undefined"
+
+- Its header now reads "This bot was deleted".
 
 ### A bot whose browser keeps failing now asks for help
 
