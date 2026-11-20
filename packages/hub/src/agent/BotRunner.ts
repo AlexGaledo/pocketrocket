@@ -48,6 +48,7 @@ import { decisionsWriteDenied, relIn, type FileRevisions, type FileRoot, type Re
 import type { MediaStore } from '../services/MediaStore.js';
 import { AUTO_MEMORY_MODEL, runPass, type PassOutcome } from '../services/AutoMemory.js';
 import { buildSeed, buildSummaryPrompt, cleanSummary, contextUsage, readRoomNotes, rotationNote, rotationReason, SUMMARY_SYSTEM_PROMPT, SWITCH_SEED_LEAD, switchNote } from '../services/SessionRotation.js';
+import { RepeatFailureWatch, browserRefusal, brokenStart, escalationNote, type FailureKind } from './repeatFailure.js';
 
 export interface TurnRequest {
   bot: Bot;
@@ -243,6 +244,20 @@ export class BotRunner {
   credentials?: CredentialStore;
   /** The one-shot Haiku call that writes the running room summary when a session rotates. Tests replace it. */
   summarize: (prompt: string, systemPrompt: string) => Promise<PassOutcome> = runPass;
+  /** Repeated computer/browser failures per bot; the 2nd identical one posts a note asking for a restart. */
+  repeatFailures = new RepeatFailureWatch();
+
+  /** Counts one computer/browser failure and, on the 2nd identical one, posts who can fix it and how. */
+  private noteFailure(bot: Bot, room: Room, kind: FailureKind, error: string, at: { causeId: string | null; hop: number; turnId: string }) {
+    if (!this.repeatFailures.record(bot.id, kind + ' ' + error)) return;
+    const support = !!this.repos.getBotByHandle(SUPPORT_HANDLE);
+    const msg = this.repos.insertMessage({
+      roomId: room.id, authorType: 'system', authorId: bot.id, kind: 'system',
+      text: escalationNote({ handle: bot.handle, kind, error, support }),
+      payload: null, causeId: at.causeId, hop: at.hop, turnId: at.turnId,
+    });
+    events.emitEvent({ type: 'message.new', message: msg });
+  }
 
   constructor(
     private repos: Repos,
@@ -407,6 +422,7 @@ export class BotRunner {
       }
       got.release();
       computerStart = null;
+      if (brokenStart(got.reason)) this.noteFailure(bot, room, 'computer', got.reason, { causeId: req.causeId, hop: req.hop, turnId });
       return 'Your computer could not start: ' + got.reason;
     })());
     if ((wantsDesktop || wantsBrowser) && !this.computers?.enabled) {
@@ -787,6 +803,10 @@ export class BotRunner {
         if (!msgId) return;
         const cur = this.repos.getMessage(msgId);
         if (!cur || !cur.payload) return;
+        const toolName = (cur.payload as ToolPayload).name;
+        const refused = browserRefusal(toolName, output);
+        if (refused) this.noteFailure(bot, room, 'browser', refused, { causeId: req.causeId, hop: req.hop, turnId });
+        else if (!isError && toolName.startsWith('mcp__browser__')) this.repeatFailures.clear(bot.id);
         const payload: ToolPayload = { ...(cur.payload as ToolPayload), output: redact(output.slice(0, 20000)), isError, done: true };
         this.repos.updateMessage(msgId, { payload });
         events.emitEvent({ type: 'message.update', id: msgId, roomId: room.id, patch: { payload } });
