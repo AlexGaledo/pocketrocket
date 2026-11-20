@@ -45,7 +45,7 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | Dependency audit | ☑ | `pnpm audit --prod` → 0 |
 | Integration tokens encrypted at rest (AES-256-GCM, `vault.key` 0600) and `vault.key` left out of `backup.sh` archives (P4) | ☑ tests | `IntegrationVault.test.ts`; `tar -tzf /var/backups/pocketrocket/data-*.tgz \| grep vault.key` → nothing |
 | Integration write tools (send mail, post, comment, create) always show a card, also under bypass; a bot without a grant gets no integration tools (P4) | ☑ tests | `integrations/tools.test.ts` |
-| Branch protection on `main` (required checks, no force-push), Dependabot alerts + security fixes | ☑ | `gh api repos/AlexGaledo/pocketrocket/branches/main/protection` |
+| Branch protection on `main` (required checks, no force-push), Dependabot alerts + security fixes | ☑ | `gh api repos/AlexGaledo/Toki/branches/main/protection` |
 | Secret scanning + push protection | ☐ not available on a private free-plan repo; auto-enabled when public | repo Settings → Code security |
 
 ## 3. Desktop app (Windows)

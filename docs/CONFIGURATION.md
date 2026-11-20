@@ -45,7 +45,7 @@ Read in `packages/hub/src/config.ts` and the provider adapters. Set them in `.en
 | `COMPUTER_IDLE_MIN` | `30` | Minutes without tool use, viewer, routine due or Always on before a computer is stopped (disk kept). |
 | `COMPUTER_QUOTA_GB` | `10` | Soft disk quota per computer: warned at 80%, not started at 100%. |
 | `POCKETROCKET_ALLOWED_HOSTS` | unset (loopback only) | P9. Comma/space separated hostnames (e.g. `myhub.tail1234.ts.net`) the hub also answers to, only on HTTPS requests forwarded from loopback (Tailscale Serve). Never use Funnel. See [SERVER.md](SERVER.md#phone-access-over-tailscale-serve). |
-| `POCKETROCKET_PUSH_SUBJECT` | `https://github.com/AlexGaledo/pocketrocket` | P9. VAPID `sub` claim sent to browser push services with every Web Push. The VAPID key pair itself is minted locally into `<data>/vapid.json` (0600) the first time someone subscribes. |
+| `POCKETROCKET_PUSH_SUBJECT` | `https://github.com/AlexGaledo/Toki` | P9. VAPID `sub` claim sent to browser push services with every Web Push. The VAPID key pair itself is minted locally into `<data>/vapid.json` (0600) the first time someone subscribes. |
 
 Internal, set by the hub for child processes (do not set yourself): `POCKETROCKET_MCP_TOKEN` (Codex), `POCKETROCKET_MCP_URL`/`POCKETROCKET_MCP_TOKEN` (Grok), `OPENCODE_SERVER_PASSWORD` + `OPENCODE_CONFIG_CONTENT` (OpenCode serve), `CLAUDE_AGENT_SDK_CLIENT_APP`, `NODE_NO_WARNINGS`. Test-only: `FAKE_CODEX_*`.
 
@@ -93,7 +93,7 @@ Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`. `GET` returns only `
 | `hubDir` | unset | Dev override: run the hub from a repo checkout with `tsx` instead of the bundled `hub/hub.mjs`. **Debug builds only** — a released app ignores the key (it would be arbitrary code execution for anything that can write this file) and logs that it did. Set `POCKETROCKET_HUB_DIR` in the environment to point a released build at a checkout. |
 | `skippedUpdate` | unset | Written when you answer **Later** to an update: the automatic daily check does not notify about that version again (the tray item still offers it). |
 
-Environment: `POCKETROCKET_UPDATE_ENDPOINT` replaces the update feed for testing a release candidate; it is honoured only for `https://github.com/AlexGaledo/pocketrocket/releases/...` URLs (see `docs/RELEASING.md`).
+Environment: `POCKETROCKET_UPDATE_ENDPOINT` replaces the update feed for testing a release candidate; it is honoured only for `https://github.com/AlexGaledo/Toki/releases/...` URLs (see `docs/RELEASING.md`).
 
 Runtime selection in `local` mode: system Node ≥ 22.13 from PATH (skipping the app's own directory), else the bundled Node 24 next to the exe. Logs: `%APPDATA%\com.pocketrocket.app\hub.log` (rotated at 2 MB × 5).
 

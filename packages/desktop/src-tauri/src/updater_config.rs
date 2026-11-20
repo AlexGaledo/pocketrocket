@@ -15,7 +15,7 @@ use serde_json::Value;
 
 pub const PUBKEY_PLACEHOLDER: &str = "OWNER_STEP_PASTE_UPDATER_PUBKEY";
 pub const RELEASE_TAG_ENV: &str = "POCKETROCKET_RELEASE_TAG";
-const ENDPOINT_PREFIX: &str = "https://github.com/AlexGaledo/pocketrocket/releases/";
+const ENDPOINT_PREFIX: &str = "https://github.com/AlexGaledo/Toki/releases/";
 
 #[cfg(test)]
 const TAURI_CONF: &str = include_str!("../tauri.conf.json");
@@ -76,7 +76,7 @@ mod tests {
     fn conf(pubkey: &str, endpoints: Value) -> Value {
         json!({ "plugins": { "updater": { "pubkey": pubkey, "endpoints": endpoints } } })
     }
-    const EP: &str = "https://github.com/AlexGaledo/pocketrocket/releases/latest/download/latest.json";
+    const EP: &str = "https://github.com/AlexGaledo/Toki/releases/latest/download/latest.json";
     // shape of a real key (base64 of a minisign .pub file); not a key anyone holds
     const FAKE_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCQ0RFRgpSV1RFU1RURVNUVEVTVA==";
 
@@ -139,10 +139,10 @@ mod tests {
     fn endpoints_off_the_release_path_are_rejected() {
         for bad in [
             json!([]),
-            json!(["http://github.com/AlexGaledo/pocketrocket/releases/latest/download/latest.json"]),
+            json!(["http://github.com/AlexGaledo/Toki/releases/latest/download/latest.json"]),
             json!(["https://github.com/someone/else/releases/latest/download/latest.json"]),
             json!(["https://example.com/latest.json"]),
-            json!(["https://github.com/AlexGaledo/pocketrocket/releases/../../x/latest.json"]),
+            json!(["https://github.com/AlexGaledo/Toki/releases/../../x/latest.json"]),
             json!([EP, "https://evil.example/latest.json"]),
             json!("not a list"),
         ] {

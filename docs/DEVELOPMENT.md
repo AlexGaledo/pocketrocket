@@ -60,7 +60,7 @@ it falls back to a Node 24 LTS binary bundled with the installer. Releasing is d
 The shell registers `tauri-plugin-updater` (pinned `=2.12.0`, the last version that accepts the tauri 2.11 this
 repo locks; Dependabot ignores it, so bump it by hand together with tauri). Its settings live in
 `tauri.conf.json > plugins.updater`: the endpoint
-`https://github.com/AlexGaledo/pocketrocket/releases/latest/download/latest.json`, `installMode: "passive"` on
+`https://github.com/AlexGaledo/Toki/releases/latest/download/latest.json`, `installMode: "passive"` on
 Windows, and `pubkey`.
 
 - **Only Rust can use it.** No capability grants `updater:*` and no `#[tauri::command]` wraps it, so the hub page

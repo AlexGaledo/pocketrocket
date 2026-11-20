@@ -14,7 +14,7 @@ Status: **Executed 2026-09-08; see CHANGELOG.** Approved by Alex on 2026-09-08 (
 | Hub runtime in desktop | **Detect both**: system Node ≥ 22.13 if present, else bundled Node 24 LTS sidecar. Hub is esbuild-bundled (`--packages=external`) + production `node_modules` in resources. |
 | Landing page | Static site in `packages/site`, deployed to Vercel. |
 | Sounds | WebAudio synth (no assets), **on by default**, settings toggle, respects `prefers-reduced-motion`. Cues: send, reply arrives, approval request, approve/deny, turn done, turn error, desktop connected. |
-| GitHub | `AlexGaledo/pocketrocket`, **private for now**, MIT. Created via `gh`. |
+| GitHub | `AlexGaledo/Toki`, **private for now**, MIT. Created via `gh`. |
 | Migration | Hard rename everywhere; hub + desktop auto-migrate old Claudebot data on first start; deploy script migrates VPS units/dirs. |
 | Release | GitHub Actions: CI on push; tag `v*` → NSIS installer → GitHub Release. Unsigned, no auto-updater (Check for updates in the tray menu opens Releases). |
 | VPS/screen | Keep all, made generic (no hardcoded `<host>` / `Alex`). |
