@@ -6,42 +6,43 @@
 <style>
   :root {
     color-scheme: light;
-    --bg: #f7f7f8;
-    --panel: #ffffff;
-    --card2: #f0f1f3;
-    --line: #e6e7ea;
-    --fg: #111214;
-    --muted: #6e7681;
-    --dim: #a0a7b1;
-    --accent: #4f7df3;
-    --ok: #1f9d6a;
-    --warn: #c96a17;
-    --bad: #de4747;
-    --ink: #111214;
-    --ink-fg: #ffffff;
-    --shadow-lg: 0 2px 4px rgba(17, 18, 20, .06), 0 24px 48px rgba(17, 18, 20, .12);
-    --wash-a: rgba(79, 125, 243, .10);
-    --wash-b: rgba(31, 157, 106, .08);
+    /* Cozy, mirroring packages/web/src/index.css: cream paper, espresso ink, terracotta accent. */
+    --bg: #faf6ef;
+    --panel: #fffcf7;
+    --card2: #f3ece1;
+    --line: #ebe2d4;
+    --fg: #33291f;
+    --muted: #675748;
+    --dim: #716254;
+    --accent: #a84d28;
+    --ok: #2b6a3d;
+    --warn: #7a5600;
+    --bad: #ad2838;
+    --ink: #3a2d23;
+    --ink-fg: #fffaf2;
+    --shadow-lg: 0 2px 6px rgba(60, 38, 15, .06), 0 22px 44px rgba(60, 38, 15, .12);
+    --wash-a: rgba(214, 140, 90, .14);
+    --wash-b: rgba(204, 168, 92, .12);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --bg: #0b0c0f;
-      --panel: #15171b;
-      --card2: #1f2228;
-      --line: #262a31;
-      --fg: #f2f3f5;
-      --muted: #9aa3ae;
-      --dim: #666d77;
-      --accent: #7ea1ff;
-      --ok: #38c48a;
-      --warn: #f0954a;
-      --bad: #f06060;
-      --ink: #f2f3f5;
-      --ink-fg: #0b0c0f;
-      --shadow-lg: 0 2px 4px rgba(0, 0, 0, .5), 0 24px 48px rgba(0, 0, 0, .55);
-      --wash-a: rgba(126, 161, 255, .10);
-      --wash-b: rgba(56, 196, 138, .07);
+      --bg: #1e1915;
+      --panel: #29221d;
+      --card2: #322a24;
+      --line: #3c332c;
+      --fg: #f2e9df;
+      --muted: #c6b6a6;
+      --dim: #b8a898;
+      --accent: #f2a57f;
+      --ok: #84d4a2;
+      --warn: #f0c35e;
+      --bad: #ff9196;
+      --ink: #f2e9df;
+      --ink-fg: #1e1915;
+      --shadow-lg: 0 2px 6px rgba(10, 5, 0, .45), 0 22px 44px rgba(10, 5, 0, .50);
+      --wash-a: rgba(242, 165, 127, .09);
+      --wash-b: rgba(240, 195, 94, .06);
     }
   }
   * { box-sizing: border-box; }
@@ -49,7 +50,7 @@
   html { height: 100%; }
   body {
     color: var(--fg);
-    font: 14px/1.5 "Geist", "Inter", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    font: 14px/1.5 "Nunito", "Figtree", ui-rounded, ui-sans-serif, system-ui, "Segoe UI", sans-serif;
     background:
       radial-gradient(900px 500px at 8% -10%, var(--wash-a), transparent 60%),
       radial-gradient(800px 500px at 100% 110%, var(--wash-b), transparent 60%),
@@ -159,17 +160,10 @@
   <div class="card">
     <header class="head">
       <span class="mark" aria-hidden="true">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="28" height="28">
-          <circle cx="512" cy="512" r="512" fill="#111214"/>
-          <g transform="translate(512 512) rotate(45) translate(-512 -512)" fill="#FFFFFF">
-            <path d="M512 176c96 0 168 128 168 336v168H344V512c0-208 72-336 168-336z"/>
-            <path d="M344 560l-96 96v128l96-64zM680 560l96 96v128l-96-64z"/>
-            <circle cx="512" cy="452" r="58" fill="#111214"/>
-            <circle cx="512" cy="452" r="34" fill="#FFFFFF"/>
-            <path d="M440 680h144l24 56H416z"/>
-          </g>
-          <circle cx="318" cy="742" r="46" fill="#FFFFFF" opacity="0.9"/>
-          <circle cx="236" cy="808" r="30" fill="#FFFFFF" opacity="0.6"/>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="28" height="28">
+          <circle cx="50" cy="50" r="50" fill="#111214"/>
+          <g fill="#FFFFFF"><path d="M30 88C30 66 36 52 50 52C64 52 70 66 70 88Z"/><circle cx="50" cy="40" r="16"/><path d="M36 33L37 16L47 26Z"/><path d="M64 33L63 16L53 26Z"/></g>
+          <path d="M68 84C82 84 84 72 76 64" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
         </svg>
       </span>
       <div class="head-text">
@@ -186,7 +180,7 @@
       </div>
     </div>
 
-    <p class="intro" id="intro" hidden>Welcome. Pick where your bots run. If you already deployed Toki to a server, find it below.</p>
+    <p class="intro" id="intro" hidden>Welcome home. Pick where your bots will live. Already have Toki on a server? Find it below.</p>
 
     <section class="discover" id="discover" aria-labelledby="discover-title" hidden>
       <div class="section-title"><span id="discover-title">Find my servers</span><span class="hint">from ~/.ssh/config</span></div>
