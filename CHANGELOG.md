@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-20
+
 ### A bot whose browser keeps failing now asks for help
 
 - When a bot's browser refuses to connect (`ECONNREFUSED`) twice with the same error within 10 minutes, or its computer fails to start twice, the hub posts one note in the room. The note names @pocketrocket-support (or you, when there's no support bot), quotes the exact error, and says what fixes it: open the bot's Screen tab and press **Wake**. Bots used to report the error and keep retrying without asking anyone.
