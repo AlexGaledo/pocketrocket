@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy PocketRocket to a VPS over SSH. Usage: scripts/deploy.sh [ssh-host] [remote-dir]
+# Deploy Toki to a VPS over SSH. Usage: scripts/deploy.sh [ssh-host] [remote-dir]
 # Ships the source (no node_modules/data/dist), runs the VPS setup (creates the pocketrocket
 # service user, packages, screen), installs + builds as that user, and restarts both units.
 set -euo pipefail

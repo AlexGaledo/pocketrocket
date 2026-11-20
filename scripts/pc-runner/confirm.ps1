@@ -1,4 +1,4 @@
-# PocketRocket PC runner: the local Run / Refuse dialog for one job.
+# Toki PC runner: the local Run / Refuse dialog for one job.
 # Started by runner.mjs as: powershell -File confirm.ps1 -JobFile <temp json>
 # The job (bot, room, folder, prompt) is read from that JSON file as data. Nothing from the job is ever placed
 # into script text, so a prompt cannot inject PowerShell. Exit code 0 = Run, anything else = Refuse.
@@ -21,10 +21,10 @@ $script:left = $timeoutSec
 $script:answer = 1
 
 $form = New-Object System.Windows.Forms.Form
-if ($job.mode -eq 'sync') { $form.Text = 'PocketRocket: sync a repo from this PC?' }
-elseif ($job.mode -eq 'move') { $form.Text = 'PocketRocket: move this session to the server?' }
-elseif ($job.mode -eq 'pull') { $form.Text = 'PocketRocket: pull this session back to this PC?' }
-else { $form.Text = 'PocketRocket: run a job on this PC?' }
+if ($job.mode -eq 'sync') { $form.Text = 'Toki: sync a repo from this PC?' }
+elseif ($job.mode -eq 'move') { $form.Text = 'Toki: move this session to the server?' }
+elseif ($job.mode -eq 'pull') { $form.Text = 'Toki: pull this session back to this PC?' }
+else { $form.Text = 'Toki: run a job on this PC?' }
 $form.TopMost = $true
 $form.StartPosition = 'CenterScreen'
 $form.Size = New-Object System.Drawing.Size(760, 620)

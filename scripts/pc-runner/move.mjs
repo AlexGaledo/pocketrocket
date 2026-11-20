@@ -183,7 +183,7 @@ export function moveInfoLines({ job, resume, folderName, folder, items, sessionB
     lines.push(`  - ${it.spec.repo} (project ${it.spec.project}), origin ${it.want}`);
     lines.push(`    ${plural(it.stats.files, 'changed file')}, +${it.stats.additions} -${it.stats.deletions} lines against HEAD; scan clean (${plural(it.scan.commits, 'commit')}, ${plural(it.scan.files, 'file')} checked for keys and secret files)`);
   }
-  lines.push('While it is on the server, this PC will refuse to resume it. Pull it back from PocketRocket when you want it here again.');
+  lines.push('While it is on the server, this PC will refuse to resume it. Pull it back from Toki when you want it here again.');
   return lines;
 }
 

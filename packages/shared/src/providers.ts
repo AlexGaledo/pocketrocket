@@ -59,7 +59,7 @@ export interface ProviderCheck {
    */
   unresponsive?: boolean;
   /**
-   * M7: the installed CLI's version is outside the range PocketRocket was tested with, or could not be read. A
+   * M7: the installed CLI's version is outside the range Toki was tested with, or could not be read. A
    * warning only: the provider still runs. Absent when the version is a tested one (or the provider has no range).
    */
   versionWarning?: string;

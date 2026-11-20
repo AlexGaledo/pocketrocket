@@ -42,7 +42,7 @@ export function PopoutShell({ route }: { route: PopoutRoute }) {
   }, [helloReceived, rooms, activeRoomId, route.botId, route.roomId]);
 
   useEffect(() => {
-    document.title = (bot ? bot.name : 'Bot') + ' - PocketRocket';
+    document.title = (bot ? bot.name : 'Bot') + ' - Toki';
   }, [bot]);
 
   const status = bot ? statusOf(bot.id) : null;

@@ -1,7 +1,7 @@
-# PocketRocket PC runner
+# Toki PC runner
 
 Lets a bot on the VPS hub ask for a Claude job to run in a folder on this Windows PC. Every job needs two
-approvals: the owner approves it in PocketRocket, and then you approve it again in a dialog on this PC. Nothing
+approvals: the owner approves it in Toki, and then you approve it again in a dialog on this PC. Nothing
 runs without the second one.
 
 Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no autostart, no scheduled task.
@@ -22,7 +22,7 @@ Plain Node (22 or newer), no extra packages. Windows 11. No admin rights, no aut
 
 ### Resume jobs
 
-A job can also ask to **resume** a session the mirror showed in PocketRocket. The hub sends only the session id, never a
+A job can also ask to **resume** a session the mirror showed in Toki. The hub sends only the session id, never a
 folder. The runner then:
 
 1. looks for exactly `<claudeProjectsDir>/<project>/<id>.jsonl` (a subagent id, or anything that is not a plain session
@@ -155,7 +155,7 @@ backs off.
    This reads the token from the clipboard and writes it to `%LOCALAPPDATA%\PocketRocketRunner\token`. Then it
    removes inherited permissions so only your Windows user can read the file, and clears the clipboard. The
    token is never printed. If Windows clipboard history (Win+V) is on, delete the entry there too.
-5. Double-click **PocketRocket Runner ON**.
+5. Double-click **Toki Runner ON**.
 
 ## Tools
 
@@ -258,10 +258,10 @@ The owner's own user settings also had `defaultMode: bypassPermissions`. Results
   folder, the first 200 characters of the prompt, your decision, cost and duration. They never hold the
   output or the token.
 
-## Use PocketRocket from Claude Code
+## Use Toki from Claude Code
 
 A small MCP server (`mcp.mjs`, plain Node, no packages) lets a Claude Code session in your terminal work with
-PocketRocket rooms. It is added to Claude Code once, for your user:
+Toki rooms. It is added to Claude Code once, for your user:
 
 ```
 claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"
@@ -271,7 +271,7 @@ Run that from cmd. In PowerShell use `"$env:LOCALAPPDATA\PocketRocketRunner\mcp.
 files and prints the line. Check with `claude mcp list`.
 
 **It only works while the runner is ON.** The server talks to the hub through the runner's SSH tunnel and never
-starts ssh itself. With the runner off, every tool answers with an error asking you to press "PocketRocket Runner
+starts ssh itself. With the runner off, every tool answers with an error asking you to press "Toki Runner
 ON". It needs no approval dialog: it is your own session, and writes are versioned and attributed on the hub.
 
 | Tool | Does |
@@ -303,7 +303,7 @@ result is remembered for 10 seconds. The server logs only to stderr and never pr
 ## Mirror your Claude Code sessions
 
 While the runner is ON and its tunnel is verified, it also copies your Claude Code sessions to the hub, so you can
-read them in PocketRocket (the owner view, newest first). It is on by default. It reads every folder under
+read them in Toki (the owner view, newest first). It is on by default. It reads every folder under
 `%USERPROFILE%\.claude\projects` (main sessions and their subagent transcripts; `tool-results` folders are ignored).
 
 **What is sent.** Not the raw logs (they are huge, mostly tool output) but compact entries: what you wrote, what
@@ -339,7 +339,7 @@ pattern without `*` is a path prefix (`C:\Users\you\Documents\private` also cove
 pattern with `*` is a glob over the whole value. Excluded sessions are never read past their first lines, and
 nothing from them is sent. Changes apply within seconds; entries already on the hub stay until you delete them there.
 
-**Pause.** Double-click **PocketRocket Mirror pause-resume** on the Desktop: it creates (or removes) the file
+**Pause.** Double-click **Toki Mirror pause-resume** on the Desktop: it creates (or removes) the file
 `%LOCALAPPDATA%\PocketRocketRunner\mirror.paused`. While it exists nothing is sent; the runner checks it every
 few seconds. `"mirror": false` in `config.json` turns the mirror off for good.
 
@@ -351,7 +351,7 @@ mirrored sessions: only you can, in the app. The runner log (`logs\`) holds coun
 
 ## Turning it off
 
-- Double-click **PocketRocket Runner OFF**. This stops the runner, its ssh tunnel, any running job and any open
+- Double-click **Toki Runner OFF**. This stops the runner, its ssh tunnel, any running job and any open
   dialog. The runner never starts by itself; it is off until you press ON again.
 - To unpair, delete `%LOCALAPPDATA%\PocketRocketRunner\token`. You may first need
   `icacls "%LOCALAPPDATA%\PocketRocketRunner\token" /grant:r "%USERNAME%:F"`, because the file is read-only even
@@ -366,7 +366,7 @@ mirrored sessions: only you can, in the app. The runner log (`logs\`) holds coun
 | File | What it is |
 |---|---|
 | `runner.mjs` | the program: `pair`, `check`, `run` |
-| `mcp.mjs` / `mcp.cmd` | the Claude Code MCP server and its launcher (see "Use PocketRocket from Claude Code"), tested by `mcp.test.mjs` |
+| `mcp.mjs` / `mcp.cmd` | the Claude Code MCP server and its launcher (see "Use Toki from Claude Code"), tested by `mcp.test.mjs` |
 | `local.mjs` | file locations, config and token loading, port-owner lookup; shared by `runner.mjs` and `mcp.mjs` |
 | `lib.mjs` | pure helpers (config check, folder check, claude args, output cap), tested by `lib.test.mjs` |
 | `confirm.ps1` | the Run / Refuse dialog; it reads the job from a temp JSON file and never puts it into script text |

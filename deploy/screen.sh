@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PocketRocket "computer": a persistent XFCE desktop on a virtual display, exposed via VNC -> noVNC.
+# Toki "computer": a persistent XFCE desktop on a virtual display, exposed via VNC -> noVNC.
 # Display and ports come from SCREEN_DISPLAY / CDP_PORT / VNC_PORT / NOVNC_PORT (defaults below:
 # :99, 9222, 5900, 6080).
 # - Desktop folder = $DATA/workspace (what bots write shows up on the desktop)
@@ -129,7 +129,7 @@ START_URL=()
 # No --remote-allow-origins: Playwright/CDP clients connect from Node over a plain WebSocket with
 # no Origin header, which Chromium's remote-debugging Origin allowlist only checks/enforces when
 # an Origin header is present (i.e. a browser page trying to reach it) — see deploy/setup-vps.sh
-# header comment and the PocketRocket audit item 8 for the verification notes.
+# header comment and the Toki audit item 8 for the verification notes.
 # Smooth scrolling and page animations turn one scroll or hover into dozens of frames that VNC then has to encode
 # and send; switching them off keeps the Screen tab responsive. Pages still render the same, just without tweening.
 "$CHROME" "${SANDBOX_ARGS[@]}" --disable-dev-shm-usage --disable-gpu --no-first-run --no-default-browser-check \

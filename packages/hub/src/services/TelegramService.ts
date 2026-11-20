@@ -21,7 +21,7 @@ const POLL_FAILS_MAX = 3;
 const VAULT_KEY = 'telegram';
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-export const CONFLICT_MESSAGE = 'Another PocketRocket or a webhook uses this bot. Use a separate bot for this hub.';
+export const CONFLICT_MESSAGE = 'Another Toki or a webhook uses this bot. Use a separate bot for this hub.';
 
 /**
  * The whole of what Telegram is ever sent. One fixed line per kind: no bot, room, tool or message text, no
@@ -30,8 +30,8 @@ export const CONFLICT_MESSAGE = 'Another PocketRocket or a webhook uses this bot
 export const TELEGRAM_TEXT: Record<PushKind | 'linked', string> = {
   approval: 'A bot needs your approval.',
   routine: 'A routine finished.',
-  test: 'Test from PocketRocket. Notifications to this chat work.',
-  linked: 'PocketRocket is linked to this chat.',
+  test: 'Test from Toki. Notifications to this chat work.',
+  linked: 'Toki is linked to this chat.',
 };
 
 export interface TelegramServiceOptions {

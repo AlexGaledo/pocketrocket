@@ -1,7 +1,7 @@
 import type { IntegrationProvider } from './integrations.js';
 
 /**
- * The one registry of every hub tool the PocketRocket MCP server can register (B3), with how the permission
+ * The one registry of every hub tool the Toki MCP server can register (B3), with how the permission
  * broker treats each. The broker's SILENT/GATED/ASK_EVERY_TIME/SIGN_IN sets are derived from it, so a tool
  * cannot sit in one list and be missing from another. A drift test in the hub fails when a tool the hub
  * registers is missing here; a name that is not here still fails closed in `PermissionBroker.decide()`

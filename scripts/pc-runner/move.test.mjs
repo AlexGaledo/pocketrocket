@@ -280,7 +280,7 @@ async function moveAndWork(w, hub, { edit = true, repos = ['app'] } = {}) {
       fs.mkdirSync(path.join(vps, 'new', 'deep'), { recursive: true });
       fs.writeFileSync(path.join(vps, 'new', 'deep', 'b.txt'), 'brand new\n');
       await git(vps, ['add', '-A']);
-      await git(vps, ['commit', '-q', '-m', 'PocketRocket offload: work']);
+      await git(vps, ['commit', '-q', '-m', 'Toki offload: work']);
     }
     const out = path.join(w.root, `out-${n}.bundle`);
     await git(vps, ['bundle', 'create', out, REF]);

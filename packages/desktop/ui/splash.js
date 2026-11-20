@@ -316,7 +316,7 @@
   const KIND = {
     running: ['Running', 'ok'],
     stopped: ['Installed, not running', 'warn'],
-    none: ['No PocketRocket', ''],
+    none: ['No Toki', ''],
     hostKeyUnknown: ['New host key', 'warn'],
     hostKeyChanged: ['Host key changed', 'bad'],
     needsKey: ['Needs your SSH key', 'warn'],

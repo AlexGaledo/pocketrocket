@@ -19,7 +19,7 @@ describe('Continue on PC form', () => {
     expect(html).toContain('Your PC will still ask before it runs.');
   });
   it('is disabled with the offline hint', () => {
-    const html = renderToStaticMarkup(<PcRunForm {...base} blocked="Your PC is offline. Start the PocketRocket helper on it." />);
+    const html = renderToStaticMarkup(<PcRunForm {...base} blocked="Your PC is offline. Start the Toki helper on it." />);
     expect(html).toContain('Your PC is offline');
     expect(disabledCount(html)).toBe(2); // textarea and button
     expect(html).toContain('aria-describedby');

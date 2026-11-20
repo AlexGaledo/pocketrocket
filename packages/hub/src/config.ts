@@ -271,7 +271,7 @@ export const VERSION: string = resolveVersion(here);
 
 export const SECRETS_PATH = path.join(DATA_DIR, 'secrets.json');
 
-// Optional PocketRocket account (Supabase Auth). Configured only from the environment: no project URL or key
+// Optional Toki account (Supabase Auth). Configured only from the environment: no project URL or key
 // lives in source. Accounts are on only when both are set; otherwise the hub runs signed out (enabled: false).
 // The desktop release passes values baked in at build time from CI secrets; a VPS sets them in a systemd drop-in.
 export const SUPABASE_URL = (process.env.POCKETROCKET_SUPABASE_URL ?? '').trim();

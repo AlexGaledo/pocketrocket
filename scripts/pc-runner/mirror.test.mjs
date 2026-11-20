@@ -506,7 +506,7 @@ test('real-shaped repo info lands in the session PUT', async () => {
   m.stop(); hub.close(); s.done();
 });
 
-test('mirror: a session deleted in PocketRocket (410) is not sent again', async () => {
+test('mirror: a session deleted in Toki (410) is not sent again', async () => {
   const hub = await stubHub();
   hub.gone = new Set([SID]);
   const s = setup();

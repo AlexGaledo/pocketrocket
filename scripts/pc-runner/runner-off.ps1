@@ -1,4 +1,4 @@
-# PocketRocket PC runner: turn OFF. Stops runner.mjs and everything it started (the ssh tunnel, a running
+# Toki PC runner: turn OFF. Stops runner.mjs and everything it started (the ssh tunnel, a running
 # claude job, an open confirm dialog). Also finds a runner whose pid file went missing.
 $ErrorActionPreference = 'Stop'
 $dir = $PSScriptRoot
@@ -26,5 +26,5 @@ foreach ($id in $ids) {
 }
 if (Test-Path -LiteralPath $pidFile) { Remove-Item -LiteralPath $pidFile -Force }
 
-$msg = if ($ids.Count -gt 0) { 'PocketRocket Runner is OFF.' } else { 'PocketRocket Runner was not running.' }
-[void][System.Windows.Forms.MessageBox]::Show($msg, 'PocketRocket Runner', 'OK', 'Information')
+$msg = if ($ids.Count -gt 0) { 'Toki Runner is OFF.' } else { 'Toki Runner was not running.' }
+[void][System.Windows.Forms.MessageBox]::Show($msg, 'Toki Runner', 'OK', 'Information')

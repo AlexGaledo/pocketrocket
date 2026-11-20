@@ -119,7 +119,7 @@ function Notice({ icon, title, children, action }: { icon: ReactNode; title: str
 function PairedNotice() {
   return (
     <Notice icon={<Lock size={28} aria-hidden />} title="Files open in the desktop app">
-      This device is paired, so it can't see the hub's files. Open them in the PocketRocket app on the computer, or in a browser signed in with the hub token.
+      This device is paired, so it can't see the hub's files. Open them in the Toki app on the computer, or in a browser signed in with the hub token.
     </Notice>
   );
 }

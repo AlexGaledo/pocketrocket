@@ -1,6 +1,6 @@
 /**
  * The one place the app renders markdown. Bots and provider checks write links freely, and a plain <a>
- * would take the whole app with it: in a browser tab the click replaces PocketRocket, and in the desktop
+ * would take the whole app with it: in a browser tab the click replaces Toki, and in the desktop
  * window a relative link like `report.md` stays in-window on a 404 with no back button. So every link
  * goes through `MdLink`, which opens real web links in a new tab (the desktop shell hands those to the
  * system browser) and never lets anything else navigate the app window. A link to a file opens the chat's
@@ -139,7 +139,7 @@ function MdLink({ href, children, node: _node, ...rest }: ComponentPropsWithoutR
   // No href at all, so middle-click or "open in new tab" cannot reach a dead page either.
   const hint = kind === 'file'
     ? 'Opens in Files'
-    : "That link points inside PocketRocket and can't be opened from here";
+    : "That link points inside Toki and can't be opened from here";
   const preview = () => {
     const s = useStore.getState();
     if (kind !== 'file' || !href || !s.activeRoomId) return toast(kind === 'file' ? 'Open a chat to see its files.' : hint);

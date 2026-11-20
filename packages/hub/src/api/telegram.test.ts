@@ -123,7 +123,7 @@ describe('/api/telegram', () => {
     f.on('POST', BOT + 'getUpdates', () => ({ status: 409, json: { ok: false, error_code: 409, description: 'Conflict: webhook is active' } }));
     const conflict = await req('POST', '/api/telegram/link', { body: {} });
     expect(conflict.status).toBe(409);
-    expect(conflict.json.error).toMatch(/another PocketRocket or a webhook uses this bot/i);
+    expect(conflict.json.error).toMatch(/another Toki or a webhook uses this bot/i);
     expect(f.calls.some((c) => /webhook/i.test(c.url.pathname.split('/').pop() ?? '') && c.url.pathname.endsWith('Webhook'))).toBe(false);
 
     f.on('POST', BOT + 'getUpdates', () => { const r = updates; updates = []; return { json: { ok: true, result: r } }; });

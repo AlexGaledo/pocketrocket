@@ -202,7 +202,7 @@ test('runner off: connection refused on localPort says to turn the runner on', a
   const r = await call(s, 'list_rooms', {});
   assert.equal(r.isError, true);
   assert.match(r.text, /runner is not running/);
-  assert.match(r.text, /PocketRocket Runner ON/);
+  assert.match(r.text, /Toki Runner ON/);
   assert.ok(!r.text.includes(TOKEN));
 });
 

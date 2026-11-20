@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily snapshot of PocketRocket's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
+# Daily snapshot of Toki's persistent state (db, workspace, bot homes, skills, browser profile, desktop config).
 # Installed as /etc/cron.daily/pocketrocket-backup by setup-vps.sh. Keeps the 3 newest archives (KEEP in
 # /etc/default/pocketrocket-backup changes that). Each one is a full copy of data/ (~5 GB on the live server),
 # so on 2026-11-16 seven of them filled the 96 GB disk and the last three came out cut off. Now the old ones go

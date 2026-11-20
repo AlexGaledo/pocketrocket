@@ -553,14 +553,14 @@ export class SessionMoves {
   }
 
   /**
-   * Commits whatever the worktree changed to the wip branch (identity "PocketRocket offload <bot>"), and only if the
+   * Commits whatever the worktree changed to the wip branch (identity "Toki offload <bot>"), and only if the
    * worktree is still on that branch. Returns a note for the room, or ''. Never pushes.
    */
   async commitWork(m: MoveRow, message: string): Promise<string> {
     const notes: string[] = [];
     const room = m.roomId ? this.d.repos.getRoom(m.roomId) : undefined;
     const bot = room ? this.botFor(room) : null;
-    const who = 'PocketRocket offload ' + (bot?.handle ?? 'bot');
+    const who = 'Toki offload ' + (bot?.handle ?? 'bot');
     for (const r of m.repos) {
       const wt = this.worktreePath(r, r.branch);
       if (!fs.existsSync(wt)) continue;

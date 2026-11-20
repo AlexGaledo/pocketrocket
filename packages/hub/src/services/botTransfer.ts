@@ -109,7 +109,7 @@ export const IMPORT_DEFAULT_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'W
 export function importBot(d: Deps, raw: unknown, opts: { includeMemory: boolean }): BotImportResult {
   const parsed = BotExportSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new TransferError(400, 'Not a PocketRocket bot file: ' + parsed.error.issues.slice(0, 5).map((i) => (i.path.length ? i.path.join('.') + ': ' : '') + i.message).join('; '));
+    throw new TransferError(400, 'Not a Toki bot file: ' + parsed.error.issues.slice(0, 5).map((i) => (i.path.length ? i.path.join('.') + ': ' : '') + i.message).join('; '));
   }
   const f = parsed.data;
   const handle = freeHandle((h) => !!d.repos.getBotByHandle(h), f.bot.handle);

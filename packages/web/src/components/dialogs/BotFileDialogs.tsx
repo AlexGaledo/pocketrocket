@@ -79,7 +79,7 @@ export function ImportBotDialog({ onClose }: { onClose: () => void }) {
     try {
       const json: unknown = JSON.parse(await f.text());
       const r = BotExportSchema.safeParse(json);
-      if (!r.success) { setProblem('This is not a PocketRocket bot file, or it is from a newer version.'); return; }
+      if (!r.success) { setProblem('This is not a Toki bot file, or it is from a newer version.'); return; }
       setRaw(json);
       setFile(r.data);
     } catch { setProblem('That file is not readable JSON.'); }

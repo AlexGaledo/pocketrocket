@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Brings Claude project context into PocketRocket, from the PC. See docs/context-import.md.
+// Brings Claude project context into Toki, from the PC. See docs/context-import.md.
 //
 // Nothing leaves this machine without --upload. Without it, the command writes a preview file to read first.
 // Needs POCKETROCKET_TOKEN (data/hub-token on the server) and a tunnel for anything that talks to the hub:

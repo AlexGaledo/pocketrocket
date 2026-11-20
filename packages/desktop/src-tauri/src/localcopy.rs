@@ -95,7 +95,7 @@ fn fetch(port: u16, token: &str, req: &Request) -> Result<Vec<u8>, String> {
     target.query_pairs_mut().append_pair("path", &req.path).append_pair("download", "1");
     let path_and_query = format!("{}?{}", target.path(), target.query().unwrap_or(""));
 
-    let mut s = TcpStream::connect(("127.0.0.1", port)).map_err(|_| "PocketRocket isn't connected.".to_string())?;
+    let mut s = TcpStream::connect(("127.0.0.1", port)).map_err(|_| "Toki isn't connected.".to_string())?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(60)));
     let head = format!("GET {path_and_query} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n");
     s.write_all(head.as_bytes()).map_err(|e| e.to_string())?;

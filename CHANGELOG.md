@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### PocketRocket is now Toki
+
+- The app is called **Toki** everywhere you see it: window and tray, the web app and its tab title, onboarding, Settings, notifications, sign-in pages, the PC runner dialogs and Desktop shortcuts, the marketing site, the README and the guides.
+- Nothing to migrate. Installs, auto-update, the server and your data keep their existing internal names (the installer and `PocketRocket.exe`, release file names, `Documents\PocketRocket`, `%LOCALAPPDATA%\PocketRocketRunner`, the `pocketrocket` service and MCP name), so updating works as before.
+- The PC runner's Desktop shortcuts get their new names the next time you run `install.ps1`; the old ones keep working.
+
 ### Switch layouts any time
 
 - Both layouts stay. Settings › Appearance now has a **Layout** picker (New / Classic) beside Theme and Font, and the profile menu (bottom left) has a one-click **Classic layout** / **New layout** item, like the theme item.

@@ -226,7 +226,7 @@ function SessionView({ id, onOpen, onBack }: { id: string; onOpen: (id: string) 
     const kids = detail?.children.length ?? 0;
     const ok = await confirmAction({
       title: 'Delete this mirrored session?',
-      body: 'This removes the copy PocketRocket keeps' + (kids ? ' and its ' + kids + ' subagent ' + (kids === 1 ? 'session' : 'sessions') : '') + '. The files on your PC are not touched, and a session that is still active is mirrored again.',
+      body: 'This removes the copy Toki keeps' + (kids ? ' and its ' + kids + ' subagent ' + (kids === 1 ? 'session' : 'sessions') : '') + '. The files on your PC are not touched, and a session that is still active is mirrored again.',
       confirmLabel: 'Delete',
       danger: true,
     });

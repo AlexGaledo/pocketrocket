@@ -59,7 +59,7 @@ export function pcBlockedReason(o: { status: Pick<PcRunnerStatus, 'paired' | 'on
   if (!o.signedIn) return 'Sign in with your password to run things on your PC. The hub token alone cannot approve a run.';
   if (!o.status) return 'Checking your PC…';
   if (!o.status.paired) return 'No PC is paired. Pair one in Settings > PC runner.';
-  if (!o.status.online) return 'Your PC is offline. Start the PocketRocket helper on it.';
+  if (!o.status.online) return 'Your PC is offline. Start the Toki helper on it.';
   return null;
 }
 

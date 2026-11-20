@@ -99,8 +99,8 @@ export function syncGitEnv(baseEnv, extra = {}) {
   for (const [k, v] of more) { env[`GIT_CONFIG_KEY_${n}`] = k; env[`GIT_CONFIG_VALUE_${n}`] = v; n++; }
   env.GIT_CONFIG_COUNT = String(n);
   Object.assign(env, {
-    GIT_AUTHOR_NAME: 'PocketRocket', GIT_AUTHOR_EMAIL: 'pocketrocket@localhost',
-    GIT_COMMITTER_NAME: 'PocketRocket', GIT_COMMITTER_EMAIL: 'pocketrocket@localhost',
+    GIT_AUTHOR_NAME: 'Toki', GIT_AUTHOR_EMAIL: 'pocketrocket@localhost',
+    GIT_COMMITTER_NAME: 'Toki', GIT_COMMITTER_EMAIL: 'pocketrocket@localhost',
   }, extra);
   return env;
 }

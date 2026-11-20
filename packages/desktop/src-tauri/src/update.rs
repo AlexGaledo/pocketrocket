@@ -427,7 +427,7 @@ fn run_check(app: &AppHandle, manual: bool) {
         None if manual => message(
             app,
             "You're up to date",
-            &format!("PocketRocket {} is the newest version.", env!("CARGO_PKG_VERSION")),
+            &format!("Toki {} is the newest version.", env!("CARGO_PKG_VERSION")),
             MessageDialogKind::Info,
         ),
         None => {}
@@ -435,7 +435,7 @@ fn run_check(app: &AppHandle, manual: bool) {
         Some(v) => {
             let skipped = app.try_state::<AppState>().and_then(|s| s.0.lock().ok().and_then(|i| i.config.skipped_update.clone()));
             if announce && skipped.as_deref() != Some(v.as_str()) {
-                tell(app, &format!("PocketRocket {v} is ready"), &format!("Install it from the tray menu: Update to v{v}…"));
+                tell(app, &format!("Toki {v} is ready"), &format!("Install it from the tray menu: Update to v{v}…"));
             }
         }
     }
@@ -466,7 +466,7 @@ pub fn on_menu(app: &AppHandle, id: &str) {
         Phase::Busy => {}
         Phase::Waiting => {
             std::thread::spawn(move || {
-                let stop = ask(&app, "Cancel the update?", "PocketRocket is waiting for bots to finish before it updates.", "Cancel update", "Keep waiting");
+                let stop = ask(&app, "Cancel the update?", "Toki is waiting for bots to finish before it updates.", "Cancel update", "Keep waiting");
                 if stop {
                     if let Some(u) = app.try_state::<Updates>() {
                         u.cancel.store(true, Ordering::SeqCst);
@@ -533,7 +533,7 @@ fn offer(app: &AppHandle) {
     let packaged = is_packaged_linux(cfg!(target_os = "linux"), std::env::var_os("APPIMAGE").as_deref());
     let busy = (sit.mode == "local" && sit.hub_up && !sit.hub.token.is_empty()).then(|| sit.hub.busy());
     let plan = plan(&sit.mode, packaged, sit.hub_up, busy);
-    let title = format!("PocketRocket {v} is ready");
+    let title = format!("Toki {v} is ready");
     let (text, yes) = match plan {
         Plan::ReleasesPage => (
             "This copy was installed from a .deb package, so it can't update itself. Download the new package from the releases page.".to_string(),
@@ -541,7 +541,7 @@ fn offer(app: &AppHandle) {
         ),
         Plan::ShellOnly => ("Installing restarts this app. The bots on your server keep running.".to_string(), "Install and restart"),
         Plan::Confirm => (
-            "PocketRocket can't tell whether bots are busy on this hub. Make sure nothing important is running, then install. \
+            "Toki can't tell whether bots are busy on this hub. Make sure nothing important is running, then install. \
              Installing restarts the app; running replies will stop."
                 .to_string(),
             "Install and restart",
@@ -552,7 +552,7 @@ fn offer(app: &AppHandle) {
         ),
         Plan::Drain { blocking } => (
             format!(
-                "Bots have {} right now. PocketRocket waits for them to finish, then installs and restarts. New work waits until it's back.",
+                "Bots have {} right now. Toki waits for them to finish, then installs and restarts. New work waits until it's back.",
                 busy_text(blocking)
             ),
             "Install when bots are idle",
@@ -651,7 +651,7 @@ fn install(app: &AppHandle, u: &Updates, update: Update, plan: Plan, hub: LocalH
             }
             u.set_phase(Phase::Idle);
             u.show_pending();
-            message(app, "The update didn't install", &format!("{e}\n\nPocketRocket is still on {}.", env!("CARGO_PKG_VERSION")), MessageDialogKind::Warning);
+            message(app, "The update didn't install", &format!("{e}\n\nToki is still on {}.", env!("CARGO_PKG_VERSION")), MessageDialogKind::Warning);
         }
     }
 }

@@ -1,4 +1,4 @@
-# Contributing to PocketRocket
+# Contributing to Toki
 
 ## Setup
 

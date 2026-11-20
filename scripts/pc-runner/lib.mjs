@@ -1,4 +1,4 @@
-// Pure helpers for the PocketRocket PC runner (no I/O, so node:test can cover them on any OS).
+// Pure helpers for the Toki PC runner (no I/O, so node:test can cover them on any OS).
 import path from 'node:path';
 
 export const FOLDER_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,40}$/;

@@ -1,4 +1,4 @@
-// PocketRocket site: no framework, no build step. Shared by index.html and 404.html, so every section
+// Toki site: no framework, no build step. Shared by index.html and 404.html, so every section
 // no-ops when its elements are missing. Jobs:
 // 1. theme toggle (system / light / dark), incl. the hero screenshot that follows it
 // 2. fill in the download button with the latest Windows release

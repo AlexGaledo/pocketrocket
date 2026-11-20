@@ -1,7 +1,7 @@
 [package]
 name = "pocketrocket-desktop"
 version = "0.5.1"
-description = "PocketRocket desktop app"
+description = "Toki desktop app"
 edition = "2021"
 
 [lib]
