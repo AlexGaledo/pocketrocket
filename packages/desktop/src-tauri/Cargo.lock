@@ -2978,7 +2978,7 @@ dependencies = [
 
 [[package]]
 name = "pocketrocket-desktop"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "arboard",
  "getrandom 0.4.3",
