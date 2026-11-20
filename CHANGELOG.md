@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New layout preview, phase 6: chat and composer (web)
+
+- Needs you has a composer docked at its foot. Its chip picks the room (the one that waits on you first, rooms of paused bots left out), and sending opens that room with your message in it. Attachments and `/` commands work there as they do in a chat.
+- In a group chat with a coordinator the composer says "Message @bot or the room…". The @ popup lists each bot by name with its handle beside it, in the same framed popover as the app's menus.
+- A bot's question card (a form) gets the amber edge while it waits on you and a quiet one once answered, like the overview's cards. Nothing else in the transcript changes.
+- A project gets a Tasks tab beside Chat and Map: its room's board under the project header. Tasks in the sidebar opens it while you are in a project.
+- The sidebar no longer cuts off project, room or bot names: they wrap. Bot rows show the name alone (the title is in the hover text). The separate "Needs you" bot list is gone from the new layout, since the pinned Needs you row and the amber marks in the tree already show every waiting bot, and a folded project or room still shows a bot that waits on you. A hairline now marks where the list ends above your profile.
+- On a phone the project overview opens as a sheet pulled up from the bottom, with the chat still in sight above it. Tap outside or press Escape to close it. Screen and Files still take the whole window.
+- Fixed in both layouts: a failed upload in the composer wraps instead of pushing its Retry button out of sight on a phone, and the `/` menu labels the app's own commands "PocketRocket". On a phone the Settings section names wrap onto a few rows instead of scrolling sideways with the last one cut off. In setup, Continue on the Connect step is open while it shows Claude as Ready, instead of looking disabled until a second check finished.
+- Paired phones keep the classic layout. With the switch off, everything else looks as before.
+
 ### New layout preview, phase 5: settings, dialogs, onboarding (web)
 
 - With "New layout" on, every dialog opens as a sheet from the bottom edge on a phone-width window, and so do the setup steps and the token prompt. On wider windows they stay centred, with the dialogs' surface.

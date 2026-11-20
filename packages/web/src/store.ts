@@ -26,7 +26,9 @@ export type BotTab = 'memory' | 'skills' | 'automations' | 'computer';
 /** What the main pane shows over the chat. Null is the chat. */
 export type Page = { kind: 'bot'; botId: string; tab: BotTab } | { kind: 'workflow'; id: string } | { kind: 'automations' } | { kind: 'usage' } | { kind: 'inbox' } | { kind: 'tasks' } | { kind: 'pcsessions' }
   /** New layout: a project's Map tab, over its chat (docs/specs/toki-ui.md). */
-  | { kind: 'map'; slug: string };
+  | { kind: 'map'; slug: string }
+  /** New layout: a project's Tasks tab, its room's board under the project header. */
+  | { kind: 'projectTasks'; slug: string };
 
 interface Streaming { botId: string; roomId: string; text: string }
 
@@ -1034,5 +1036,5 @@ subscribeLayout(() => {
   } else if (s.panelKind === 'overview') {
     useStore.setState({ panelOpen: false, panelKind: 'screen' });
   }
-  if (s.page?.kind === 'map' && !tokiLayout(s.device)) useStore.setState({ page: null });
+  if ((s.page?.kind === 'map' || s.page?.kind === 'projectTasks') && !tokiLayout(s.device)) useStore.setState({ page: null });
 });

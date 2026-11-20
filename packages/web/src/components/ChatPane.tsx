@@ -26,6 +26,9 @@ import { useLimits } from '../lib/useLimits';
 import { WorkflowCardsForRoom } from './workflows/WorkflowCard';
 import { FailoverCardsForRoom } from './FailoverCard';
 import { activeFor } from '../lib/failover';
+import { useToki } from '../lib/useProject';
+import { useInbox } from '../lib/useInbox';
+import { useBotStatus } from '../lib/botStatus';
 import { canSteer, deliveryLines, deliveryOf, earlierTurns, sendKey, showSendChoice } from '../lib/delivery';
 import type { DeliveryPayload, SendMode } from '@pocketrocket/shared';
 
@@ -123,7 +126,7 @@ export function ChatPane({ hideHeader = false }: { hideHeader?: boolean } = {}) 
       <WorkflowCardsForRoom roomId={room.id} />
       {/* A bot here hit its provider's limit and has a backup: continue there once, or wait. */}
       <FailoverCardsForRoom roomId={room.id} />
-      <Composer members={members} />
+      <Composer room={room} members={members} />
     </>
   );
 }
@@ -748,17 +751,26 @@ function fileTooBig(f: File): string | null {
 }
 const sizeLabel = (n: number) => (n >= 1024 * 1024 ? (Math.round(n / 1024 / 1024 * 10) / 10) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 
-function Composer({ members }: { members: Bot[] }) {
+/**
+ * `dock`: the same composer docked at the foot of the Needs you page (new layout). It writes to the room its chip
+ * names, keeps one draft of its own, and leaves out the rows that belong to an open chat (queue, limits, pickers).
+ * Sending opens that room, so the message lands where you can see the reply.
+ */
+interface DockOptions { chip: React.ReactNode }
+const DOCK_DRAFT = 'needs-you-dock';
+
+function Composer({ room, members, dock }: { room: Room; members: Bot[]; dock?: DockOptions }) {
   const sendMessage = useStore((s) => s.sendMessage);
   const interrupt = useStore((s) => s.interrupt);
   const streaming = useStore((s) => s.streaming);
-  const roomId = useStore((s) => s.activeRoomId);
-  const room = useStore(selectActiveRoom);
+  const roomId = room.id;
+  const draftKey = dock ? DOCK_DRAFT : roomId;
+  const toki = useToki();
   const control = useStore((s) => s.control);
   // Hidden on a paired phone, and in a room where any bot runs on a provider whose models the picker does not name.
-  const showPicker = useStore((s) => !s.device && allOnClaude(members, s.settings.provider));
+  const showPicker = useStore((s) => !dock && !s.device && allOnClaude(members, s.settings.provider));
   // A paired phone may not change settings, and the hub would refuse it.
-  const showPermissions = useStore((s) => !s.device);
+  const showPermissions = useStore((s) => !dock && !s.device);
   const device = useStore((s) => s.device);
   const openDialog = useStore((s) => s.openDialog);
   // Steering: can a busy bot take this message mid-turn, and what Enter does with it by default.
@@ -766,18 +778,14 @@ function Composer({ members }: { members: Bot[] }) {
   const busyDefault: SendMode = useStore((s) => s.settings.busyMessages ?? 'join');
   // One draft per room (the composer remounts per room): restored here, saved a moment after typing stops,
   // saved at once when the room changes or the pane closes, and cleared on send.
-  const [text, setText] = useState(() => (roomId ? readDraft(roomId) : ''));
+  const [text, setText] = useState(() => readDraft(draftKey));
   const textRef = useRef(text);
   textRef.current = text;
   useEffect(() => {
-    if (!roomId) return;
-    const t = setTimeout(() => writeDraft(roomId, text), DRAFT_SAVE_MS);
+    const t = setTimeout(() => writeDraft(draftKey, text), DRAFT_SAVE_MS);
     return () => clearTimeout(t);
-  }, [roomId, text]);
-  useEffect(() => {
-    if (!roomId) return;
-    return () => writeDraft(roomId, textRef.current);
-  }, [roomId]);
+  }, [draftKey, text]);
+  useEffect(() => () => writeDraft(draftKey, textRef.current), [draftKey]);
   // Pictures waiting to go (U2a). Not drafted: they live until sent or removed, and a room switch drops them.
   const [pics, setPics] = useState<PendingPic[]>([]);
   const picsRef = useRef(pics);
@@ -893,9 +901,9 @@ function Composer({ members }: { members: Bot[] }) {
   const activeTurns = Object.entries(streaming).filter(([, v]) => v.roomId === roomId);
   const busyBots = members.filter((m) => activeTurns.some(([, v]) => v.botId === m.id));
   // Only while a bot that can steer is busy: otherwise there is nothing to choose and the composer stays as it was.
-  const choice = showSendChoice(busyBots.map((b) => b.id), () => steerable);
+  const choice = !dock && showSendChoice(busyBots.map((b) => b.id), () => steerable);
   const busyName = busyBots.length === 1 ? busyBots[0].name : busyBots.length + ' bots';
-  const stopLabel = room?.kind === 'dm' ? 'Stop ' + (members[0]?.name ?? 'the bot') : 'Stop all running bots in this room';
+  const stopLabel = room.kind === 'dm' ? 'Stop ' + (members[0]?.name ?? 'the bot') : 'Stop all running bots in this room';
   const mentionQuery = useMemo(() => {
     const m = text.slice(0, ref.current?.selectionStart ?? text.length).match(/(?:^|\s)@([a-z0-9_-]*)$/i);
     return m ? m[1].toLowerCase() : null;
@@ -904,8 +912,10 @@ function Composer({ members }: { members: Bot[] }) {
   // The `/` menu: only while the message is a lone `/word` at its very start (no space typed yet).
   const [commands, setCommands] = useState<SlashCommandInfo[] | null>(null);
   const slashQuery = /^\/([a-z0-9:_-]*)$/i.exec(text)?.[1]?.toLowerCase() ?? null;
+  // The dock can change rooms under the same composer; a room's commands are its own.
+  useEffect(() => setCommands(null), [roomId]);
   useEffect(() => {
-    if (slashQuery === null || commands !== null || !roomId) return;
+    if (slashQuery === null || commands !== null) return;
     let live = true;
     api.commands(roomId).then((c) => live && setCommands(c), () => live && setCommands([]));
     return () => { live = false; };
@@ -935,16 +945,21 @@ function Composer({ members }: { members: Bot[] }) {
   const submit = (mode?: SendMode) => {
     if (!canSend) return;
     // `/clear` is the app's own: a fresh session for every bot here. It is not posted to the room.
-    if (slashCommandOf(text) === 'clear' && !pics.length && roomId) {
+    if (slashCommandOf(text) === 'clear' && !pics.length) {
       const done = Promise.all(members.map((m) => api.bots.resetSession(m.id, roomId)));
       setText('');
       textRef.current = '';
-      writeDraft(roomId, '');
+      writeDraft(draftKey, '');
       done.then(
         () => setNotice('Fresh start: ' + (members.length === 1 ? (members[0]?.name ?? 'the bot') + ' does' : 'the bots here do') + ' not carry the earlier conversation into the next reply. The chat history stays.'),
         () => setNotice('Could not clear the conversation. Try again.'),
       );
       return;
+    }
+    if (dock) {
+      // Into the room first: the store sends to the open chat, and the reply is what you want to see next.
+      useStore.getState().closePage();
+      useStore.getState().setActiveRoom(roomId);
     }
     sendMessage(text.trim(), pics.flatMap((p) => (p.ref ? [p.ref] : [])), mode);
     pics.forEach((p) => { if (p.preview) URL.revokeObjectURL(p.preview); });
@@ -952,7 +967,7 @@ function Composer({ members }: { members: Bot[] }) {
     setNotice(null);
     setText('');
     textRef.current = '';
-    if (roomId) writeDraft(roomId, '');
+    writeDraft(draftKey, '');
   };
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // While an IME is composing (Japanese, Chinese, Korean…), Enter confirms the candidate; it must not send.
@@ -974,38 +989,51 @@ function Composer({ members }: { members: Bot[] }) {
   // A bot asking for a login makes replying here the natural move, and the chat goes to the model and the transcript.
   const secretsHint = members.some((m) => control[m.id]?.takeover) ? 'Type secrets on its screen, not here' : null;
   // Messages wait in the bot's queue for the turn to end, so say that rather than let typing look ignored.
-  const hint = secretsHint ?? (room?.kind === 'group'
-    ? (room.coordinatorBotId ? 'Ask here, or @mention a bot' : '@mention a bot')
+  const hint = secretsHint ?? (dock
+    // The chip beside it already names the room.
+    ? 'Message…'
+    : room.kind === 'group'
+    // New layout (docs/specs/toki-ui.md): the concept's wording, only where the room really answers without a mention.
+    ? (room.coordinatorBotId ? (toki ? 'Message @bot or the room…' : 'Ask here, or @mention a bot') : '@mention a bot')
     : activeTurns.length ? (members[0]?.name ?? 'The bot') + (choice && busyDefault === 'join' ? ' is working. Your message joins in.' : ' reads this when it finishes')
     : 'Message ' + (members[0]?.title ? members[0].name + ' · ' + members[0].title : members[0]?.name ?? ''));
 
   return (
-    <div ref={shell} className="relative shrink-0 px-3 pb-5 pt-2 sm:px-6">
+    <div ref={shell} className={cn('relative shrink-0 px-3 pb-5 pt-2 sm:px-6', dock && 'pt-3')}>
       <div className="relative mx-auto max-w-[var(--page-max)]">
         {menu.length > 0 && (
-          <div role="listbox" aria-label={suggestions.length ? 'Mention a bot' : 'Commands'} className={cn('absolute bottom-full left-0 mb-2 max-w-full rounded-xl bg-panel p-1.5 shadow-[var(--shadow)]', suggestions.length ? 'w-[320px]' : 'w-[440px]')}>
-            {menu.map((item, i) => item.kind === 'bot' ? (
+          // New layout: the popover's own frame (ring, overlay shadow), so it reads as the menus and popovers do.
+          <div role="listbox" aria-label={suggestions.length ? 'Mention a bot' : 'Commands'} className={cn('absolute bottom-full left-0 z-10 mb-2 max-w-full rounded-xl bg-panel p-1.5', toki ? 'shadow-[var(--shadow-overlay)] ring-1 ring-line' : 'shadow-[var(--shadow)]', suggestions.length ? (toki ? 'w-[300px]' : 'w-[320px]') : 'w-[440px]')}>
+            {menu.map((item, i) => item.kind === 'bot' ? (toki ? (
+              // Name first, handle after in mono: the person picks by name, the message gets the handle.
+              <div key={item.bot.id} role="option" aria-selected={i === mentionIdx} className={cn('flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-ui', i === mentionIdx && 'bg-active')} onMouseDown={(e) => { e.preventDefault(); pick(i); }}>
+                <span aria-hidden><Avatar bot={item.bot} size={24} /></span>
+                <span className="min-w-0 flex-1 truncate font-medium">{item.bot.name}</span>
+                <span className="shrink-0 font-mono text-hint text-muted">@{item.bot.handle}</span>
+              </div>
+            ) : (
               <div key={item.bot.id} role="option" aria-selected={i === mentionIdx} className={cn('flex cursor-pointer items-center gap-2 rounded-sm px-2.5 py-1.5 text-ui', i === mentionIdx && 'bg-active')} onMouseDown={(e) => { e.preventDefault(); pick(i); }}>
                 <span aria-hidden><Avatar bot={item.bot} size={20} /></span><span className="font-medium">@{item.bot.handle}</span><span className="truncate text-hint text-muted">{item.bot.title || item.bot.name}</span>
               </div>
-            ) : (
+            )) : (
               <div key={item.cmd.name} role="option" aria-selected={i === mentionIdx} className={cn('flex cursor-pointer items-baseline gap-2 rounded-sm px-2.5 py-1.5 text-ui', i === mentionIdx && 'bg-active')} onMouseDown={(e) => { e.preventDefault(); pick(i); }}>
                 <span className="shrink-0 font-mono font-medium">/{item.cmd.name}</span>
                 {item.cmd.argumentHint && <span className="shrink-0 font-mono text-hint text-dim">{item.cmd.argumentHint}</span>}
                 <span className="min-w-0 flex-1 truncate text-hint text-muted">{item.cmd.description}</span>
-                <span className="shrink-0 text-hint text-dim">{item.cmd.source === 'claude' ? 'Claude' : item.cmd.source === 'skill' ? 'Skill' : 'Toki'}</span>
+                <span className="shrink-0 text-hint text-dim">{item.cmd.source === 'claude' ? 'Claude' : item.cmd.source === 'skill' ? 'Skill' : 'PocketRocket'}</span>
               </div>
             ))}
           </div>
         )}
-        <LimitBanner members={members} />
-        {roomId && <QueueChips roomId={roomId} members={members} textarea={ref} />}
+        {!dock && <LimitBanner members={members} />}
+        {!dock && <QueueChips roomId={roomId} members={members} textarea={ref} />}
         <div className={cn('flex flex-col gap-1 rounded-composer bg-panel p-2 pl-4 sm:pl-5 shadow-[var(--shadow)] ring-1 ring-line/60 focus-within:ring-accent', dragging && 'ring-2 ring-accent')}>
           {dragging && <div role="status" className="text-hint text-accent">Drop files to attach</div>}
           {pics.length > 0 && (
             <ul aria-label="Attachments to send" className="flex flex-wrap gap-2 pt-1">
               {pics.map((p, i) => (
-                <li key={p.id} className="flex items-center gap-1.5">
+                // Wraps on a narrow composer, so a long upload error and its Retry are never pushed out of sight.
+                <li key={p.id} className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
                   {p.kind === 'image' ? (
                     <span className="relative block h-14 w-14 shrink-0 overflow-hidden rounded-md ring-1 ring-line">
                       <img src={p.preview} alt={'Picture ' + (i + 1) + ' to send'} className={cn('h-full w-full object-cover', p.status !== 'ready' && 'opacity-50')} />
@@ -1019,7 +1047,7 @@ function Composer({ members }: { members: Bot[] }) {
                       </span>
                     </span>
                   )}
-                  <span role="status" className={cn('text-hint', p.status === 'failed' ? 'text-bad' : 'text-dim', p.status === 'working' && 'motion-safe:animate-pulse')}>
+                  <span role="status" className={cn('min-w-0 text-hint', p.status === 'failed' ? 'text-bad' : 'text-dim', p.status === 'working' && 'motion-safe:animate-pulse')}>
                     {p.status === 'working' ? (p.kind === 'file' && p.progress !== undefined ? 'Uploading ' + Math.round(p.progress * 100) + '%' : 'Uploading…') : p.status === 'failed' ? p.error ?? 'Not uploaded' : ''}
                   </span>
                   {p.status === 'failed' && <Button size="sm" variant="ghost" onClick={() => void runUpload(p.id, p.file, p.blob)}>Retry</Button>}
@@ -1037,7 +1065,7 @@ function Composer({ members }: { members: Bot[] }) {
             onPaste={onPaste}
             rows={1}
             placeholder={hint}
-            aria-label={room?.kind === 'group' ? 'Message #' + room.name : 'Message ' + (members[0]?.name ?? '')}
+            aria-label={room.kind === 'group' ? 'Message #' + room.name : 'Message ' + (members[0]?.name ?? '')}
             aria-description={secretsHint ?? undefined}
             // Height is set in JS, up to a third of the viewport (see the effect above); resize-none because
             // the drag handle a free-form textarea gets would fight that. A long placeholder wraps in a
@@ -1045,6 +1073,7 @@ function Composer({ members }: { members: Bot[] }) {
             className={cn('w-full resize-none bg-transparent pt-1.5 pb-1 text-body placeholder:text-dim focus-visible:outline-none', !text && hint.length > 24 && '@max-[480px]:min-h-[64px]')}
           />
           <div className="flex items-center justify-end gap-1.5">
+            {dock?.chip}
             <input
               ref={fileInput}
               type="file"
@@ -1057,8 +1086,8 @@ function Composer({ members }: { members: Bot[] }) {
             </Tooltip>
             <span className="mr-auto" />
             {showPermissions && <PermissionPicker textarea={ref} />}
-            {showPicker && room && <ModelPicker room={room} members={members} busy={activeTurns.length > 0} textarea={ref} />}
-            {activeTurns.length > 0 && (
+            {showPicker && <ModelPicker room={room} members={members} busy={activeTurns.length > 0} textarea={ref} />}
+            {!dock && activeTurns.length > 0 && (
               // Room-wide: every running turn here stops. Messages a bot had not answered yet are answered next.
               <Tooltip content={stopLabel}>
                 <Button variant="ghost" size="icon" aria-label={stopLabel} onClick={() => activeTurns.forEach(([t]) => interrupt(t))}><Square size={15} className="text-bad" /></Button>
@@ -1083,6 +1112,64 @@ function Composer({ members }: { members: Bot[] }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * New layout: the composer docked at the foot of the Needs you page (docs/specs/toki-ui.md, W11), so answering
+ * a bot never needs a trip to the sidebar first. Its chip picks the room: by default the one the first waiting
+ * item is in, else the open chat. The chip is a menu button, so the keyboard reaches every room.
+ */
+export function NeedsYouDock() {
+  const rooms = useStore((s) => s.rooms);
+  const bots = useStore((s) => s.bots);
+  const unread = useStore((s) => s.unread);
+  const activeRoomId = useStore((s) => s.activeRoomId);
+  const items = useInbox();
+  const { statusOf } = useBotStatus();
+  const [picked, setPicked] = useState<string | null>(null);
+  const waitingIn = useMemo(() => new Set(items.flatMap((i) => (i.roomId ? [i.roomId] : []))), [items]);
+  // Rooms that wait on you first, then the ones with unread messages, then group chats before one-on-ones.
+  const choices = useMemo(() => {
+    const rank = (r: Room) => (waitingIn.has(r.id) ? 0 : (unread[r.id] ?? 0) > 0 ? 1 : r.kind === 'group' ? 2 : 3);
+    // Like the sidebar, a room whose bots are all paused stays out of the way (unless it waits on you).
+    const live = (r: Room) => waitingIn.has(r.id) || r.id === activeRoomId || r.memberIds.some((id) => statusOf(id) !== 'paused');
+    return rooms.filter(live).sort((a, b) => rank(a) - rank(b));
+  }, [rooms, waitingIn, unread, activeRoomId, statusOf]);
+  const fallback = items.find((i) => i.roomId && rooms.some((r) => r.id === i.roomId))?.roomId ?? activeRoomId;
+  const room = rooms.find((r) => r.id === picked) ?? rooms.find((r) => r.id === fallback) ?? choices[0];
+  if (!room) return null;
+  const members = room.memberIds.map((id) => botById(bots, id)).filter((b): b is Bot => !!b);
+  const nameOf = (r: Room) => (r.kind === 'group' ? r.name : botById(bots, r.memberIds[0])?.name ?? r.name);
+  const chip = (
+    <Menu.Root>
+      <Menu.Trigger
+        className="mr-1 inline-flex h-8 min-w-0 max-w-[45%] shrink items-center gap-1 rounded-full bg-card2 pl-2.5 pr-1.5 text-label text-fg hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        aria-label={'Send to ' + (room.kind === 'group' ? '#' : '') + nameOf(room) + '. Change room'}
+      >
+        <span aria-hidden className="font-mono text-dim">{room.kind === 'group' ? '#' : '@'}</span>
+        <span className="min-w-0 truncate">{nameOf(room)}</span>
+        <ChevronDown size={13} aria-hidden className="shrink-0 text-muted" />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <MenuContent align="start" side="top" className="w-64 max-w-[calc(100vw-1rem)]">
+          {choices.map((r) => (
+            <MenuItem key={r.id} onSelect={() => setPicked(r.id)}>
+              <span aria-hidden className="w-3 shrink-0 text-center font-mono text-dim">{r.kind === 'group' ? '#' : '@'}</span>
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{nameOf(r)}</span>
+              {waitingIn.has(r.id) && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-needs" />}
+              {waitingIn.has(r.id) && <span className="sr-only">, waiting on you</span>}
+              {r.id === room.id && <Check size={14} aria-label="Selected" className="shrink-0 text-accent" />}
+            </MenuItem>
+          ))}
+        </MenuContent>
+      </Menu.Portal>
+    </Menu.Root>
+  );
+  return (
+    <div className="shrink-0 border-t border-line">
+      <Composer room={room} members={members} dock={{ chip }} />
     </div>
   );
 }

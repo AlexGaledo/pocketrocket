@@ -1,5 +1,5 @@
 // New layout (docs/specs/toki-ui.md, W5): a project room's header. The project's name and where its plan stands,
-// Chat | Map tabs, then a slim line for the room itself with today's faces, badges and buttons in today's order.
+// Chat | Map | Tasks tabs, then a slim line for the room itself with today's faces, badges and buttons in today's order.
 // App.tsx draws it above both the chat and the Map tab, so switching tabs never moves it.
 import { Inbox } from 'lucide-react';
 import type { Room } from '@pocketrocket/shared';
@@ -16,12 +16,13 @@ import { HeaderButtons, HeaderFaces, RoomBadges, useMembers } from './ChatHeader
 export const PROJECT_TAB_IDS = {
   chat: { tab: 'project-tab-chat', panel: 'project-panel-chat' },
   map: { tab: 'project-tab-map', panel: 'project-panel-map' },
+  tasks: { tab: 'project-tab-tasks', panel: 'project-panel-tasks' },
 } as const;
 
 const PANEL_QUERY = '(min-width: ' + PANEL_INLINE_MIN + 'px)';
 
 export function ProjectHeader({ project, room }: { project: ProjectInfo; room: Room }) {
-  const tab = useStore((s) => (s.page?.kind === 'map' ? 'map' : 'chat'));
+  const tab = useStore((s) => (s.page?.kind === 'map' ? 'map' : s.page?.kind === 'projectTasks' ? 'tasks' : 'chat'));
   const openPage = useStore((s) => s.openPage);
   const closePage = useStore((s) => s.closePage);
   const openDialog = useStore((s) => s.openDialog);
@@ -36,10 +37,10 @@ export function ProjectHeader({ project, room }: { project: ProjectInfo; room: R
   // Where the overview has no room beside the chat, this opens it over the window. Also the way back to it on a
   // wide window if it was closed there.
   const panelOpen = useStore((s) => s.panelOpen);
-  const panelKind = useStore((s) => s.panelKind);
   const openOverview = useStore((s) => s.openOverview);
   const wide = useMediaQuery(PANEL_QUERY);
-  const overviewReachable = panelOpen && (panelKind === 'overview' || wide);
+  // On a narrow window it stays put while the overview sheet is up, so closing the sheet hands focus back to it.
+  const overviewReachable = wide && panelOpen;
 
   return (
     <header className="shrink-0">
@@ -57,10 +58,11 @@ export function ProjectHeader({ project, room }: { project: ProjectInfo; room: R
             {waiting > 0 && <span aria-hidden><Badge tone="needs">{waiting}</Badge></span>}
           </Button>
         )}
-        <Tabs value={tab} onValueChange={(v) => (v === 'map' ? openPage({ kind: 'map', slug: project.slug }) : closePage())} className="flex self-stretch @max-[640px]:h-11 @max-[640px]:basis-full">
+        <Tabs value={tab} onValueChange={(v) => (v === 'map' ? openPage({ kind: 'map', slug: project.slug }) : v === 'tasks' ? openPage({ kind: 'projectTasks', slug: project.slug }) : closePage())} className="flex self-stretch @max-[640px]:h-11 @max-[640px]:basis-full">
           <TabsList variant="underline" className="items-stretch">
             <TabsTrigger value="chat" id={PROJECT_TAB_IDS.chat.tab} controls={PROJECT_TAB_IDS.chat.panel}>Chat</TabsTrigger>
             <TabsTrigger value="map" id={PROJECT_TAB_IDS.map.tab} controls={PROJECT_TAB_IDS.map.panel}>Map</TabsTrigger>
+            <TabsTrigger value="tasks" id={PROJECT_TAB_IDS.tasks.tab} controls={PROJECT_TAB_IDS.tasks.panel}>Tasks</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>

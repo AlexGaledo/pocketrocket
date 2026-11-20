@@ -5,6 +5,7 @@ import { cleanText, displayCta, validateAnswers, MAX_FORM_DESCRIPTION, MAX_FORM_
 import { useStore, botById } from '../store';
 import { wsSend } from '../lib/ws';
 import { displayFields } from '../lib/cardFields';
+import { useToki } from '../lib/useProject';
 import { ActionCard, ActionCardHeader, Badge, Button, Field, Input, Label, Select, Textarea } from './ui';
 
 /*
@@ -26,6 +27,7 @@ export function FormCard({ m }: { m: Message }) {
   const title = cleanText(p.title, MAX_FORM_TITLE);
   const description = p.description ? cleanText(p.description, MAX_FORM_DESCRIPTION, true) : '';
   const open = p.status === 'pending';
+  const toki = useToki();
   const [values, setValues] = useState<Record<string, FormAnswer>>({});
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -47,7 +49,8 @@ export function FormCard({ m }: { m: Message }) {
 
   const status = STATUS_LABEL[p.status];
   return (
-    <ActionCard tone={open ? 'warn' : 'quiet'} className="w-full max-w-[560px]">
+    // New layout: the needs edge while it waits on you, a quiet one once answered, like the overview's cards.
+    <ActionCard tone={open ? 'warn' : 'quiet'} edge={toki ? (open ? 'needs' : 'done') : undefined} className="w-full max-w-[560px]">
       <ActionCardHeader meta={status && <Badge tone={p.status === 'submitted' ? 'ok' : 'muted'}>{status}</Badge>}>
         <span className="min-w-0 flex-1 font-medium">{bot ? bot.name : 'A bot'} {open ? 'asks' : 'asked'}: {title}</span>
       </ActionCardHeader>
