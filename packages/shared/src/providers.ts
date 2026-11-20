@@ -224,6 +224,12 @@ export const SettingsSchema = z.object({
   onboarded: z.boolean().default(false),
   theme: z.enum(['system', 'light', 'dark']).default('system'),
   font: z.enum(['google-sans', 'figtree']).default('google-sans'),
+  /**
+   * The web app's layout. 'auto' follows the default, which is the project-first layout since Toki UI phase 7;
+   * 'classic' keeps the old one ("Classic layout" in Settings > Appearance). Stored here so the choice follows the
+   * owner from browser to browser. A paired phone keeps the classic layout whatever this says.
+   */
+  layout: z.enum(['auto', 'toki', 'classic']).default('auto'),
   /** Read per turn, so a change applies from the next turn. Only the REST API writes it; no bot tool can. */
   approvals: z.enum(APPROVALS).default('ask'),
   /**

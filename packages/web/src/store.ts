@@ -7,7 +7,7 @@ import type { ControlStatus } from '@pocketrocket/shared';
 import type { Skill, ComputerStatus, OpenApproval, RecorderStatus } from '@pocketrocket/shared';
 import { api, MESSAGE_PAGE, type AccountActionResponse, type ProjectInfo } from './lib/api';
 import { fetchProjects, projectOfRoom } from './lib/projects';
-import { getLayout, subscribeLayout } from './lib/layout';
+import { getLayout, layoutFromSetting, layoutToMigrate, setLayout, subscribeLayout } from './lib/layout';
 import type { ProjectMapReply, ProjectOverview } from '@pocketrocket/shared';
 import { wsSend } from './lib/ws';
 import { play, setSoundsEnabled } from './lib/sounds';
@@ -120,11 +120,13 @@ export type HubIssue =
 export const filesRevKey = (roomId: string, folder: string) => roomId + ':' + folder;
 const approvalToastKey =(roomId: string, approvalId: string) => 'approval:' + roomId + ':' + approvalId;
 
-/** The parts of Settings that live outside React: the sound engine and the `dark` class on <html>. */
+/** The parts of Settings that live outside React: the sound engine, the `dark` class and the layout copy. */
 function applyLocalSettings(s: Settings) {
   setSoundsEnabled(s.sounds);
   applyTheme(s.theme);
   applyFont(s.font);
+  // An older hub has no layout setting: keep what this browser holds instead of resetting it to the default.
+  if (s.layout) setLayout(layoutFromSetting(s.layout));
 }
 
 /** How long a message written to the socket may go unechoed before it shows as not sent (B5). */
@@ -529,7 +531,12 @@ export const useStore = create<State>((set, get) => ({
         // A paired phone keeps the classic layout, so it never keeps the overview the first paint guessed at.
         if (get().device && get().panelKind === 'overview') set({ panelOpen: false, panelKind: 'screen' });
         // `queues: {}`: lanes may have changed while the link was down; each room's load fetches its snapshot again.
-        applyLocalSettings(settings);
+        // A classic layout chosen on this browser before the choice moved to the hub: hand it to the hub once,
+        // before applying the hub's `auto` would undo it. Never from a paired phone, which keeps classic anyway.
+        const migrate = get().device ? null : layoutToMigrate(settings.layout);
+        // If the hub refuses, the save's rollback would apply `auto`: keep this browser on its choice regardless.
+        if (migrate) void get().updateSettings({ layout: migrate }).then((saved) => { if (!saved) setLayout(migrate); });
+        else applyLocalSettings(settings);
         watchSystemTheme(() => get().settings.theme);
         void get().fetchProviders();
         void get().fetchFailover();

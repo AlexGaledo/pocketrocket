@@ -25,10 +25,27 @@ beforeEach(() => resetPersistMemory());
 afterEach(() => vi.unstubAllGlobals());
 
 describe('parseLayout', () => {
-  it('is classic for anything but an explicit toki', async () => {
+  it('is the new layout for anything but an explicit classic', async () => {
     const { layout } = await load();
-    expect(layout.parseLayout('toki')).toBe('toki');
-    for (const raw of [null, '', 'classic', 'TOKI', 'new', '"toki"']) expect(layout.parseLayout(raw)).toBe('classic');
+    expect(layout.parseLayout('classic')).toBe('classic');
+    for (const raw of [null, '', 'toki', 'CLASSIC', 'new', '"classic"']) expect(layout.parseLayout(raw)).toBe('toki');
+  });
+});
+
+describe('the hub setting', () => {
+  it('maps auto, a missing setting and toki to the new layout', async () => {
+    const { layout } = await load();
+    expect(layout.layoutFromSetting('classic')).toBe('classic');
+    for (const s of ['auto', 'toki', undefined] as const) expect(layout.layoutFromSetting(s)).toBe('toki');
+  });
+
+  it('copies a deliberate classic from this browser to a hub with no choice yet, and nothing else', async () => {
+    const chose = await load({ 'pocketrocket.layout': 'classic' });
+    expect(chose.layout.layoutToMigrate('auto')).toBe('classic');
+    expect(chose.layout.layoutToMigrate(undefined)).toBe('classic');
+    expect(chose.layout.layoutToMigrate('toki')).toBeNull(); // the hub's own choice wins
+    expect((await load({ 'pocketrocket.layout': 'toki' })).layout.layoutToMigrate('auto')).toBeNull();
+    expect((await load()).layout.layoutToMigrate('auto')).toBeNull();
   });
 });
 
@@ -43,30 +60,34 @@ describe('asksForPreview', () => {
 });
 
 describe('the stored layout', () => {
-  it('starts classic on a browser that never chose', async () => {
+  it('starts on the new layout on a browser that never chose', async () => {
     const { layout } = await load();
-    expect(layout.getLayout()).toBe('classic');
+    expect(layout.getLayout()).toBe('toki');
+  });
+
+  it('keeps a browser that chose classic on classic', async () => {
+    expect((await load({ 'pocketrocket.layout': 'classic' })).layout.getLayout()).toBe('classic');
   });
 
   it('survives a reload', async () => {
     const first = await load();
-    first.layout.setLayout('toki');
-    expect(first.ls.getItem('pocketrocket.layout')).toBe('toki');
-    const second = await load({ 'pocketrocket.layout': 'toki' });
-    expect(second.layout.getLayout()).toBe('toki');
+    first.layout.setLayout('classic');
+    expect(first.ls.getItem('pocketrocket.layout')).toBe('classic');
+    const second = await load({ 'pocketrocket.layout': 'classic' });
+    expect(second.layout.getLayout()).toBe('classic');
   });
 
   it('tells subscribers when it flips, and only then', async () => {
     const { layout: { setLayout, getLayout, subscribeLayout } } = await load();
     const seen: string[] = [];
     const unsubscribe = subscribeLayout(() => seen.push(getLayout()));
-    setLayout('classic'); // no change
-    setLayout('toki');
     setLayout('toki'); // no change
     setLayout('classic');
+    setLayout('classic'); // no change
+    setLayout('toki');
     unsubscribe();
-    setLayout('toki'); // no longer listening
-    expect(seen).toEqual(['toki', 'classic']);
+    setLayout('classic'); // no longer listening
+    expect(seen).toEqual(['classic', 'toki']);
   });
 
   it('shows the switch to everyone from phase 3', async () => {

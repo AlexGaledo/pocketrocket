@@ -91,7 +91,8 @@ export function Label({ children, hint, htmlFor, id }: { children: React.ReactNo
       {target
         ? <label id={id} htmlFor={target} className={caption}>{children}</label>
         : <span id={id} className={caption}>{children}</span>}
-      {hint && <span className="truncate text-hint text-dim">{hint}</span>}
+      {/* Wraps under itself rather than being cut off when the caption is long or the dialog narrow. */}
+      {hint && <span className="min-w-0 text-right text-hint text-dim">{hint}</span>}
     </div>
   );
 }

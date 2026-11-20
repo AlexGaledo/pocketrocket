@@ -64,9 +64,10 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
             <li key={b.id} className="flex min-h-9 items-center gap-2 rounded-sm bg-card px-2 py-1 text-ui">
               <span aria-hidden><Avatar bot={b} size={24} /></span>
               <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 items-baseline gap-2">
-                  <span className="truncate">{b.name}</span>
-                  <span className="min-w-0 truncate text-hint text-muted">@{b.handle}</span>
+                {/* The handle drops under the name on a narrow window instead of either being cut off. */}
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{b.name}</span>
+                  <span className="min-w-0 text-hint text-muted [overflow-wrap:anywhere]">@{b.handle}</span>
                 </span>
                 {room && isWorking(statusOf(b.id)) && <span className="block text-hint text-warn">Working. Removing stops its work here.</span>}
               </span>
@@ -96,8 +97,10 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
                   className="flex min-h-9 w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:opacity-50 disabled:hover:bg-transparent"
                 >
                   <span aria-hidden><Avatar bot={b} size={24} /></span>
-                  <span className="min-w-0 flex-1 truncate">{b.name}</span>
-                  <span className="min-w-0 truncate text-hint text-muted">@{b.handle}</span>
+                  <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{b.name}</span>
+                    <span className="min-w-0 text-hint text-muted [overflow-wrap:anywhere]">@{b.handle}</span>
+                  </span>
                   <Plus size={14} aria-hidden className="shrink-0 text-muted" />
                 </button>
               </li>

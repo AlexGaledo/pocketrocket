@@ -63,7 +63,8 @@ export function StepCard({ step, index, total, ctx, result, selected, problems, 
         <span className="min-w-0 flex-1 truncate text-ui font-medium">{title}</span>
         {result && result.costUsd > 0 && <span className="shrink-0 font-mono text-hint text-muted">{fmtUsd(result.costUsd)}</span>}
       </div>
-      <p className={cn('text-hint text-muted', compact ? 'line-clamp-1' : 'line-clamp-2 whitespace-pre-wrap break-words')}>{detail}</p>
+      {/* An excerpt on the card; the whole text is in the hover text and in the step's editor. */}
+      <p className={cn('text-hint text-muted', compact ? 'line-clamp-1' : 'line-clamp-2 whitespace-pre-wrap break-words')} title={typeof detail === 'string' ? detail : undefined}>{detail}</p>
       {!compact && problems?.map((p) => <p key={p} className="text-hint text-bad">{p}</p>)}
       {compact && !!problems?.length && <p className="truncate text-hint text-bad">{problems[0]}</p>}
     </div>

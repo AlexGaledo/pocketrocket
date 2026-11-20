@@ -1,11 +1,16 @@
 /**
- * The "New layout" toggle (docs/specs/toki-ui.md, W2). `classic` is today's app; `toki` is the project-first layout
- * being built behind it. Per browser, so it never touches the hub's settings: `pocketrocket.layout` holds the
- * choice and `public/theme-init.js` mirrors it onto `<html data-layout>` before first paint.
+ * Which layout the web app shows (docs/specs/toki-ui.md, W2 and W12). `toki` is the project-first layout and, from
+ * phase 7, the default; `classic` is the old app, kept as the escape hatch ("Classic layout" in Settings ›
+ * Appearance).
  *
- * From phase 3 the switch in Settings › Appearance is shown to everyone. Phases 1-2 hid it until this browser had
- * opened the app with `?layout=preview`; that visit is still remembered and the parameter still stripped, so old
- * links stay tidy.
+ * The choice lives in the hub's settings (`settings.layout`), so it follows the owner across browsers. This module
+ * keeps a copy in `pocketrocket.layout` so the first paint, before the hub answers, is already right;
+ * `public/theme-init.js` mirrors it onto `<html data-layout>`. Paired phones keep the classic layout: every caller
+ * checks the device flag (useToki, useNewLayout, the store).
+ *
+ * Before phase 7 the choice was per browser and written only when someone flipped the switch, so a stored `classic`
+ * is a deliberate choice. The store copies it to the hub once, while the hub still says `auto` (layoutToMigrate).
+ * The old `?layout=preview` parameter is still stripped from the address bar, so old links stay tidy.
  */
 import { useSyncExternalStore } from 'react';
 import { getItem, setItem } from './persist';
@@ -15,9 +20,24 @@ export type Layout = 'classic' | 'toki';
 export const LAYOUT_KEY = 'pocketrocket.layout';
 export const LAYOUT_PREVIEW_KEY = 'pocketrocket.layoutPreview';
 
-/** Anything but an explicit `toki` is the classic layout, so junk in storage can never strand someone. */
+/** Only an explicit `classic` is the classic layout; nothing stored (or junk) is the default, the new layout. */
 export function parseLayout(raw: string | null): Layout {
-  return raw === 'toki' ? 'toki' : 'classic';
+  return raw === 'classic' ? 'classic' : 'toki';
+}
+
+type LayoutSetting = 'auto' | 'toki' | 'classic' | undefined;
+
+/** The hub's setting as a layout: `auto` (or a hub too old to have the setting) is the default. */
+export function layoutFromSetting(setting: LayoutSetting): Layout {
+  return setting === 'classic' ? 'classic' : 'toki';
+}
+
+/**
+ * The browser's own choice from before phase 7, worth copying to the hub while the hub has none (`auto`): only a
+ * deliberate `classic`. A stored `toki` matches the default already.
+ */
+export function layoutToMigrate(setting: LayoutSetting): Layout | null {
+  return (setting ?? 'auto') === 'auto' && getItem(LAYOUT_KEY) === 'classic' ? 'classic' : null;
 }
 
 /** True when the URL's query carries `layout=preview` (the hash, which holds the token, is never read here). */
@@ -44,7 +64,7 @@ export function setLayout(next: Layout): void {
   for (const l of listeners) l();
 }
 
-/** Whether Settings shows the "New layout" switch: always, now that the project map is in (phase 3). */
+/** Whether Settings shows the "Classic layout" switch: always (from phase 3; from phase 7 as the escape hatch). */
 export function layoutSwitchShown(): boolean {
   return true;
 }
