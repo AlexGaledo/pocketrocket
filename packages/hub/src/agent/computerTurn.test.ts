@@ -31,6 +31,8 @@ class RecordingProvider implements AgentProvider {
   gate: (string | null | undefined)[] = [];
   /** Keeps the next turn open until this settles, so another can overlap it. */
   hold: Promise<void> | null = null;
+  /** What the browser call returns, when the test wants one. */
+  toolResult: { output: string; isError: boolean } | null = null;
   async models(): Promise<ModelInfo[]> { return []; }
   modelsSync(): ModelInfo[] { return []; }
   async check(): Promise<ProviderCheck> { return { ok: true, auth: 'unknown' }; }
@@ -43,6 +45,7 @@ class RecordingProvider implements AgentProvider {
     this.onRun();
     await hold;
     sink.onToolUse('t1', 'mcp__browser__browser_navigate', { url: 'https://example.com' });
+    if (this.toolResult) sink.onToolResult('t1', this.toolResult.output, this.toolResult.isError);
     sink.onText('done');
     return { ok: true, costUsd: 0, usage: { ...EMPTY_USAGE }, durationMs: 1 };
   }
@@ -50,7 +53,8 @@ class RecordingProvider implements AgentProvider {
 
 class FakeSystemctl implements Systemctl {
   active = new Set<string>();
-  async start(u: string) { this.active.add(u); }
+  failStart = false;
+  async start(u: string) { if (this.failStart) throw new Error('Unit not found'); this.active.add(u); }
   async stop(u: string) { this.active.delete(u); }
   async isActive(u: string) { return this.active.has(u); }
 }
@@ -286,5 +290,60 @@ describe('turns on per-bot computers', () => {
     const c = s.provider.seen[0];
     expect(c.allowedBuiltins).toEqual(['Read', 'Bash']);
     expect(c.systemPrompt).not.toContain('Your computer is unavailable');
+  });
+
+  describe('asks for a restart on a repeated failure', () => {
+    const notes = (s: ReturnType<typeof setup>, roomId: string) =>
+      s.repos.listMessages(roomId).filter((m) => m.kind === 'system' && /failed twice/.test(m.text));
+    const refused = { output: 'Error: browserType.connectOverCDP: connect ECONNREFUSED 127.0.0.1:9414', isError: true };
+
+    it('posts one note on the 2nd browser ECONNREFUSED, addressed to the owner when there is no support bot', async () => {
+      const s = setup();
+      const a = s.mk('paper-scout', ['Browser']);
+      s.provider.toolResult = refused;
+      await s.run(a);
+      expect(notes(s, a.room.id)).toHaveLength(0);
+      await s.run(a);
+      const n = notes(s, a.room.id);
+      expect(n).toHaveLength(1);
+      expect(n[0].text).toMatch(/^Owner: @paper-scout's browser failed twice/);
+      expect(n[0].text).toContain('ECONNREFUSED 127.0.0.1:9414');
+      await s.run(a);
+      expect(notes(s, a.room.id)).toHaveLength(1);
+    });
+
+    it('names @pocketrocket-support when that bot exists', async () => {
+      const s = setup();
+      s.mk('pocketrocket-support', []);
+      const a = s.mk('paper-scout', ['Browser']);
+      s.provider.toolResult = refused;
+      await s.run(a);
+      await s.run(a);
+      expect(notes(s, a.room.id)[0].text).toMatch(/^@pocketrocket-support: @paper-scout's browser/);
+    });
+
+    it('does not count a failure from before the browser answered again', async () => {
+      const s = setup();
+      const a = s.mk('paper-scout', ['Browser']);
+      s.provider.toolResult = refused;
+      await s.run(a);
+      s.provider.toolResult = { output: 'Navigated to https://example.com', isError: false };
+      await s.run(a);
+      s.provider.toolResult = refused;
+      await s.run(a);
+      expect(notes(s, a.room.id)).toHaveLength(0);
+    });
+
+    it('posts a note when the computer fails to start twice', async () => {
+      const s = setup();
+      const a = s.mk('paper-scout', ['Browser']);
+      s.sys.failStart = true;
+      await s.run(a);
+      await s.run(a);
+      const n = notes(s, a.room.id);
+      expect(n).toHaveLength(1);
+      expect(n[0].text).toContain("@paper-scout's computer failed twice");
+      expect(n[0].text).toContain('Unit not found');
+    });
   });
 });
