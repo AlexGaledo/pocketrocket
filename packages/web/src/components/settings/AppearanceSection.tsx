@@ -1,5 +1,5 @@
 /**
- * Settings › Appearance: theme (follow the computer, light, dark), font, the "New layout" preview (per browser,
+ * Settings › Appearance: theme (follow the computer, light, dark), font, the "Classic layout" switch (a hub setting,
  * lib/layout.ts), and sound cues with previews.
  * Both apply the moment they change; the store saves them and rolls back if the save fails.
  * `readOnly` (a paired phone, which may not write hub settings): shown, not changeable; previews still play.
@@ -9,7 +9,7 @@ import { Volume2 } from 'lucide-react';
 import type { Settings } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { preview, type Cue } from '../../lib/sounds';
-import { layoutSwitchShown, setLayout, useLayout } from '../../lib/layout';
+import { layoutSwitchShown, useLayout } from '../../lib/layout';
 import { Button, Switch, cn } from '../ui';
 import { Card, Group, SectionHeader } from './parts';
 
@@ -94,16 +94,17 @@ export function AppearanceSection({ readOnly = false }: { readOnly?: boolean } =
         </div>
       </Group>
 
-      {/* Per browser, not a hub setting, so a paired phone (readOnly) keeps the classic layout and never sees it. */}
+      {/* The escape hatch from the default layout. A hub setting, so it follows you to every browser; a paired phone
+          (readOnly) keeps the classic layout and never sees it. */}
       {!readOnly && layoutSwitchShown() && (
         <Group>
           <Card>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <div id={layoutLabelId} className="text-label">New layout</div>
-                <p id={layoutHintId} className="text-hint text-muted">Projects first, with an overview and a map. A preview, on this browser only.</p>
+                <div id={layoutLabelId} className="text-label">Classic layout</div>
+                <p id={layoutHintId} className="text-hint text-muted">The layout from before projects, the overview and the map.</p>
               </div>
-              <Switch checked={layout === 'toki'} aria-labelledby={layoutLabelId} aria-describedby={layoutHintId} onChange={(next) => setLayout(next ? 'toki' : 'classic')} />
+              <Switch checked={layout === 'classic'} aria-labelledby={layoutLabelId} aria-describedby={layoutHintId} onChange={(next) => void updateSettings({ layout: next ? 'classic' : 'toki' })} />
             </div>
           </Card>
         </Group>

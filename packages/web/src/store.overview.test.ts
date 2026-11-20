@@ -11,7 +11,7 @@ function memoryStorage(init: Record<string, string> = {}): Storage {
 /** A fresh store in a window of `width`, with the new layout on or off. */
 async function boot(width: number, toki: boolean, stored: Record<string, string> = {}) {
   vi.resetModules();
-  vi.stubGlobal('localStorage', memoryStorage({ ...(toki ? { 'pocketrocket.layout': 'toki' } : {}), ...stored }));
+  vi.stubGlobal('localStorage', memoryStorage({ 'pocketrocket.layout': toki ? 'toki' : 'classic', ...stored }));
   vi.stubGlobal('window', { innerWidth: width, matchMedia: () => ({ matches: false }), addEventListener: () => undefined, removeEventListener: () => undefined, location: { search: '', hash: '', pathname: '/' } });
   vi.stubGlobal('document', { hasFocus: () => true, documentElement: { dataset: {} } });
   const { useStore } = await import('./store');

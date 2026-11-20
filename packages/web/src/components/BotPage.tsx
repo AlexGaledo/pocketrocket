@@ -320,7 +320,7 @@ function SkillsTab({ botId }: { botId: string }) {
                   {s.source === 'imported' && (s.reviewStatus === 'pending' ? <Badge tone="warn">review</Badge> : <Badge>imported</Badge>)}
                   {!!s.pendingVersions && <Badge tone="warn">{s.pendingVersions === 1 ? '1 version to review' : s.pendingVersions + ' versions to review'}</Badge>}
                 </div>
-                <div className="truncate text-muted">{s.description}</div>
+                <div className="break-words text-muted">{s.description}</div>
               </button>
               {s.reviewStatus === 'pending' ? (
                 <>

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The new layout is the default (web)
+
+- The project-first layout (projects in the sidebar, the overview, the map, Needs you with its composer) is now what everyone sees on the desktop app and in the browser. Paired phones keep the classic layout.
+- **To switch back:** Settings › Appearance › turn on **Classic layout**. It is saved on your hub, so every browser and the desktop app follow it. Turn it off to come back.
+- If you turned the "New layout" preview off on a browser before this update, that browser stays on classic and passes the choice to your hub the first time it connects.
+- Fixed while checking every page at 1440×900 and 390×844: a field's hint (like "stops a runaway reply" on the bot form) wraps instead of being cut off, a skill's description on the bot page shows in full, and the group chat form lists long bot names in full with the handle underneath. A workflow step's prompt on the canvas is still an excerpt, now with the full text on hover.
+- The README and site screenshots show the new layout.
+
 ### New layout preview, phase 6: chat and composer (web)
 
 - Needs you has a composer docked at its foot. Its chip picks the room (the one that waits on you first, rooms of paused bots left out), and sending opens that room with your message in it. Attachments and `/` commands work there as they do in a chat.
