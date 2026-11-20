@@ -10,7 +10,7 @@ import { TokiMark } from '../TokiMark';
 import { authPhrase, PrivateEmail } from './ConnectionStatus';
 import { Card, Group, SectionHeader } from './parts';
 
-const REPO_URL = 'https://github.com/AlexGaledo/pocketrocket';
+const REPO_URL = 'https://github.com/AlexGaledo/Toki';
 const LINKS: { href: string; label: string }[] = [
   { href: REPO_URL + '/releases', label: 'Check for updates' },
   { href: 'https://pocketrocket-chi.vercel.app', label: 'Website' },

@@ -76,8 +76,8 @@ the placeholder never checks and its tray item reads "Updates not configured".
 
 **Testing an update before it goes out:** publish the release as a prerelease (which `releases/latest` ignores),
 then start an older installed build with
-`POCKETROCKET_UPDATE_ENDPOINT=https://github.com/AlexGaledo/pocketrocket/releases/download/vX.Y.Z-rc.N/latest.json`.
-Any value outside `https://github.com/AlexGaledo/pocketrocket/releases/` is ignored (and logged); the download is
+`POCKETROCKET_UPDATE_ENDPOINT=https://github.com/AlexGaledo/Toki/releases/download/vX.Y.Z-rc.N/latest.json`.
+Any value outside `https://github.com/AlexGaledo/Toki/releases/` is ignored (and logged); the download is
 still verified against the pubkey.
 
 ## Checklist
@@ -133,7 +133,7 @@ still verified against the pubkey.
    ```
    gh release download vx.y.z -p latest.json -O - | jq '.version, (.platforms | keys)'
    gh release download vx.y.z -D check && cd check
-   gh attestation verify PocketRocket_x.y.z_x64-setup.exe -R AlexGaledo/pocketrocket
+   gh attestation verify PocketRocket_x.y.z_x64-setup.exe -R AlexGaledo/Toki
    sha256sum -c SHA256SUMS.txt
    ```
 
@@ -144,7 +144,7 @@ still verified against the pubkey.
    - Install the **previous** release from its release page. SmartScreen shows the "unknown
      publisher" prompt (expected — see below); "More info → Run anyway" launches the app.
    - Point a test build at the tag-specific manifest
-     `https://github.com/AlexGaledo/pocketrocket/releases/download/vx.y.z/latest.json`
+     `https://github.com/AlexGaledo/Toki/releases/download/vx.y.z/latest.json`
      (installed apps only see `releases/latest`, which still serves the previous version) and
      confirm it offers x.y.z, installs it and restarts.
    - Confirm the onboarding wizard runs on a fresh profile, a bot answers a DM, and Settings shows
@@ -163,7 +163,7 @@ still verified against the pubkey.
 10. **SmartScreen note.** The installer and app binary are **unsigned** (no code-signing
     certificate yet). Every fresh browser download trips SmartScreen with an "unrecognized app"
     warning. This is expected, not a build failure. The trust anchor for users is
-    `gh attestation verify <file> -R AlexGaledo/pocketrocket`; `SHA256SUMS.txt` from the same
+    `gh attestation verify <file> -R AlexGaledo/Toki`; `SHA256SUMS.txt` from the same
     release only catches a corrupted download.
 
 ## Yanking a release

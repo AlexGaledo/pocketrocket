@@ -560,7 +560,7 @@ fn stays_in_webview(url: &Url) -> bool {
     splash || hub
 }
 
-const RELEASES_URL: &str = "https://github.com/AlexGaledo/pocketrocket/releases";
+const RELEASES_URL: &str = "https://github.com/AlexGaledo/Toki/releases";
 
 /// Windows canonicalize() yields \\?\C:\... which some tools dislike; strip the prefix.
 fn strip_verbatim(p: &std::path::Path) -> String {
@@ -1599,7 +1599,7 @@ mod tests {
         assert!(!stays_in_webview(&u("http://127.0.0.1:3000/")));
         assert!(!stays_in_webview(&u("https://127.0.0.1:7788/")));
         assert!(!stays_in_webview(&u("http://127.0.0.1.evil.com:7788/")));
-        assert!(!stays_in_webview(&u("https://github.com/AlexGaledo/pocketrocket")));
+        assert!(!stays_in_webview(&u("https://github.com/AlexGaledo/Toki")));
         assert!(!stays_in_webview(&u("https://accounts.google.com/o/oauth2/auth?a=1&b=2")));
         assert!(!stays_in_webview(&u("file:///C:/Windows/win.ini")));
         assert!(!stays_in_webview(&u("about:blank")));
@@ -1663,7 +1663,7 @@ mod tests {
 
     #[test]
     fn only_web_and_mail_links_reach_the_os() {
-        assert!(may_open_externally(&u("https://github.com/AlexGaledo/pocketrocket/releases")));
+        assert!(may_open_externally(&u("https://github.com/AlexGaledo/Toki/releases")));
         assert!(may_open_externally(&u("http://example.com/")));
         assert!(may_open_externally(&u("mailto:someone@example.com")));
 

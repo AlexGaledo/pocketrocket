@@ -90,7 +90,7 @@ function setHeroMedia(mode) {
   var versionEl = document.getElementById("download-version");
   if (!btn || !window.fetch) return;
 
-  fetch("https://api.github.com/repos/AlexGaledo/pocketrocket/releases/latest")
+  fetch("https://api.github.com/repos/AlexGaledo/Toki/releases/latest")
     .then(function (res) {
       if (!res.ok) throw new Error("no release yet");
       return res.json();
