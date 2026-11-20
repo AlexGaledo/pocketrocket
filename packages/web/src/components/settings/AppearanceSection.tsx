@@ -1,6 +1,6 @@
 /**
- * Settings › Appearance: theme (follow the computer, light, dark), font, the "Classic layout" switch (a hub setting,
- * lib/layout.ts), and sound cues with previews.
+ * Settings › Appearance: theme (follow the computer, light, dark), font, layout (New or Classic, a hub setting,
+ * lib/layout.ts; also one click away in the profile menu), and sound cues with previews.
  * Both apply the moment they change; the store saves them and rolls back if the save fails.
  * `readOnly` (a paired phone, which may not write hub settings): shown, not changeable; previews still play.
  */
@@ -9,7 +9,7 @@ import { Volume2 } from 'lucide-react';
 import type { Settings } from '@pocketrocket/shared';
 import { useStore } from '../../store';
 import { preview, type Cue } from '../../lib/sounds';
-import { layoutSwitchShown, useLayout } from '../../lib/layout';
+import { layoutSwitchShown, useLayout, type Layout } from '../../lib/layout';
 import { Button, Switch, cn } from '../ui';
 import { Card, Group, SectionHeader } from './parts';
 
@@ -22,6 +22,11 @@ const THEMES: { id: Settings['theme']; label: string }[] = [
 const FONTS: { id: Settings['font']; label: string; family: string }[] = [
   { id: 'google-sans', label: 'Google Sans', family: '"Google Sans Variable", sans-serif' },
   { id: 'figtree', label: 'Figtree', family: '"Figtree Variable", sans-serif' },
+];
+
+const LAYOUTS: { id: Layout; label: string }[] = [
+  { id: 'toki', label: 'New' },
+  { id: 'classic', label: 'Classic' },
 ];
 
 const CUES: { id: Cue; label: string }[] = [
@@ -46,7 +51,6 @@ export function AppearanceSection({ readOnly = false }: { readOnly?: boolean } =
   const soundsHintId = useId();
   const layout = useLayout();
   const layoutLabelId = useId();
-  const layoutHintId = useId();
 
   return (
     <>
@@ -94,19 +98,27 @@ export function AppearanceSection({ readOnly = false }: { readOnly?: boolean } =
         </div>
       </Group>
 
-      {/* The escape hatch from the default layout. A hub setting, so it follows you to every browser; a paired phone
-          (readOnly) keeps the classic layout and never sees it. */}
+      {/* Both layouts stay; switch any time, here or from the profile menu. A hub setting, so it follows you to every
+          browser; a paired phone (readOnly) keeps the classic layout and never sees it. */}
       {!readOnly && layoutSwitchShown() && (
-        <Group>
-          <Card>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div id={layoutLabelId} className="text-label">Classic layout</div>
-                <p id={layoutHintId} className="text-hint text-muted">The layout from before projects, the overview and the map.</p>
-              </div>
-              <Switch checked={layout === 'classic'} aria-labelledby={layoutLabelId} aria-describedby={layoutHintId} onChange={(next) => void updateSettings({ layout: next ? 'classic' : 'toki' })} />
-            </div>
-          </Card>
+        <Group title="Layout" titleId={layoutLabelId}>
+          <div role="group" aria-labelledby={layoutLabelId} className="flex gap-0.5 rounded-md bg-card2 p-0.5">
+            {LAYOUTS.map((l) => (
+              <button
+                key={l.id}
+                type="button"
+                aria-pressed={layout === l.id}
+                className={cn(
+                  'flex-1 rounded-sm px-2 py-1.5 text-label focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  layout === l.id ? 'bg-panel text-fg shadow-[var(--shadow-sm)]' : 'text-muted hover:text-fg',
+                )}
+                onClick={() => void updateSettings({ layout: l.id })}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-hint text-muted">Classic is the layout from before projects, the overview and the map.</p>
         </Group>
       )}
 

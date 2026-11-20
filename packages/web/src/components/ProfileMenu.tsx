@@ -1,13 +1,14 @@
 import { useRef } from 'react';
-import { BarChart3, CalendarClock, ChevronsUpDown, FolderOpen, LogIn, LogOut, Moon, Settings, Sun, UserRound } from 'lucide-react';
+import { BarChart3, CalendarClock, ChevronsUpDown, FolderOpen, LayoutDashboard, LogIn, LogOut, Moon, PanelLeft, Settings, Sun, UserRound } from 'lucide-react';
 import { useStore } from '../store';
 import { api } from '../lib/api';
 import { resolveDark } from '../lib/theme';
+import { useLayout } from '../lib/layout';
 import { Menu, MenuContent, MenuItem, MenuSeparator, UserAvatar, cn } from './ui';
 
 /**
  * Bottom of the sidebar: who you are and whether the server is there, opening onto Automations, Usage, Settings, the shared
- * folder, the theme and the account. The account's email stays out of it, because this gets screen-shared.
+ * folder, the theme, the layout and the account. The account's email stays out of it, because this gets screen-shared.
  */
 export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
   const name = useStore((s) => s.settings.userName);
@@ -26,6 +27,7 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
   const applyAccountResponse = useStore((s) => s.applyAccountResponse);
   const toast = useStore((s) => s.toast);
   const dark = resolveDark(theme);
+  const layout = useLayout();
   const signedIn = !device && account.enabled && account.signedIn;
   const canSignIn = !device && account.enabled && !account.signedIn;
   // A link that was up and dropped, or went quiet, is "Reconnecting" until a retry has been refused (then "Offline").
@@ -98,6 +100,12 @@ export function ProfileMenu({ onNavigate }: { onNavigate: () => void }) {
           {!device && (
             <MenuItem onSelect={act(() => void updateSettings({ theme: dark ? 'light' : 'dark' }))}>
               {dark ? <Sun size={16} aria-hidden /> : <Moon size={16} aria-hidden />}{dark ? 'Light theme' : 'Dark theme'}
+            </MenuItem>
+          )}
+          {/* Like the theme item: one click to the other layout. A paired phone keeps classic, so it has none. */}
+          {!device && (
+            <MenuItem onSelect={act(() => void updateSettings({ layout: layout === 'classic' ? 'toki' : 'classic' }))}>
+              {layout === 'classic' ? <LayoutDashboard size={16} aria-hidden /> : <PanelLeft size={16} aria-hidden />}{layout === 'classic' ? 'New layout' : 'Classic layout'}
             </MenuItem>
           )}
           {(canSignIn || signedIn) && <MenuSeparator />}

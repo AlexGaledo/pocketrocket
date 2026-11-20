@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Switch layouts any time
+
+- Both layouts stay. Settings › Appearance now has a **Layout** picker (New / Classic) beside Theme and Font, and the profile menu (bottom left) has a one-click **Classic layout** / **New layout** item, like the theme item.
+- The choice is still saved on your hub, so every browser and the desktop app follow it. Paired phones keep the classic layout.
+
 ### The new layout is the default (web)
 
 - The project-first layout (projects in the sidebar, the overview, the map, Needs you with its composer) is now what everyone sees on the desktop app and in the browser. Paired phones keep the classic layout.
