@@ -19,6 +19,9 @@ import { Machines } from '../services/Machines.js';
 import { logError } from '../providers/redact.js';
 import { sandboxActive } from '../providers/sandbox.js';
 
+// A refused upload at most this big is read and dropped rather than cut off; see refuse().
+const REFUSE_DRAIN_MAX = 1024 * 1024;
+
 const send = (res: ServerResponse, status: number, body?: unknown): true => {
   if (body === undefined) {
     res.writeHead(status);
@@ -158,6 +161,12 @@ export function createPcRunnerApi(deps: { pcRunner: PcRunner; repos: Repos; db: 
   };
   /** A refusal made before the body is read: close the connection rather than drain up to 200 MB nobody will use. */
   const refuse = (req: IncomingMessage, res: ServerResponse, status: number, error: string): true => {
+    // Destroying a socket with unread request bytes sends a TCP RST, which (on Windows above all) can reach the
+    // client before the response, so it sees ECONNRESET instead of the status. A body already read, or a small
+    // one, is left to Node, which reads and drops what is left after the response. Only a big or unsized body
+    // is cut off, so a refused 200 MB upload is not read to the end.
+    const len = String(req.headers['content-length'] ?? '');
+    if (req.complete || (/^[0-9]{1,12}$/.test(len) && Number(len) <= REFUSE_DRAIN_MAX)) return send(res, status, { error });
     res.setHeader('connection', 'close');
     send(res, status, { error });
     res.once('finish', () => req.destroy());
