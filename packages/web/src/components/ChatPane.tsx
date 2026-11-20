@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Download, FileText, Film, Info, Paperclip, Send, ShieldAlert, Square, X, Zap } from 'lucide-react';
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
-import { RocketMark } from './RocketMark';
+import { TokiMark } from './TokiMark';
 import { ChatHeader } from './ChatHeader';
 import type { ApprovalPayload, Bot, HandoffPayload, HandoffResultPayload, Message, Room, RoutinePayload, TakeoverPayload, TurnFailurePayload } from '@pocketrocket/shared';
 import type { Approvals, TriggerPayload } from '@pocketrocket/shared';
@@ -76,7 +76,7 @@ export function ChatPane({ hideHeader = false }: { hideHeader?: boolean } = {}) 
   if (!room && fresh) {
     return (
       <div className="flex h-full flex-col items-center justify-center">
-        <RocketMark size={56} />
+        <TokiMark size={56} />
         <EmptyState
           size="lg"
           className="pt-4"
@@ -97,7 +97,7 @@ export function ChatPane({ hideHeader = false }: { hideHeader?: boolean } = {}) 
   if (!room) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-        <RocketMark size={56} />
+        <TokiMark size={56} />
         <div>
           <div className="text-title-sm">Your team is empty</div>
           <div className="mt-1 max-w-[38ch] text-ui text-muted">Create a bot, then message it.</div>
