@@ -1,5 +1,5 @@
 // PC session mirror: copies this PC's Claude Code transcripts (~/.claude/projects/**.jsonl) to the hub as compact,
-// scrubbed ENTRIES, so the owner can read them in PocketRocket. Imported by runner.mjs; importing has no side effects.
+// scrubbed ENTRIES, so the owner can read them in Toki. Imported by runner.mjs; importing has no side effects.
 //
 //   * mapLine / capText / summarizeToolInput / pathInfo / isExcluded / iterLines are pure or file-local and tested.
 //   * createMirror() is the tailer: backfill, resume from the hub's offsets, live watch, batching, 409 resync.
@@ -389,7 +389,7 @@ export function createMirror(options) {
       firstAt: st.meta.firstAt ?? st.mtimeMs, lastAt: Math.max(st.lastAt, st.mtimeMs),
     };
     const r = await request('PUT', `/${encodeURIComponent(st.id)}`, body);
-    if (r.status === 410) { // deleted in PocketRocket: never mirror it again (until the runner restarts and asks again)
+    if (r.status === 410) { // deleted in Toki: never mirror it again (until the runner restarts and asks again)
       log('mirror_session_deleted', { id: st.id });
       st.dead = true;
       excluded.add(st.file);

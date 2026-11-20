@@ -76,7 +76,7 @@ function SignInDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title="Sign in to approve" description="Enter your PocketRocket password to approve jobs on your PC.">
+    <Dialog open onOpenChange={(o) => !o && onClose()} title="Sign in to approve" description="Enter your Toki password to approve jobs on your PC.">
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {

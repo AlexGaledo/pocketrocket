@@ -12,7 +12,7 @@ import type { TurnLimit } from './types.js';
 
 /**
  * Gemini through Google's Antigravity CLI, `agy acp` (spec 01 §4.8, P2-2): the first preset of the generic ACP
- * adapter. PocketRocket never downloads or installs `agy` (it is closed source); it finds the user's own copy and
+ * adapter. Toki never downloads or installs `agy` (it is closed source); it finds the user's own copy and
  * drives it as is, which is the one route a Google AI Pro login allows [G3].
  *
  * Live-tested (P2-4, docs/PRODUCTION-CHECKLIST.md §4a) with agy 1.5.12 on Linux and a Gemini API key: DMs, resume,
@@ -38,7 +38,7 @@ export const GEMINI_INFO: ProviderStaticInfo = {
 /** The variable the key is handed to `agy` in. Gemini's documented name; P2-4 confirms `agy` reads it. */
 export const GEMINI_KEY_VAR = 'GEMINI_API_KEY';
 
-/** The agy versions run live against PocketRocket (P2-4). `GEMINI_INFO.testedVersions` says the same for the UI. */
+/** The agy versions run live against Toki (P2-4). `GEMINI_INFO.testedVersions` says the same for the UI. */
 export const AGY_TESTED: { min: string; max: string } | null = { min: '1.5.12', max: '1.5.12' };
 
 /**
@@ -79,7 +79,7 @@ function cmpVersion(a: string, b: string): number {
 /** A warning when `version` is outside the tested range, or unreadable; null when it is a tested one. Never a refusal. */
 export function agyVersionWarning(version: string | null, tested = AGY_TESTED): string | null {
   if (!version) return 'unknown agy version (untested)';
-  if (!tested) return 'agy ' + version + ' has not been tested with PocketRocket yet';
+  if (!tested) return 'agy ' + version + ' has not been tested with Toki yet';
   if (cmpVersion(version, tested.min) < 0) return 'agy ' + version + ' is older than the tested versions (' + tested.min + '-' + tested.max + ')';
   if (cmpVersion(version, tested.max) > 0) return 'agy ' + version + ' is newer than the tested versions (' + tested.min + '-' + tested.max + ')';
   return null;

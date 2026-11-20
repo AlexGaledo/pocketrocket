@@ -71,7 +71,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
       <circle cx="236" cy="808" r="30" fill="#FFFFFF" opacity="0.6"/>
     </g>
 
-    <text x="180" y="140" font-family="Geist, Segoe UI, sans-serif" font-size="52" font-weight="700" fill="#111214" letter-spacing="-1.4">PocketRocket</text>
+    <text x="180" y="140" font-family="Geist, Segoe UI, sans-serif" font-size="52" font-weight="700" fill="#111214" letter-spacing="-1.4">Toki</text>
     <text x="72" y="232" font-family="Geist, Segoe UI, sans-serif" font-size="34" font-weight="500" fill="#3b4048" letter-spacing="-0.6">Your pocket fleet of AI agents.</text>
     <text x="72" y="300" font-family="Geist, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#6e7681">Claude · Codex · OpenCode · Grok</text>
     <text x="72" y="336" font-family="Geist, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#6e7681">Runs on your machine. Windows installer.</text>

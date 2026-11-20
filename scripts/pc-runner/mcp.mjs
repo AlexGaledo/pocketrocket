@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PocketRocket MCP server for Claude Code on this PC. Plain Node, no packages: newline-delimited JSON-RPC on
+// Toki MCP server for Claude Code on this PC. Plain Node, no packages: newline-delimited JSON-RPC on
 // stdin/stdout (MCP stdio transport); everything else goes to stderr. Add it once with:
 //   claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"
 // It talks to the hub through the runner's SSH tunnel (127.0.0.1:<localPort>) with the runner's token, and only
@@ -28,7 +28,7 @@ const ROOM = str('Room id, or the room name (case-insensitive). Use list_rooms t
 export const TOOLS = [
   {
     name: 'list_rooms',
-    description: 'List the PocketRocket rooms you are in: id, name, kind, linked project, and whether the room has a shared folder. Start here if you do not know the room.',
+    description: 'List the Toki rooms you are in: id, name, kind, linked project, and whether the room has a shared folder. Start here if you do not know the room.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -79,7 +79,7 @@ export const TOOLS = [
   },
 ];
 
-const RUNNER_OFF = 'The PocketRocket runner is not running on this PC. Ask the owner to turn it on (Desktop shortcut "PocketRocket Runner ON"), then try again.';
+const RUNNER_OFF = 'The Toki runner is not running on this PC. Ask the owner to turn it on (Desktop shortcut "Toki Runner ON"), then try again.';
 
 /** A failure the tool reports to the model as an error result (isError), not a protocol error. */
 class ToolError extends Error {}
@@ -139,9 +139,9 @@ export function createServer(deps = {}) {
 
   async function hub(method, p, body) {
     const cfg = d.loadConfig();
-    if (!cfg.ok) throw new ToolError('The PocketRocket runner config is invalid: ' + cfg.errors.join('; '));
+    if (!cfg.ok) throw new ToolError('The Toki runner config is invalid: ' + cfg.errors.join('; '));
     const token = d.readToken();
-    if (!token) throw new ToolError('The PocketRocket runner is not paired on this PC (no token). Ask the owner to run: node runner.mjs pair');
+    if (!token) throw new ToolError('The Toki runner is not paired on this PC (no token). Ask the owner to run: node runner.mjs pair');
     const v = d.env.POCKETROCKET_RUNNER_NO_TUNNEL === '1' ? { ok: true } : await verify();
     if (!v.ok) throw new ToolError(v.message);
     const session = clean(d.env.CLAUDE_SESSION_ID, 200);
@@ -151,7 +151,7 @@ export function createServer(deps = {}) {
       res = await d.fetch(`http://127.0.0.1:${cfg.config.localPort}/api/cc${p}`, { method, headers, body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     } catch (e) {
       if ((e?.cause?.code ?? e?.code) === 'ECONNREFUSED') throw new ToolError(RUNNER_OFF);
-      throw new ToolError(`Could not reach PocketRocket (${e?.cause?.code ?? e?.name ?? 'network error'}). Is the runner on and connected?`);
+      throw new ToolError(`Could not reach Toki (${e?.cause?.code ?? e?.name ?? 'network error'}). Is the runner on and connected?`);
     }
     const text = await res.text();
     let json = null;
@@ -178,13 +178,13 @@ export function createServer(deps = {}) {
   async function hubOk(method, p, body) {
     const r = await hub(method, p, body);
     if (r.status >= 200 && r.status < 300) return r.json ?? {};
-    throw new ToolError(`PocketRocket refused it (HTTP ${r.status}): ${r.json?.error ?? (clean(r.text, 200) || 'no detail')}`);
+    throw new ToolError(`Toki refused it (HTTP ${r.status}): ${r.json?.error ?? (clean(r.text, 200) || 'no detail')}`);
   }
 
   async function rooms(force = false) {
     if (!force && roomsCache && d.now() - roomsCache.at < ROOMS_TTL_MS) return roomsCache.list;
     const list = await hubOk('GET', '/rooms');
-    if (!Array.isArray(list)) throw new ToolError('Unexpected answer from PocketRocket for the room list.');
+    if (!Array.isArray(list)) throw new ToolError('Unexpected answer from Toki for the room list.');
     roomsCache = { at: d.now(), list };
     return list;
   }
@@ -273,7 +273,7 @@ export function createServer(deps = {}) {
           + `Current version: hash ${c.hash}, ${revText(c.rev)}.\n---\n${c.text ?? ''}\n---\n`
           + `Merge your change into this current text, then call write_file again with base=${c.hash}. Do not overwrite blindly and do not reuse the old hash.`);
       }
-      if (r.status < 200 || r.status >= 300) throw new ToolError(`PocketRocket refused the write (HTTP ${r.status}): ${r.json?.error ?? clean(r.text, 200)}`);
+      if (r.status < 200 || r.status >= 300) throw new ToolError(`Toki refused the write (HTTP ${r.status}): ${r.json?.error ?? clean(r.text, 200)}`);
       return `Written ${r.json?.path ?? p}.\nnew hash: ${r.json?.hash}\nrev: ${revText(r.json?.rev)}\nUse this hash as base for your next write to this file.`;
     },
     async log_decision(a) {
@@ -301,7 +301,7 @@ export function createServer(deps = {}) {
           protocolVersion: SUPPORTED_PROTOCOLS.includes(asked) ? asked : SUPPORTED_PROTOCOLS[0],
           capabilities: { tools: {} },
           serverInfo: SERVER_INFO,
-          instructions: 'Reads and posts to PocketRocket rooms and edits their shared files. Read a file (read_file/read_state) before write_file and pass its hash as base; on a conflict, merge and retry with the new hash.',
+          instructions: 'Reads and posts to Toki rooms and edits their shared files. Read a file (read_file/read_state) before write_file and pass its hash as base; on a conflict, merge and retry with the new hash.',
         });
       }
       case 'ping': return isNote ? null : reply(msg.id, {});
@@ -358,6 +358,6 @@ export async function serve(server, input = process.stdin, output = process.stdo
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.stderr.write('pocketrocket-mcp: ready (talks to PocketRocket through the runner tunnel)\n');
+  process.stderr.write('pocketrocket-mcp: ready (talks to Toki through the runner tunnel)\n');
   await serve(createServer());
 }

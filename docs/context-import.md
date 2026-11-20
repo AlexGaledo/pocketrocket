@@ -1,6 +1,6 @@
 # Importing Claude project context
 
-Three ways to bring a Claude project's context to PocketRocket, side by side so we can keep what works. All of them end in the same place: files in a project's folder, for that project's members. See `docs/project-folders.md`. Create the project first with `node scripts/context-import.mjs project create "My project"`, and pass its name or slug to `--project`.
+Three ways to bring a Claude project's context to Toki, side by side so we can keep what works. All of them end in the same place: files in a project's folder, for that project's members. See `docs/project-folders.md`. Create the project first with `node scripts/context-import.mjs project create "My project"`, and pass its name or slug to `--project`.
 
 | Way | Reviewed | Stays current | Needs |
 |---|---|---|---|
@@ -69,7 +69,7 @@ Logging is off for this site because the secret is in the URL path.
 node scripts/context-import.mjs connector on      # prints the path
 ```
 
-In Claude: Settings, Connectors, Add custom connector, and paste `https://context.example.com<path>`. In the project's chat, ask: "Save this project's instructions and what its knowledge files say to PocketRocket."
+In Claude: Settings, Connectors, Add custom connector, and paste `https://context.example.com<path>`. In the project's chat, ask: "Save this project's instructions and what its knowledge files say to Toki."
 
 ```sh
 node scripts/context-import.mjs pending

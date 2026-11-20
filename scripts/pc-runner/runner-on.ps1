@@ -1,4 +1,4 @@
-# PocketRocket PC runner: turn ON. Starts runner.mjs hidden and writes runner.pid next to it.
+# Toki PC runner: turn ON. Starts runner.mjs hidden and writes runner.pid next to it.
 # Runs as the current user; no admin, no autostart. runner-off.ps1 stops it.
 $ErrorActionPreference = 'Stop'
 $dir = $PSScriptRoot
@@ -6,14 +6,14 @@ $pidFile = Join-Path $dir 'runner.pid'
 Add-Type -AssemblyName System.Windows.Forms
 
 function Say([string]$text, [string]$icon = 'Information') {
-  [void][System.Windows.Forms.MessageBox]::Show($text, 'PocketRocket Runner', 'OK', $icon)
+  [void][System.Windows.Forms.MessageBox]::Show($text, 'Toki Runner', 'OK', $icon)
 }
 
 if (Test-Path -LiteralPath $pidFile) {
   $old = (Get-Content -LiteralPath $pidFile -Raw).Trim()
   if ($old -match '^\d+$') {
     $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + [int]$old) -ErrorAction SilentlyContinue
-    if ($p -and $p.CommandLine -like '*runner.mjs*') { Say 'PocketRocket Runner is already ON.'; exit 0 }
+    if ($p -and $p.CommandLine -like '*runner.mjs*') { Say 'Toki Runner is already ON.'; exit 0 }
   }
   Remove-Item -LiteralPath $pidFile -Force
 }
@@ -34,4 +34,4 @@ if ($check -match 'token: missing') { Say 'No runner token yet. Copy it from the
 # The script path is passed as one quoted argument (paths can hold spaces); nothing here is evaluated as code.
 $proc = Start-Process -FilePath $node.Source -ArgumentList @(('"' + $runner + '"'), 'run') -WorkingDirectory $dir -WindowStyle Hidden -PassThru
 Set-Content -LiteralPath $pidFile -Value $proc.Id -Encoding ascii
-Say ("PocketRocket Runner is ON.`r`n`r`nEvery job still asks you here before it runs. Logs: " + (Join-Path $dir 'logs'))
+Say ("Toki Runner is ON.`r`n`r`nEvery job still asks you here before it runs. Logs: " + (Join-Path $dir 'logs'))

@@ -186,7 +186,7 @@ export function fmtAge(since: number | null, now: number): string | null {
   return Math.floor(s / 86400) + 'd';
 }
 
-/** Tab title with a count in front: `(2) PocketRocket`. The base is whatever the title was before. */
+/** Tab title with a count in front: `(2) Toki`. The base is whatever the title was before. */
 export function titleWithCount(base: string, count: number): string {
   const bare = base.replace(/^\(\d+\)\s*/, '');
   return count > 0 ? '(' + count + ') ' + bare : bare;

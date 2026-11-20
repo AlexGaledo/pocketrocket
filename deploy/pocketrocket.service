@@ -1,5 +1,5 @@
 [Unit]
-Description=PocketRocket hub
+Description=Toki hub
 After=network.target
 # The shared screen (pocketrocket-screen.service) is no longer pulled in here: with per-bot computers on
 # (POCKETROCKET_COMPUTERS=1, set by setup-vps.sh in a drop-in) each bot's computer is a user unit the hub

@@ -1,6 +1,6 @@
-# PocketRocket guide
+# Toki guide
 
-What PocketRocket does once it's installed, how it works, and what the bots may and may not do.
+What Toki does once it's installed, how it works, and what the bots may and may not do.
 Setup itself is in the [README](../README.md).
 
 ## Contents
@@ -95,14 +95,14 @@ You don't have to wait for a bot to finish before you correct it.
 
 ### Telegram notifications
 
-PocketRocket can ping your phone through your own Telegram bot when something needs you. It is
+Toki can ping your phone through your own Telegram bot when something needs you. It is
 **content-free**: Telegram only ever sees a fixed sentence and a link back to your hub, never a
 bot, room or tool name and never any message text. Telegram is a cloud service, so assume it can
 see that "something happened".
 
 1. **Make a bot.** In Telegram, message **@BotFather**, send `/newbot`, pick a name, and copy the
    token it gives you.
-2. **Connect it.** Settings → Notifications → Telegram: paste the token. PocketRocket checks it and
+2. **Connect it.** Settings → Notifications → Telegram: paste the token. Toki checks it and
    shows `@yourbot`. The token goes into the encrypted token store and is not shown again.
 3. **Link your chat.** Press **Link**, open the bot from the button or the QR code, and send it the
    code shown (valid 10 minutes). Five wrong codes lock linking for a while. It then shows
@@ -150,7 +150,7 @@ lock an open window out). It is never written to the hub's logs. The desktop app
 anywhere else, paste the file's contents into the prompt the web UI shows, or open
 `http://127.0.0.1:7788/#token=<token>`, which the web UI consumes automatically.
 
-PocketRocket has had two internal security reviews; what they changed is under **Security** in
+Toki has had two internal security reviews; what they changed is under **Security** in
 [CHANGELOG.md](../CHANGELOG.md), and [SECURITY.md](../SECURITY.md) has the summary.
 
 ## Configuration
@@ -164,7 +164,7 @@ Short and honest:
 
 - **More providers.** OpenAI Codex, OpenCode and Grok adapters exist in the codebase behind a
   dev-only flag but aren't offered as a user-facing option in v1 — Claude only, for now.
-- **Paid plans**, behind the optional PocketRocket account. Signing in does nothing else yet.
+- **Paid plans**, behind the optional Toki account. Signing in does nothing else yet.
 - **Code signing** is still deferred. The desktop app now updates itself (checked at launch and daily, installed
   only when you say so and, on this PC, only once the bots are idle); see Updating in the README.
 - **macOS / Linux installers.** Both run from source today; no packaged installer yet.

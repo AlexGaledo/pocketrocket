@@ -57,7 +57,7 @@ describe('desktop notifications from hub events', () => {
     const store = await boot();
     store.getState().applyEvent(approvalReq);
     await flush();
-    expect(notified()).toEqual([{ title: 'PocketRocket', body: 'A bot needs you' }]);
+    expect(notified()).toEqual([{ title: 'Toki', body: 'A bot needs you' }]);
   });
 
   it('stays quiet while the window is focused', async () => {

@@ -103,7 +103,7 @@ export function contextConnectorTools(context: ContextRepo): HubTool[] {
   return [
     hubTool(
       'save_project_context',
-      'Save context from this Claude project to PocketRocket: its instructions, what its knowledge files say, decisions, current state. The owner reviews it before it reaches any bot. Do not include passwords, API keys or other credentials. Call once per topic. You cannot read anything back.',
+      'Save context from this Claude project to Toki: its instructions, what its knowledge files say, decisions, current state. The owner reviews it before it reaches any bot. Do not include passwords, API keys or other credentials. Call once per topic. You cannot read anything back.',
       { project: ProjectName.describe('Name of this project'), title: Title.describe('Short topic, like "Project instructions"'), content: Body.describe('The context, as Markdown') },
       async (a) => {
         if (context.pendingCount() >= MAX_PENDING_CONTEXT) {

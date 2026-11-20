@@ -80,7 +80,7 @@ export function createPcSessionsApi(deps: { pcSessions: PcSessions; db: Db; sess
           const p = PcSessionPutSchema.safeParse(body);
           if (!p.success) return bad(p.error);
           if (p.data.parentId === id) return send(res, 400, { error: 'A session cannot be its own parent' });
-          if (pcSessions.refused(id!, p.data.lastAt)) return send(res, 410, { error: 'This session was deleted in PocketRocket; do not mirror it again' });
+          if (pcSessions.refused(id!, p.data.lastAt)) return send(res, 410, { error: 'This session was deleted in Toki; do not mirror it again' });
           return send(res, 200, { ok: true, ...pcSessions.upsert(id!, p.data), onVps: sessionMoves?.locked(id!) ?? false });
         }
         const p = PcEntriesPostSchema.safeParse(body);

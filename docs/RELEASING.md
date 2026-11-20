@@ -1,6 +1,6 @@
-# Releasing PocketRocket
+# Releasing Toki
 
-PocketRocket ships a Windows NSIS installer, a Linux AppImage and deb, and an unsigned macOS dmg.
+Toki ships a Windows NSIS installer, a Linux AppImage and deb, and an unsigned macOS dmg.
 `.github/workflows/release.yml` builds them on a `v*` tag in three stages:
 
 1. **Windows job** (`release`): every gate (version sync, tag == `package.json`, `pnpm test`,

@@ -77,7 +77,7 @@ them and the adapter does not model that.
 `PreToolUse` hooks accept an **HTTP** handler (`{"type":"http","url":…}`) and can return
 `{"decision":"deny","reason":…}`; the binary's own log string `could not parse HTTP hook response
 JSON, treating as allow` confirms the response body is parsed as the decision. A loopback hook
-endpoint would give Grok real PocketRocket approval cards (`permissions: 'full'`). Out of scope for
+endpoint would give Grok real Toki approval cards (`permissions: 'full'`). Out of scope for
 P2C — the plan pins Grok at `best-effort`, and `registry.test.ts` asserts it. Worth a follow-up.
 
 ## Unverified

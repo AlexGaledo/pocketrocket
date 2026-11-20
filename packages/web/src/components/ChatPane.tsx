@@ -1020,7 +1020,7 @@ function Composer({ room, members, dock }: { room: Room; members: Bot[]; dock?: 
                 <span className="shrink-0 font-mono font-medium">/{item.cmd.name}</span>
                 {item.cmd.argumentHint && <span className="shrink-0 font-mono text-hint text-dim">{item.cmd.argumentHint}</span>}
                 <span className="min-w-0 flex-1 truncate text-hint text-muted">{item.cmd.description}</span>
-                <span className="shrink-0 text-hint text-dim">{item.cmd.source === 'claude' ? 'Claude' : item.cmd.source === 'skill' ? 'Skill' : 'PocketRocket'}</span>
+                <span className="shrink-0 text-hint text-dim">{item.cmd.source === 'claude' ? 'Claude' : item.cmd.source === 'skill' ? 'Skill' : 'Toki'}</span>
               </div>
             ))}
           </div>

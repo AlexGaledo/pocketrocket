@@ -32,7 +32,7 @@ export function NotificationsSection() {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div id={enabledId} className="text-label">Desktop notifications</div>
-                <p id={enabledHint} className="text-hint text-muted">When a bot needs your approval, needs you on its screen, or finishes. Shown only while PocketRocket is in the background.</p>
+                <p id={enabledHint} className="text-hint text-muted">When a bot needs your approval, needs you on its screen, or finishes. Shown only while Toki is in the background.</p>
               </div>
               <Switch checked={enabled} aria-labelledby={enabledId} aria-describedby={enabledHint} onChange={(next) => { setNotificationsEnabled(next); setEnabled(next); }} />
             </div>

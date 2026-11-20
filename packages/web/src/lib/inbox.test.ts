@@ -116,8 +116,8 @@ describe('fmtAge / titleWithCount', () => {
     expect(fmtAge(0, 2 * 86_400_000)).toBe('2d');
   });
   it('puts the count in front of the title once', () => {
-    expect(titleWithCount('PocketRocket', 2)).toBe('(2) PocketRocket');
-    expect(titleWithCount('(2) PocketRocket', 3)).toBe('(3) PocketRocket');
-    expect(titleWithCount('(3) PocketRocket', 0)).toBe('PocketRocket');
+    expect(titleWithCount('Toki', 2)).toBe('(2) Toki');
+    expect(titleWithCount('(2) Toki', 3)).toBe('(3) Toki');
+    expect(titleWithCount('(3) Toki', 0)).toBe('Toki');
   });
 });

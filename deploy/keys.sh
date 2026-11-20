@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Kill switch for every key PocketRocket keeps on this server. Run as root on the VPS.
+# Kill switch for every key Toki keeps on this server. Run as root on the VPS.
 #
 #   bash deploy/keys.sh inventory          Markdown table of every key location, by NAME only (never a value)
 #   bash deploy/keys.sh disable            stop the hub, move every key file into /root/pocketrocket-keys-disabled-<ts>/,
@@ -206,7 +206,7 @@ abs_of() {
 # ---------------------------------------------------------------------------------------------------------
 inventory() {
   local f n p
-  echo "# PocketRocket key inventory"
+  echo "# Toki key inventory"
   echo
   echo "Host: $(hostname 2>/dev/null || echo unknown). Made: $(date '+%F %T %Z'). Data: $DATA"
   echo
@@ -248,7 +248,7 @@ inventory() {
   fi
 
   [ -e "$DATA/pc-runner.json" ] && row "PC runner" "runner pairing (present)" "data/pc-runner.json" "re-pair the PC runner (runner token)"
-  [ -e "$DATA/hub-token" ] && row "PocketRocket app" "hub token" "data/hub-token" "keys.sh delete --all, then reconnect the app"
+  [ -e "$DATA/hub-token" ] && row "Toki app" "hub token" "data/hub-token" "keys.sh delete --all, then reconnect the app"
   [ -e "$DATA/account.json" ] && row "Supabase" "hub account session (refresh token)" "data/account.json" "sign out in the app, or $(rotate_url supabase)"
   [ -e "$DATA/vapid.json" ] && row "Web Push" "VAPID key pair" "data/vapid.json" "delete it: the hub mints a new one; phones re-enable notifications"
 

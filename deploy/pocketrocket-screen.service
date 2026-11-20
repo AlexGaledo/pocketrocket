@@ -1,5 +1,5 @@
 [Unit]
-Description=PocketRocket screen (Xvfb + Chromium + noVNC)
+Description=Toki screen (Xvfb + Chromium + noVNC)
 After=network.target
 
 [Service]

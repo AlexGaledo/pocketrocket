@@ -1,12 +1,12 @@
 name: Feature request
-description: Suggest an idea or improvement for PocketRocket
+description: Suggest an idea or improvement for Toki
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the suggestion. PocketRocket ships with Claude only in v1; if this is a request
+        Thanks for the suggestion. Toki ships with Claude only in v1; if this is a request
         for another provider, or a new/changed provider adapter, please say so below — those need
         a design discussion before implementation (see CONTRIBUTING.md).
 
@@ -14,7 +14,7 @@ body:
     id: problem
     attributes:
       label: What problem does this solve?
-      description: What are you trying to do that PocketRocket doesn't support today?
+      description: What are you trying to do that Toki doesn't support today?
     validations:
       required: true
 

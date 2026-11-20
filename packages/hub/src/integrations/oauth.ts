@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { IntegrationProvider } from '@pocketrocket/shared';
 import { apiRequest, IntegrationError, type Fetch } from './http.js';
 
-/** The user's own OAuth app (decision Q4: no PocketRocket-owned apps). */
+/** The user's own OAuth app (decision Q4: no Toki-owned apps). */
 export interface OAuthApp {
   clientId: string;
   clientSecret?: string;

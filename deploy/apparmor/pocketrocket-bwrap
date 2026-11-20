@@ -1,4 +1,4 @@
-# AppArmor profile that lets /usr/bin/bwrap (bubblewrap) create the user namespace it needs, so PocketRocket can sandbox
+# AppArmor profile that lets /usr/bin/bwrap (bubblewrap) create the user namespace it needs, so Toki can sandbox
 # each bot turn (docs/SERVER.md, "Bot sandbox"). Ubuntu 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1: an
 # unprivileged process that creates a user namespace is moved into a profile with every capability denied, and bwrap
 # then dies with "setting up uid map: Permission denied".

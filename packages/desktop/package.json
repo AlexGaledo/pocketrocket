@@ -3,7 +3,7 @@
   "version": "0.5.1",
   "private": true,
   "license": "MIT",
-  "description": "PocketRocket desktop app: native window + managed SSH tunnel to the hub",
+  "description": "Toki desktop app: native window + managed SSH tunnel to the hub",
   "scripts": {
     "dev": "cargo tauri dev",
     "build": "echo skip",

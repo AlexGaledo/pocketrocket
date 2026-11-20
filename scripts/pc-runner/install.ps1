@@ -1,6 +1,6 @@
-# PocketRocket PC runner: install for the current user. No admin, no autostart, no scheduled task.
+# Toki PC runner: install for the current user. No admin, no autostart, no scheduled task.
 # Copies the runner to %LOCALAPPDATA%\PocketRocketRunner, creates config.json from the example if there is none,
-# and puts "PocketRocket Runner ON" / "PocketRocket Runner OFF" / "PocketRocket Mirror pause-resume" shortcuts on the Desktop.
+# and puts "Toki Runner ON" / "Toki Runner OFF" / "Toki Mirror pause-resume" shortcuts on the Desktop.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\pc-runner\install.ps1
 $ErrorActionPreference = 'Stop'
 $src = $PSScriptRoot
@@ -18,7 +18,7 @@ if ($newConfig) { Copy-Item -LiteralPath (Join-Path $dest 'config.example.json')
 $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $desktop = [Environment]::GetFolderPath('Desktop')
 $shell = New-Object -ComObject WScript.Shell
-foreach ($s in @(@{ Name = 'PocketRocket Runner ON'; Script = 'runner-on.ps1'; Icon = 137 }, @{ Name = 'PocketRocket Runner OFF'; Script = 'runner-off.ps1'; Icon = 131 }, @{ Name = 'PocketRocket Mirror pause-resume'; Script = 'mirror-toggle.ps1'; Icon = 238 })) {
+foreach ($s in @(@{ Name = 'Toki Runner ON'; Script = 'runner-on.ps1'; Icon = 137 }, @{ Name = 'Toki Runner OFF'; Script = 'runner-off.ps1'; Icon = 131 }, @{ Name = 'Toki Mirror pause-resume'; Script = 'mirror-toggle.ps1'; Icon = 238 })) {
   $lnk = $shell.CreateShortcut((Join-Path $desktop ($s.Name + '.lnk')))
   $lnk.TargetPath = $ps
   # The script path is one quoted -File argument; a Windows path cannot contain a double quote.
@@ -30,12 +30,12 @@ foreach ($s in @(@{ Name = 'PocketRocket Runner ON'; Script = 'runner-on.ps1'; I
 }
 
 Write-Host "Installed to $dest"
-Write-Host "Desktop shortcuts: 'PocketRocket Runner ON', 'PocketRocket Runner OFF' and 'PocketRocket Mirror pause-resume'"
+Write-Host "Desktop shortcuts: 'Toki Runner ON', 'Toki Runner OFF' and 'Toki Mirror pause-resume'"
 if ($newConfig) { Write-Host "Next: edit $config (folders you allow), then copy the runner token from the hub and run:" }
 else { Write-Host "Kept your existing config.json. To (re)pair, copy the runner token from the hub and run:" }
 Write-Host ('  node "' + (Join-Path $dest 'runner.mjs') + '" pair')
 Write-Host ('Check the config any time with: node "' + (Join-Path $dest 'runner.mjs') + '" check')
 Write-Host ''
-Write-Host 'To use PocketRocket from Claude Code (one time, after the runner is paired), run:'
+Write-Host 'To use Toki from Claude Code (one time, after the runner is paired), run:'
 Write-Host '  claude mcp add --scope user pocketrocket -- "%LOCALAPPDATA%\PocketRocketRunner\mcp.cmd"'
 Write-Host '(In PowerShell, run that line from cmd, or write $env:LOCALAPPDATA instead of %LOCALAPPDATA%.) It only works while the runner is ON.'

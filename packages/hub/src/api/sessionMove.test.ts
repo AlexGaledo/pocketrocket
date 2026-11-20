@@ -549,7 +549,7 @@ describe('a turn on the VPS', () => {
     expect(hub.pcSessions.entries(w.sid)!.entries).toHaveLength(entries.length);
 
     // The change is committed on the wip branch, as the offload identity, and no other branch moved.
-    expect(git(w.wt, 'log', '-1', '--format=%an|%s')).toMatch(/^PocketRocket offload mover-\d+\|VPS turn: finish the thing$/);
+    expect(git(w.wt, 'log', '-1', '--format=%an|%s')).toMatch(/^Toki offload mover-\d+\|VPS turn: finish the thing$/);
     expect(git(w.wt, 'show', 'HEAD:made-on-vps.txt')).toBe('hello from the vps');
     const after = git(w.vps, 'for-each-ref', '--format=%(refname)=%(objectname)', 'refs/heads').split('\n');
     const changed = after.filter((l) => !mainBefore.split('\n').includes(l));

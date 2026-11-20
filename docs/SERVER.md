@@ -1,4 +1,4 @@
-# Run PocketRocket on a server
+# Run Toki on a server
 
 The hub is the shared computer: run it on a Linux box and every bot works there, routines fire
 while your laptop is closed, and a full Linux shell is available to bots. The desktop app then
@@ -45,7 +45,7 @@ the VPS. Logs: `journalctl -u pocketrocket -f`.
 
 ### Accounts (optional)
 
-The optional PocketRocket account (Settings → Account) needs a Supabase project. No project URL or key
+The optional Toki account (Settings → Account) needs a Supabase project. No project URL or key
 is in the repo, so a fresh server runs with accounts off (`GET /api/account` reports `enabled: false`)
 and everything else works as normal. To turn accounts on, put both values in a drop-in, which
 `scripts/deploy.sh` never overwrites:
@@ -344,7 +344,7 @@ browser out; set a new one in Settings.
 
 ## Phone access over Tailscale Serve
 
-The hub still binds `127.0.0.1` only. To use PocketRocket from a phone, put
+The hub still binds `127.0.0.1` only. To use Toki from a phone, put
 [Tailscale Serve](https://tailscale.com/kb/1312/serve) in front of it: Serve terminates HTTPS for your
 machine's tailnet name and forwards to the loopback port, so only devices **signed in to your own tailnet**
 can reach it.

@@ -4,7 +4,7 @@ Sub-agent research report, condensed. Verify flagged items before relying on the
 
 ## xAI Grok
 
-- **Official CLI exists: "Grok Build"** (`grok` command). Install: `irm https://x.ai/cli/install.ps1 | iex` (Windows), `curl -fsSL https://x.ai/cli/install.sh | bash`. Interactive TUI + headless `-p` mode, skills/plugins, Agent Client Protocol. Auth: browser login or `XAI_API_KEY`. Docs: https://docs.x.ai/build/overview. → PocketRocket's Grok adapter should drive this CLI (same shape as Codex/OpenCode); verify its headless output format and MCP config before building.
+- **Official CLI exists: "Grok Build"** (`grok` command). Install: `irm https://x.ai/cli/install.ps1 | iex` (Windows), `curl -fsSL https://x.ai/cli/install.sh | bash`. Interactive TUI + headless `-p` mode, skills/plugins, Agent Client Protocol. Auth: browser login or `XAI_API_KEY`. Docs: https://docs.x.ai/build/overview. → Toki's Grok adapter should drive this CLI (same shape as Codex/OpenCode); verify its headless output format and MCP config before building.
 - Subscriptions (SuperGrok, X Premium) do NOT include API access. API keys (`xai-...`) from https://console.x.ai, pay-as-you-go. OpenCode can also use SuperGrok OAuth for Grok models.
 - `@ai-sdk/xai` 4.0.x (`createXai({apiKey})`, zod 4 OK); `ai` is at v7 (`ToolLoopAgent`, `isStepCount`, `stopWhen`; `stepCountIs` still works). Only needed if the CLI path fails.
 - Models (verify pricing in console): `grok-4.6` ($2/$6 per 1M, 500K ctx), `grok-4-fast` (~$0.20/$0.50, 2M ctx), `grok-code-fast-1` ($1/$2, $0.20 cached, 256K) = sensible default for coding.

@@ -99,7 +99,7 @@ export function Onboarding() {
     const saved = await updateSettings({ onboarded: true, userName: name.trim() || settings.userName });
     setBusy(false);
     if (saved) play('connected');
-    else setError("Couldn't save. Check PocketRocket is running.");
+    else setError("Couldn't save. Check Toki is running.");
   };
 
   const createBot = async (tpl: (typeof TEMPLATES)[number]) => {
@@ -132,14 +132,14 @@ export function Onboarding() {
   };
 
   return (
-    <div className={cn('fixed inset-0 z-[60] flex overflow-y-auto overscroll-contain bg-bg/80 backdrop-blur-sm p-4', fresh && 'pr-sheet-host')} onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up PocketRocket">
+    <div className={cn('fixed inset-0 z-[60] flex overflow-y-auto overscroll-contain bg-bg/80 backdrop-blur-sm p-4', fresh && 'pr-sheet-host')} onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up Toki">
       {/* m-auto rather than centring from the overlay: a card taller than a small window can still scroll to its top. */}
       {/* New layout: the card takes the dialogs' surface (panel colour, dialog radius and shadow). */}
       <div className={cn('m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8', fresh ? 'pr-sheet-card rounded-xl bg-panel shadow-[var(--shadow-lg)]' : 'panel')}>
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
             <RocketMark />
-            <div className="text-title">PocketRocket</div>
+            <div className="text-title">Toki</div>
             <div className="text-ui font-medium text-muted">Your pocket fleet of AI agents</div>
             <p className="max-w-[42ch] text-ui leading-relaxed text-muted">
               AI bots that work for you. You approve risky steps.
@@ -249,7 +249,7 @@ export function Onboarding() {
             </p>
             {fresh && <p className="max-w-[38ch] text-ui text-muted">Projects in the sidebar keep a project's chat, bots and map together. Add one in Settings › Projects.</p>}
             <Button variant="primary" autoFocus disabled={busy} onClick={() => void finish()}>
-              {busy ? 'Saving…' : error ? 'Try again' : 'Start using PocketRocket'}
+              {busy ? 'Saving…' : error ? 'Try again' : 'Start using Toki'}
             </Button>
           </div>
         )}

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PocketRocket PC runner: runs owner-approved jobs from the VPS hub on this Windows PC, one at a time,
+// Toki PC runner: runs owner-approved jobs from the VPS hub on this Windows PC, one at a time,
 // after a second approval in a local dialog. See README.md for setup and the threat model.
 //
 //   node runner.mjs pair     read the runner token from the clipboard, save it (owner-only ACL), clear the clipboard

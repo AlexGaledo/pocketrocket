@@ -1,4 +1,4 @@
-# Opens PocketRocket on the VPS from this PC, with no token to paste: starts the SSH tunnel if it is not up,
+# Opens Toki on the VPS from this PC, with no token to paste: starts the SSH tunnel if it is not up,
 # reads the hub token over SSH, and opens the app with the token in the URL fragment. Fragments are never sent
 # to a server, and the page strips it on load (packages/web/src/lib/auth.ts). The token is never written to disk.
 # -NoBrowser checks everything except opening the page, without printing the token.
@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 function Stop-WithMessage([string]$text) {
   if ($NoBrowser) { Write-Error $text }
   Add-Type -AssemblyName PresentationFramework
-  [void][System.Windows.MessageBox]::Show($text, 'PocketRocket')
+  [void][System.Windows.MessageBox]::Show($text, 'Toki')
   exit 1
 }
 
@@ -33,7 +33,7 @@ if (-not (Test-Hub)) {
   )
   $deadline = (Get-Date).AddSeconds(20)
   while (-not (Test-Hub)) {
-    if ((Get-Date) -gt $deadline) { Stop-WithMessage "Could not reach PocketRocket through SSH on $HostAlias. Check the server is up and that 'ssh $HostAlias' works in a terminal." }
+    if ((Get-Date) -gt $deadline) { Stop-WithMessage "Could not reach Toki through SSH on $HostAlias. Check the server is up and that 'ssh $HostAlias' works in a terminal." }
     Start-Sleep -Milliseconds 500
   }
 }

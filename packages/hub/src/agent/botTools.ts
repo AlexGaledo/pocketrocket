@@ -1910,7 +1910,7 @@ function taskSearchReportTools(ctx: ToolCtx): HubTool[] {
   );
   const sendFeedback = hubTool(
     'send_feedback',
-    'Leave feedback about PocketRocket itself (a missing tool, a confusing rule, a bug you hit). It is saved in a local file for the owner; it is not sent anywhere. Limited to a few an hour.',
+    'Leave feedback about Toki itself (a missing tool, a confusing rule, a bug you hit). It is saved in a local file for the owner; it is not sent anywhere. Limited to a few an hour.',
     { text: z.string().min(3).max(MAX_FEEDBACK_BYTES) },
     async (a) => {
       const secret = refuseSecret('feedback', a.text);

@@ -1,6 +1,6 @@
-# PocketRocket production checklist
+# Toki production checklist
 
-Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-11-03 (live VPS results at commits 724677b and 40373b2, sections 7 and 7b); v0.2.0 pre-release pass 2026-09-16; fork phases P0–P9 added 2026-11-01 (section 7b). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional PocketRocket account — see CHANGELOG `[0.2.0]`.
+Use before every public release. Status column: ☑ done and verified · ☐ open · ◐ partial. Updated 2026-11-03 (live VPS results at commits 724677b and 40373b2, sections 7 and 7b); v0.2.0 pre-release pass 2026-09-16; fork phases P0–P9 added 2026-11-01 (section 7b). Security reviews: reports kept privately outside the repo (see SECURITY.md → Audits); remediation is in CHANGELOG → Security. v1 scope: Claude only, approvals on by default, optional Toki account — see CHANGELOG `[0.2.0]`.
 
 ## 1. Build and quality gates
 
@@ -12,7 +12,7 @@ Use before every public release. Status column: ☑ done and verified · ☐ ope
 | `Cargo.lock` refreshed after a version bump | ☐ per release | `cargo check` then commit |
 | CI green on `main` (`ci.yml`: ubuntu tests + windows desktop:prepare + cargo check) | ☑ run 34250487822 | GitHub Actions tab |
 | Release workflow produces the NSIS installer (`release.yml`) | ☐ untested on a tag | push `v0.2.0` tag, watch Actions |
-| `release.yml` workflow_dispatch dry run succeeds and its installer artifact installs cleanly on a fresh Windows account | ☐ | Actions → Release → Run workflow (no tag); download `pocketrocket-windows-installer` artifact, run it on an account with no prior PocketRocket data |
+| `release.yml` workflow_dispatch dry run succeeds and its installer artifact installs cleanly on a fresh Windows account | ☐ | Actions → Release → Run workflow (no tag); download `pocketrocket-windows-installer` artifact, run it on an account with no prior Toki data |
 | CHANGELOG has an entry for the release | ☑ `[0.2.0]` filled in | `CHANGELOG.md` |
 
 ## 2. Security
@@ -67,7 +67,7 @@ This section tracks the private pre-release audit report (leaks, vulnerabilities
 | CSP on the bundled pages (splash `index.html`, Server terminal `terminal.html`): `csp` in `tauri.conf.json`, no `unsafe-eval`, no inline script (page scripts live in `ui/splash.js` and `ui/terminal.js`), `connect-src` only Tauri IPC | ☐ written 2026-11, not yet run in the app | build the installer, open the splash (connect, scan, save a connection) and the Server terminal (type, paste, resize, Reconnect); devtools console shows no `Refused to ...` lines. The directive-by-directive reasoning is in [DEVELOPMENT.md](DEVELOPMENT.md#content-security-policy) |
 | CSP on the hub's own web UI (the main window after the splash, and the phone PWA): the hub must send it as a header, since the Tauri `csp` does not apply to a page loaded from `http://127.0.0.1` | ☐ open, hand-off to the hub (nothing sends it today) | `curl -sI http://127.0.0.1:7788/` shows `content-security-policy`; click through chat, Files preview (image, PDF, audio, video, SVG), Screen tab, Settings in the app and look for CSP violations |
 | Capability review: every file in `capabilities/` grants the least it needs. `default.json` (main) and `terminal.json` (terminal) hold `core:default` for the bundled pages only; `hub-notify.json` gives the hub origin `http://127.0.0.1:*` the two notification commands and nothing else (no `core:*`, no app commands) | ☐ | read `capabilities/*.json`; from devtools on the hub page `__TAURI__.core.invoke('get_config')` and `invoke('plugin:dialog|message', ...)` are both refused; any new capability or `remote` URL needs a reviewer |
-| Desktop notifications (U7): the hub page can raise a local OS notification, only while the app window is unfocused, content-free ("A bot needs you"), never in a plain browser | ☐ plugin and `web/src/lib/notify.ts` added, not yet called from anywhere | with a build that calls `notify()`: unfocus or minimize the window and trigger it, expect one toast; focused window, expect none; same page in Chrome, expect none and no console error; Windows Focus Assist and "notifications off for PocketRocket" are respected |
+| Desktop notifications (U7): the hub page can raise a local OS notification, only while the app window is unfocused, content-free ("A bot needs you"), never in a plain browser | ☐ plugin and `web/src/lib/notify.ts` added, not yet called from anywhere | with a build that calls `notify()`: unfocus or minimize the window and trigger it, expect one toast; focused window, expect none; same page in Chrome, expect none and no console error; Windows Focus Assist and "notifications off for Toki" are respected |
 | Bot pop-out (U1): the pop-out button opens `bot-<id>` windows, built in Rust from `window.open` (`on_new_window`), loading only the hub origin; the new window gets only the two notification commands via `hub-notify.json` (`windows: ["main","bot-*"]`), no new commands | ☐ `cargo check` and web tests pass, not run in the app | click pop-out on a bot, expect a small window with that chat; open the same bot twice, expect the existing window focused; devtools `__TAURI__.core.invoke('get_config')` refused; closing the pop-out never hides the app to tray |
 | Uninstall leaves no service/task; data dir kept by default, deletable via checkbox (documented) | ☑ | No service, scheduled task or autostart entry (`grep -riE "schtasks\|autostart\|CurrentVersion.Run" packages/desktop/src-tauri/src` → nothing). The NSIS uninstaller deletes `$INSTDIR` + shortcuts, plus an opt-in "Also delete all bots, conversations and settings" checkbox (unchecked by default) that also removes `%APPDATA%\com.pocketrocket.app\`. Data retention documented in README → Uninstalling. |
 | Uninstall tested both ways: checkbox left unchecked (data dir survives) and checkbox ticked (data dir removed) | ☐ | uninstall once with the box unchecked, confirm `%APPDATA%\com.pocketrocket.app\` still exists; reinstall, uninstall again with the box ticked, confirm it's gone |
@@ -96,7 +96,7 @@ does not ask before its own file writes (G6). A real limit was captured on the G
 read as a limit (G11). Strict turns (routines, triggers, workflow steps, a failover backup) on Gemini therefore run in `agy`'s `plan`
 mode, or are refused when that mode is missing (see G6).
 
-Setup: install `agy` from https://antigravity.google (PocketRocket never downloads it), run `agy` once in a terminal and
+Setup: install `agy` from https://antigravity.google (Toki never downloads it), run `agy` once in a terminal and
 sign in with the Google AI account, then start the hub with `POCKETROCKET_PROVIDERS=gemini` and `POCKETROCKET_DEBUG=1`.
 Create a bot and set its provider to `gemini` (`PATCH /api/bots/:id {"provider":"gemini"}` until the picker ships).
 
@@ -173,7 +173,7 @@ The accessibility pass covered, and fixed:
 | Screen service + backups renamed and running | ☐ verify after redeploy. 2026-11-02: the screen service is installed but disabled because per-bot computers are on; backups not checked |
 | Hub token: **always required in server mode too**, minted to `<data>/hub-token` on the VPS and stable across restarts; docs insist on tunnel-only access | ☑ |
 
-## 7b. PocketRocket phases: checks that need a VPS, a phone or a real account
+## 7b. Toki phases: checks that need a VPS, a phone or a real account
 
 Each phase's tests use fakes for these (`docs/changes/pN.md` → "Not verified" / "Known limits").
 

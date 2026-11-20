@@ -142,7 +142,7 @@ function StatusGroup({ status, error, onChanged }: { status: PcRunnerStatus | nu
             </div>
             {paired && <div className="mt-0.5 text-hint text-muted">Last seen {ago(status!.lastSeenAt)}</div>}
             {status && !paired && (
-              <p className="mt-0.5 max-w-[46ch] text-hint leading-snug text-muted">Make a token, then paste it into the PocketRocket helper on your PC.</p>
+              <p className="mt-0.5 max-w-[46ch] text-hint leading-snug text-muted">Make a token, then paste it into the Toki helper on your PC.</p>
             )}
           </div>
           <div className="flex flex-wrap gap-2">
