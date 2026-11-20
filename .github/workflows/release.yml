@@ -15,8 +15,8 @@ permissions:
 jobs:
   release:
     name: Build + release (Windows)
-    # Releases for this fork are published to AlexGaledo/pocketrocket only.
-    if: github.repository == 'AlexGaledo/pocketrocket'
+    # Releases for this fork are published to AlexGaledo/Toki only.
+    if: github.repository == 'AlexGaledo/Toki'
     runs-on: windows-latest
     timeout-minutes: 60
     # Tag builds run in the `release` environment (owner approval; holds the updater signing key). Dispatch dry
@@ -117,7 +117,7 @@ jobs:
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
-          repo: pocketrocket
+          repo: Toki
           tagName: v__VERSION__
           releaseName: 'Toki v__VERSION__'
           releaseBody: ${{ steps.changelog.outputs.body }}
@@ -156,7 +156,7 @@ jobs:
   # release; these build natively and upload into that same draft by its id.
   release-unix:
     name: Build + release (${{ matrix.name }})
-    if: github.repository == 'AlexGaledo/pocketrocket'
+    if: github.repository == 'AlexGaledo/Toki'
     needs: release
     strategy:
       fail-fast: false
@@ -225,7 +225,7 @@ jobs:
         with:
           projectPath: packages/desktop
           owner: AlexGaledo
-          repo: pocketrocket
+          repo: Toki
           releaseId: ${{ needs.release.outputs.releaseId }}
           uploadUpdaterJson: false
           args: --bundles ${{ matrix.bundles }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
@@ -258,7 +258,7 @@ jobs:
   # update check (docs/RELEASING.md). If any build or this job fails, the release stays an unpublished draft.
   finalize:
     name: Finalize release (latest.json, checksums, attestations)
-    if: github.repository == 'AlexGaledo/pocketrocket' && startsWith(github.ref, 'refs/tags/')
+    if: github.repository == 'AlexGaledo/Toki' && startsWith(github.ref, 'refs/tags/')
     needs: [release, release-unix]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -325,7 +325,7 @@ jobs:
           { (cd "$ASSETS" && sha256sum -- *); (cd "$OUT" && sha256sum -- latest.json); } | sort -k2 > "$OUT/SHA256SUMS.txt"
           cat "$OUT/SHA256SUMS.txt"
 
-      # The trust anchor for users is `gh attestation verify <file> -R AlexGaledo/pocketrocket`; the sums file
+      # The trust anchor for users is `gh attestation verify <file> -R AlexGaledo/Toki`; the sums file
       # from the same release only catches corruption.
       - name: Attest installers, latest.json and SHA256SUMS.txt
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

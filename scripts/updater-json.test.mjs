@@ -41,7 +41,7 @@ function fixture({ bundles = BUNDLES, key = KEY, skipSig = [], extra = {} } = {}
   return dir;
 }
 
-const base = (dir) => ({ dir, repo: 'AlexGaledo/pocketrocket', tag: 'v0.4.0', notes: '  Fixes.\n', pubDate: '2026-11-17T00:00:00Z', pubkey: KEY.pubkey });
+const base = (dir) => ({ dir, repo: 'AlexGaledo/Toki', tag: 'v0.4.0', notes: '  Fixes.\n', pubDate: '2026-11-17T00:00:00Z', pubkey: KEY.pubkey });
 
 test('builds one manifest with the three platform keys', () => {
   const dir = fixture();
@@ -50,7 +50,7 @@ test('builds one manifest with the three platform keys', () => {
   assert.equal(m.notes, 'Fixes.');
   assert.equal(m.pub_date, '2026-11-17T00:00:00.000Z');
   assert.deepEqual(Object.keys(m.platforms), ['darwin-aarch64', 'linux-x86_64', 'windows-x86_64']);
-  assert.equal(m.platforms['windows-x86_64'].url, 'https://github.com/AlexGaledo/pocketrocket/releases/download/v0.4.0/PocketRocket_0.4.0_x64-setup.exe');
+  assert.equal(m.platforms['windows-x86_64'].url, 'https://github.com/AlexGaledo/Toki/releases/download/v0.4.0/PocketRocket_0.4.0_x64-setup.exe');
   assert.equal(m.platforms['linux-x86_64'].url.endsWith('.AppImage'), true, 'linux never points at the .deb');
   assert.equal(m.platforms['darwin-aarch64'].url.endsWith('.app.tar.gz'), true, 'macOS never points at the .dmg');
   assert.equal(m.platforms['windows-x86_64'].signature, fs.readFileSync(path.join(dir, `${BUNDLES[0]}.sig`), 'utf8').trim());

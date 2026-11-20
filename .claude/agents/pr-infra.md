@@ -56,7 +56,7 @@ Hand off to the other agents: hub logic goes to `pr-backend`; UI visuals go to `
   - Phone access only through Tailscale **Serve** with `POCKETROCKET_ALLOWED_HOSTS` (HTTPS forwarded from loopback); never Funnel, never a public port.
 - **CI and release:**
   - `ci.yml` runs on Ubuntu (frozen install, `version.mjs --check`, `pnpm -r build`, `pnpm test`) and on Windows (`desktop:prepare` and `cargo check`).
-  - `release.yml` runs on a `v*` tag in `AlexGaledo/pocketrocket`: the tag must equal `package.json`, release notes come from the `## [x.y.z]` CHANGELOG section (the run fails if it is missing), and it builds the NSIS installer, then Linux AppImage/deb and an unsigned macOS dmg (`fetch-node.mjs` per target triple).
+  - `release.yml` runs on a `v*` tag in `AlexGaledo/Toki`: the tag must equal `package.json`, release notes come from the `## [x.y.z]` CHANGELOG section (the run fails if it is missing), and it builds the NSIS installer, then Linux AppImage/deb and an unsigned macOS dmg (`fetch-node.mjs` per target triple).
   - Every action is pinned to a commit SHA, and top-level permissions are `contents: read`.
 - **Release steps** (`docs/RELEASING.md`): `pnpm version:sync X.Y.Z` → cargo check → CHANGELOG → commit → tag and push → test the installer on a clean machine → check the site's download button.
 

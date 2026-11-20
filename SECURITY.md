@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report security issues via [GitHub private security advisories](https://github.com/AlexGaledo/pocketrocket/security/advisories/new) rather than a public issue. We'll respond as soon as we can.
+Please report security issues via [GitHub private security advisories](https://github.com/AlexGaledo/Toki/security/advisories/new) rather than a public issue. We'll respond as soon as we can.
 
 ## How Toki is designed to be safe
 

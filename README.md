@@ -4,10 +4,10 @@
 
 **Your pocket fleet of AI agents.**
 
-[**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/pocketrocket/releases/latest) · [Changelog](CHANGELOG.md)
+[**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/Toki/releases/latest) · [Changelog](CHANGELOG.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Release](https://img.shields.io/github/v/release/AlexGaledo/pocketrocket?include_prereleases&label=release)](https://github.com/AlexGaledo/pocketrocket/releases)
+[![Release](https://img.shields.io/github/v/release/AlexGaledo/Toki?include_prereleases&label=release)](https://github.com/AlexGaledo/Toki/releases)
 ![Desktop](https://img.shields.io/badge/desktop-Windows-blue)
 
 Toki is a messenger for a team of AI bots that run on your own computer with your Claude
@@ -31,7 +31,7 @@ From download to your first conversation, about five minutes.
 
 ### 1. Download
 
-Open the [latest release](https://github.com/AlexGaledo/pocketrocket/releases/latest) and download
+Open the [latest release](https://github.com/AlexGaledo/Toki/releases/latest) and download
 `PocketRocket_<version>_x64-setup.exe` from **Assets**.
 
 ### 2. Run the installer
@@ -115,7 +115,7 @@ reminder for that version). Then:
 - **Linux .deb install:** the app can't replace a package, so it opens the release page to download the new one.
 
 You can always download the newer installer from the
-[releases page](https://github.com/AlexGaledo/pocketrocket/releases) and run it over the existing install.
+[releases page](https://github.com/AlexGaledo/Toki/releases) and run it over the existing install.
 
 ## Uninstalling
 
@@ -141,7 +141,7 @@ delete all bots, conversations and settings"** in the uninstaller (unchecked by 
 | A server shows *Host key changed* | Don't connect. Check with whoever runs the server; this can mean someone is intercepting the connection. |
 | Connection settings open while you're connected | Press **Back to Toki**. |
 
-Still stuck? [Open an issue](https://github.com/AlexGaledo/pocketrocket/issues/new/choose).
+Still stuck? [Open an issue](https://github.com/AlexGaledo/Toki/issues/new/choose).
 
 ## More
 

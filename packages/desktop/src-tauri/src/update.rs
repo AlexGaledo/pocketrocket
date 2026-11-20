@@ -27,7 +27,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 /// Endpoint override for testing release candidates (`.../releases/download/vX.Y.Z-rc.1/latest.json`).
 pub const ENDPOINT_ENV: &str = "POCKETROCKET_UPDATE_ENDPOINT";
 const ENDPOINT_HOST: &str = "github.com";
-const ENDPOINT_PATH_PREFIX: &str = "/AlexGaledo/pocketrocket/releases/";
+const ENDPOINT_PATH_PREFIX: &str = "/AlexGaledo/Toki/releases/";
 
 /// The hold asked for before draining (the hub clamps to 1-30), renewed while still waiting.
 pub const HOLD_MINUTES: u32 = 10;
@@ -699,27 +699,27 @@ mod tests {
         assert_eq!(endpoint_override(None), Ok(None));
         assert_eq!(endpoint_override(Some("  ")), Ok(None));
         for good in [
-            "https://github.com/AlexGaledo/pocketrocket/releases/download/v0.3.1-rc.1/latest.json",
-            "https://github.com/AlexGaledo/pocketrocket/releases/latest/download/latest.json",
-            " https://github.com/AlexGaledo/pocketrocket/releases/download/v0.3.0/latest.json ",
+            "https://github.com/AlexGaledo/Toki/releases/download/v0.3.1-rc.1/latest.json",
+            "https://github.com/AlexGaledo/Toki/releases/latest/download/latest.json",
+            " https://github.com/AlexGaledo/Toki/releases/download/v0.3.0/latest.json ",
         ] {
             assert!(matches!(endpoint_override(Some(good)), Ok(Some(_))), "{good}");
         }
         for bad in [
-            "http://github.com/AlexGaledo/pocketrocket/releases/download/v1/latest.json",
-            "https://github.com/AlexGaledo/pocketrocket/releases/",
-            "https://github.com/AlexGaledo/pocketrocket/tags/latest.json",
+            "http://github.com/AlexGaledo/Toki/releases/download/v1/latest.json",
+            "https://github.com/AlexGaledo/Toki/releases/",
+            "https://github.com/AlexGaledo/Toki/tags/latest.json",
             "https://github.com/someone/pocketrocket/releases/latest.json",
-            "https://github.com.evil.com/AlexGaledo/pocketrocket/releases/latest.json",
-            "https://evil.com/AlexGaledo/pocketrocket/releases/latest.json",
-            "https://user@github.com/AlexGaledo/pocketrocket/releases/latest.json",
-            "https://github.com:8443/AlexGaledo/pocketrocket/releases/latest.json",
-            "https://github.com/AlexGaledo/pocketrocket/releases/../../x/latest.json",
-            "https://github.com/AlexGaledo/pocketrocket/releases/%2e%2e/%2e%2e/x/latest.json",
-            "https://github.com/AlexGaledo/pocketrocket/releases/latest.json?x=1",
-            "https://github.com/AlexGaledo/pocketrocket/releases/latest.json#x",
-            "https://github.com/AlexGaledo/pocketrocket/releases/a b/latest.json",
-            "https://github.com/AlexGaledo/pocketrocket/releases\\..\\x",
+            "https://github.com.evil.com/AlexGaledo/Toki/releases/latest.json",
+            "https://evil.com/AlexGaledo/Toki/releases/latest.json",
+            "https://user@github.com/AlexGaledo/Toki/releases/latest.json",
+            "https://github.com:8443/AlexGaledo/Toki/releases/latest.json",
+            "https://github.com/AlexGaledo/Toki/releases/../../x/latest.json",
+            "https://github.com/AlexGaledo/Toki/releases/%2e%2e/%2e%2e/x/latest.json",
+            "https://github.com/AlexGaledo/Toki/releases/latest.json?x=1",
+            "https://github.com/AlexGaledo/Toki/releases/latest.json#x",
+            "https://github.com/AlexGaledo/Toki/releases/a b/latest.json",
+            "https://github.com/AlexGaledo/Toki/releases\\..\\x",
             "file:///C:/latest.json",
             "not a url",
         ] {

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The GitHub repository is now AlexGaledo/Toki
+
+- Links in the app (Settings → About, outside-link handling), the website, the README and the guides point to `github.com/AlexGaledo/Toki`. The old `AlexGaledo/pocketrocket` address redirects, so older installs keep updating.
+- New builds check for updates at `github.com/AlexGaledo/Toki/releases/latest/download/latest.json`, and release builds are gated on the new repository name.
+
 ## [0.5.2] - 2026-11-20
 
 ### A bot whose browser keeps failing now asks for help

@@ -412,4 +412,4 @@ export const ALLOWED_HOSTS: readonly string[] = parseAllowedHosts(process.env.PO
 /** VAPID key pair for Web Push (P9), minted locally on first use. 0600, like hub-token. */
 export const VAPID_PATH = path.join(DATA_DIR, 'vapid.json');
 /** VAPID `sub` claim. Apple wants a mailto: or https: URL here; it is sent to the push service, never to a bot. */
-export const PUSH_SUBJECT = process.env.POCKETROCKET_PUSH_SUBJECT || 'https://github.com/AlexGaledo/pocketrocket';
+export const PUSH_SUBJECT = process.env.POCKETROCKET_PUSH_SUBJECT || 'https://github.com/AlexGaledo/Toki';
