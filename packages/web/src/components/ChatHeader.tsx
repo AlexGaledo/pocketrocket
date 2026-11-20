@@ -119,7 +119,7 @@ export function ChatHeader({ room, members }: { room: Room; members: Bot[] }) {
           </span>
         </div>
         <div className="truncate text-hint text-muted">
-          {room.kind === 'dm' ? members[0]?.title || '@' + members[0]?.handle : members.map((m) => '@' + m.handle).join('  ')}
+          {room.kind === 'dm' ? (members[0] ? members[0].title || '@' + members[0].handle : 'This bot was deleted') : members.map((m) => '@' + m.handle).join('  ')}
           {needs > 0 && <span className="ml-2 text-warn">{room.kind === 'dm' ? 'Needs you' : needs + (needs === 1 ? ' needs you' : ' need you')}</span>}
           {working.length > 0 && <span className="ml-2 text-ok">{working.length} working</span>}
         </div>
