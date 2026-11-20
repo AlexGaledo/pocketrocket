@@ -58,7 +58,7 @@ describe('hub tool registry (B3)', () => {
     const silent = [
       'send_message', 'handoff', 'update_memory', 'read_memory', 'save_skill', 'list_bots', 'read_room',
       'list_rooms', 'request_approval', 'use_stronger_model', 'desktop_screenshot', 'desktop_click', 'desktop_type',
-      'desktop_key', 'desktop_scroll', 'desktop_launch', 'list_routines', 'list_workflows', 'where_to_run', 'list_machines', 'search_notes', 'write_note',
+      'desktop_key', 'desktop_scroll', 'desktop_launch', 'list_routines', 'list_workflows', 'where_to_run', 'list_machines', 'escalate', 'search_notes', 'write_note',
       'create_task', 'update_task', 'list_tasks', 'search_history', 'recall_memory', 'report_blocked', 'send_feedback', 'request_form',
       'log_decision', 'file_history', 'list_repos', 'read_skill',
       ...INTEGRATION_READ_TOOLS,
