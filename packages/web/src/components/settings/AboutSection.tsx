@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { HealthResponse } from '../../lib/api';
 import { useStore } from '../../store';
-import { RocketMark } from '../RocketMark';
+import { TokiMark } from '../TokiMark';
 import { authPhrase, PrivateEmail } from './ConnectionStatus';
 import { Card, Group, SectionHeader } from './parts';
 
@@ -30,7 +30,7 @@ export function AboutSection({ health }: { health: HealthResponse | null }) {
 
       <Group>
         <div className="flex items-center gap-4">
-          <RocketMark size={52} />
+          <TokiMark size={52} />
           <div>
             <div className="text-title-sm">Toki</div>
             <div className="text-ui text-muted">{health?.version ? 'Version ' + health.version : 'Version unknown'}</div>

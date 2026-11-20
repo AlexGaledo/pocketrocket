@@ -1,4 +1,4 @@
-<p align="center"><img src="packages/site/assets/rocket.svg" alt="Toki logo" width="96" height="96" /></p>
+<p align="center"><img src="packages/site/assets/toki.svg" alt="Toki logo" width="96" height="96" /></p>
 
 # Toki
 

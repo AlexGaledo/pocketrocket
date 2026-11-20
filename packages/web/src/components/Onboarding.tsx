@@ -8,7 +8,7 @@ import { Button, Input, cn } from './ui';
 import { useNewLayout } from '../lib/newLayout';
 import { ProviderCard } from './ProviderCard';
 import { AccountSignIn } from './AccountSignIn';
-import { RocketMark } from './RocketMark';
+import { TokiMark } from './TokiMark';
 import { botIcon } from '../lib/botIcon';
 import { ConnectionStatus, authPhrase } from './settings/ConnectionStatus';
 
@@ -138,7 +138,7 @@ export function Onboarding() {
       <div className={cn('m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8', fresh ? 'pr-sheet-card rounded-xl bg-panel shadow-[var(--shadow-lg)]' : 'panel')}>
         {step === 'welcome' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
-            <RocketMark />
+            <TokiMark />
             <div className="text-title">Toki</div>
             <div className="text-ui font-medium text-muted">Your pocket fleet of AI agents</div>
             <p className="max-w-[42ch] text-ui leading-relaxed text-muted">
@@ -242,7 +242,7 @@ export function Onboarding() {
 
         {step === 'done' && (
           <div className="flex flex-col items-center gap-4 py-4 text-center">
-            <RocketMark size={56} />
+            <TokiMark size={56} />
             <div className="text-title-sm">You're all set</div>
             <p className="max-w-[38ch] text-ui text-muted">
               {botCreated ? "Your first bot is ready — say hi." : 'Create a bot whenever you like from the sidebar.'}

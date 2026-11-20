@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The app is called **Toki** everywhere you see it: window and tray, the web app and its tab title, onboarding, Settings, notifications, sign-in pages, the PC runner dialogs and Desktop shortcuts, the marketing site, the README and the guides.
 - Nothing to migrate. Installs, auto-update, the server and your data keep their existing internal names (the installer and `PocketRocket.exe`, release file names, `Documents\PocketRocket`, `%LOCALAPPDATA%\PocketRocketRunner`, the `pocketrocket` service and MCP name), so updating works as before.
 - The PC runner's Desktop shortcuts get their new names the next time you run `install.ps1`; the old ones keep working.
+- New icon: a sitting cat on the black disc, with the same dot eyes as the bot avatars. It replaces the rocket in the desktop app and installer, the web app (tab icon, home-screen and installed-app icons), onboarding, Settings › About, the marketing site and its social preview card. The desktop app shows it after the next release.
 
 ### Switch layouts any time
 

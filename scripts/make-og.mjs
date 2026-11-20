@@ -58,17 +58,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
     <rect x="470" y="250" width="${W - 470}" height="${H - 250}" rx="20" fill="none" stroke="#dcdfe5" stroke-width="1.5"/>
 
     <!-- mark -->
-    <g transform="translate(72 84) scale(0.0938)">
-      <circle cx="512" cy="512" r="512" fill="#111214"/>
-      <g transform="translate(512 512) rotate(45) translate(-512 -512)" fill="#FFFFFF">
-        <path d="M512 176c96 0 168 128 168 336v168H344V512c0-208 72-336 168-336z"/>
-        <path d="M344 560l-96 96v128l96-64zM680 560l96 96v128l-96-64z"/>
-        <circle cx="512" cy="452" r="58" fill="#111214"/>
-        <circle cx="512" cy="452" r="34" fill="#FFFFFF"/>
-        <path d="M440 680h144l24 56H416z"/>
-      </g>
-      <circle cx="318" cy="742" r="46" fill="#FFFFFF" opacity="0.9"/>
-      <circle cx="236" cy="808" r="30" fill="#FFFFFF" opacity="0.6"/>
+    <g transform="translate(72 84) scale(0.96)">
+      <circle cx="50" cy="50" r="50" fill="#111214"/>
+      <g fill="#FFFFFF"><path d="M30 88C30 66 36 52 50 52C64 52 70 66 70 88Z"/><circle cx="50" cy="40" r="16"/><path d="M36 33L37 16L47 26Z"/><path d="M64 33L63 16L53 26Z"/></g>
+      <path d="M68 84C82 84 84 72 76 64" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+      <ellipse cx="44" cy="41" rx="2.4" ry="3" fill="#111214"/><ellipse cx="56" cy="41" rx="2.4" ry="3" fill="#111214"/>
     </g>
 
     <text x="180" y="140" font-family="Geist, Segoe UI, sans-serif" font-size="52" font-weight="700" fill="#111214" letter-spacing="-1.4">Toki</text>

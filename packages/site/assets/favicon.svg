@@ -1,18 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- Toki mark: black disc, white rocket tilted 45°, two exhaust puffs. -->
-  <circle cx="512" cy="512" r="512" fill="#111214"/>
-  <g transform="translate(512 512) rotate(45) translate(-512 -512)" fill="#FFFFFF">
-    <!-- body -->
-    <path d="M512 176c96 0 168 128 168 336v168H344V512c0-208 72-336 168-336z"/>
-    <!-- fins -->
-    <path d="M344 560l-96 96v128l96-64zM680 560l96 96v128l-96-64z"/>
-    <!-- window -->
-    <circle cx="512" cy="452" r="58" fill="#111214"/>
-    <circle cx="512" cy="452" r="34" fill="#FFFFFF"/>
-    <!-- nozzle -->
-    <path d="M440 680h144l24 56H416z"/>
-  </g>
-  <!-- exhaust puffs (down-left, since rocket points up-right) -->
-  <circle cx="318" cy="742" r="46" fill="#FFFFFF" opacity="0.9"/>
-  <circle cx="236" cy="808" r="30" fill="#FFFFFF" opacity="0.6"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="32" height="32">
+  <!-- Toki mark, tab-icon cut: the eyes are dropped because they vanish at 16 px. -->
+  <circle cx="50" cy="50" r="50" fill="#111214"/>
+  <g fill="#FFFFFF"><path d="M30 88C30 66 36 52 50 52C64 52 70 66 70 88Z"/><circle cx="50" cy="40" r="16"/><path d="M36 33L37 16L47 26Z"/><path d="M64 33L63 16L53 26Z"/></g>
+  <path d="M68 84C82 84 84 72 76 64" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
 </svg>
