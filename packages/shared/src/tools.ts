@@ -65,6 +65,8 @@ export const HUB_TOOLS: Readonly<Record<string, HubToolClass>> = Object.freeze(O
     'where_to_run',
     // Machines: the registry with each one's policy, read-only.
     'list_machines',
+    // Posts one ask for help in the turn's own room (and wakes support there); rate limited per blocker.
+    'escalate',
     // Notes live in the bot's own home.
     'search_notes', 'write_note',
     // M6: a provider other than Claude reads its own approved skills as text. Read-only.

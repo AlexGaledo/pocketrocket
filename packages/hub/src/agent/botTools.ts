@@ -41,6 +41,7 @@ import { KEY_NAME_RE, loadKeyRegistry, routeByNeeds, type KeyRegistry } from '..
 import path from 'node:path';
 import { DECISIONS_FILE, FileRevisionError, relIn, type FileRevisions, type FileRoot, type RevisionAuthor } from '../services/FileRevisions.js';
 import { sandboxActive } from '../providers/sandbox.js';
+import { SUPPORT_HANDLE } from '../services/SeedBots.js';
 
 export interface ToolCtx {
   bot: Bot;
@@ -817,7 +818,7 @@ export function createHubTools(ctx: ToolCtx): HubTool[] {
   if (ctx.workflows) tools.push(...workflowTools(ctx, ctx.workflows, { gate, resolveRoom, resolveAny, sysNote, ROOM_ARG }));
   if (ctx.pcRunner?.isPaired()) tools.push(runOnPcTool(ctx, ctx.pcRunner));
   if (ctx.pcRunner?.isPaired() && ctx.pcSessions && ctx.sessionMoves && ctx.confirmFleetChange) tools.push(proposeMoveTool(ctx, ctx.pcRunner, ctx.sessionMoves));
-  tools.push(whereToRunTool(ctx), listMachinesTool(ctx));
+  tools.push(whereToRunTool(ctx), listMachinesTool(ctx), escalateTool(ctx));
   // ---- P7 (7.2): notes/, searched on demand so memory.md can stay small ----
   tools.push(
     hubTool(
@@ -1736,6 +1737,60 @@ export function whereToRunTool(ctx: ToolCtx): HubTool {
 }
 
 
+/** One post per bot and blocker in this window, so a bot stuck in a loop cannot flood the room with the same ask. */
+export const ESCALATE_COOLDOWN_MS = 30 * 60_000;
+const escalations = new Map<string, number>();
+
+/**
+ * Option A of the 2026-11-20 escalation gap: bots diagnosed a dead service correctly but almost never asked anyone
+ * to fix it, and rewording their skills did not change that. A named tool is the salient way to ask. It posts who is
+ * blocked, the exact error and one concrete ask, addressed to @pocketrocket-support or the owner, and wakes support
+ * when it is in the room. No approval card: it only posts in the turn's own room.
+ */
+export function escalateTool(ctx: ToolCtx, now: () => number = Date.now): HubTool {
+  return hubTool(
+    'escalate',
+    'Ask for help when you are blocked by something you cannot fix yourself: a service or computer that is down, a blocked command, ' +
+      'missing access, a key or an approval. Use it once the same fix has failed twice, instead of retrying or only describing the error. ' +
+      'It posts the blocker in this room for @' + SUPPORT_HANDLE + ' (hub, computer and service problems) or the owner (keys, access, decisions) ' +
+      'and wakes support when it is in the room. Then stop retrying that step: do other work or end your turn.',
+    {
+      to: z.enum(['support', 'owner']).describe('"support" for hub, computer or service problems; "owner" for keys, access, approvals or decisions'),
+      blocked: z.string().min(3).max(300).describe('What you were trying to do'),
+      error: z.string().min(1).max(500).describe('The exact error or symptom, copied, not paraphrased'),
+      ask: z.string().min(3).max(200).describe('The one specific action you need, e.g. "restart my computer"'),
+    },
+    async (a) => {
+      const key = ctx.bot.id + '\n' + a.blocked.trim().toLowerCase();
+      const t = now();
+      const last = escalations.get(key);
+      if (last !== undefined && t - last < ESCALATE_COOLDOWN_MS) {
+        return err('You already escalated this ' + Math.max(1, Math.round((t - last) / 60_000)) + ' min ago. Do not post it again: wait for an answer or work on something else.');
+      }
+      const secret = refuseSecret('ask', a.blocked, a.error, a.ask);
+      if (secret) return secret;
+      const support = ctx.repos.getBotByHandle(SUPPORT_HANDLE);
+      const toSupport = a.to === 'support' && !!support && support.id !== ctx.bot.id;
+      const who = toSupport ? '@' + SUPPORT_HANDLE : ownerTag();
+      const body = '🚩 Blocked, need help. ' + who + ': please ' + a.ask.trim().replace(/[.\s]+$/, '') + '.\n' +
+        'Trying to: ' + a.blocked.trim() + '\nError: ' + redact(a.error.trim());
+      const msg = ctx.repos.insertMessage({
+        roomId: ctx.room.id, authorType: 'bot', authorId: ctx.bot.id, kind: 'text', text: body, payload: null,
+        causeId: ctx.causeId, hop: ctx.hop, turnId: ctx.turnId,
+      });
+      events.emitEvent({ type: 'message.new', message: msg });
+      escalations.set(key, t);
+      const woke = toSupport && ctx.members.some((m) => m.id === support!.id) ? ctx.dispatchFromBot([support!]) : [];
+      const where = woke.length
+        ? 'and woke @' + SUPPORT_HANDLE
+        : toSupport
+          ? '(@' + SUPPORT_HANDLE + ' is not in this room, so the owner will see it here)'
+          : 'for the owner';
+      return text('Posted ' + where + '. Stop retrying that step: do other work, or end your turn and wait for an answer.');
+    },
+  );
+}
+
 // ===================================================================================================
 // G1 tasks, G2 history search and recall, G5 bot self-reports. Everything below is one block.
 // Tasks, search results and reports are local data: no tool here changes a setting, an approval or the fleet, and what
@@ -1884,7 +1939,7 @@ function taskSearchReportTools(ctx: ToolCtx): HubTool[] {
 
   const reportBlocked = hubTool(
     'report_blocked',
-    'Tell the owner a site stopped you (captcha, login wall, a block). Posts a note in this room and adds it to their review list. It does not hand over your screen; use request_takeover for that. Limited to a few reports an hour.',
+    'Tell the owner a site stopped you (captcha, login wall, a block). Posts a note in this room and adds it to their review list. It does not hand over your screen; use request_takeover for that. For your own computer, browser or another service being down, use escalate instead. Limited to a few reports an hour.',
     {
       site: z.string().min(1).max(200).describe('Site or page, e.g. "example.com/checkout"'),
       reason: z.string().min(3).max(500).describe('What happened and what you need'),
