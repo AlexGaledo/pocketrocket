@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Cozy Toki
+
+- A warmer look across the app, the website and the desktop window: cream paper in light mode, a brown-charcoal dark mode (no more blue-black), a terracotta accent, softer shadows and rounder corners. Titles use Nunito, bundled with the app. Every text colour still meets WCAG AA in both themes.
+- The desktop start window shows the Toki cat instead of the old rocket.
+- Friendlier words in a few quiet places: an empty chat says "All quiet here. Say hi whenever you're ready.", and Needs you says "All caught up."
+- An exported bot now saves as `<handle>.toki-bot.json`. Import still takes any bot `.json`, old exports included.
+
 ## [0.5.3] - 2026-11-20
 
 v0.5.2 was tagged but never published: the repository was renamed while its release was building, and its files were lost. Everything planned for 0.5.2 ships here.
