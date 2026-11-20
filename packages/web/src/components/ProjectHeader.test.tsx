@@ -62,6 +62,15 @@ describe('ProjectHeader', () => {
     expect(render()).toMatch(/aria-selected="true"[^>]*>Map</);
   });
 
+  it('has a Tasks tab after Map, selected while the project tasks page is open', () => {
+    setup();
+    const html = render();
+    expect(html.indexOf('>Map<')).toBeLessThan(html.indexOf('>Tasks<'));
+    expect(html).toContain('aria-controls="project-panel-tasks"');
+    setup({ page: { kind: 'projectTasks', slug: 'toki' } });
+    expect(render()).toMatch(/aria-selected="true"[^>]*>Tasks</);
+  });
+
   it('keeps the room line: # room, faces, badges, then group details, Files and Screen in that order', () => {
     setup();
     const html = render();

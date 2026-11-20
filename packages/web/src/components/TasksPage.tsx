@@ -34,6 +34,11 @@ export function TasksPage() {
   );
 }
 
+/** New layout: a project's Tasks tab, under the project header (App.tsx). The board of the project's own room. */
+export function ProjectTasks({ roomId }: { roomId: string }) {
+  return <PageBody><div className="pt-4"><Board key={roomId} roomId={roomId} /></div></PageBody>;
+}
+
 function Board({ roomId }: { roomId: string }) {
   const toast = useStore((s) => s.toast);
   const rev = useStore((s) => s.tasksRev[roomId] ?? 0);

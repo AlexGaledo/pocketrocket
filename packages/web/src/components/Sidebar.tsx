@@ -14,6 +14,7 @@ import { toolPhrase } from '../lib/toolPhrases';
 import { PopoutButton } from './PopoutButton';
 import { activeFor, onBackupText } from '../lib/failover';
 import { useLayout } from '../lib/layout';
+import { useActiveProject } from '../lib/useProject';
 import { buildProjectTree, type ProjectNode } from '../lib/projectTree';
 import type { InboxItem } from '../lib/inbox';
 import type { Bot, Message, ProviderInfo, Room } from '@pocketrocket/shared';
@@ -116,7 +117,9 @@ export function Sidebar() {
   const inbox = useInbox();
   const waiting = inbox.length;
   const inboxOpen = useStore((s) => s.page?.kind === 'inbox');
-  const tasksOpen = useStore((s) => s.page?.kind === 'tasks');
+  const tasksOpen = useStore((s) => s.page?.kind === 'tasks' || s.page?.kind === 'projectTasks');
+  // New layout, in a project's room: Tasks is that project's tab, under its header, not a page over everything.
+  const activeProject = useActiveProject();
   const pcSessionsOpen = useStore((s) => s.page?.kind === 'pcsessions');
   const [importing, setImporting] = useState(false);
   const connected = useStore((s) => s.connected);
@@ -168,6 +171,7 @@ export function Sidebar() {
         unread={dm ? unread[dm.id] ?? 0 : 0}
         onOpen={() => void openDm(b.id)}
         onSettings={device ? undefined : () => openDialog({ kind: 'bot', bot: b })}
+        wrap={toki}
       />
     );
   };
@@ -235,7 +239,7 @@ export function Sidebar() {
         <button
           className={cn('mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent', tasksOpen ? 'bg-active text-fg' : 'text-muted hover:text-fg')}
           aria-current={tasksOpen ? 'page' : undefined}
-          onClick={() => { useStore.getState().openPage({ kind: 'tasks' }); leaveDrawer(); }}
+          onClick={() => { useStore.getState().openPage(activeProject ? { kind: 'projectTasks', slug: activeProject.slug } : { kind: 'tasks' }); leaveDrawer(); }}
         >
           <ListChecks size={15} aria-hidden className="shrink-0" />
           <span className="flex-1">Tasks</span>
@@ -263,7 +267,9 @@ export function Sidebar() {
       )}
 
       <div className="flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
-        {needsYou.length > 0 && (
+        {/* New layout: not repeated here. The pinned Needs you row above counts every item and opens them all, and the
+            tree below marks each project, room and bot that waits on you, so this list would be a third copy. */}
+        {!toki && needsYou.length > 0 && (
           <section aria-label={'Needs you: ' + needsYou.length} className="mb-1">
             <div className="mb-0.5 flex items-center gap-1.5 px-3 pt-2 text-label text-warn">
               <Hand size={13} aria-hidden /> Needs you <span className="text-hint">{needsYou.length}</span>
@@ -354,7 +360,9 @@ export function Sidebar() {
         </>)}
       </div>
 
-      <div className="flex items-center gap-1 pr-2.5">
+      {/* New layout: a hairline where the list ends, so a row cut off by scrolling reads as scrolled, not as sliding
+          under the profile. */}
+      <div className={cn('flex items-center gap-1 pr-2.5', toki && 'border-t border-line pt-2')}>
         <div className="min-w-0 flex-1"><ProfileMenu onNavigate={leaveDrawer} /></div>
         <Tooltip content="Pair a phone"><button className={ROUND} aria-label="Pair a phone" onClick={() => openDialog({ kind: 'settings', section: 'devices' })}><QrCode size={16} /></button></Tooltip>
       </div>
@@ -400,8 +408,11 @@ function ProjectsTree({ inbox, statusOf, podiumBots, dmFor, collapsed, toggle, r
   if (!helloReceived) return <SkeletonRows count={4} />;
 
   const isOpenDm = (b: Bot) => dmFor(b.id)?.id === activeRoomId;
-  /** A folded section still shows the chat you are in. */
-  const shown = (open: boolean, list: Bot[]) => (open ? list : list.filter(isOpenDm));
+  /**
+   * A folded section still shows the chat you are in, and any bot that waits on you: this layout has no separate
+   * "Needs you" bot list, so folding must never hide one.
+   */
+  const shown = (open: boolean, list: Bot[]) => (open ? list : list.filter((b) => isOpenDm(b) || statusOf(b.id) === 'needs_you'));
   const unreadOf = (list: Bot[]) => list.reduce((n, b) => { const dm = dmFor(b.id); return n + (dm ? unread[dm.id] ?? 0 : 0); }, 0);
   const waitingIn = (roomId: string | undefined) => (roomId ? inbox.filter((i) => i.roomId === roomId).length : 0);
   const soloOpen = !collapsed.has(SOLO_SECTION);
@@ -519,7 +530,7 @@ function ProjectItem({ node, open, waiting, unread, roomActive, onToggle, onOpen
           onClick={onOpen}
         >
           <span aria-hidden className={cn('h-[7px] w-[7px] shrink-0 rounded-full', active ? 'bg-accent' : 'ring-[1.5px] ring-inset ring-faint')} />
-          <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
+          <span className="min-w-0 flex-1 font-medium [overflow-wrap:anywhere]">{project.name}</span>
           {waiting > 0 && <Badge tone="needs">{waiting}<span className="sr-only"> waiting on you</span></Badge>}
           {unread > 0 && <span className="h-2 w-2 shrink-0 rounded-full bg-accent"><span className="sr-only">{unread} unread</span></span>}
         </button>
@@ -534,7 +545,7 @@ function ProjectItem({ node, open, waiting, unread, roomActive, onToggle, onOpen
                 onClick={onOpen}
               >
                 <span aria-hidden className="font-mono text-dim">#</span>
-                <span className="min-w-0 truncate">{room.name}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">{room.name}</span>
               </button>
               {onRoomSettings && <button
                 className="mr-1.5 hidden shrink-0 rounded-sm p-1 text-muted hover:bg-hover hover:text-fg focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent group-hover:block group-focus-within:block [@media(hover:none)]:block"
@@ -554,8 +565,10 @@ function ProjectItem({ node, open, waiting, unread, roomActive, onToggle, onOpen
 }
 
 /** One bot in the sidebar. The second line says who must act, in words and color, and never names a tool. */
-function BotRow({ bot, status, backupText, activity, preview, active, unread, onOpen, onSettings }: {
+function BotRow({ bot, status, backupText, activity, preview, active, unread, onOpen, onSettings, wrap = false }: {
   bot: Bot;
+  /** New layout: the name alone, wrapping instead of being cut off (a bot's name is at most 40 characters). */
+  wrap?: boolean;
   status: BotStatus;
   /** M8: "On Gemini until 14:00" while its attended turns run on the backup; it stands in for the idle preview. */
   backupText?: string | null;
@@ -581,7 +594,8 @@ function BotRow({ bot, status, backupText, activity, preview, active, unread, on
       <button className={ROW} aria-current={active ? 'page' : undefined} onClick={onOpen}>
         <Avatar bot={bot} {...avatarStatus(status)} size={34} />
         <span className="block min-w-0 flex-1">
-          <span className="block truncate text-ui font-medium" title={label}>{label}</span>
+          {/* New layout: the name alone, wrapped whole; its title is in the hover text and on the bot's page. */}
+          <span className={cn('block text-ui font-medium', wrap ? '[overflow-wrap:anywhere]' : 'truncate')} title={label}>{wrap ? bot.name : label}</span>
           <span className={cn('block truncate text-hint', tone)} title={sub}>
             {status === 'needs_you' && <Hand size={11} aria-hidden className="mr-1 inline align-[-1px]" />}
             {sub}
@@ -671,7 +685,7 @@ function GroupHeader({ room, statusOf, active, unread, collapsed, count, onToggl
         onClick={onClick}
       >
         {asRow && <span aria-hidden className="w-[7px] shrink-0 text-center font-mono text-dim">#</span>}
-        <span className={cn('truncate', active && 'text-fg', asRow && 'min-w-0 flex-1')}>{room.name}</span>
+        <span className={cn(active && 'text-fg', asRow ? 'min-w-0 flex-1 [overflow-wrap:anywhere]' : 'truncate')}>{room.name}</span>
         <FoldedCount collapsed={collapsed} count={count} />
         {needs > 0
           ? (asRow ? <Badge tone="needs">{needs}<span className="sr-only"> {needs === 1 ? 'needs' : 'need'} you</span></Badge> : <span className="shrink-0 text-hint text-warn">{needs} {needs === 1 ? 'needs' : 'need'} you</span>)

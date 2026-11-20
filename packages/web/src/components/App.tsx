@@ -22,7 +22,7 @@ import { BotPage } from './BotPage';
 import { AutomationsPage, UsagePage } from './FleetPages';
 import { WorkflowPage } from './workflows/WorkflowPage';
 import { InboxPage } from './InboxPage';
-import { TasksPage } from './TasksPage';
+import { ProjectTasks, TasksPage } from './TasksPage';
 import { PcSessionsPage } from './PcSessionsPage';
 import { useInbox } from '../lib/useInbox';
 import { titleWithCount } from '../lib/inbox';
@@ -84,9 +84,14 @@ export function App() {
   const filesShown = filesOpen && !focus;
   const overviewShown = overviewOpen && !focus;
   const covering = !panelInline && (screenSize !== 'glance' || filesShown || overviewShown);
+  // The overview over a narrow window is a sheet pulled up from the bottom, not a full cover: it is a glance at what
+  // waits, and the chat stays in sight above it. The screen and Files keep the whole window, they need the room.
+  const sheet = covering && overviewShown && !filesShown && screenSize === 'glance';
   // A project's Map tab lies over its chat under the project header; every other page covers the whole pane.
   const mapPage = page?.kind === 'map' && !!projectRoom;
-  const coverPage = page && page.kind !== 'map' ? page : null;
+  // Its Tasks tab, likewise under the header.
+  const tasksTab = page?.kind === 'projectTasks' && !!projectRoom;
+  const coverPage = page && page.kind !== 'map' && page.kind !== 'projectTasks' ? page : null;
 
   // U3: the skill pool feeds the Needs you inbox; refetched when skills change. The tab title carries the count.
   const skillsRev = useStore((s) => s.skillsRev);
@@ -218,6 +223,11 @@ export function App() {
               {project && projectRoom && <Suspense fallback={<div aria-hidden className="flex-1 bg-canvas" />}><MapPage project={project} room={projectRoom} /></Suspense>}
             </div>
           )}
+          {tasksTab && projectRoom && (
+            <div id={PROJECT_TAB_IDS.tasks.panel} role="tabpanel" aria-labelledby={PROJECT_TAB_IDS.tasks.tab} className="@container panel absolute inset-0 flex flex-col">
+              <ProjectTasks roomId={projectRoom.id} />
+            </div>
+          )}
         </div>
         {coverPage && (
           <div className="@container panel absolute inset-0 flex flex-col">
@@ -226,6 +236,7 @@ export function App() {
         )}
       </main>
       {panelInline && !focus && !(overviewShown && overviewRail) && <PaneSeparator pane="panel" label={filesShown ? 'Resize files' : overviewShown ? 'Resize overview' : 'Resize screen'} controls="pane-panel" />}
+      {sheet && <div aria-hidden className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[2px] dark:bg-black/60" onClick={closePanel} />}
       {/* One element at every size, thumbnail included, with only its CSS changing. Moving an iframe in the DOM
           reloads it, which would spend a ticket and drop the noVNC connection on every change of size. */}
       <div
@@ -243,7 +254,13 @@ export function App() {
             closePanel();
           }
         }}
-        className={cn('flex focus:outline-none', covering ? 'fixed inset-0 z-30 bg-bg pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]' : focus ? 'min-w-0 flex-1' : 'shrink-0')}
+        className={cn(
+          'flex focus:outline-none',
+          // The sheet: full width, top corners rounded like a dialog's, as tall as its content up to just under the
+          // top edge, clear of the home indicator. No transition, so nothing new moves.
+          sheet ? 'fixed inset-x-0 bottom-0 z-30 max-h-[calc(100dvh-2.5rem)] overflow-clip rounded-t-xl bg-panel pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-lg)]'
+            : covering ? 'fixed inset-0 z-30 bg-bg pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]' : focus ? 'min-w-0 flex-1' : 'shrink-0',
+        )}
         style={covering || focus ? undefined : { width: 'var(--panel-w)' }}
       >
         {/* Under Files the screen stays mounted: a thumbnail while the bot uses it, else hidden but connected. */}

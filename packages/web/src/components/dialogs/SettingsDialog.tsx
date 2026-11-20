@@ -131,7 +131,8 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
             <DialogTitle>Settings</DialogTitle>
             <div className="sm:hidden"><DialogCloseButton /></div>
           </div>
-          <TabsPrimitive.List aria-label="Settings sections" className="-mx-3 flex gap-1 overflow-x-auto px-3 py-1 sm:mx-0 sm:flex-col sm:overflow-visible sm:px-0">
+          {/* On a phone the names wrap onto a few rows instead of scrolling sideways, so no section is ever half off-screen. */}
+          <TabsPrimitive.List aria-label="Settings sections" className="flex flex-wrap gap-1 py-1 sm:flex-col sm:flex-nowrap">
             {sections.map(({ id, label, icon: Icon }) => (
               <TabsPrimitive.Trigger
                 key={id}
@@ -140,7 +141,7 @@ export function SettingsDialog({ section: opening, onClose }: { section?: Sectio
                   ? 'flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-ui text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:bg-active data-[state=active]:text-fg sm:gap-2.5'
                   : 'flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-ui text-muted hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent data-[state=active]:bg-active data-[state=active]:text-fg sm:gap-2.5 sm:px-3 sm:py-2'}
               >
-                {/* Icons only in the side list; the top strip needs the room to fit every name (it scrolls when it cannot). */}
+                {/* Icons only in the side list; the top rows need the room to fit every name. */}
                 <Icon size={15} aria-hidden className="hidden shrink-0 sm:block" />
                 {id === 'claude' && list.length > 1 ? 'Providers' : label}
                 {id === 'claude' && claudeNeedsAttention && (

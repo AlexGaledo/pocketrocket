@@ -273,14 +273,16 @@ export function Onboarding() {
 /**
  * "Connect Claude": the provider check as a setup step. It checks again every few seconds while it is
  * failing, so someone following the install steps in a terminal sees it pass without pressing anything.
- * Continue waits for a check made since the step opened: the list's cached answer can be a minute old,
- * or a placeholder when GET /api/providers failed.
+ * The signed-in row waits for a check made since the step opened: the list's cached answer can be a minute old,
+ * or a placeholder when GET /api/providers failed. Continue follows what the step shows: while the cached answer
+ * says Ready and the fresh check is still running, it is open; a fresh check that fails closes it again.
  */
 function ConnectStep({ info, onBack, onNext }: { info: ProviderInfo | undefined; onBack: () => void; onNext: () => void }) {
   const [fresh, setFresh] = useState(false);
   const continueRef = useRef<HTMLButtonElement>(null);
   const label = info?.label ?? 'Claude';
   const ready = fresh && !!info?.check.ok;
+  const canContinue = !!info?.check.ok;
 
   const onChecked = (check: ProviderCheck) => {
     setFresh(true);
@@ -290,8 +292,8 @@ function ConnectStep({ info, onBack, onNext }: { info: ProviderInfo | undefined;
 
   // Keyboard users land on the way forward the moment it opens up.
   useEffect(() => {
-    if (ready) continueRef.current?.focus();
-  }, [ready]);
+    if (canContinue) continueRef.current?.focus();
+  }, [canContinue]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -318,7 +320,7 @@ function ConnectStep({ info, onBack, onNext }: { info: ProviderInfo | undefined;
         </button>
         <div className="flex gap-2">
           <Button onClick={onBack}>Back</Button>
-          <Button ref={continueRef} variant="primary" disabled={!ready} onClick={onNext}>Continue</Button>
+          <Button ref={continueRef} variant="primary" disabled={!canContinue} onClick={onNext}>Continue</Button>
         </div>
       </div>
     </div>

@@ -14,6 +14,8 @@ import { PageHeader, useNewPages } from './PageHeader';
 import { groupByProject } from '../lib/inboxGroups';
 import { WorkflowApprovalCardView } from './workflows/WorkflowCard';
 import { FailoverCardView } from './FailoverCard';
+import { NeedsYouDock } from './ChatPane';
+import { useToki } from '../lib/useProject';
 
 const KIND_ICON = { approval: ShieldQuestion, takeover: Monitor, skill: Sparkles, form: ClipboardList, workflow: WorkflowIcon, failover: Gauge } as const;
 
@@ -21,6 +23,8 @@ export function InboxPage() {
   const items = useInbox();
   const ready = useStore((s) => s.helloReceived && s.inboxSkills !== null);
   const fresh = useNewPages();
+  // New layout: a composer docked at the foot of the page, for answering without leaving it (ChatPane.tsx).
+  const dock = useToki();
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -46,6 +50,7 @@ export function InboxPage() {
           )
         )}
       </PageBody>
+      {dock && <NeedsYouDock />}
     </>
   );
 }
