@@ -59,10 +59,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
 
     <!-- mark -->
     <g transform="translate(72 84) scale(0.96)">
-      <circle cx="50" cy="50" r="50" fill="#111214"/>
+      <circle cx="50" cy="50" r="50" fill="#3a2d23"/>
       <g fill="#FFFFFF"><path d="M30 88C30 66 36 52 50 52C64 52 70 66 70 88Z"/><circle cx="50" cy="40" r="16"/><path d="M36 33L37 16L47 26Z"/><path d="M64 33L63 16L53 26Z"/></g>
       <path d="M68 84C82 84 84 72 76 64" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
-      <ellipse cx="44" cy="41" rx="2.4" ry="3" fill="#111214"/><ellipse cx="56" cy="41" rx="2.4" ry="3" fill="#111214"/>
+      <ellipse cx="44" cy="41" rx="2.4" ry="3" fill="#3a2d23"/><ellipse cx="56" cy="41" rx="2.4" ry="3" fill="#3a2d23"/>
     </g>
 
     <text x="180" y="140" font-family="Nunito, Segoe UI, sans-serif" font-size="52" font-weight="800" fill="#33291f" letter-spacing="-1.4">Toki</text>
