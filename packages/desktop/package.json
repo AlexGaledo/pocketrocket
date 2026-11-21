@@ -1,6 +1,6 @@
 {
   "name": "@pocketrocket/desktop",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "license": "MIT",
   "description": "Toki desktop app: native window + managed SSH tunnel to the hub",
