@@ -39,7 +39,7 @@ export function InboxPage() {
             {[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 w-full rounded-2xl" />)}
           </SkeletonGroup>
         ) : items.length === 0 ? (
-          <EmptyState icon={<Inbox size={18} />} title="Nothing needs you" as="h2">
+          <EmptyState icon={<Inbox size={18} />} title="All caught up" as="h2">
             When a bot asks for approval, needs you on its screen or proposes a skill, it shows up here.
           </EmptyState>
         ) : (

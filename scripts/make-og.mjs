@@ -35,13 +35,13 @@ const SHOT_H = (SHOT_W * 1800) / 2880;
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.55" stop-color="#f7f7f8"/>
-      <stop offset="1" stop-color="#eceef3"/>
+      <stop offset="0" stop-color="#fffcf7"/>
+      <stop offset="0.55" stop-color="#faf6ef"/>
+      <stop offset="1" stop-color="#f1e8dc"/>
     </linearGradient>
     <radialGradient id="wash" cx="0.86" cy="0.1" r="0.75">
-      <stop offset="0" stop-color="#4f7df3" stop-opacity="0.16"/>
-      <stop offset="1" stop-color="#4f7df3" stop-opacity="0"/>
+      <stop offset="0" stop-color="#d68c5a" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#d68c5a" stop-opacity="0"/>
     </radialGradient>
     <clipPath id="card"><rect x="0" y="0" width="${W}" height="${H}"/></clipPath>
     <clipPath id="shotClip"><rect x="470" y="250" width="${W - 470}" height="${H - 250}" rx="20"/></clipPath>
@@ -55,7 +55,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
     <g clip-path="url(#shotClip)">
       <image xlink:href="${shot}" x="470" y="250" width="${SHOT_W}" height="${SHOT_H}" preserveAspectRatio="xMinYMin slice"/>
     </g>
-    <rect x="470" y="250" width="${W - 470}" height="${H - 250}" rx="20" fill="none" stroke="#dcdfe5" stroke-width="1.5"/>
+    <rect x="470" y="250" width="${W - 470}" height="${H - 250}" rx="20" fill="none" stroke="#e4d8c6" stroke-width="1.5"/>
 
     <!-- mark -->
     <g transform="translate(72 84) scale(0.96)">
@@ -65,13 +65,13 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
       <ellipse cx="44" cy="41" rx="2.4" ry="3" fill="#111214"/><ellipse cx="56" cy="41" rx="2.4" ry="3" fill="#111214"/>
     </g>
 
-    <text x="180" y="140" font-family="Geist, Segoe UI, sans-serif" font-size="52" font-weight="700" fill="#111214" letter-spacing="-1.4">Toki</text>
-    <text x="72" y="232" font-family="Geist, Segoe UI, sans-serif" font-size="34" font-weight="500" fill="#3b4048" letter-spacing="-0.6">Your pocket fleet of AI agents.</text>
-    <text x="72" y="300" font-family="Geist, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#6e7681">Claude · Codex · OpenCode · Grok</text>
-    <text x="72" y="336" font-family="Geist, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#6e7681">Runs on your machine. Windows installer.</text>
+    <text x="180" y="140" font-family="Nunito, Segoe UI, sans-serif" font-size="52" font-weight="800" fill="#33291f" letter-spacing="-1.4">Toki</text>
+    <text x="72" y="232" font-family="Nunito, Segoe UI, sans-serif" font-size="34" font-weight="500" fill="#4a3c30" letter-spacing="-0.6">Your pocket fleet of AI agents.</text>
+    <text x="72" y="300" font-family="Nunito, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#675748">Claude · Codex · OpenCode · Grok</text>
+    <text x="72" y="336" font-family="Nunito, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#675748">Runs on your machine. Windows installer.</text>
 
-    <rect x="72" y="392" width="196" height="46" rx="23" fill="#111214"/>
-    <text x="170" y="422" text-anchor="middle" font-family="Geist, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#ffffff">Free &amp; open source</text>
+    <rect x="72" y="392" width="196" height="46" rx="23" fill="#3a2d23"/>
+    <text x="170" y="422" text-anchor="middle" font-family="Nunito, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#fffaf2">Free &amp; open source</text>
   </g>
 </svg>`;
 

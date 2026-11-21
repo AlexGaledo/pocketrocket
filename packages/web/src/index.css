@@ -3,83 +3,86 @@
 
 /* ---- tokens: warm, flat canvas by default; .dark swaps the same names ---- */
 :root {
-  --bg: #f8f8f6;          /* app, chat, sidebar: one surface */
+  /* Cozy: warm cream paper, espresso ink, one terracotta accent. Every text colour is AA on every surface it sits on. */
+  --bg: #faf6ef;          /* app, chat, sidebar: one surface */
   --side: transparent;    /* sidebar sits directly on the canvas */
-  --panel: #fdfdfb;       /* floating things only: composer, popovers, dialogs, toasts */
-  --card: #fdfdfb;
-  --card2: #f0efec;       /* soft fills: inputs, code, chips */
-  --user: #efeeea;        /* the user's bubble */
-  --line: #e8e7e3;        /* decorative hairline */
-  --line2: #d6d5d0;       /* decorative, stronger */
-  --fg: #2b2b29;
-  --muted: #62615d;       /* AA on every surface text sits on */
-  --dim: #6c6b67;         /* AA too: quieter than --muted, for captions and placeholders */
-  --faint: #878681;       /* 3:1 only: icons and control boundaries, never text */
-  --accent: #1f5ac6;      /* one signal color: links, focus */
-  --accent2: #194ba6;     /* accent hover */
-  --ok: #10693f;
-  --warn: #845008;
-  --bad: #ae2a35;
-  --ink: #2b2b29;         /* primary actions */
-  --ink-fg: #ffffff;
+  --panel: #fffcf7;       /* floating things only: composer, popovers, dialogs, toasts */
+  --card: #fffcf7;
+  --card2: #f3ece1;       /* soft fills: inputs, code, chips */
+  --user: #f1e8dc;        /* the user's bubble */
+  --line: #ebe2d4;        /* decorative hairline */
+  --line2: #d8ccba;       /* decorative, stronger */
+  --fg: #33291f;
+  --muted: #675748;       /* AA on every surface text sits on */
+  --dim: #716254;         /* AA too: quieter than --muted, for captions and placeholders */
+  --faint: #928273;       /* 3:1 only: icons and control boundaries, never text */
+  --accent: #a84d28;      /* one signal color: links, focus. Terracotta, a warm partner to the cat's black and cream */
+  --accent2: #8c3f1f;     /* accent hover */
+  --ok: #2b6a3d;
+  --warn: #7a5600;        /* ochre, kept clear of the terracotta accent */
+  --bad: #ad2838;
+  --ink: #3a2d23;         /* primary actions: espresso */
+  --ink-fg: #fffaf2;
   --on-fill: #ffffff;     /* text on a solid accent, ok or bad fill; dark ink in dark mode */
   /* Bot icon backgrounds, always under --fg. lib/botIcon.ts picks one from the bot's id. */
-  --tint-1: #e3e8f4; --tint-2: #e2eee6; --tint-3: #f2e8d9; --tint-4: #efe4ee;
-  --tint-5: #dcecee; --tint-6: #e8e4f4; --tint-7: #f4e3de; --tint-8: #e9ebd9;
+  --tint-1: #e6e8f0; --tint-2: #e3ede2; --tint-3: #f5e7d3; --tint-4: #f1e2e8;
+  --tint-5: #ddebe8; --tint-6: #e9e3f0; --tint-7: #f6e1d8; --tint-8: #ebebd6;
   /* File types in the Files panel (components/files). Only on the extension badge and the glyph, never on text
      runs: each is AA as a fill under --on-fill, and 3:1 as a shape on --bg. The folder is a shape only. */
   --ft-doc: #2f5ea8; --ft-pdf: #b0362c; --ft-code: #6a43a6; --ft-image: #14707a;
-  --ft-data: #2b7034; --ft-archive: #86560f; --ft-media: #a1356a; --ft-other: #62615d; --ft-folder: #8f8778;
-  --hover: rgba(50, 35, 10, 0.05);
-  --active: rgba(50, 35, 10, 0.08);
-  --shadow-sm: 0 1px 2px rgba(20, 16, 10, 0.05);
-  --shadow: 0 2px 6px rgba(60, 35, 0, 0.03), 0 8px 12px rgba(60, 35, 0, 0.03);   /* composer, menus */
-  --shadow-overlay: 0 4px 16px rgba(20, 16, 10, 0.10), 0 1px 3px rgba(20, 16, 10, 0.06);   /* toasts, drawers */
-  --shadow-lg: 0 12px 40px rgba(20, 16, 10, 0.18), 0 2px 8px rgba(20, 16, 10, 0.08);   /* dialogs only */
+  --ft-data: #2b7034; --ft-archive: #86560f; --ft-media: #a1356a; --ft-other: #675748; --ft-folder: #8f7c66;
+  --hover: rgba(110, 70, 30, 0.06);
+  --active: rgba(110, 70, 30, 0.10);
+  /* Soft, low and warm: a lamp, not a spotlight. */
+  --shadow-sm: 0 1px 2px rgba(80, 50, 20, 0.06);
+  --shadow: 0 2px 8px rgba(80, 50, 20, 0.05), 0 10px 24px rgba(80, 50, 20, 0.05);   /* composer, menus */
+  --shadow-overlay: 0 6px 20px rgba(60, 38, 15, 0.10), 0 1px 3px rgba(60, 38, 15, 0.06);   /* toasts, drawers */
+  --shadow-lg: 0 16px 44px rgba(60, 38, 15, 0.16), 0 2px 8px rgba(60, 38, 15, 0.06);   /* dialogs only */
   color-scheme: light;
 }
 .dark {
-  --bg: #1c1c1b;
+  /* Brown-charcoal, like a room lit by a lamp; never blue-black. */
+  --bg: #1e1915;
   --side: transparent;
-  --panel: #262524;
-  --card: #262524;
-  --card2: #302f2d;
-  --user: #33322f;
-  --line: #373634;
-  --line2: #57564f;
-  --fg: #e8e7e4;
-  --muted: #b0afa9;
-  --dim: #a3a29c;
-  --faint: #7d7c77;
-  --accent: #86b2ff;
-  --accent2: #a3c5ff;
-  --ok: #4fd19b;
-  --warn: #f0a95c;
-  --bad: #ff8a8a;
-  --ink: #e8e7e4;
-  --ink-fg: #1c1c1b;
-  --on-fill: #1c1c1b;
-  --tint-1: #2d3647; --tint-2: #27372f; --tint-3: #40362a; --tint-4: #3a2e3a;
-  --tint-5: #243a3d; --tint-6: #332f47; --tint-7: #43302a; --tint-8: #353928;
+  --panel: #29221d;
+  --card: #29221d;
+  --card2: #322a24;
+  --user: #3a3029;
+  --line: #3c332c;
+  --line2: #5d5047;
+  --fg: #f2e9df;
+  --muted: #c6b6a6;
+  --dim: #b8a898;
+  --faint: #8c7c6e;
+  --accent: #f2a57f;
+  --accent2: #f7bd9d;
+  --ok: #84d4a2;
+  --warn: #f0c35e;
+  --bad: #ff9196;
+  --ink: #f2e9df;
+  --ink-fg: #1e1915;
+  --on-fill: #1e1915;
+  --tint-1: #323646; --tint-2: #2d3a2f; --tint-3: #45372a; --tint-4: #3f2f37;
+  --tint-5: #2a3a39; --tint-6: #383145; --tint-7: #48322a; --tint-8: #3a3b2a;
   --ft-doc: #8fb2f2; --ft-pdf: #ff9c90; --ft-code: #c4a8ff; --ft-image: #6fd2da;
-  --ft-data: #8fd694; --ft-archive: #e8b864; --ft-media: #f59cc8; --ft-other: #b0afa9; --ft-folder: #7f7a6f;
-  --hover: rgba(255, 255, 255, 0.06);
-  --active: rgba(255, 255, 255, 0.10);
+  --ft-data: #8fd694; --ft-archive: #e8b864; --ft-media: #f59cc8; --ft-other: #c6b6a6; --ft-folder: #85776a;
+  --hover: rgba(255, 236, 214, 0.06);
+  --active: rgba(255, 236, 214, 0.10);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.18);
-  --shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 8px 12px rgba(0, 0, 0, 0.10);
-  --shadow-overlay: 0 4px 16px rgba(0, 0, 0, 0.40), 0 1px 3px rgba(0, 0, 0, 0.30);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow: 0 2px 8px rgba(10, 5, 0, 0.14), 0 10px 24px rgba(10, 5, 0, 0.12);
+  --shadow-overlay: 0 6px 20px rgba(10, 5, 0, 0.38), 0 1px 3px rgba(10, 5, 0, 0.28);
+  --shadow-lg: 0 16px 44px rgba(10, 5, 0, 0.50), 0 2px 8px rgba(10, 5, 0, 0.30);
   color-scheme: dark;
 }
 
 /* Shape and rhythm; the same in both themes. Pills (rounded-full) are for avatars, status badges and toggles only. */
 :root {
-  --r-xs: 6px;            /* chips, inline code */
-  --r-sm: 8px;            /* sidebar rows, menu items */
-  --r-md: 10px;           /* buttons, inputs */
-  --r-lg: 14px;           /* cards, code blocks */
-  --r-xl: 18px;           /* dialogs, popovers */
-  --r-composer: 24px;
+  --r-xs: 7px;            /* chips, inline code */
+  --r-sm: 10px;           /* sidebar rows, menu items */
+  --r-md: 12px;           /* buttons, inputs */
+  --r-lg: 16px;           /* cards, code blocks */
+  --r-xl: 22px;           /* dialogs, popovers */
+  --r-composer: 26px;
   --page-max: 800px;      /* the chat column */
   /* In em so a note in small text keeps its proportions; at the 15px body these are 16, 32 and 8px. */
   --para-gap: 1.0667em;
@@ -105,7 +108,7 @@
   --edge: var(--faint);
   --glow: 0 0 22px -8px color-mix(in oklab, var(--accent) 55%, transparent);
 }
-.dark { --canvas: #181817; }
+.dark { --canvas: #1a1512; }
 
 /*
  * New layout, phone width: a dialog is a sheet pulled up from the bottom edge (DialogShell adds `pr-sheet` only in the
@@ -205,6 +208,10 @@
 
 :root { --app-font: "Google Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 :root[data-font="figtree"] { --app-font: "Figtree Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+/* Titles get a rounded partner to the body font (bundled, like the others): friendly, never cramped. Body text and
+   the UI scale stay on --app-font, so the reading rhythm and every measured width are unchanged. */
+:root { --font-display: "Nunito Variable", var(--app-font); }
+.text-display, .text-title, .text-title-sm { font-family: var(--font-display); }
 
 html, body, #root { height: 100%; }
 body {

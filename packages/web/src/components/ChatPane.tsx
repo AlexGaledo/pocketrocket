@@ -263,7 +263,7 @@ function Transcript({ roomId }: { roomId: string }) {
         <div className="mx-auto flex max-w-[var(--page-max)] flex-col gap-6">
           {!messages?.length && !pending.length && (
             loaded
-              ? <div className="py-12 text-center text-ui text-muted">Nothing here yet. Say what you need.</div>
+              ? <div className="py-12 text-center text-ui text-muted">All quiet here. Say hi whenever you're ready.</div>
               : <TranscriptSkeleton label="Loading messages" />
           )}
           {groups.map((g, i) => (

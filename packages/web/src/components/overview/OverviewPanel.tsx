@@ -81,7 +81,7 @@ export function OverviewPanel({ inline }: { inline: boolean }) {
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4">
         <section aria-label="Needs you">
           {items.length === 0
-            ? <p className="px-1 pb-1 text-hint text-muted">Nothing needs you here.</p>
+            ? <p className="px-1 pb-1 text-hint text-muted">All caught up.</p>
             : <ul className="space-y-2">{items.map((it) => <li key={it.key}><NeedsCard item={it} covering={!inline} /></li>)}</ul>}
         </section>
 

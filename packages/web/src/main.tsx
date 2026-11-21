@@ -9,6 +9,7 @@ import { initLayout } from './lib/layout';
 import '@fontsource-variable/google-sans/wght.css';
 import '@fontsource-variable/figtree/wght.css';
 import '@fontsource-variable/geist-mono/wght.css';
+import '@fontsource-variable/nunito/wght.css';
 import './index.css';
 
 // P9: a phone that opened `#pair=<code>` from the QR trades it for a device token before the first connect.
