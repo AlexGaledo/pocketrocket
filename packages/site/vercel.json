@@ -7,6 +7,12 @@
   "outputDirectory": ".",
   "redirects": [
     {
+      "source": "/",
+      "has": [{ "type": "host", "value": "pocketrocket-chi.vercel.app" }],
+      "destination": "https://toki-hub.vercel.app/",
+      "permanent": true
+    },
+    {
       "source": "/:path*",
       "has": [{ "type": "host", "value": "pocketrocket-chi.vercel.app" }],
       "destination": "https://toki-hub.vercel.app/:path*",
