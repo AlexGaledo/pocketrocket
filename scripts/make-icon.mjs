@@ -1,4 +1,4 @@
-// Render packages/desktop/icon.svg (black disc + white sitting cat) into every app icon:
+// Render packages/desktop/icon.svg (espresso disc + white sitting cat) into every app icon:
 //  - a 1024² PNG handed to `cargo tauri icon`, which writes the platform set into src-tauri/icons/
 //  - the web app's PWA icons in packages/web/public/icons/ (any, maskable, apple-touch)
 //
@@ -28,7 +28,7 @@ function fullBleed(scale) {
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<circle cx="50" cy="50" r="50"[^>]*\/>/, '');
   const t = 50 - 50 * scale;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#111214"/><g transform="translate(${t} ${t}) scale(${scale})">${inner}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#3a2d23"/><g transform="translate(${t} ${t}) scale(${scale})">${inner}</g></svg>`;
 }
 
 const png = render(source, 1024);
