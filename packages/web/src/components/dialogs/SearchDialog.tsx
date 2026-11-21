@@ -10,7 +10,7 @@ import { projectOfRoom } from '../../lib/projects';
 function Marked({ text, query }: { text: string; query: string }) {
   const at = text.toLowerCase().indexOf(query.toLowerCase());
   if (at < 0) return <>{text}</>;
-  return <>{text.slice(0, at)}<mark className="rounded-xs bg-[#f5b53d] text-[#1a1200]">{text.slice(at, at + query.length)}</mark>{text.slice(at + query.length)}</>;
+  return <>{text.slice(0, at)}<mark className="rounded-xs bg-highlight text-highlight-fg">{text.slice(at, at + query.length)}</mark>{text.slice(at + query.length)}</>;
 }
 
 /** New layout: where a hit is, with its project first when the chat belongs to one; wraps rather than cut off. */

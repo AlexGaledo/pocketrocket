@@ -236,7 +236,7 @@ export function App() {
         )}
       </main>
       {panelInline && !focus && !(overviewShown && overviewRail) && <PaneSeparator pane="panel" label={filesShown ? 'Resize files' : overviewShown ? 'Resize overview' : 'Resize screen'} controls="pane-panel" />}
-      {sheet && <div aria-hidden className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[2px] dark:bg-black/60" onClick={closePanel} />}
+      {sheet && <div aria-hidden className="pr-scrim fixed inset-0 z-30 bg-scrim backdrop-blur-[2px]" onClick={closePanel} />}
       {/* One element at every size, thumbnail included, with only its CSS changing. Moving an iframe in the DOM
           reloads it, which would spend a ticket and drop the noVNC connection on every change of size. */}
       <div
@@ -309,7 +309,7 @@ function Drawer({ label, onClose, children }: { label: string; onClose: () => vo
   }, []);
   return (
     <div className="fixed inset-0 z-30 flex" role="dialog" aria-modal="true" aria-label={label}>
-      <div aria-hidden className="absolute inset-0 bg-black/30 backdrop-blur-[2px] dark:bg-black/60" onClick={onClose} />
+      <div aria-hidden className="pr-scrim absolute inset-0 bg-scrim backdrop-blur-[2px]" onClick={onClose} />
       <div
         ref={ref}
         tabIndex={-1}
@@ -390,7 +390,7 @@ function Toasts() {
         <div
           key={t.id}
           className={cn(
-            'pointer-events-auto flex items-center gap-1 rounded-lg py-1 pl-3.5 pr-1 text-ui shadow-[var(--shadow-overlay)]',
+            'pr-toast pointer-events-auto flex items-center gap-1 rounded-lg py-1 pl-3.5 pr-1 text-ui shadow-[var(--shadow-overlay)]',
             t.bad ? 'bg-bad text-on-fill' : t.warn ? 'bg-warn text-on-fill' : 'bg-ink text-ink-fg',
           )}
         >

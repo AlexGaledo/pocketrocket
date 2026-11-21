@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Download, FileText, Film, Info, Paperclip, Send, ShieldAlert, Square, X, Zap } from 'lucide-react';
+import { ArrowDown, ArrowRightLeft, Check, ChevronDown, Clock, Download, FileText, Film, Info, MessageCircle, Paperclip, Send, ShieldAlert, Square, X, Zap } from 'lucide-react';
 import { CHAT_MODELS, MODELS } from '@pocketrocket/shared';
 import { TokiMark } from './TokiMark';
 import { ChatHeader } from './ChatHeader';
@@ -263,7 +263,7 @@ function Transcript({ roomId }: { roomId: string }) {
         <div className="mx-auto flex max-w-[var(--page-max)] flex-col gap-6">
           {!messages?.length && !pending.length && (
             loaded
-              ? <div className="py-12 text-center text-ui text-muted">All quiet here. Say hi whenever you're ready.</div>
+              ? <EmptyState icon={<MessageCircle size={18} />} title="Nothing here yet" className="py-16">Say hi whenever you're ready.</EmptyState>
               : <TranscriptSkeleton label="Loading messages" />
           )}
           {groups.map((g, i) => (

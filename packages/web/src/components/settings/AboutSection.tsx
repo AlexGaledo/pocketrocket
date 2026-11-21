@@ -34,7 +34,7 @@ export function AboutSection({ health }: { health: HealthResponse | null }) {
           <div>
             <div className="text-title-sm">Toki</div>
             <div className="text-ui text-muted">{health?.version ? 'Version ' + health.version : 'Version unknown'}</div>
-            <div className="text-ui text-muted">Your pocket fleet of AI agents.</div>
+            <div className="text-ui text-muted">A cozy home for your AI helpers.</div>
           </div>
         </div>
       </Group>

@@ -54,7 +54,7 @@ export function RoomDialog({ room, onClose }: { room: Room | null; onClose: () =
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()} title={room ? 'Group details' : 'New group chat'}>
-      <Field><Label>Group chat name</Label><Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} placeholder="launch-plan" autoFocus={!room} /></Field>
+      <Field><Label>Group chat name</Label><Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} placeholder="weekend-plans" autoFocus={!room} /></Field>
       <BotIconPicker botId={null} value={avatar} onChange={setAvatar} label="Group picture" hint="Shown in the sidebar and header" automatic={Hash} />
 
       <div className="mt-4">
