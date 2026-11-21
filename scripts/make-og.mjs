@@ -66,9 +66,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
     </g>
 
     <text x="180" y="140" font-family="Nunito, Segoe UI, sans-serif" font-size="52" font-weight="800" fill="#33291f" letter-spacing="-1.4">Toki</text>
-    <text x="72" y="232" font-family="Nunito, Segoe UI, sans-serif" font-size="34" font-weight="500" fill="#4a3c30" letter-spacing="-0.6">Your pocket fleet of AI agents.</text>
-    <text x="72" y="300" font-family="Nunito, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#675748">Claude · Codex · OpenCode · Grok</text>
-    <text x="72" y="336" font-family="Nunito, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#675748">Runs on your machine. Windows installer.</text>
+    <text x="72" y="222" font-family="Nunito, Segoe UI, sans-serif" font-size="34" font-weight="700" fill="#33291f" letter-spacing="-0.6">A cozy home for</text>
+    <text x="72" y="262" font-family="Nunito, Segoe UI, sans-serif" font-size="34" font-weight="700" fill="#33291f" letter-spacing="-0.6">your AI helpers.</text>
+    <text x="72" y="318" font-family="Nunito, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#675748">Chat one on one or as a group.</text>
+    <text x="72" y="350" font-family="Nunito, Segoe UI, sans-serif" font-size="21" font-weight="400" fill="#675748">Lives on your own computer.</text>
 
     <rect x="72" y="392" width="196" height="46" rx="23" fill="#3a2d23"/>
     <text x="170" y="422" text-anchor="middle" font-family="Nunito, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#fffaf2">Free &amp; open source</text>
