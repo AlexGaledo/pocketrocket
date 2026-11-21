@@ -32,6 +32,8 @@ export function Button({ className, variant = 'outline', size = 'md', ...p }: Bt
     <button
       className={cn(
         'inline-flex items-center justify-center gap-1.5 rounded-md whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none',
+        // Press feedback: a small, quick scale (Emil). Off under reduced motion; colours still change.
+        'transition-[transform,opacity,background-color,color,filter] duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-panel',
         size === 'sm' && 'h-7 px-2.5 text-ui',
         size === 'md' && 'h-8 px-3 text-ui',
@@ -122,14 +124,14 @@ export function DialogShell({ open, onOpenChange, className, hasDescription, rol
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className={cn('fixed inset-0 bg-black/30 backdrop-blur-[2px] dark:bg-black/60', stacked ? 'z-[51]' : 'z-40')} />
+        <DialogPrimitive.Overlay className={cn('pr-scrim fixed inset-0 bg-scrim backdrop-blur-[2px]', stacked ? 'z-[51]' : 'z-40')} />
         <DialogPrimitive.Content
           // Radix warns unless a dialog either has a Description or opts out with an explicit undefined.
           {...(hasDescription ? {} : { 'aria-describedby': undefined })}
           {...(role ? { role } : {})}
           onCloseAutoFocus={onCloseAutoFocus}
           // max-w keeps every dialog inside a phone-width window instead of running off the right edge.
-          className={cn('fixed left-1/2 top-1/2 max-w-[calc(100vw-1.5rem)]', stacked ? 'z-[52]' : 'z-50', '-translate-x-1/2 -translate-y-1/2 rounded-xl bg-panel shadow-[var(--shadow-lg)] focus:outline-none', className, sheet && 'pr-sheet')}
+          className={cn('fixed left-1/2 top-1/2 max-w-[calc(100vw-1.5rem)]', stacked ? 'z-[52]' : 'z-50', 'pr-dialog -translate-x-1/2 -translate-y-1/2 rounded-xl bg-panel shadow-[var(--shadow-lg)] focus:outline-none', className, sheet && 'pr-sheet')}
         >
           {children}
         </DialogPrimitive.Content>
@@ -366,7 +368,7 @@ export const TabsContent = TabsPrimitive.Content;
 export const Menu = MenuPrimitive;
 /** Stays in Radix's default modal mode: a click inside the screen's iframe never reaches this page, so a non-modal menu would stay open over it. */
 export function MenuContent({ className, ...p }: React.ComponentProps<typeof MenuPrimitive.Content>) {
-  return <MenuPrimitive.Content collisionPadding={8} sideOffset={4} className={cn('z-[55] max-h-[70dvh] overflow-y-auto rounded-lg bg-panel p-1.5 shadow-[var(--shadow-overlay)] ring-1 ring-line focus:outline-none', className)} {...p} />;
+  return <MenuPrimitive.Content collisionPadding={8} sideOffset={4} className={cn('pr-pop z-[55] max-h-[70dvh] overflow-y-auto rounded-lg bg-panel p-1.5 shadow-[var(--shadow-overlay)] ring-1 ring-line focus:outline-none', className)} {...p} />;
 }
 export function MenuItem({ className, ...p }: React.ComponentProps<typeof MenuPrimitive.Item>) {
   return <MenuPrimitive.Item className={cn('flex cursor-default select-none items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-ui outline-none data-[highlighted]:bg-hover', className)} {...p} />;
@@ -575,7 +577,7 @@ export function PopoverContent({ className, ...p }: React.ComponentProps<typeof 
       <PopoverPrimitive.Content
         collisionPadding={8}
         sideOffset={6}
-        className={cn('z-[65] w-72 max-w-[calc(100vw-1rem)] rounded-xl bg-panel p-3 text-ui text-fg shadow-[var(--shadow-overlay)] ring-1 ring-line focus:outline-none', className)}
+        className={cn('pr-pop z-[65] w-72 max-w-[calc(100vw-1rem)] rounded-xl bg-panel p-3 text-ui text-fg shadow-[var(--shadow-overlay)] ring-1 ring-line focus:outline-none', className)}
         {...p}
       />
     </PopoverPrimitive.Portal>

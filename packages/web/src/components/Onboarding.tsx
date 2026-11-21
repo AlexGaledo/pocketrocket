@@ -18,10 +18,11 @@ function TemplateIcon({ id, icon }: { id: string; icon: string }) {
   return <span aria-hidden className="flex h-9 w-9 items-center justify-center rounded-full text-fg" style={{ background: tint }}><Glyph size={18} strokeWidth={1.75} /></span>;
 }
 
-const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] } }[] = [
+const TEMPLATES: { key: string; label: string; blurb: string; v: BotInput & { tools: string[] } }[] = [
   {
     key: 'assistant',
     label: 'Assistant',
+    blurb: 'Answers questions, drafts and helps you plan.',
     v: {
       name: 'Assistant', handle: 'assistant', title: 'General assistant', avatar: 'smile',
       description: 'You are a helpful general-purpose assistant. Answer questions, draft text, and help plan things.',
@@ -32,6 +33,7 @@ const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] }
   {
     key: 'coder',
     label: 'Coder',
+    blurb: 'Writes and tests code in your workspace.',
     v: {
       name: 'Coder', handle: 'coder', title: 'Software engineer', avatar: 'wrench',
       description: 'You implement and test code in the shared workspace. Prefer small verified changes; run tests with Bash before reporting done.',
@@ -42,6 +44,7 @@ const TEMPLATES: { key: string; label: string; v: BotInput & { tools: string[] }
   {
     key: 'researcher',
     label: 'Researcher',
+    blurb: 'Looks things up and writes short notes with sources.',
     v: {
       name: 'Researcher', handle: 'researcher', title: 'Web research', avatar: 'search',
       description: 'You research using WebSearch/WebFetch and write concise findings with sources into the shared workspace as markdown.',
@@ -135,21 +138,21 @@ export function Onboarding() {
     <div className={cn('fixed inset-0 z-[60] flex overflow-y-auto overscroll-contain bg-bg/80 backdrop-blur-sm p-4', fresh && 'pr-sheet-host')} onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Set up Toki">
       {/* m-auto rather than centring from the overlay: a card taller than a small window can still scroll to its top. */}
       {/* New layout: the card takes the dialogs' surface (panel colour, dialog radius and shadow). */}
-      <div className={cn('m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8', fresh ? 'pr-sheet-card rounded-xl bg-panel shadow-[var(--shadow-lg)]' : 'panel')}>
+      <div className={cn('pr-enter m-auto flex w-[560px] max-w-full flex-col p-6 sm:p-8', fresh ? 'pr-sheet-card rounded-xl bg-panel shadow-[var(--shadow-lg)]' : 'panel')}>
         {step === 'welcome' && (
-          <div className="flex flex-col items-center gap-4 py-4 text-center">
+          <div className="pr-step flex flex-col items-center gap-4 py-4 text-center">
             <TokiMark />
             <div className="text-title">Toki</div>
-            <div className="text-ui font-medium text-muted">Your pocket fleet of AI agents</div>
-            <p className="max-w-[42ch] text-ui leading-relaxed text-muted">
-              Friendly bots that work for you. You okay anything risky.
+            <div className="text-ui font-medium text-muted">A cozy home for your AI helpers</div>
+            <p className="max-w-[40ch] text-ui leading-relaxed text-muted">
+              Chat with them one on one or as a group. They check with you before anything risky.
             </p>
             <Button variant="primary" className="mt-2" autoFocus onClick={goNext}>Get started</Button>
           </div>
         )}
 
         {step === 'provider' && (
-          <div className="flex flex-col gap-3">
+          <div className="pr-step flex flex-col gap-3">
             <div className="text-title-sm">Choose a service</div>
             <div className="text-ui text-muted">You can change this later.</div>
             <div className="mt-1 flex flex-col gap-2" role="radiogroup" aria-label="Service">
@@ -173,7 +176,7 @@ export function Onboarding() {
         {step === 'connect' && <ConnectStep info={chosenProvider} onBack={goBack} onNext={goNext} />}
 
         {step === 'name' && (
-          <div className="flex flex-col gap-3">
+          <div className="pr-step flex flex-col gap-3">
             <div className="text-title-sm">What should bots call you?</div>
             <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
             <div className="mt-3 flex justify-end gap-2">
@@ -184,7 +187,7 @@ export function Onboarding() {
         )}
 
         {step === 'account' && (
-          <div className="flex flex-col gap-3">
+          <div className="pr-step flex flex-col gap-3">
             <div className="text-title-sm">Create an account</div>
             {account.signedIn && account.user ? (
               <div role="status" className="flex items-center gap-2.5 rounded-lg bg-ok/10 px-3.5 py-3 text-ui">
@@ -212,24 +215,20 @@ export function Onboarding() {
         )}
 
         {step === 'bot' && (
-          <div className="flex flex-col gap-3">
-            <div className="text-title-sm">Create your first bot</div>
-            <div className="text-ui text-muted">You can change it any time.</div>
+          <div className="pr-step flex flex-col gap-3">
+            <div className="text-title-sm">Pick your first helper</div>
+            <div className="text-ui text-muted">You can rename it or change what it does any time.</div>
             <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
               {TEMPLATES.map((t) => (
                 <button
                   key={t.key}
                   disabled={busy}
                   onClick={() => void createBot(t)}
-                  className={cn('flex flex-col items-center gap-1.5 rounded-lg bg-card2/50 p-3 text-center hover:bg-hover disabled:opacity-50')}
+                  className={cn('flex flex-col items-center gap-1.5 rounded-lg bg-card2/50 p-3 text-center transition-[background-color,transform] duration-150 ease-out hover:bg-hover active:scale-[0.97] disabled:opacity-50 motion-reduce:active:scale-100')}
                 >
                   <TemplateIcon id={t.key} icon={t.v.avatar} />
                   <span className="text-label">{t.label}</span>
-                  <span className="text-hint text-muted">@{t.v.handle}</span>
-                  <span className="text-hint leading-snug text-dim">{t.v.title}</span>
-                  <span className="mt-1 flex flex-wrap justify-center gap-1">
-                    {t.v.tools.slice(0, 4).map((tool) => <span key={tool} className="rounded-xs bg-card px-1.5 py-0.5 font-mono text-hint text-muted">{tool}</span>)}
-                  </span>
+                  <span className="text-hint leading-snug text-muted">{t.blurb}</span>
                 </button>
               ))}
             </div>
@@ -241,13 +240,13 @@ export function Onboarding() {
         )}
 
         {step === 'done' && (
-          <div className="flex flex-col items-center gap-4 py-4 text-center">
+          <div className="pr-step flex flex-col items-center gap-4 py-4 text-center">
             <TokiMark size={56} />
             <div className="text-title-sm">You're all set</div>
             <p className="max-w-[38ch] text-ui text-muted">
-              {botCreated ? "Your first bot is ready — say hi." : 'Create a bot whenever you like from the sidebar.'}
+              {botCreated ? "Your first helper is ready. Say hi." : 'Add a helper whenever you like from the sidebar.'}
             </p>
-            {fresh && <p className="max-w-[38ch] text-ui text-muted">Projects in the sidebar keep a project's chat, bots and map together. Add one in Settings › Projects.</p>}
+            {fresh && <p className="max-w-[38ch] text-ui text-muted">Projects keep a project's chat, helpers and map together. Add one in Settings › Projects.</p>}
             <Button variant="primary" autoFocus disabled={busy} onClick={() => void finish()}>
               {busy ? 'Saving…' : error ? 'Try again' : 'Start using Toki'}
             </Button>
@@ -262,7 +261,7 @@ export function Onboarding() {
 
         <div className="mt-6 flex items-center justify-center gap-1.5">
           {steps.map((s, i) => (
-            <span key={s} className={cn('h-1.5 rounded-full transition-all', i === idx ? 'w-5 bg-ink' : 'w-1.5 bg-line')} />
+            <span key={s} className={cn('h-1.5 rounded-full transition-[width,background-color] duration-200 ease-out motion-reduce:transition-none', i === idx ? 'w-5 bg-ink' : 'w-1.5 bg-line')} />
           ))}
         </div>
       </div>
@@ -296,7 +295,7 @@ function ConnectStep({ info, onBack, onNext }: { info: ProviderInfo | undefined;
   }, [canContinue]);
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="pr-step flex flex-col gap-3">
       <div className="text-title-sm">Connect {label}</div>
       <div className="text-ui text-muted">
         {!info || info.id === 'claude'

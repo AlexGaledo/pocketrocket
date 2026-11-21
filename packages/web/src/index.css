@@ -38,6 +38,9 @@
   --shadow: 0 2px 8px rgba(80, 50, 20, 0.05), 0 10px 24px rgba(80, 50, 20, 0.05);   /* composer, menus */
   --shadow-overlay: 0 6px 20px rgba(60, 38, 15, 0.10), 0 1px 3px rgba(60, 38, 15, 0.06);   /* toasts, drawers */
   --shadow-lg: 0 16px 44px rgba(60, 38, 15, 0.16), 0 2px 8px rgba(60, 38, 15, 0.06);   /* dialogs only */
+  --scrim: rgba(42, 30, 20, 0.30);   /* behind dialogs and sheets: warm espresso, never neutral black */
+  --highlight: #f0c35e;              /* search hits; text on it is --highlight-fg (AA) */
+  --highlight-fg: #2a1d00;
   color-scheme: light;
 }
 .dark {
@@ -72,6 +75,9 @@
   --shadow: 0 2px 8px rgba(10, 5, 0, 0.14), 0 10px 24px rgba(10, 5, 0, 0.12);
   --shadow-overlay: 0 6px 20px rgba(10, 5, 0, 0.38), 0 1px 3px rgba(10, 5, 0, 0.28);
   --shadow-lg: 0 16px 44px rgba(10, 5, 0, 0.50), 0 2px 8px rgba(10, 5, 0, 0.30);
+  --scrim: rgba(8, 5, 2, 0.60);
+  --highlight: #f0c35e;
+  --highlight-fg: #2a1d00;
   color-scheme: dark;
 }
 
@@ -181,6 +187,9 @@
   --color-ft-other: var(--ft-other);
   --color-ft-folder: var(--ft-folder);
   --color-hover: var(--hover);
+  --color-scrim: var(--scrim);
+  --color-highlight: var(--highlight);
+  --color-highlight-fg: var(--highlight-fg);
   --color-active: var(--active);
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
@@ -253,7 +262,44 @@ body[data-pane-drag] iframe { pointer-events: none; }
 .file-tile { content-visibility: auto; contain-intrinsic-size: auto 132px; }
 .file-row { content-visibility: auto; contain-intrinsic-size: auto 40px; }
 
-/* ---- motion: three deliberate effects only ---- */
+/* ---- motion: surfaces that come and go ----
+ * Dialogs, sheets, menus, popovers and toasts are occasional, so they get a short entrance and a quicker exit (Emil:
+ * the system answers faster than the user decides). Radix waits for the exit animation before unmounting. Tooltips
+ * and keyboard-driven UI stay instant. `scale` and `translate` are the individual properties, so they compose with
+ * Tailwind's centring translate instead of replacing it. Reduced motion keeps the fades and drops the movement.
+ */
+:root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1); }
+@keyframes pr-fade-in { from { opacity: 0; } }
+@keyframes pr-fade-out { to { opacity: 0; } }
+@keyframes pr-grow-in { from { opacity: 0; scale: 0.97; } }
+@keyframes pr-grow-out { to { opacity: 0; scale: 0.98; } }
+@keyframes pr-sheet-in { from { translate: 0 100%; } }
+@keyframes pr-sheet-out { to { translate: 0 100%; } }
+@keyframes pr-toast-in { from { opacity: 0; translate: 0 8px; } }
+
+.pr-scrim:not([data-state]), .pr-scrim[data-state="open"] { animation: pr-fade-in 180ms var(--ease-out); }
+.pr-scrim[data-state="closed"] { animation: pr-fade-out 120ms var(--ease-out); }
+.pr-dialog[data-state="open"] { animation: pr-grow-in 200ms var(--ease-out); }
+.pr-dialog[data-state="closed"] { animation: pr-grow-out 120ms var(--ease-out); }
+/* Menus and popovers grow from their trigger. */
+.pr-pop { transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-popover-content-transform-origin, top)); }
+.pr-pop[data-state="open"] { animation: pr-grow-in 150ms var(--ease-out); }
+.pr-pop[data-state="closed"] { animation: pr-grow-out 100ms var(--ease-out); }
+.pr-toast { animation: pr-toast-in 220ms var(--ease-out); }
+/* First-run setup: rare, so the card may take a touch longer to settle; each step fades in as it replaces the last. */
+.pr-enter { animation: pr-grow-in 260ms var(--ease-out); }
+.pr-step { animation: pr-fade-in 180ms var(--ease-out); }
+@media (max-width: 639px) {
+  .pr-dialog.pr-sheet[data-state="open"] { animation: pr-sheet-in 300ms var(--ease-drawer); }
+  .pr-dialog.pr-sheet[data-state="closed"] { animation: pr-sheet-out 180ms var(--ease-out); }
+  .pr-sheet-host > .pr-sheet-card.pr-enter { animation: pr-sheet-in 320ms var(--ease-drawer); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pr-dialog[data-state="open"], .pr-pop[data-state="open"], .pr-toast, .pr-dialog.pr-sheet[data-state="open"], .pr-enter, .pr-sheet-host > .pr-sheet-card.pr-enter { animation: pr-fade-in 150ms ease-out; }
+  .pr-dialog[data-state="closed"], .pr-pop[data-state="closed"], .pr-dialog.pr-sheet[data-state="closed"] { animation: pr-fade-out 100ms ease-out; }
+}
+
+/* ---- motion: status effects ---- */
 @keyframes ring-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--accent); } 50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--accent) 28%, transparent); } }
 @keyframes ring-pulse-warn { 0%, 100% { box-shadow: 0 0 0 2px var(--warn); } 50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--warn) 28%, transparent); } }
 @keyframes ring-spin { to { transform: rotate(360deg); } }
@@ -310,8 +356,8 @@ html, body { overscroll-behavior: none; }
   input, select, textarea { font-size: 16px; }
 }
 
-/* Search hits in the transcript (Transcript in ChatPane.tsx). Same amber in both themes. */
+/* Search hits in the transcript (Transcript in ChatPane.tsx) and the search dialog's <mark>. Same warm ochre in both themes. */
 ::highlight(search) {
-  background-color: #f5b53d;
-  color: #1a1200;
+  background-color: var(--highlight);
+  color: var(--highlight-fg);
 }
