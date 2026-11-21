@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Cozy Toki
+## [0.5.4] - 2026-11-21
+
+### Toki rebrand and cozy theme
 
 - A warmer look across the app, the website and the desktop window: cream paper in light mode, a brown-charcoal dark mode (no more blue-black), a terracotta accent, softer shadows and rounder corners. Titles use Nunito, bundled with the app. Every text colour still meets WCAG AA in both themes.
 - The desktop start window shows the Toki cat instead of the old rocket.
