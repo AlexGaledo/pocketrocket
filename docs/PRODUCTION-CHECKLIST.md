@@ -154,7 +154,7 @@ The accessibility pass covered, and fixed:
 | Landing site builds/serves, dark mode, responsive, FAQ incl. SmartScreen | ☑ |
 | Download button resolves latest GitHub Release (falls back to Releases page) | ☑ code, ☐ no release yet |
 | Real screenshots in hero + README; OG image | ☑ |
-| Site deployed to Vercel production, URL in README | ☑ https://pocketrocket-chi.vercel.app |
+| Site deployed to Vercel production, URL in README | ☑ https://toki-hub.vercel.app |
 | README: installer-only setup walkthrough (download → SmartScreen → where it runs → Connect Claude → wizard → first chat), updating, uninstalling, troubleshooting; the rest moved to `docs/GUIDE.md`, `docs/SERVER.md`, `docs/DEVELOPMENT.md` | ☐ verify wording against the final UI |
 | LICENSE (MIT), CONTRIBUTING, SECURITY, issue templates | ☑ |
 | Repo public (currently private by decision) | ☐ flip when ready |
@@ -163,7 +163,7 @@ The accessibility pass covered, and fixed:
 ## 6b. Known small issues
 
 - Installed app inherited `mode: remote, sshHost: <host>` from the legacy config; that VPS still runs the old Claudebot build. Switch to "This PC" or redeploy with `scripts/deploy.sh <host>`.
-- `pocketrocket.vercel.app` is taken by an unrelated site; production is `pocketrocket-chi.vercel.app` until a custom domain is added.
+- `toki.vercel.app` and `toki-app.vercel.app` are taken by unrelated sites; production is `toki-hub.vercel.app` until a custom domain is added. The old `pocketrocket-chi.vercel.app` redirects there (308, `packages/site/vercel.json`), and the Vercel project's Root Directory is `packages/site`.
 
 ## 7. Server mode (optional path)
 

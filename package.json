@@ -3,7 +3,7 @@
   "private": true,
   "license": "MIT",
   "version": "0.5.4",
-  "homepage": "https://pocketrocket-chi.vercel.app",
+  "homepage": "https://toki-hub.vercel.app",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",

@@ -13,7 +13,7 @@ import { Card, Group, SectionHeader } from './parts';
 const REPO_URL = 'https://github.com/AlexGaledo/Toki';
 const LINKS: { href: string; label: string }[] = [
   { href: REPO_URL + '/releases', label: 'Check for updates' },
-  { href: 'https://pocketrocket-chi.vercel.app', label: 'Website' },
+  { href: 'https://toki-hub.vercel.app', label: 'Website' },
   { href: REPO_URL, label: 'GitHub' },
 ];
 

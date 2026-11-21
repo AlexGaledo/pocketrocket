@@ -5,6 +5,14 @@
   "buildCommand": null,
   "installCommand": null,
   "outputDirectory": ".",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "pocketrocket-chi.vercel.app" }],
+      "destination": "https://toki-hub.vercel.app/:path*",
+      "permanent": true
+    }
+  ],
   "functions": {
     "api/subscribe.js": { "maxDuration": 10 }
   },

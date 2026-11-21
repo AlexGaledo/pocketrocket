@@ -4,7 +4,7 @@
 
 **Your pocket fleet of AI agents.**
 
-[**Website**](https://pocketrocket-chi.vercel.app) · [Download](https://github.com/AlexGaledo/Toki/releases/latest) · [Changelog](CHANGELOG.md)
+[**Website**](https://toki-hub.vercel.app) · [Download](https://github.com/AlexGaledo/Toki/releases/latest) · [Changelog](CHANGELOG.md)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/AlexGaledo/Toki?include_prereleases&label=release)](https://github.com/AlexGaledo/Toki/releases)
