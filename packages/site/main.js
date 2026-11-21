@@ -3,31 +3,15 @@
 // 1. theme toggle (system / light / dark), incl. the hero screenshot that follows it
 // 2. fill in the download button with the latest Windows release
 // 3. shimmer placeholder while the hero screenshot downloads
-// 4. copy-to-clipboard buttons on every code block
-// 5. reveal sections as they scroll into view
-// 6. the mobile nav toggle
-// 7. scroll effects: nav hairline, progress bar, back-to-top button
-// 8. newsletter signup (Supabase insert)
-// 9. print prep: open every FAQ answer and use the light screenshot
+// 4. reveal sections as they scroll into view
+// 5. the mobile nav toggle
+// 6. the nav hairline once the page scrolls
+// 7. newsletter signup (posts to api/subscribe.js)
+// 8. print prep: open every FAQ answer and use the light screenshot
 
 // Honoured in JS as well as CSS: with reduced motion we skip the observer entirely and just
 // show everything, rather than running a 0.01ms transition on every element.
 var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-// One polite live region for short status messages (copy results), created up front so screen readers
-// already track it when the first message lands.
-var announce = (function () {
-  var region = document.createElement("div");
-  region.className = "sr-only";
-  region.setAttribute("role", "status");
-  region.setAttribute("aria-live", "polite");
-  document.body.appendChild(region);
-  return function (message) {
-    // Clear first so the same message twice in a row is still read out.
-    region.textContent = "";
-    setTimeout(function () { region.textContent = message; }, 50);
-  };
-})();
 
 // The theme the visitor picked: "system" unless the head script applied a saved light/dark choice.
 function currentTheme() {
@@ -122,83 +106,6 @@ function setHeroMedia(mode) {
   img.addEventListener("error", done, { once: true });
 })();
 
-(function codeCopy() {
-  var blocks = document.querySelectorAll("pre > code");
-  if (!blocks.length) return;
-
-  var shortcut = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "Press ⌘C" : "Press Ctrl+C";
-  var ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
-
-  var selectText = function (el) {
-    var range = document.createRange();
-    range.selectNodeContents(el);
-    var sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-  };
-
-  // Old or non-secure contexts: select the text and try execCommand. Returns whether it copied; on
-  // failure the text stays selected so the visitor can copy it by hand.
-  var legacyCopy = function (code) {
-    selectText(code);
-    var ok = false;
-    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
-    if (ok) window.getSelection().removeAllRanges();
-    return ok;
-  };
-
-  var copy = function (code) {
-    var text = code.textContent.replace(/\n+$/, "");
-    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
-      return navigator.clipboard.writeText(text).then(
-        function () { return true; },
-        function () { return legacyCopy(code); }
-      );
-    }
-    return Promise.resolve(legacyCopy(code));
-  };
-
-  blocks.forEach(function (code) {
-    var pre = code.parentNode;
-    var wrap = document.createElement("div");
-    wrap.className = "code-block";
-    pre.parentNode.insertBefore(wrap, pre);
-    wrap.appendChild(pre);
-
-    var btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "copy-btn";
-    btn.setAttribute("aria-label", "Copy code");
-    btn.innerHTML = ICON + '<span class="copy-label">Copy</span>';
-    wrap.appendChild(btn);
-
-    var label = btn.querySelector(".copy-label");
-    var timer = null;
-    var show = function (state, text, holdMs) {
-      clearTimeout(timer);
-      btn.classList.toggle("is-copied", state === "copied");
-      btn.classList.toggle("is-failed", state === "failed");
-      label.textContent = text;
-      timer = setTimeout(function () {
-        btn.classList.remove("is-copied", "is-failed");
-        label.textContent = "Copy";
-      }, holdMs);
-    };
-
-    btn.addEventListener("click", function () {
-      copy(code).then(function (ok) {
-        if (ok) {
-          show("copied", "Copied", 1800);
-          announce("Copied to clipboard");
-        } else {
-          show("failed", shortcut, 4000);
-          announce("Couldn't copy automatically. The code is selected; " + shortcut.toLowerCase() + " to copy it.");
-        }
-      });
-    });
-  });
-})();
-
 (function scrollReveal() {
   // A group reveals its own children with a stagger; a plain [data-reveal] reveals itself.
   var groups = document.querySelectorAll("[data-reveal-group]");
@@ -267,41 +174,21 @@ function setHeroMedia(mode) {
 
 (function scrollEffects() {
   var nav = document.querySelector("header.site-nav");
-  var bar = document.querySelector(".scroll-progress");
-  var toTop = document.querySelector(".to-top");
-  if (!nav && !bar && !toTop) return;
+  if (!nav) return;
 
-  // Scroll events can fire many times per frame; do the work at most once per frame.
+  // The hairline under the bar shows only once there is content behind it. Scroll events can fire many times
+  // per frame; do the work at most once per frame.
   var queued = false;
   var update = function () {
     queued = false;
-    var y = window.scrollY || window.pageYOffset || 0;
-    // Hairline under the bar, only once there is content behind it.
-    if (nav) nav.classList.toggle("is-scrolled", y > 8);
-    if (bar) {
-      var max = document.documentElement.scrollHeight - window.innerHeight;
-      var progress = max > 0 ? Math.min(1, Math.max(0, y / max)) : 0;
-      bar.style.transform = "scaleX(" + progress + ")";
-    }
-    if (toTop) toTop.classList.toggle("is-visible", y > window.innerHeight);
+    nav.classList.toggle("is-scrolled", (window.scrollY || window.pageYOffset || 0) > 8);
   };
-  var request = function () {
+  update();
+  window.addEventListener("scroll", function () {
     if (queued) return;
     queued = true;
     window.requestAnimationFrame(update);
-  };
-
-  update();
-  window.addEventListener("scroll", request, { passive: true });
-  window.addEventListener("resize", request);
-
-  if (!toTop) return;
-  toTop.addEventListener("click", function () {
-    window.scrollTo({ top: 0, behavior: REDUCED ? "auto" : "smooth" });
-    // Move focus back to the top as well, so keyboard users continue from there, not from the footer.
-    var brand = document.querySelector(".brand");
-    if (brand) brand.focus({ preventScroll: true });
-  });
+  }, { passive: true });
 })();
 
 (function newsletter() {

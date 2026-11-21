@@ -1,21 +1,25 @@
+<!doctype html>
+<html lang="en">
 <title>Toki</title>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="description" content="A local messenger for a pocket fleet of persistent AI agents. DM them, put them in group chats, give them memory, skills and routines. They run on your machine, on your subscription." />
+<meta name="description" content="Toki is a cozy home for your team of AI helpers. Chat with them one on one or as a group. They remember, learn new skills, and check with you before anything risky." />
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
 
 <meta property="og:type" content="website" />
-<meta property="og:title" content="Toki — your pocket fleet of AI agents" />
-<meta property="og:description" content="A local messenger for persistent agents. DM them, put them in group chats, give them memory, skills and routines. They run on your machine, on your subscription." />
+<meta property="og:title" content="Toki — a cozy home for your AI helpers" />
+<meta property="og:description" content="Chat with your AI helpers one on one or as a group. They remember, learn new skills, and check with you before anything risky." />
 <meta property="og:image" content="/assets/og.png" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Toki — your pocket fleet of AI agents" />
-<meta name="twitter:description" content="A local messenger for persistent agents. Runs on your machine, on your subscription." />
+<meta name="twitter:title" content="Toki — a cozy home for your AI helpers" />
+<meta name="twitter:description" content="Chat with your AI helpers one on one or as a group. Free, open source, on your own computer." />
 <meta name="twitter:image" content="/assets/og.png" />
+<meta name="theme-color" content="#faf6ef" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#1e1915" media="(prefers-color-scheme: dark)" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
 <!-- Runs before the stylesheet: marks JS as available and applies a saved theme choice, so the page
      never paints in the wrong theme first. Same snippet in 404.html. -->
 <script>
@@ -31,12 +35,11 @@
 <link rel="stylesheet" href="/styles.css" />
 
 <a class="skip-link" href="#main">Skip to content</a>
-<div class="scroll-progress" aria-hidden="true"></div>
 
 <header class="site-nav">
   <div class="wrap nav-row">
     <a class="brand" href="#top">
-      <img src="/assets/toki.svg" alt="" width="28" height="28" />
+      <img src="/assets/toki.svg" alt="" width="30" height="30" />
       Toki
     </a>
     <button
@@ -48,9 +51,9 @@
     ><span></span></button>
     <nav aria-label="Primary">
       <ul class="nav-links" id="nav-links">
-        <li><a href="#features">Features</a></li>
-        <li><a href="#models">Models</a></li>
-        <li><a href="#server">Run on a server</a></li>
+        <li><a href="#meet">What it's like</a></li>
+        <li><a href="#start">Get started</a></li>
+        <li><a href="#faq">Questions</a></li>
         <li><a href="https://github.com/AlexGaledo/Toki">GitHub</a></li>
       </ul>
     </nav>
@@ -63,25 +66,26 @@
 </header>
 
 <main id="main" tabindex="-1">
-  <div class="wrap">
-    <section class="hero" id="top" aria-label="Introduction">
-      <div>
-        <img class="hero-mark" src="assets/toki.svg" alt="" width="64" height="64" />
-        <h1>Your pocket fleet of AI agents</h1>
-        <p class="sub">A local messenger for persistent agents. DM them, put them in group chats, give them memory, skills and routines. They run on your machine, on your subscription.</p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" id="download-btn" href="https://github.com/AlexGaledo/Toki/releases/latest">
-            Download for Windows <small id="download-version"></small>
-          </a>
-          <a class="btn btn-secondary" href="https://github.com/AlexGaledo/Toki">View on GitHub</a>
-        </div>
-        <p class="hero-foot">Free and open source · MIT · macOS/Linux: run from source</p>
+  <section class="hero" id="top" aria-labelledby="hero-h">
+    <div class="wrap hero-copy">
+      <h1 id="hero-h">A cozy home for your team of AI&nbsp;helpers</h1>
+      <p class="sub">Chat with them one on one or as a group. They remember what matters, pick up new skills, and check with you before anything risky.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" id="download-btn" href="https://github.com/AlexGaledo/Toki/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>
+          Download for Windows <small id="download-version"></small>
+        </a>
+        <a class="btn btn-quiet" href="https://github.com/AlexGaledo/Toki#readme">On Mac or Linux?</a>
       </div>
+      <p class="hero-note">Free and open source. Works with your Claude subscription.</p>
+    </div>
+
+    <div class="wrap hero-stage">
+      <!-- Real capture of the app, not a mock; both themes ship so the shot matches the visitor's. width/height are
+           the intrinsic 2x pixels, which stops the hero reflowing while it decodes. main.js rewrites the source's
+           media when the theme toggle forces light or dark. The cat sits on the window's top edge. -->
       <div class="hero-visual">
-        <!-- Real capture of the app (packages/site/assets/app.png), not a mock. Both themes ship
-             so the shot matches the visitor's; width/height are the intrinsic 2x pixels, which
-             stops the hero reflowing while the image decodes. main.js rewrites the source's media
-             when the theme toggle forces light or dark. -->
+        <img class="perch" src="/assets/toki.svg" alt="" width="72" height="72" />
         <picture>
           <source srcset="assets/app-dark.png" media="(prefers-color-scheme: dark)" />
           <img
@@ -90,128 +94,147 @@
             width="2880"
             height="1800"
             decoding="async"
-            alt="Toki: the Atlas project chat. The sidebar lists projects, rooms and bots, with the ones waiting on you marked. Lead Engineer asks which version number to use in a question card, and the right panel lists what needs you, with a Review button on each."
+            alt="Toki: the Atlas project chat. The sidebar lists projects, rooms and helpers, with the ones waiting on you marked. Lead Engineer asks which version number to use in a question card, and the right panel lists what needs you, with a Review button on each."
           />
         </picture>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section id="models" aria-labelledby="models-h">
-      <div class="section-head" data-reveal>
-        <h2 id="models-h">Your model, your subscription</h2>
-        <p>Bots run on the CLI you already pay for. v1 ships Claude; Codex, OpenCode and Grok adapters are next.</p>
-      </div>
-      <div class="server-panel" data-reveal>
-        <div>
-          <p><strong>No second bill.</strong> Your own Claude Code login, or an API key. Sonnet 5, Opus 5, Fable 5.1 or Haiku 4.5, per bot.</p>
-          <p><strong>Approvals by default.</strong> Bots ask before shell commands, edits outside the workspace, or fleet changes.</p>
-          <p><strong>Optional account.</strong> Everything works signed out; conversations, files and keys stay on your machine.</p>
-        </div>
-      </div>
-    </section>
+  <section class="meet" id="meet" aria-labelledby="meet-h">
+    <div class="wrap">
+      <h2 id="meet-h" class="meet-title" data-reveal>Like a group chat, except everyone in it works for&nbsp;you</h2>
 
-    <section id="features" aria-labelledby="features-h">
-      <div class="section-head" data-reveal>
-        <h2 id="features-h">Everything a fleet needs</h2>
-      </div>
-      <div class="grid-6" data-reveal-group>
-        <div class="tile">
-          <h3>Persistent bots with memory</h3>
-          <p>Each bot keeps its own identity and private memory across every session.</p>
+      <div class="feature" data-reveal>
+        <div class="feature-copy">
+          <h3>Talk to them like teammates</h3>
+          <p>Message one helper directly, or bring a few into a room and @mention whoever should pick it up. They hand work to each other and keep you in the loop.</p>
         </div>
-        <div class="tile">
-          <h3>DMs and group chats</h3>
-          <p>@mention and hand off work between bots in shared rooms.</p>
-        </div>
-        <div class="tile">
-          <h3>Approval cards</h3>
-          <p>Nothing leaves the workspace without you signing off first.</p>
-        </div>
-        <div class="tile">
-          <h3>Skills</h3>
-          <p>Import skills, author your own, or let bots write and submit new ones.</p>
-        </div>
-        <div class="tile">
-          <h3>Routines</h3>
-          <p>Wake a bot on a schedule to check in, report, or do recurring work.</p>
-        </div>
-        <div class="tile">
-          <h3>Cost tracking</h3>
-          <p>See spend per bot and per room, so nothing runs away quietly.</p>
+        <div class="vignette" aria-hidden="true">
+          <div class="v-head"><span class="v-hash">#</span> Weekend plans</div>
+          <div class="v-msg v-me"><p><b>@milo</b> find a quiet cafe near the park for Saturday. <b>@ada</b> draft the invite?</p></div>
+          <div class="v-msg"><span class="av av-milo">M</span><div><span class="v-name">Milo</span><p>Found three. Fern &amp; Kettle opens at 8 and has a reading corner.</p></div></div>
+          <div class="v-msg"><span class="av av-ada">A</span><div><span class="v-name">Ada</span><p>Draft: <i>Saturday, 10am at Fern &amp; Kettle. Coffee is on me.</i></p></div></div>
         </div>
       </div>
-    </section>
 
-    <section id="how" aria-labelledby="how-h">
-      <div class="section-head" data-reveal>
-        <h2 id="how-h">How it works</h2>
-      </div>
-      <div class="steps" data-reveal-group>
-        <div class="step">
-          <div class="num">1</div>
-          <h3>Install</h3>
-          <p>Download the Windows installer, or run from source on any OS.</p>
-          <pre class="code"><code>pnpm install &amp;&amp; pnpm dev</code></pre>
+      <div class="feature feature-flip" data-reveal>
+        <div class="feature-copy">
+          <h3>They remember, and keep getting better</h3>
+          <p>Each helper has its own name, memory and way of working. Teach them skills, and set routines so they check in on their own, every morning or every Monday.</p>
         </div>
-        <div class="step">
-          <div class="num">2</div>
-          <h3>Sign in to your CLI</h3>
-          <p>Run <code>claude</code> once to log in with your subscription, or set an API key.</p>
-        </div>
-        <div class="step">
-          <div class="num">3</div>
-          <h3>Create a bot and chat</h3>
-          <p>Everything stays local in <code>%APPDATA%\com.pocketrocket.app</code>.</p>
+        <div class="vignette" aria-hidden="true">
+          <div class="v-row"><span class="av av-ada">A</span><div><span class="v-name">Ada</span><span class="v-sub">Writer</span></div></div>
+          <ul class="v-list">
+            <li><span class="v-label">Remembers</span>Keep READMEs short. You like three install steps, tops.</li>
+            <li><span class="v-label">Skills</span>Release notes · Screenshot refresh · Proofreading</li>
+            <li><span class="v-label">Routine</span>Mondays, 9:00 — sum up last week's changes</li>
+          </ul>
         </div>
       </div>
-    </section>
 
-    <section id="server" aria-labelledby="server-h">
-      <div class="section-head" data-reveal>
-        <h2 id="server-h">Run on a server</h2>
+      <div class="feature" data-reveal>
+        <div class="feature-copy">
+          <h3>Nothing risky without your okay</h3>
+          <p>Before a helper runs a command, edits a file outside its workspace or changes your setup, it asks. One tap to allow, one to say not now.</p>
+        </div>
+        <div class="vignette" aria-hidden="true">
+          <div class="v-ask">
+            <div class="v-ask-head"><span class="av av-lead">L</span><span><b>Lead Engineer</b> would like to run a command</span></div>
+            <code>pnpm test</code>
+            <div class="v-ask-actions"><span class="v-btn v-btn-primary">Allow</span><span class="v-btn">Not now</span></div>
+          </div>
+        </div>
       </div>
-      <div class="server-panel" data-reveal>
-        <p>Run the hub on a Linux box as a systemd service with a virtual desktop, so routines fire while your laptop is closed and bots get Browser and Desktop tools. Reach it over an SSH tunnel — the hub never needs to be exposed to the internet.</p>
-        <a class="btn btn-secondary" href="https://github.com/AlexGaledo/Toki/blob/main/docs/SERVER.md">Server setup guide</a>
-      </div>
-    </section>
+    </div>
+  </section>
 
-    <section id="faq" aria-labelledby="faq-h">
-      <div class="section-head" data-reveal>
-        <h2 id="faq-h">Frequently asked</h2>
+  <section class="home" aria-labelledby="home-h">
+    <div class="wrap">
+      <div class="home-panel" data-reveal>
+        <h2 id="home-h">It lives on your computer</h2>
+        <dl class="facts">
+          <div>
+            <dt>No second bill</dt>
+            <dd>Your helpers run on the Claude subscription you already have, or an API key if you prefer.</dd>
+          </div>
+          <div>
+            <dt>Your conversations stay yours</dt>
+            <dd>Chats, files and keys stay on your machine. No tracking.</dd>
+          </div>
+          <div>
+            <dt>No account needed</dt>
+            <dd>Download it and start chatting. Signing in is optional.</dd>
+          </div>
+        </dl>
       </div>
+    </div>
+  </section>
+
+  <section class="start" id="start" aria-labelledby="start-h">
+    <div class="wrap start-grid">
+      <div class="start-copy" data-reveal>
+        <h2 id="start-h">Up and running in a few minutes</h2>
+        <p>Toki walks you through setup the first time you open it.</p>
+      </div>
+      <ol class="steps" data-reveal-group>
+        <li>
+          <h3>Download Toki</h3>
+          <p>Get the Windows installer above. On Mac or Linux, <a href="https://github.com/AlexGaledo/Toki#readme">run it from source</a>.</p>
+        </li>
+        <li>
+          <h3>Connect Claude</h3>
+          <p>Sign in to Claude Code once. Toki checks it's ready and lets you know.</p>
+        </li>
+        <li>
+          <h3>Say hi to your first helper</h3>
+          <p>Pick a starter helper or make your own, then start chatting.</p>
+        </li>
+      </ol>
+      <aside class="install-note" data-reveal aria-label="About the Windows installer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        <p>Toki isn't code-signed yet, so Windows may show a SmartScreen notice the first time. Choose <b>More info</b>, then <b>Run anyway</b>.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="faq-section" id="faq" aria-labelledby="faq-h">
+    <div class="wrap faq-grid">
+      <h2 id="faq-h" data-reveal>Questions</h2>
       <div class="faq" data-reveal-group>
         <details>
           <summary>Is it free?</summary>
-          <div class="answer">Yes. Toki itself is free and open source; model usage runs on your own subscription or API key.</div>
+          <div class="answer">Yes. Toki is free and open source under the MIT licence. Your helpers use your own Claude subscription or API key.</div>
         </details>
         <details>
-          <summary>Do I need to create an account?</summary>
-          <div class="answer">No. Everything works fully signed out. Signing in from Settings → Account is optional and only used for account features, like paid plans later.</div>
+          <summary>Do I need an account?</summary>
+          <div class="answer">No. Everything works without one. You can sign in later from Settings if you want account features.</div>
         </details>
         <details>
-          <summary>Does it phone home?</summary>
-          <div class="answer">The hub runs on your machine and only talks to your model provider and the GitHub releases page. Signing in sends your email to Supabase to complete it — nothing else. Conversations, files and keys never leave your machine. No telemetry.</div>
+          <summary>Where do my conversations go?</summary>
+          <div class="answer">Nowhere new. Toki talks to Claude to get replies and checks GitHub for updates. Your chats, files and keys stay on your computer, and there's no tracking. If you choose to sign in, only your email is shared to do that.</div>
         </details>
         <details>
-          <summary>Windows SmartScreen warning?</summary>
-          <div class="answer">The installer is unsigned, so SmartScreen may warn. Click "More info" then "Run anyway," or build from source if you'd rather skip that.</div>
+          <summary>Can my helpers keep working while my laptop is closed?</summary>
+          <div class="answer">Yes, if you run Toki on an always-on machine at home or in the cloud. Routines keep firing and you can check in from anywhere. <a href="https://github.com/AlexGaledo/Toki/blob/main/docs/SERVER.md">Here's how</a>.</div>
         </details>
         <details>
-          <summary>Which model is cheapest?</summary>
-          <div class="answer">Haiku 4.5 is the fastest and cheapest; Sonnet 5 is the default balance of quality and cost; Opus 5 and Fable 5.1 cost more. Set the model per bot in the bot dialog.</div>
+          <summary>Windows says it protected my PC. Is that okay?</summary>
+          <div class="answer">That's SmartScreen meeting a new app it hasn't seen signed. Choose <b>More info</b>, then <b>Run anyway</b>. If you'd rather not, you can build Toki from the source on GitHub.</div>
         </details>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section id="newsletter" aria-labelledby="newsletter-h">
+  <section id="newsletter" aria-labelledby="newsletter-h">
+    <div class="wrap">
       <div class="newsletter-panel" data-reveal>
         <div class="newsletter-copy">
-          <h2 id="newsletter-h">Get release news</h2>
-          <p>One short email when a new version of Toki ships.</p>
+          <h2 id="newsletter-h">Hear when there's something new</h2>
+          <p>One short email per release. That's it.</p>
         </div>
         <div>
-          <!-- Needs JS (it posts to Supabase); without JS the fallback line below shows instead. -->
+          <!-- Needs JS (it posts to api/subscribe.js); without JS the fallback line below shows instead. -->
           <form class="newsletter-form" id="newsletter-form" novalidate>
             <label for="nl-email">Email address</label>
             <div class="nl-row">
@@ -237,7 +260,7 @@
               <input id="nl-website" name="website" type="text" tabindex="-1" autocomplete="off" />
             </div>
             <p class="nl-status" id="nl-status" role="status" aria-live="polite"></p>
-            <p class="nl-note" id="nl-note">Release news only, no spam. Your address is stored with Supabase and used for nothing else.</p>
+            <p class="nl-note" id="nl-note">Release news only. We use your address for nothing else.</p>
           </form>
           <p class="nl-nojs">Prefer no email? <a href="https://github.com/AlexGaledo/Toki/releases">Watch releases on GitHub</a>.</p>
           <div class="nl-success" id="nl-success" tabindex="-1" hidden>
@@ -246,31 +269,26 @@
             </span>
             <div>
               <p class="title">You're on the list</p>
-              <p class="detail">We'll email you when the next version ships.</p>
+              <p class="detail">We'll write when the next version is out.</p>
             </div>
           </div>
         </div>
       </div>
-    </section>
-  </div>
+    </div>
+  </section>
 </main>
 
 <footer class="site-foot">
   <div class="wrap foot-row">
-    <span class="foot-brand"><img src="assets/toki.svg" alt="" width="20" height="20" />Toki · MIT licensed</span>
-    <a href="https://github.com/AlexGaledo/Toki">GitHub</a>
-    <span>Made by Alex Galedo</span>
+    <span class="foot-brand"><img src="assets/toki.svg" alt="" width="22" height="22" />Toki</span>
+    <nav class="foot-links" aria-label="Footer">
+      <a href="https://github.com/AlexGaledo/Toki">GitHub</a>
+      <a href="https://github.com/AlexGaledo/Toki/releases">Releases</a>
+      <a href="https://github.com/AlexGaledo/Toki/issues/new/choose">Get help</a>
+      <a href="https://github.com/AlexGaledo/Toki/blob/main/LICENSE">MIT licence</a>
+    </nav>
+    <span class="foot-by">Made by Alex Galedo</span>
   </div>
 </footer>
-
-<div class="float-stack">
-  <button class="fab to-top" type="button" aria-label="Back to top">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-  </button>
-  <a class="fab fab-contact" href="https://github.com/AlexGaledo/Toki/issues/new/choose" aria-label="Get help on GitHub">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9.5 9.5a2.5 2.5 0 0 1 4.9.7c0 1.6-2.4 2-2.4 3.3M12 16.5h.01"/></svg>
-    <span class="fab-text">Get help</span>
-  </a>
-</div>
 
 <script src="/main.js" defer></script>
